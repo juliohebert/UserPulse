@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+# variáveis de ambiente (nunca versionar)
+.env
+.env.local
+**/.env
+**/.env.local
+**/.env.production
+
+# Prisma engine binário (gerado localmente)
+server/src/generated/

@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Campanha {
+  id                     String    @id @default(uuid())
+  slug                   String    @unique
+  titulo                 String
+  subtitulo              String?
+  descricao              String
+  tipo                   String
+  sistema                String
+  tela                   String
+  imagem_url             String?
+  video_url              String?
+  texto_botao            String?
+  url_botao              String?
+  feedback_habilitado    Boolean   @default(true)
+  modo_exibicao          String    @default("modal_automatica")
+  gatilho                String    @default("ao_abrir_tela")
+  evento                 String?
+  atraso_ms              Int       @default(800)
+  mostrar_uma_vez        Boolean   @default(false)
+  prioridade             Int       @default(0)
+  ordem                  Int       @default(0)
+  ativo                  Boolean   @default(true)
+  data_inicio            DateTime?
+  data_fim               DateTime?
+  pergunta_feedback         String?
+  observacao_obrigatoria    Boolean   @default(false)
+  exige_confirmacao_leitura   Boolean   @default(false)
+  intervalo_reexibicao_dias   Int?
+  categoria                   String?
+  criado_em                   DateTime  @default(now())
+  atualizado_em             DateTime  @updatedAt
+
+  feedbacks              Feedback[]
+  eventos                EventoCampanha[]
+  confirmacoes           ConfirmacaoLeitura[]
+
+  @@map("campanhas")
+}
+
+model ConfirmacaoLeitura {
+  id            String   @id @default(uuid())
+  campanha_id   String
+  usuario_id    String?
+  usuario_nome  String?
+  usuario_email String?
+  criado_em     DateTime @default(now())
+
+  campanha      Campanha @relation(fields: [campanha_id], references: [id])
+
+  @@map("confirmacoes_leitura")
+}
+
+model Feedback {
+  id            String   @id @default(uuid())
+  campanha_id   String
+  nota          Int
+  observacao    String?
+  usuario_id    String?
+  usuario_nome  String?
+  usuario_email String?
+  sistema       String?
+  tela          String?
+  navegador     String?
+  dispositivo   String?
+  criado_em     DateTime @default(now())
+
+  campanha      Campanha @relation(fields: [campanha_id], references: [id])
+
+  @@map("feedbacks")
+}
+
+model EventoCampanha {
+  id          String   @id @default(uuid())
+  campanha_id String
+  tipo_evento String
+  usuario_id  String?
+  sistema     String?
+  tela        String?
+  navegador   String?
+  dispositivo String?
+  criado_em   DateTime @default(now())
+
+  campanha    Campanha @relation(fields: [campanha_id], references: [id])
+
+  @@map("eventos_campanha")
+}
