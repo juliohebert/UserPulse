@@ -10,7 +10,11 @@ export async function buscarDashboard(req: Request, res: Response) {
       return res.status(404).json({ erro: 'Campanha não encontrada.' })
     }
 
-    const [agregado, porNota, feedbacks_recentes, visualizacoes, cliques_cta, total_confirmacoes] = await Promise.all([
+    const [
+      agregado, porNota, feedbacks_recentes,
+      visualizacoes, cliques_cta, total_confirmacoes,
+      eventos_recentes, visualizacoesUnicasArr, cliquesUnicosArr,
+    ] = await Promise.all([
       prisma.feedback.aggregate({
         where: { campanha_id: id },
         _avg: { nota: true },
@@ -32,6 +36,20 @@ export async function buscarDashboard(req: Request, res: Response) {
       prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'visualizacao' } }),
       prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'clique_cta' } }),
       prisma.confirmacaoLeitura.count({ where: { campanha_id: id } }),
+
+      prisma.eventoCampanha.findMany({
+        where: { campanha_id: id },
+        orderBy: { criado_em: 'desc' },
+        take: 100,
+      }),
+      prisma.eventoCampanha.groupBy({
+        by: ['usuario_id'],
+        where: { campanha_id: id, tipo_evento: 'visualizacao', usuario_id: { not: null } },
+      }),
+      prisma.eventoCampanha.groupBy({
+        by: ['usuario_id'],
+        where: { campanha_id: id, tipo_evento: 'clique_cta', usuario_id: { not: null } },
+      }),
     ])
 
     const distribuicao: Record<string, number> = {}
@@ -48,6 +66,9 @@ export async function buscarDashboard(req: Request, res: Response) {
       ? Math.round((total_confirmacoes / visualizacoes) * 1000) / 10
       : 0
 
+    const visualizacoes_unicas = visualizacoesUnicasArr.length
+    const cliques_unicos = cliquesUnicosArr.length
+
     res.json({
       campanha,
       media,
@@ -59,6 +80,9 @@ export async function buscarDashboard(req: Request, res: Response) {
       taxa_clique,
       total_confirmacoes,
       percentual_confirmacao,
+      eventos_recentes,
+      visualizacoes_unicas,
+      cliques_unicos,
     })
   } catch (err) {
     console.error(err)

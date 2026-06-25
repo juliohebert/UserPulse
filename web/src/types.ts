@@ -49,6 +49,19 @@ export interface Feedback {
   criado_em: string
 }
 
+export interface EventoCampanha {
+  id: string
+  campanha_id: string
+  tipo_evento: string
+  usuario_id: string | null
+  sistema: string | null
+  tela: string | null
+  navegador: string | null
+  dispositivo: string | null
+  contexto: Record<string, string> | null
+  criado_em: string
+}
+
 export interface DashboardData {
   campanha: Campanha
   media: number | null
@@ -60,6 +73,9 @@ export interface DashboardData {
   taxa_clique: number
   total_confirmacoes: number
   percentual_confirmacao: number
+  eventos_recentes: EventoCampanha[]
+  visualizacoes_unicas: number
+  cliques_unicos: number
 }
 
 export type StatusCampanha = 'ativa' | 'inativa' | 'agendada' | 'encerrada'

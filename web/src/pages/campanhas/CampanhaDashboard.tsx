@@ -108,6 +108,7 @@ export function CampanhaDashboard() {
   const [visibleCols, setVisibleCols] = useState<Set<string>>(() => new Set(DEFAULT_COLS))
   const [showColMenu, setShowColMenu] = useState(false)
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIAIS)
+  const [filtroEvento, setFiltroEvento] = useState<'Todos' | 'Visualização' | 'Clique'>('Todos')
   const colMenuRef = useRef<HTMLDivElement>(null)
 
   const load = () => {
@@ -195,6 +196,13 @@ export function CampanhaDashboard() {
     filtros.unidade !== '' || filtros.perfil !== '' || filtros.estado !== '' ||
     filtros.telefone !== 'Todos' || filtros.busca !== ''
 
+  const eventosFiltrados = useMemo(() => {
+    const list = data?.eventos_recentes ?? []
+    if (filtroEvento === 'Todos') return list
+    const tipo = filtroEvento === 'Visualização' ? 'visualizacao' : 'clique_cta'
+    return list.filter(e => e.tipo_evento === tipo)
+  }, [data, filtroEvento])
+
   const activeCols = COLUNAS.filter(c => visibleCols.has(c.id))
   const maxDist = data ? Math.max(1, ...Object.values(data.distribuicao)) : 1
 
@@ -261,9 +269,11 @@ export function CampanhaDashboard() {
             <h3 className="text-label-md font-bold text-on-surface-variant uppercase tracking-wider mb-3">Engajamento</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <KpiCard icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
-                label="Visualizações" value={data.visualizacoes.toLocaleString('pt-BR')} sub="vezes exibida" />
+                label="Visualizações" value={data.visualizacoes.toLocaleString('pt-BR')}
+                sub={`${data.visualizacoes_unicas.toLocaleString('pt-BR')} usuários únicos`} />
               <KpiCard icon="ads_click" iconColor="text-secondary" iconBg="bg-secondary/10"
-                label="Cliques no CTA" value={data.cliques_cta.toLocaleString('pt-BR')} sub="cliques registrados" />
+                label="Cliques no CTA" value={data.cliques_cta.toLocaleString('pt-BR')}
+                sub={`${data.cliques_unicos.toLocaleString('pt-BR')} usuários únicos`} />
               <KpiCard icon="percent" iconColor="text-tertiary" iconBg="bg-tertiary/10"
                 label="Taxa de Clique" value={`${data.taxa_clique.toLocaleString('pt-BR')}%`}
                 sub={data.visualizacoes > 0 ? `${data.cliques_cta} de ${data.visualizacoes}` : 'sem visualizações'} />
@@ -518,6 +528,69 @@ export function CampanhaDashboard() {
               </div>
             )}
           </div>
+
+          {/* Interações da campanha */}
+          <div className="mt-5 bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
+              <h3 className="text-title-lg font-bold text-on-surface">
+                Interações da campanha
+                <span className="ml-2 text-label-md font-normal text-outline">
+                  ({filtroEvento !== 'Todos' ? `${eventosFiltrados.length} de ${data.eventos_recentes.length}` : data.eventos_recentes.length})
+                </span>
+              </h3>
+              <FiltroSelect label="Tipo" value={filtroEvento} onChange={v => setFiltroEvento(v as typeof filtroEvento)}>
+                <option value="Todos">Todos</option>
+                <option value="Visualização">Visualização</option>
+                <option value="Clique">Clique</option>
+              </FiltroSelect>
+            </div>
+
+            {/* Indicadores */}
+            <div className="px-5 py-3 border-b border-outline-variant/30 flex flex-wrap gap-2">
+              <IndicadorFiltro label="Visualizações totais" value={data.visualizacoes.toLocaleString('pt-BR')} />
+              <IndicadorFiltro label="Usuários únicos" value={data.visualizacoes_unicas.toLocaleString('pt-BR')} />
+              <IndicadorFiltro label="Cliques totais" value={data.cliques_cta.toLocaleString('pt-BR')} />
+              <IndicadorFiltro label="Clicadores únicos" value={data.cliques_unicos.toLocaleString('pt-BR')} />
+              <IndicadorFiltro label="Taxa de clique" value={`${data.taxa_clique.toLocaleString('pt-BR')}%`} />
+            </div>
+
+            {/* Tabela */}
+            {data.eventos_recentes.length === 0 ? (
+              <p className="text-body-md text-outline p-5">Nenhuma interação registrada.</p>
+            ) : eventosFiltrados.length === 0 ? (
+              <p className="text-body-md text-outline p-5">Nenhuma interação com esse filtro.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-surface-container-low border-b border-outline-variant">
+                    <tr>
+                      {['Tipo', 'Data/Hora', 'Usuário ID', 'Usuário Nome', 'Usuário E-mail', 'Cliente Nome', 'Unidade Nome', 'Perfil', 'Estado'].map(h => (
+                        <th key={h} className="px-5 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/30">
+                    {eventosFiltrados.map(e => {
+                      const c = (e.contexto ?? {}) as Record<string, string>
+                      return (
+                        <tr key={e.id} className="hover:bg-surface-container-low/50 transition-colors">
+                          <td className="px-5 py-3 whitespace-nowrap"><EventoBadge tipo={e.tipo_evento} /></td>
+                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={formatDate(e.criado_em)} /></td>
+                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={e.usuario_id || NI} /></td>
+                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={c.usuario_nome || NI} /></td>
+                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={c.usuario_email || NI} /></td>
+                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={c.cliente_nome || NI} /></td>
+                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={c.unidade_nome || c.clinica_nome || NI} /></td>
+                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={c.usuario_tipo || NI} /></td>
+                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={c.Estado || NI} /></td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </>
       )}
     </section>
@@ -569,6 +642,18 @@ function NpsBadge({ nota }: { nota: number }) {
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[12px] font-semibold ${cls}`}>
       {label}
+    </span>
+  )
+}
+
+function EventoBadge({ tipo }: { tipo: string }) {
+  const isClique = tipo === 'clique_cta'
+  return (
+    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold ${
+      isClique ? 'bg-secondary/10 text-secondary' : 'bg-primary/10 text-primary'
+    }`}>
+      <span className="material-symbols-outlined text-[12px]">{isClique ? 'ads_click' : 'visibility'}</span>
+      {isClique ? 'Clique' : 'Visualização'}
     </span>
   )
 }
