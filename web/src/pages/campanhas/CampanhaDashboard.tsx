@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get } from '../../services/api'
 import type { DashboardData, Feedback } from '../../types'
-import { formatDate } from '../../utils/campanha'
+import { formatDate, formatDateTime } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 
@@ -37,7 +37,7 @@ interface ColDef {
 }
 
 const COLUNAS: ColDef[] = [
-  { id: 'data',             label: 'Data',             defaultOn: true  },
+  { id: 'data',             label: 'Data/Hora',        defaultOn: true  },
   { id: 'nota',             label: 'Nota',             defaultOn: true  },
   { id: 'observacao',       label: 'Feedback',         defaultOn: true,  wrap: true },
   { id: 'telefone',         label: 'Telefone',         defaultOn: false },
@@ -72,7 +72,7 @@ function npsLabel(nota: number): 'Promotor' | 'Neutro' | 'Detrator' {
 function getCellValue(f: Feedback, colId: string): string {
   const ctx = (f.contexto ?? {}) as Record<string, string>
   switch (colId) {
-    case 'data':             return formatDate(f.criado_em)
+    case 'data':             return formatDateTime(f.criado_em)
     case 'nota':             return String(f.nota)
     case 'observacao':       return f.observacao?.trim() || NI
     case 'telefone':         return f.telefone_contato?.trim() || NI
@@ -575,7 +575,7 @@ export function CampanhaDashboard() {
                       return (
                         <tr key={e.id} className="hover:bg-surface-container-low/50 transition-colors">
                           <td className="px-5 py-3 whitespace-nowrap"><EventoBadge tipo={e.tipo_evento} /></td>
-                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={formatDate(e.criado_em)} /></td>
+                          <td className="px-5 py-3 whitespace-nowrap"><CellText value={formatDateTime(e.criado_em)} /></td>
                           <td className="px-5 py-3 whitespace-nowrap"><CellText value={e.usuario_id || NI} /></td>
                           <td className="px-5 py-3 whitespace-nowrap"><CellText value={c.usuario_nome || NI} /></td>
                           <td className="px-5 py-3 whitespace-nowrap"><CellText value={c.usuario_email || NI} /></td>

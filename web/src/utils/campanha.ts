@@ -27,6 +27,14 @@ export function formatDate(iso: string): string {
   })
 }
 
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return 'Não informado'
+  const d = new Date(iso)
+  const date = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  return `${date} ${time}`
+}
+
 export function toInputDate(iso: string | null): string {
   if (!iso) return ''
   return iso.slice(0, 10)
