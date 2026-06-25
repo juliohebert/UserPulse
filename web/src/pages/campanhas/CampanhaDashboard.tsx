@@ -1,10 +1,31 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get } from '../../services/api'
 import type { DashboardData, Feedback } from '../../types'
 import { formatDate } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
+
+// ─── filter types ─────────────────────────────────────────────────────────────
+
+type NpsFiltro = 'Todos' | 'Promotor' | 'Neutro' | 'Detrator'
+type TelefoneFiltro = 'Todos' | 'Informado' | 'Não informado'
+
+interface Filtros {
+  nps: NpsFiltro
+  nota: string
+  cliente: string
+  unidade: string
+  perfil: string
+  estado: string
+  telefone: TelefoneFiltro
+  busca: string
+}
+
+const FILTROS_INICIAIS: Filtros = {
+  nps: 'Todos', nota: '', cliente: '', unidade: '',
+  perfil: '', estado: '', telefone: 'Todos', busca: '',
+}
 
 // ─── column definitions ───────────────────────────────────────────────────────
 
@@ -36,10 +57,17 @@ const COLUNAS: ColDef[] = [
   { id: 'clinica_nome',     label: 'Clínica Nome',     defaultOn: false },
   { id: 'estado',           label: 'Estado',           defaultOn: false },
   { id: 'perfil',           label: 'Perfil',           defaultOn: false },
+  { id: 'perfil_nps',      label: 'Perfil NPS',       defaultOn: false },
 ]
 
 const DEFAULT_COLS = new Set(COLUNAS.filter(c => c.defaultOn).map(c => c.id))
 const NI = 'Não informado'
+
+function npsLabel(nota: number): 'Promotor' | 'Neutro' | 'Detrator' {
+  if (nota >= 9) return 'Promotor'
+  if (nota >= 7) return 'Neutro'
+  return 'Detrator'
+}
 
 function getCellValue(f: Feedback, colId: string): string {
   const ctx = (f.contexto ?? {}) as Record<string, string>
@@ -64,6 +92,7 @@ function getCellValue(f: Feedback, colId: string): string {
     case 'clinica_nome':     return ctx.clinica_nome || NI
     case 'estado':           return ctx.Estado || NI
     case 'perfil':           return ctx.Perfil || NI
+    case 'perfil_nps':       return npsLabel(f.nota)
     default:                 return NI
   }
 }
@@ -78,6 +107,7 @@ export function CampanhaDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [visibleCols, setVisibleCols] = useState<Set<string>>(() => new Set(DEFAULT_COLS))
   const [showColMenu, setShowColMenu] = useState(false)
+  const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIAIS)
   const colMenuRef = useRef<HTMLDivElement>(null)
 
   const load = () => {
@@ -110,8 +140,72 @@ export function CampanhaDashboard() {
     })
   }
 
+  const ctx = (f: { contexto: Record<string, string> | null }) =>
+    (f.contexto ?? {}) as Record<string, string>
+
+  const opcoesCliente = useMemo(() =>
+    [...new Set((data?.feedbacks_recentes ?? []).map(f => ctx(f).cliente_nome || NI))].filter(v => v !== NI).sort()
+  , [data])
+
+  const opcoesUnidade = useMemo(() =>
+    [...new Set((data?.feedbacks_recentes ?? []).map(f => {
+      const c = ctx(f); return c.unidade_nome || c.clinica_nome || NI
+    }))].filter(v => v !== NI).sort()
+  , [data])
+
+  const opcoesPerfil = useMemo(() =>
+    [...new Set((data?.feedbacks_recentes ?? []).map(f => ctx(f).usuario_tipo || NI))].filter(v => v !== NI).sort()
+  , [data])
+
+  const opcoesEstado = useMemo(() =>
+    [...new Set((data?.feedbacks_recentes ?? []).map(f => ctx(f).Estado || NI))].filter(v => v !== NI).sort()
+  , [data])
+
+  const feedbacksFiltrados = useMemo(() => {
+    const list = data?.feedbacks_recentes ?? []
+    return list.filter(f => {
+      const c = ctx(f)
+      if (filtros.nps !== 'Todos' && npsLabel(f.nota) !== filtros.nps) return false
+      if (filtros.nota !== '' && f.nota !== Number(filtros.nota)) return false
+      if (filtros.cliente !== '' && (c.cliente_nome || NI) !== filtros.cliente) return false
+      if (filtros.unidade !== '' && (c.unidade_nome || c.clinica_nome || NI) !== filtros.unidade) return false
+      if (filtros.perfil !== '' && (c.usuario_tipo || NI) !== filtros.perfil) return false
+      if (filtros.estado !== '' && (c.Estado || NI) !== filtros.estado) return false
+      if (filtros.telefone === 'Informado' && !f.telefone_contato?.trim()) return false
+      if (filtros.telefone === 'Não informado' && !!f.telefone_contato?.trim()) return false
+      if (filtros.busca) {
+        const q = filtros.busca.toLowerCase()
+        const hay = [
+          f.usuario_nome, f.usuario_email, c.usuario_nome, c.usuario_email,
+          f.observacao, f.telefone_contato,
+        ].filter(Boolean).join(' ').toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      return true
+    })
+  }, [data, filtros])
+
+  const totalFiltrado = feedbacksFiltrados.length
+  const mediaFiltrada = totalFiltrado > 0
+    ? Math.round(feedbacksFiltrados.reduce((s, f) => s + f.nota, 0) / totalFiltrado * 10) / 10
+    : null
+  const detraComTel = feedbacksFiltrados.filter(f => npsLabel(f.nota) === 'Detrator' && !!f.telefone_contato?.trim()).length
+  const detraSemTel = feedbacksFiltrados.filter(f => npsLabel(f.nota) === 'Detrator' && !f.telefone_contato?.trim()).length
+  const temFiltros = filtros.nps !== 'Todos' || filtros.nota !== '' || filtros.cliente !== '' ||
+    filtros.unidade !== '' || filtros.perfil !== '' || filtros.estado !== '' ||
+    filtros.telefone !== 'Todos' || filtros.busca !== ''
+
   const activeCols = COLUNAS.filter(c => visibleCols.has(c.id))
   const maxDist = data ? Math.max(1, ...Object.values(data.distribuicao)) : 1
+
+  const promotores = data ? (data.distribuicao['9'] ?? 0) + (data.distribuicao['10'] ?? 0) : 0
+  const neutros    = data ? (data.distribuicao['7'] ?? 0) + (data.distribuicao['8'] ?? 0) : 0
+  const detratores = data ? [0,1,2,3,4,5,6].reduce((s, n) => s + (data.distribuicao[String(n)] ?? 0), 0) : 0
+  const totalNps   = data?.total ?? 0
+  const pctProm    = totalNps > 0 ? Math.round((promotores / totalNps) * 100) : 0
+  const pctNeut    = totalNps > 0 ? Math.round((neutros    / totalNps) * 100) : 0
+  const pctDetr    = totalNps > 0 ? Math.round((detratores / totalNps) * 100) : 0
+  const npsScore   = pctProm - pctDetr
 
   const notaColor = (n: number) => {
     if (n <= 3) return 'bg-error'
@@ -207,6 +301,28 @@ export function CampanhaDashboard() {
             </div>
           </div>
 
+          {/* NPS */}
+          {data.total > 0 && (
+            <div className="mt-5 mb-5">
+              <h3 className="text-label-md font-bold text-on-surface-variant uppercase tracking-wider mb-3">NPS</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <KpiCard icon="sentiment_very_satisfied" iconColor="text-tertiary" iconBg="bg-tertiary/10"
+                  label="Promotores" value={`${promotores}`} sub={`${pctProm}% do total`} />
+                <KpiCard icon="sentiment_neutral" iconColor="text-yellow-600" iconBg="bg-yellow-50"
+                  label="Neutros" value={`${neutros}`} sub={`${pctNeut}% do total`} />
+                <KpiCard icon="sentiment_dissatisfied" iconColor="text-error" iconBg="bg-error/10"
+                  label="Detratores" value={`${detratores}`} sub={`${pctDetr}% do total`} />
+                <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm flex flex-col items-center justify-center text-center gap-1">
+                  <p className="text-label-md text-outline">NPS</p>
+                  <p className={`text-display-sm font-bold leading-none ${npsScore > 0 ? 'text-tertiary' : npsScore < 0 ? 'text-error' : 'text-on-surface'}`}>
+                    {npsScore > 0 ? '+' : ''}{npsScore}
+                  </p>
+                  <p className="text-label-md text-outline">%Prom − %Detr</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Distribution */}
           <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm mb-5">
             <h3 className="text-title-lg font-bold text-on-surface mb-6">Distribuição de Notas</h3>
@@ -240,7 +356,9 @@ export function CampanhaDashboard() {
             <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
               <h3 className="text-title-lg font-bold text-on-surface">
                 Respostas
-                <span className="ml-2 text-label-md font-normal text-outline">({data.feedbacks_recentes.length})</span>
+                <span className="ml-2 text-label-md font-normal text-outline">
+                  ({temFiltros ? `${totalFiltrado} de ${data.feedbacks_recentes.length}` : data.feedbacks_recentes.length})
+                </span>
               </h3>
 
               <div className="relative" ref={colMenuRef}>
@@ -273,9 +391,90 @@ export function CampanhaDashboard() {
               </div>
             </div>
 
+            {/* Painel de filtros — visível quando há feedbacks */}
+            {data.feedbacks_recentes.length > 0 && (
+              <div className="px-5 py-4 border-b border-outline-variant/30 space-y-3">
+                {/* Busca livre + botão limpar */}
+                <div className="flex gap-2 items-center">
+                  <div className="relative flex-1">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-outline pointer-events-none">search</span>
+                    <input
+                      type="text"
+                      value={filtros.busca}
+                      onChange={e => setFiltros(f => ({ ...f, busca: e.target.value }))}
+                      placeholder="Buscar por nome, e-mail, feedback ou telefone…"
+                      className="w-full pl-9 pr-3 py-2 border border-outline-variant rounded-xl text-body-sm bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                  {temFiltros && (
+                    <button
+                      onClick={() => setFiltros(FILTROS_INICIAIS)}
+                      className="flex items-center gap-1.5 px-3 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">filter_list_off</span>
+                      Limpar filtros
+                    </button>
+                  )}
+                </div>
+
+                {/* Dropdowns */}
+                <div className="flex flex-wrap gap-2">
+                  <FiltroSelect label="NPS" value={filtros.nps} onChange={v => setFiltros(f => ({ ...f, nps: v as NpsFiltro }))}>
+                    <option value="Todos">Todos</option>
+                    <option value="Promotor">Promotor</option>
+                    <option value="Neutro">Neutro</option>
+                    <option value="Detrator">Detrator</option>
+                  </FiltroSelect>
+                  <FiltroSelect label="Nota" value={filtros.nota} onChange={v => setFiltros(f => ({ ...f, nota: v }))}>
+                    <option value="">Todas</option>
+                    {Array.from({ length: 11 }, (_, i) => <option key={i} value={String(i)}>{i}</option>)}
+                  </FiltroSelect>
+                  {opcoesCliente.length > 0 && (
+                    <FiltroSelect label="Cliente" value={filtros.cliente} onChange={v => setFiltros(f => ({ ...f, cliente: v }))}>
+                      <option value="">Todos</option>
+                      {opcoesCliente.map(v => <option key={v} value={v}>{v}</option>)}
+                    </FiltroSelect>
+                  )}
+                  {opcoesUnidade.length > 0 && (
+                    <FiltroSelect label="Unidade" value={filtros.unidade} onChange={v => setFiltros(f => ({ ...f, unidade: v }))}>
+                      <option value="">Todas</option>
+                      {opcoesUnidade.map(v => <option key={v} value={v}>{v}</option>)}
+                    </FiltroSelect>
+                  )}
+                  {opcoesPerfil.length > 0 && (
+                    <FiltroSelect label="Perfil" value={filtros.perfil} onChange={v => setFiltros(f => ({ ...f, perfil: v }))}>
+                      <option value="">Todos</option>
+                      {opcoesPerfil.map(v => <option key={v} value={v}>{v}</option>)}
+                    </FiltroSelect>
+                  )}
+                  {opcoesEstado.length > 0 && (
+                    <FiltroSelect label="Estado" value={filtros.estado} onChange={v => setFiltros(f => ({ ...f, estado: v }))}>
+                      <option value="">Todos</option>
+                      {opcoesEstado.map(v => <option key={v} value={v}>{v}</option>)}
+                    </FiltroSelect>
+                  )}
+                  <FiltroSelect label="Telefone" value={filtros.telefone} onChange={v => setFiltros(f => ({ ...f, telefone: v as TelefoneFiltro }))}>
+                    <option value="Todos">Todos</option>
+                    <option value="Informado">Informado</option>
+                    <option value="Não informado">Não informado</option>
+                  </FiltroSelect>
+                </div>
+
+                {/* Indicadores filtrados */}
+                <div className="flex flex-wrap gap-2">
+                  <IndicadorFiltro label="Respostas" value={String(totalFiltrado)} />
+                  <IndicadorFiltro label="Média" value={mediaFiltrada !== null ? mediaFiltrada.toFixed(1) : '—'} />
+                  <IndicadorFiltro label="Detratores c/ tel." value={String(detraComTel)} color={detraComTel > 0 ? 'text-error' : undefined} />
+                  <IndicadorFiltro label="Detratores s/ tel." value={String(detraSemTel)} color={detraSemTel > 0 ? 'text-yellow-700' : undefined} />
+                </div>
+              </div>
+            )}
+
             {/* Tabela */}
             {data.feedbacks_recentes.length === 0 ? (
               <p className="text-body-md text-outline p-5">Nenhum feedback registrado.</p>
+            ) : feedbacksFiltrados.length === 0 ? (
+              <p className="text-body-md text-outline p-5">Nenhuma resposta encontrada com os filtros selecionados.</p>
             ) : activeCols.length === 0 ? (
               <p className="text-body-md text-outline p-5">Selecione ao menos uma coluna para exibir.</p>
             ) : (
@@ -294,7 +493,7 @@ export function CampanhaDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-outline-variant/30">
-                    {data.feedbacks_recentes.map(f => (
+                    {feedbacksFiltrados.map(f => (
                       <tr key={f.id} className="hover:bg-surface-container-low/50 transition-colors">
                         {activeCols.map(col => (
                           <td
@@ -305,6 +504,8 @@ export function CampanhaDashboard() {
                               <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-label-md font-bold text-white ${notaColor(f.nota)}`}>
                                 {f.nota}
                               </span>
+                            ) : col.id === 'perfil_nps' ? (
+                              <NpsBadge nota={f.nota} />
                             ) : (
                               <CellText value={getCellValue(f, col.id)} />
                             )}
@@ -324,6 +525,53 @@ export function CampanhaDashboard() {
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+function FiltroSelect({ label, value, onChange, children }: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  children: React.ReactNode
+}) {
+  return (
+    <label className="flex items-center gap-1.5 shrink-0">
+      <span className="text-label-md text-outline whitespace-nowrap">{label}:</span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="border border-outline-variant rounded-xl px-2.5 py-1.5 text-body-sm bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
+      >
+        {children}
+      </select>
+    </label>
+  )
+}
+
+function IndicadorFiltro({ label, value, color = 'text-on-surface' }: {
+  label: string
+  value: string
+  color?: string
+}) {
+  return (
+    <div className="flex items-baseline gap-1.5 bg-surface-container-low rounded-xl px-3 py-1.5">
+      <span className={`text-[15px] font-bold leading-none ${color}`}>{value}</span>
+      <span className="text-label-md text-outline">{label}</span>
+    </div>
+  )
+}
+
+function NpsBadge({ nota }: { nota: number }) {
+  const label = npsLabel(nota)
+  const cls = label === 'Promotor'
+    ? 'bg-tertiary/10 text-tertiary'
+    : label === 'Neutro'
+    ? 'bg-yellow-100 text-yellow-700'
+    : 'bg-error/10 text-error'
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[12px] font-semibold ${cls}`}>
+      {label}
+    </span>
+  )
+}
 
 function CellText({ value }: { value: string }) {
   const empty = value === NI
