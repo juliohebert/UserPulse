@@ -44,6 +44,8 @@ export interface Feedback {
   tela: string | null
   navegador: string | null
   dispositivo: string | null
+  telefone_contato: string | null
+  contexto: Record<string, string> | null
   criado_em: string
 }
 

@@ -160,8 +160,8 @@
           phoneSection = [
             '<div class="up-phone-section">',
             '<p class="up-phone-label">Quer deixar seu telefone para contato?</p>',
-            '<input type="tel" class="up-phone-input" data-up-telefone="true"',
-            ' placeholder="(00) 00000-0000" maxlength="20"',
+            '<input type="tel" inputmode="numeric" class="up-phone-input" data-up-telefone="true"',
+            ' placeholder="(84) 99999-9999" maxlength="15"',
             ' value="' + escapeHtml(state.telefone) + '"',
             (state.phoneSubmitting ? ' disabled' : '') + '>',
             state.phoneError ? '<p class="up-error">' + escapeHtml(state.phoneError) + '</p>' : '',
@@ -418,9 +418,11 @@
         state.observacao = target.value;
       }
       if (target && target.matches && target.matches('[data-up-telefone]')) {
-        state.telefone = target.value;
+        var masked = maskPhone(target.value);
+        target.value = masked;
+        state.telefone = masked;
         var btn = state.root.querySelector('[data-up-telefone-submit]');
-        if (btn) btn.disabled = !target.value.trim();
+        if (btn) btn.disabled = !masked.trim();
       }
     });
   }
@@ -593,6 +595,16 @@
         state.submitting = false;
         render();
       });
+  }
+
+  function maskPhone(raw) {
+    var d = raw.replace(/\D/g, '').slice(0, 11);
+    var n = d.length;
+    if (n === 0) return '';
+    if (n <= 2) return '(' + d;
+    if (n <= 6) return '(' + d.slice(0, 2) + ') ' + d.slice(2);
+    if (n <= 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6);
+    return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7);
   }
 
   function submitTelefone() {
