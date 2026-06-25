@@ -17,6 +17,11 @@
     visualizacaoRegistrada: false,
     scrollY: 0,
     bodyOverflow: '',
+    feedbackId: null,
+    telefone: '',
+    phoneSubmitting: false,
+    phoneDone: false,
+    phoneError: '',
   };
 
   function escapeHtml(value) {
@@ -47,6 +52,7 @@
         tela: config.tela || undefined,
         navegador: window.navigator.userAgent,
         dispositivo: getDevice(),
+        contexto: config.contexto || undefined,
       }),
     }).catch(function () { /* fail silently */ });
   }
@@ -111,6 +117,11 @@
       '.up-secondary{width:100%;height:40px;border:1px solid #c2c6d6;border-radius:12px;background:#fff;color:#424754;font-size:12px;font-weight:800;cursor:pointer}',
       '@keyframes up-fade-in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}',
       '@media (max-width:600px){.up-widget-overlay{padding:12px}.up-modal-header{padding:16px}.up-body{padding:16px}.up-score{height:32px;font-size:11px}}',
+      '.up-phone-section{display:flex;flex-direction:column;gap:10px;border-top:1px solid #e0e2ef;margin-top:4px;padding-top:14px}',
+      '.up-phone-label{margin:0;color:#424754;font-size:13px;line-height:18px;font-weight:600;text-align:center}',
+      '.up-phone-input{width:100%;border:1px solid #c2c6d6;border-radius:12px;background:#f8f9ff;color:#0b1c30;padding:10px 12px;font:inherit;font-size:14px;line-height:20px;outline:none}',
+      '.up-phone-input:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
+      '.up-phone-done{margin:0;color:#006947;font-size:13px;line-height:18px;font-weight:600;text-align:center}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -141,12 +152,34 @@
     var modalClass = 'up-modal' + (animate ? ' up-modal-enter' : '');
 
     if (state.submitted) {
+      var phoneSection = '';
+      if (state.feedbackId && !campanha.exige_confirmacao_leitura) {
+        if (state.phoneDone) {
+          phoneSection = '<p class="up-phone-done">Telefone salvo!</p>';
+        } else {
+          phoneSection = [
+            '<div class="up-phone-section">',
+            '<p class="up-phone-label">Quer deixar seu telefone para contato?</p>',
+            '<input type="tel" class="up-phone-input" data-up-telefone="true"',
+            ' placeholder="(00) 00000-0000" maxlength="20"',
+            ' value="' + escapeHtml(state.telefone) + '"',
+            (state.phoneSubmitting ? ' disabled' : '') + '>',
+            state.phoneError ? '<p class="up-error">' + escapeHtml(state.phoneError) + '</p>' : '',
+            '<button type="button" class="up-submit" data-up-telefone-submit="true"',
+            (!state.telefone.trim() || state.phoneSubmitting ? ' disabled' : '') + '>',
+            state.phoneSubmitting ? 'Salvando…' : 'Enviar',
+            '</button>',
+            '</div>',
+          ].join('');
+        }
+      }
       return [
         '<div class="' + modalClass + '" role="dialog" aria-modal="true" aria-label="Feedback enviado">',
         '<div class="up-thanks">',
         '<div class="up-check">' + icon('check') + '</div>',
         '<h4>Obrigado!</h4>',
         '<p>Seu feedback foi registrado e nos ajudara a melhorar.</p>',
+        phoneSection,
         '<button type="button" class="up-secondary" data-up-close="true">Fechar</button>',
         '</div>',
         '</div>',
@@ -365,6 +398,13 @@
         return;
       }
 
+      if (target.closest('[data-up-telefone-submit]')) {
+        event.preventDefault();
+        event.stopPropagation();
+        submitTelefone();
+        return;
+      }
+
       if (target.closest('[data-up-submit]')) {
         event.preventDefault();
         event.stopPropagation();
@@ -376,6 +416,11 @@
       var target = event.target;
       if (target && target.matches && target.matches('[data-up-observacao]')) {
         state.observacao = target.value;
+      }
+      if (target && target.matches && target.matches('[data-up-telefone]')) {
+        state.telefone = target.value;
+        var btn = state.root.querySelector('[data-up-telefone-submit]');
+        if (btn) btn.disabled = !target.value.trim();
       }
     });
   }
@@ -391,14 +436,29 @@
     bindEvents();
   }
 
+  var CONTEXT_KEYS = [
+    'cliente_id', 'cliente_nome', 'unidade_id', 'unidade_nome',
+    'usuario_tipo', 'organizacao_id', 'clinica_id', 'Estado', 'Perfil',
+    'usuario_nome', 'usuario_email',
+    'usuario_local_id', 'cliente_local_id', 'unidade_local_id',
+    'organizacao_nome', 'clinica_nome',
+  ];
+
   function normalizeConfig(config) {
+    var c = config || {};
+    var contexto = {};
+    for (var i = 0; i < CONTEXT_KEYS.length; i++) {
+      var k = CONTEXT_KEYS[i];
+      if (c[k] != null && c[k] !== '') contexto[k] = String(c[k]);
+    }
     return {
-      slug: config && config.slug ? String(config.slug) : '',
-      sistema: config && config.sistema ? String(config.sistema) : '',
-      tela: config && config.tela ? String(config.tela) : '',
-      usuario_id: config && config.usuario_id ? String(config.usuario_id) : '',
-      usuario_nome: config && config.usuario_nome ? String(config.usuario_nome) : '',
-      usuario_email: config && config.usuario_email ? String(config.usuario_email) : '',
+      slug: c.slug ? String(c.slug) : '',
+      sistema: c.sistema ? String(c.sistema) : '',
+      tela: c.tela ? String(c.tela) : '',
+      usuario_id: c.usuario_id ? String(c.usuario_id) : '',
+      usuario_nome: c.usuario_nome ? String(c.usuario_nome) : '',
+      usuario_email: c.usuario_email ? String(c.usuario_email) : '',
+      contexto: Object.keys(contexto).length ? contexto : null,
     };
   }
 
@@ -426,6 +486,12 @@
     if (!campanha || !config || state.nota === null || state.submitting) return;
     if (campanha.feedback_habilitado === false) return;
 
+    if (!config.usuario_id) {
+      state.submitted = true;
+      render();
+      return;
+    }
+
     if (campanha.observacao_obrigatoria && !state.observacao.trim()) {
       state.error = 'A observacao e obrigatoria para esta campanha.';
       render();
@@ -446,13 +512,14 @@
         campanha_id: campanha.id,
         nota: state.nota,
         observacao: state.observacao || undefined,
-        usuario_id: config.usuario_id || undefined,
+        usuario_id: config.usuario_id,
         usuario_nome: config.usuario_nome || undefined,
         usuario_email: config.usuario_email || undefined,
-        sistema: config.sistema,
-        tela: config.tela,
+        sistema: config.sistema || undefined,
+        tela: config.tela || undefined,
         navegador: window.navigator.userAgent,
         dispositivo: getDevice(),
+        contexto: config.contexto || undefined,
       }),
     })
       .then(function (response) {
@@ -467,8 +534,9 @@
         }
         return response.json();
       })
-      .then(function () {
+      .then(function (data) {
         state.submitted = true;
+        state.feedbackId = (data && data.id) ? data.id : null;
       })
       .catch(function (error) {
         state.error = error && error.message ? error.message : 'Erro ao enviar feedback.';
@@ -484,6 +552,12 @@
     var config = state.config;
     if (!campanha || !config || state.submitting) return;
 
+    if (!config.usuario_id) {
+      state.submitted = true;
+      render();
+      return;
+    }
+
     state.submitting = true;
     state.error = '';
     render();
@@ -493,9 +567,10 @@
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         campanha_id: campanha.id,
-        usuario_id: config.usuario_id || undefined,
+        usuario_id: config.usuario_id,
         usuario_nome: config.usuario_nome || undefined,
         usuario_email: config.usuario_email || undefined,
+        contexto: config.contexto || undefined,
       }),
     })
       .then(function (response) {
@@ -520,6 +595,42 @@
       });
   }
 
+  function submitTelefone() {
+    if (!state.feedbackId || state.phoneSubmitting || state.phoneDone) return;
+    var telefone = state.telefone.trim();
+    if (!telefone) return;
+
+    state.phoneSubmitting = true;
+    state.phoneError = '';
+    render();
+
+    fetch(apiUrl('/api/widget/feedback/' + state.feedbackId + '/telefone'), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ telefone_contato: telefone }),
+    })
+      .then(function (response) {
+        if (!response.ok) {
+          return response.text().then(function (text) {
+            var message = 'Erro ao salvar telefone.';
+            try { message = JSON.parse(text).erro || message; } catch (_e) {}
+            throw new Error(message);
+          });
+        }
+        return response.json();
+      })
+      .then(function () {
+        state.phoneDone = true;
+      })
+      .catch(function (err) {
+        state.phoneError = err && err.message ? err.message : 'Erro ao salvar telefone.';
+      })
+      .finally(function () {
+        state.phoneSubmitting = false;
+        render();
+      });
+  }
+
   function init(config) {
     // Restaurar overflow do body caso a modal estivesse aberta ao re-inicializar
     document.body.style.overflow = state.bodyOverflow || '';
@@ -534,6 +645,11 @@
     state.submitted = false;
     state.error = '';
     state.visualizacaoRegistrada = false;
+    state.feedbackId = null;
+    state.telefone = '';
+    state.phoneSubmitting = false;
+    state.phoneDone = false;
+    state.phoneError = '';
     if (state.timer) {
       window.clearTimeout(state.timer);
       state.timer = null;

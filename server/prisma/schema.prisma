@@ -52,6 +52,7 @@ model ConfirmacaoLeitura {
   usuario_id    String?
   usuario_nome  String?
   usuario_email String?
+  contexto      Json?
   criado_em     DateTime @default(now())
 
   campanha      Campanha @relation(fields: [campanha_id], references: [id])
@@ -69,9 +70,11 @@ model Feedback {
   usuario_email String?
   sistema       String?
   tela          String?
-  navegador     String?
-  dispositivo   String?
-  criado_em     DateTime @default(now())
+  navegador         String?
+  dispositivo       String?
+  contexto          Json?
+  telefone_contato  String?
+  criado_em         DateTime @default(now())
 
   campanha      Campanha @relation(fields: [campanha_id], references: [id])
 
@@ -87,6 +90,7 @@ model EventoCampanha {
   tela        String?
   navegador   String?
   dispositivo String?
+  contexto    Json?
   criado_em   DateTime @default(now())
 
   campanha    Campanha @relation(fields: [campanha_id], references: [id])

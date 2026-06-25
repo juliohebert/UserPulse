@@ -94,7 +94,7 @@ export function CampanhaPreview() {
         </div>
       </div>
 
-      <div className="relative min-h-[560px] overflow-hidden rounded-xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest to-surface-container shadow-sm">
+      <div className={`relative min-h-[560px] rounded-xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest to-surface-container shadow-sm${open ? '' : ' overflow-hidden'}`}>
         <div className={`absolute inset-0 p-8 transition-all ${open ? 'blur-sm scale-[0.99] opacity-70' : ''}`}>
           <div className="max-w-4xl space-y-5">
             <div className="h-9 w-2/3 rounded-xl bg-surface-container" />
@@ -115,7 +115,7 @@ export function CampanhaPreview() {
         {open && (
           <>
             <div className="absolute inset-0 z-10 bg-black/40" onClick={() => setOpen(false)} />
-            <div className="absolute inset-0 z-20 flex items-center justify-center p-6">
+            <div className="relative z-20 flex min-h-[560px] items-center justify-center p-6">
             <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-2xl">
             {submitted ? (
               <div className="p-6 text-center space-y-4">

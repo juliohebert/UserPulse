@@ -191,12 +191,12 @@
 
     <!-- instrução de setup: visível na página, some se não precisar -->
     <div id="setup-banner">
-      <strong>Teste embed UserPulse</strong>
+      <strong>Teste embed UserPulse — QuarkClinic</strong>
       <div class="step" data-n="1">
         Servidor rodando: <code>npm start</code> na raiz do projeto
       </div>
       <div class="step" data-n="2">
-        Campanha ativa para <code>QuarkClinic / agenda</code> no painel
+        Campanha ativa com slug <code>conheca-o-quarkclinic</code> no painel
       </div>
       <div class="step" data-n="3">
         Modal deve abrir automaticamente após ~800 ms
@@ -206,7 +206,7 @@
     <!-- chrome do sistema simulado -->
     <header>
       <div class="brand">QuarkClinic <span>v2.4</span></div>
-      <div class="user">Maria Silva &nbsp;·&nbsp; Recepção</div>
+      <div class="user">ALISON FERREIRA MED &nbsp;·&nbsp; Profissional de Saúde</div>
     </header>
 
     <nav>
@@ -221,7 +221,7 @@
       <div class="page-title">
         <div>
           <h1>Agenda</h1>
-          <p>Terça-feira, 24 de junho de 2026 &mdash; Clínica Central</p>
+          <p>Quarta-feira, 25 de junho de 2026 &mdash; CLINICA VALIDAÇÕES - JFS (MATRIZ)</p>
         </div>
         <button class="btn btn-primary">+ Nova consulta</button>
       </div>
@@ -318,22 +318,38 @@
     <!-- UserPulse embed ──────────────────────────────────────────────── -->
     <script src="http://localhost:5173/widget.js"></script>
     <script>
-    // Modo por slug — exibe campanha específica (independente de sistema/tela)
     window.UserPulse.init({
-      slug: "validacao-slug-a",
-      usuario_id: String(Date.now()),
-      usuario_nome: "Maria Silva",
-      usuario_email: "maria@quarkclinic.com"
-    });
+      // identificação da campanha
+      slug:             "conheca-o-quarkclinic",
 
-    // Modo por sistema/tela — descomente para testar modo automático
-    // window.UserPulse.init({
-    //   sistema: "QuarkClinic",
-    //   tela: "agenda",
-    //   usuario_id: String(Date.now()),
-    //   usuario_nome: "Maria Silva",
-    //   usuario_email: "maria@quarkclinic.com"
-    // });
+      // cliente / organização
+      cliente_id:       "479378",
+      cliente_nome:     "CLINICA VALIDAÇÕES - JFS",
+      cliente_local_id: "16848496",
+      organizacao_id:   "16848496",
+      organizacao_nome: "CLINICA VALIDAÇÕES - JFS",
+
+      // unidade / clínica
+      unidade_id:       "16848521",
+      unidade_nome:     "CLINICA VALIDAÇÕES - JFS (MATRIZ)",
+      unidade_local_id: "479379",
+      clinica_id:       "16848521",
+      clinica_nome:     "CLINICA VALIDAÇÕES - JFS (MATRIZ)",
+
+      // usuário
+      usuario_id:       "488855",
+      usuario_nome:     "ALISON FERREIRA MED",
+      usuario_email:    "ps2_qa_teste@gmail.com",
+      usuario_local_id: "16867481",
+      usuario_tipo:     "PROFISSIONAL_SAUDE",
+
+      // localização / perfil
+      Estado:           "RN",
+      Perfil:           "PROFISSIONAL_SAUDE",
+
+      // sistema de origem
+      sistema:          "quarkclinic-core",
+    });
     </script>
   </body>
 </html>

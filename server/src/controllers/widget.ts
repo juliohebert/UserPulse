@@ -58,7 +58,6 @@ export async function buscarCampanha(req: Request, res: Response) {
           if (diasDesde < intervalo) {
             return res.status(404).json({ erro: 'Campanha já respondida. Disponível novamente em ' + (intervalo - diasDesde) + ' dia(s).' })
           }
-          // diasDesde >= intervalo → pode reexibir, segue retornando a campanha
         }
       }
     }
@@ -72,7 +71,7 @@ export async function buscarCampanha(req: Request, res: Response) {
 
 export async function registrarEvento(req: Request, res: Response) {
   try {
-    const { campanha_id, tipo_evento, usuario_id, sistema, tela, navegador, dispositivo } = req.body
+    const { campanha_id, tipo_evento, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
 
     if (!campanha_id) return res.status(400).json({ erro: 'campanha_id é obrigatório.' })
     if (!tipo_evento) return res.status(400).json({ erro: 'tipo_evento é obrigatório.' })
@@ -94,6 +93,7 @@ export async function registrarEvento(req: Request, res: Response) {
         tela: tela || null,
         navegador: navegador || null,
         dispositivo: dispositivo || null,
+        contexto: contexto ?? null,
       },
     })
 
@@ -106,9 +106,10 @@ export async function registrarEvento(req: Request, res: Response) {
 
 export async function registrarConfirmacao(req: Request, res: Response) {
   try {
-    const { campanha_id, usuario_id, usuario_nome, usuario_email } = req.body
+    const { campanha_id, usuario_id, usuario_nome, usuario_email, contexto } = req.body
 
     if (!campanha_id) return res.status(400).json({ erro: 'campanha_id é obrigatório.' })
+    if (!usuario_id) return res.status(400).json({ erro: 'usuario_id é obrigatório.' })
 
     const campanha = await prisma.campanha.findUnique({ where: { id: campanha_id } })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
@@ -119,9 +120,10 @@ export async function registrarConfirmacao(req: Request, res: Response) {
     const confirmacao = await prisma.confirmacaoLeitura.create({
       data: {
         campanha_id,
-        usuario_id: usuario_id || null,
+        usuario_id: String(usuario_id),
         usuario_nome: usuario_nome || null,
         usuario_email: usuario_email || null,
+        contexto: contexto ?? null,
       },
     })
 
@@ -137,11 +139,15 @@ export async function registrarFeedback(req: Request, res: Response) {
     const {
       campanha_id, nota, observacao,
       usuario_id, usuario_nome, usuario_email,
-      sistema, tela, navegador, dispositivo,
+      sistema, tela, navegador, dispositivo, contexto,
     } = req.body
 
     if (!campanha_id) {
       return res.status(400).json({ erro: 'campanha_id é obrigatório.' })
+    }
+
+    if (!usuario_id) {
+      return res.status(400).json({ erro: 'usuario_id é obrigatório.' })
     }
 
     if (nota === undefined || nota === null) {
@@ -155,7 +161,7 @@ export async function registrarFeedback(req: Request, res: Response) {
 
     const campanha = await prisma.campanha.findUnique({ where: { id: campanha_id } })
     if (!campanha) {
-      return res.status(404).json({ erro: 'Campanha não encontrada.' })
+      return res.status(400).json({ erro: 'Campanha não encontrada.' })
     }
 
     if (campanha.observacao_obrigatoria && !observacao?.toString().trim()) {
@@ -167,13 +173,14 @@ export async function registrarFeedback(req: Request, res: Response) {
         campanha_id,
         nota: notaNum,
         observacao: observacao?.toString().trim() || null,
-        usuario_id: usuario_id || null,
+        usuario_id: String(usuario_id),
         usuario_nome: usuario_nome || null,
         usuario_email: usuario_email || null,
         sistema: sistema || null,
         tela: tela || null,
         navegador: navegador || null,
         dispositivo: dispositivo || null,
+        contexto: contexto ?? null,
       },
     })
 
@@ -181,5 +188,33 @@ export async function registrarFeedback(req: Request, res: Response) {
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao registrar feedback.' })
+  }
+}
+
+export async function atualizarTelefone(req: Request, res: Response) {
+  try {
+    const id = String(req.params.id)
+    const { telefone_contato } = req.body
+
+    const telefone = String(telefone_contato ?? '').trim()
+    if (telefone.length > 20) {
+      return res.status(400).json({ erro: 'Telefone deve ter no máximo 20 caracteres.' })
+    }
+    if (!telefone) {
+      return res.status(400).json({ erro: 'telefone_contato é obrigatório.' })
+    }
+
+    const feedback = await prisma.feedback.findUnique({ where: { id } })
+    if (!feedback) return res.status(404).json({ erro: 'Feedback não encontrado.' })
+
+    await prisma.feedback.update({
+      where: { id },
+      data: { telefone_contato: telefone },
+    })
+
+    res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao salvar telefone.' })
   }
 }
