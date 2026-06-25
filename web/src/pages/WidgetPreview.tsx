@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { get, post } from '../services/api'
+import { get } from '../services/api'
 import type { Campanha } from '../types'
 import { NpsScale } from '../components/widget/NpsScale'
 
@@ -15,6 +15,16 @@ function jsString(value: string) {
   return JSON.stringify(value)
 }
 
+function maskPhone(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 11)
+  const n = d.length
+  if (n === 0) return ''
+  if (n <= 2) return '(' + d
+  if (n <= 6) return '(' + d.slice(0, 2) + ') ' + d.slice(2)
+  if (n <= 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6)
+  return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7)
+}
+
 export function WidgetPreview() {
   const [searchSlug, setSearchSlug] = useState('')
   const [searchSistema, setSearchSistema] = useState('')
@@ -26,9 +36,10 @@ export function WidgetPreview() {
   const [device, setDevice] = useState<Device>('desktop')
   const [widgetOpen, setWidgetOpen] = useState(false)
   const [feedback, setFeedback] = useState<FeedbackForm>({ nota: null, observacao: '' })
-  const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [telefone, setTelefone] = useState('')
+  const [phoneDone, setPhoneDone] = useState(false)
 
   useEffect(() => {
     if (!campanha) return
@@ -47,6 +58,8 @@ export function WidgetPreview() {
     setWidgetOpen(false)
     setSubmitted(false)
     setFeedback({ nota: null, observacao: '' })
+    setTelefone('')
+    setPhoneDone(false)
 
     try {
       let url = '/widget/campanha?'
@@ -64,29 +77,14 @@ export function WidgetPreview() {
     }
   }
 
-  const handleSubmitFeedback = async () => {
+  const handleSubmitFeedback = () => {
     if (!campanha || feedback.nota === null) return
     if (!campanha.feedback_habilitado) return
     if (campanha.observacao_obrigatoria && !feedback.observacao.trim()) {
       setSubmitError('A observação é obrigatória para esta campanha.')
       return
     }
-    setSubmitting(true)
-    setSubmitError(null)
-    try {
-      await post('/widget/feedback', {
-        campanha_id: campanha.id,
-        nota: feedback.nota,
-        observacao: feedback.observacao || undefined,
-        sistema: campanha.sistema,
-        tela: campanha.tela,
-      })
-      setSubmitted(true)
-    } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : 'Erro ao enviar feedback.')
-    } finally {
-      setSubmitting(false)
-    }
+    setSubmitted(true)
   }
 
   const widgetSrc = typeof window === 'undefined' ? 'https://seu-dominio.com/widget.js' : `${window.location.origin}/widget.js`
@@ -237,14 +235,48 @@ export function WidgetPreview() {
                       style={{ maxWidth: device === 'mobile' ? '300px' : device === 'tablet' ? '380px' : '520px' }}
                     >
                       {submitted ? (
-                        <div className="p-6 text-center space-y-4">
-                          <div className="w-16 h-16 bg-tertiary/10 rounded-full flex items-center justify-center mx-auto">
-                            <span className="material-symbols-outlined text-tertiary text-[36px] ms-fill">check_circle</span>
+                        <div className="p-6 space-y-4">
+                          <div className="text-center space-y-3">
+                            <div className="w-16 h-16 bg-tertiary/10 rounded-full flex items-center justify-center mx-auto">
+                              <span className="material-symbols-outlined text-tertiary text-[36px] ms-fill">check_circle</span>
+                            </div>
+                            <h4 className="text-title-lg font-bold text-on-surface">Obrigado!</h4>
+                            <p className="text-body-md text-on-surface-variant">Modo teste: nenhum feedback foi registrado.</p>
                           </div>
-                          <h4 className="text-title-lg font-bold text-on-surface">Obrigado!</h4>
-                          <p className="text-body-md text-on-surface-variant">Seu feedback foi registrado e nos ajudará a melhorar.</p>
+
+                          {!campanha.exige_confirmacao_leitura && (
+                            <div className="border-t border-outline-variant/30 pt-4 space-y-3">
+                              {phoneDone ? (
+                                <p className="text-center text-body-sm font-semibold text-tertiary">Telefone registrado! (simulação)</p>
+                              ) : (
+                                <>
+                                  <p className="text-body-sm font-semibold text-on-surface text-center">
+                                    Quer deixar seu telefone para contato?
+                                  </p>
+                                  <input
+                                    type="tel"
+                                    inputMode="numeric"
+                                    value={telefone}
+                                    onChange={e => setTelefone(maskPhone(e.target.value))}
+                                    placeholder="(84) 99999-9999"
+                                    maxLength={15}
+                                    className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={!telefone.trim()}
+                                    onClick={() => setPhoneDone(true)}
+                                    className="w-full rounded-xl bg-primary py-2.5 text-label-md font-bold text-on-primary disabled:opacity-40 hover:opacity-90 transition-opacity"
+                                  >
+                                    Enviar (simulação)
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
+
                           <button
-                            onClick={() => { setWidgetOpen(false); setSubmitted(false); setFeedback({ nota: null, observacao: '' }) }}
+                            onClick={() => { setWidgetOpen(false); setSubmitted(false); setFeedback({ nota: null, observacao: '' }); setTelefone(''); setPhoneDone(false) }}
                             className="w-full py-2.5 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors"
                           >
                             Fechar
@@ -305,11 +337,11 @@ export function WidgetPreview() {
                                   <p className="text-[12px] text-error">{submitError}</p>
                                 )}
                                 <button
-                                  disabled={feedback.nota === null || submitting}
+                                  disabled={feedback.nota === null}
                                   onClick={handleSubmitFeedback}
                                   className="w-full py-2.5 bg-primary text-on-primary rounded-xl font-bold text-label-md hover:opacity-90 transition-opacity disabled:opacity-40 active:scale-[0.98]"
                                 >
-                                  {submitting ? 'Enviando…' : 'Enviar Feedback'}
+                                  Enviar Feedback
                                 </button>
                               </>
                             )}
