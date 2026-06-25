@@ -6,6 +6,16 @@ import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { gerarEmbed } from '../../utils/campanha'
 
+function maskPhone(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 11)
+  const n = d.length
+  if (n === 0) return ''
+  if (n <= 2) return '(' + d
+  if (n <= 6) return '(' + d.slice(0, 2) + ') ' + d.slice(2)
+  if (n <= 10) return '(' + d.slice(0, 2) + ') ' + d.slice(2, 6) + '-' + d.slice(6)
+  return '(' + d.slice(0, 2) + ') ' + d.slice(2, 7) + '-' + d.slice(7)
+}
+
 export function CampanhaPreview() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -17,6 +27,8 @@ export function CampanhaPreview() {
   const [observacao, setObservacao] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [telefone, setTelefone] = useState('')
+  const [phoneDone, setPhoneDone] = useState(false)
 
   const load = () => {
     if (!id) return
@@ -49,6 +61,8 @@ export function CampanhaPreview() {
     setNota(null)
     setObservacao('')
     setSubmitted(false)
+    setTelefone('')
+    setPhoneDone(false)
     window.setTimeout(() => setOpen(true), Math.max(0, campanha?.atraso_ms ?? 800))
   }
 
@@ -118,13 +132,50 @@ export function CampanhaPreview() {
             <div className="relative z-20 flex min-h-[560px] items-center justify-center p-6">
             <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-2xl">
             {submitted ? (
-              <div className="p-6 text-center space-y-4">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-tertiary/10">
-                  <span className="material-symbols-outlined text-tertiary text-[36px] ms-fill">check_circle</span>
+              <div className="p-6 space-y-4">
+                <div className="text-center space-y-3">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-tertiary/10">
+                    <span className="material-symbols-outlined text-tertiary text-[36px] ms-fill">check_circle</span>
+                  </div>
+                  <h3 className="text-title-lg font-bold text-on-surface">Obrigado!</h3>
+                  <p className="text-body-md text-on-surface-variant">Modo teste: nenhum feedback foi registrado.</p>
                 </div>
-                <h3 className="text-title-lg font-bold text-on-surface">Obrigado!</h3>
-                <p className="text-body-md text-on-surface-variant">Modo teste: nenhum feedback foi registrado.</p>
-                <button onClick={() => setOpen(false)} className="w-full rounded-xl border border-outline-variant py-2.5 text-label-md font-bold text-on-surface-variant">
+
+                {!campanha.exige_confirmacao_leitura && (
+                  <div className="border-t border-outline-variant/30 pt-4 space-y-3">
+                    {phoneDone ? (
+                      <p className="text-center text-body-sm font-semibold text-tertiary">Telefone registrado! (simulação)</p>
+                    ) : (
+                      <>
+                        <p className="text-body-sm font-semibold text-on-surface text-center">
+                          Quer deixar seu telefone para contato?
+                        </p>
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          value={telefone}
+                          onChange={e => setTelefone(maskPhone(e.target.value))}
+                          placeholder="(84) 99999-9999"
+                          maxLength={15}
+                          className="w-full rounded-xl border border-outline-variant bg-surface-container-lowest px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                        <button
+                          type="button"
+                          disabled={!telefone.trim()}
+                          onClick={() => setPhoneDone(true)}
+                          className="w-full rounded-xl bg-primary py-2.5 text-label-md font-bold text-on-primary disabled:opacity-40 hover:opacity-90 transition-opacity"
+                        >
+                          Enviar (simulação)
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setOpen(false)}
+                  className="w-full rounded-xl border border-outline-variant py-2.5 text-label-md font-bold text-on-surface-variant"
+                >
                   Fechar
                 </button>
               </div>
