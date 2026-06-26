@@ -24,6 +24,10 @@
     phoneError: '',
   };
 
+  var spaListenerBound = false;
+  var lastUrl = '';
+  var urlChangeTimer = null;
+
   function escapeHtml(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;')
@@ -713,7 +717,13 @@
     var oldRoot = document.getElementById(WIDGET_ID);
     if (oldRoot) oldRoot.remove();
 
-    if (!normalized.slug && (!normalized.sistema || !normalized.tela)) return;
+    if (!normalized.slug && !normalized.sistema) return;
+
+    // Cancel any pending URL-change evaluation and capture the current URL
+    // so the next real navigation triggers handleUrlChange correctly.
+    if (urlChangeTimer) { window.clearTimeout(urlChangeTimer); urlChangeTimer = null; }
+    lastUrl = window.location.href;
+    bindSpaListeners();
 
     ensureStyles();
 
@@ -790,6 +800,75 @@
         }
       })
       .catch(function () { /* fail silently */ });
+  }
+
+  function evaluateUrlCampaigns() {
+    var config = state.config;
+    if (!config || !config.sistema) return;
+    if (state.open) return;
+
+    fetchCandidatas(config.sistema, '', 'ao_abrir_tela', null, config.usuario_id)
+      .then(function (candidatos) {
+        for (var i = 0; i < candidatos.length; i++) {
+          var c = candidatos[i];
+          if ((c.modo_identificacao || 'sistema_tela') !== 'url_contem') continue;
+          if (!checkMode(c, config)) continue;
+          if (wasShown(c, config)) continue;
+
+          if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
+
+          state.campanha = c;
+          state.open = false;
+          state.nota = null;
+          state.observacao = '';
+          state.submitting = false;
+          state.submitted = false;
+          state.error = '';
+          state.visualizacaoRegistrada = false;
+          state.feedbackId = null;
+          state.telefone = '';
+          state.phoneSubmitting = false;
+          state.phoneDone = false;
+          state.phoneError = '';
+
+          ensureStyles();
+          resetRoot();
+          scheduleAutoOpen(c, config);
+          break;
+        }
+      })
+      .catch(function () {});
+  }
+
+  function handleUrlChange() {
+    var currentUrl = window.location.href;
+    if (currentUrl === lastUrl) return;
+    lastUrl = currentUrl;
+    if (urlChangeTimer) { window.clearTimeout(urlChangeTimer); urlChangeTimer = null; }
+    urlChangeTimer = window.setTimeout(function () {
+      urlChangeTimer = null;
+      evaluateUrlCampaigns();
+    }, 200);
+  }
+
+  function bindSpaListeners() {
+    if (spaListenerBound) return;
+    spaListenerBound = true;
+
+    var origPushState = history.pushState;
+    var origReplaceState = history.replaceState;
+
+    history.pushState = function () {
+      origPushState.apply(this, arguments);
+      handleUrlChange();
+    };
+    history.replaceState = function () {
+      origReplaceState.apply(this, arguments);
+      handleUrlChange();
+    };
+
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
   }
 
   window.UserPulse = window.UserPulse || {};

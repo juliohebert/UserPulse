@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { get, del, put } from '../../services/api'
 import type { Campanha } from '../../types'
 import { getStatus, formatDate, gerarEmbed } from '../../utils/campanha'
@@ -24,7 +24,16 @@ export function CampanhasIndex() {
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
 
-  const [filterBusca, setFilterBusca] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [filterBusca, setFilterBusca] = useState(() => searchParams.get('busca') ?? '')
+
+  useEffect(() => {
+    if (filterBusca.trim()) {
+      setSearchParams({ busca: filterBusca.trim() }, { replace: true })
+    } else {
+      setSearchParams({}, { replace: true })
+    }
+  }, [filterBusca])
   const [filterTipo, setFilterTipo] = useState('')
   const [filterSistema, setFilterSistema] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
@@ -50,9 +59,17 @@ export function CampanhasIndex() {
   const busca = filterBusca.trim().toLowerCase()
   const filtered = campanhas.filter(c => {
     if (busca) {
-      const matchTitulo = c.titulo.toLowerCase().includes(busca)
-      const matchSubtitulo = (c.subtitulo ?? '').toLowerCase().includes(busca)
-      if (!matchTitulo && !matchSubtitulo) return false
+      const campos = [
+        c.titulo,
+        c.subtitulo ?? '',
+        c.slug,
+        c.sistema,
+        c.tela,
+        c.categoria ?? '',
+        c.tipo,
+        getStatus(c),
+      ]
+      if (!campos.some(v => v.toLowerCase().includes(busca))) return false
     }
     if (filterTipo && c.tipo !== filterTipo) return false
     if (filterSistema && c.sistema !== filterSistema) return false
@@ -141,7 +158,7 @@ export function CampanhasIndex() {
             type="text"
             value={filterBusca}
             onChange={e => { setFilterBusca(e.target.value); setPage(1) }}
-            placeholder="Buscar por título ou subtítulo…"
+            placeholder="Buscar por título, slug, sistema, tela, categoria, tipo ou status…"
             className="w-full rounded-xl border border-outline-variant py-2.5 pl-10 pr-4 text-body-md bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary"
           />
           {filterBusca && (
@@ -248,9 +265,11 @@ export function CampanhasIndex() {
                       <td colSpan={6}>
                         <EmptyState
                           icon="campaign"
-                          title={hasFilters ? 'Nenhum resultado' : 'Nenhuma campanha ainda'}
+                          title={hasFilters ? 'Nenhuma campanha encontrada' : 'Nenhuma campanha ainda'}
                           description={
-                            hasFilters
+                            filterBusca && !filterTipo && !filterSistema && !filterStatus && !filterCategoria
+                              ? `Nenhuma campanha encontrada para a busca "${filterBusca}".`
+                              : hasFilters
                               ? 'Ajuste os filtros ou a busca para ver mais resultados.'
                               : 'Crie sua primeira campanha para começar.'
                           }

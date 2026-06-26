@@ -12,7 +12,7 @@ export function Topbar({ collapsed }: Props) {
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
     if (search.trim()) {
-      navigate(`/campanhas?q=${encodeURIComponent(search.trim())}`)
+      navigate(`/campanhas?busca=${encodeURIComponent(search.trim())}`)
       setSearch('')
     }
   }
