@@ -4,7 +4,7 @@ import { get } from '../../services/api'
 import type { Campanha } from '../../types'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
-import { gerarEmbed } from '../../utils/campanha'
+import { gerarEmbed, gerarEmbedParts } from '../../utils/campanha'
 
 function maskPhone(raw: string): string {
   const d = raw.replace(/\D/g, '').slice(0, 11)
@@ -71,6 +71,14 @@ export function CampanhaPreview() {
 
   const question = campanha.pergunta_feedback || 'Como podemos melhorar?'
   const embedCode = gerarEmbed(campanha)
+  const embedParts = gerarEmbedParts(campanha)
+  const initSection = [
+    embedParts.widgetSrcTag,
+    '<script>',
+    embedParts.initCode,
+    ...(embedParts.initNote ? ['', embedParts.initNote] : []),
+    '</script>',
+  ].join('\n')
 
   const copyEmbed = () => {
     navigator.clipboard.writeText(embedCode).catch(() => {})
@@ -276,12 +284,39 @@ export function CampanhaPreview() {
             {copied ? 'Copiado!' : 'Copiar código'}
           </button>
         </div>
+
+        {embedParts.isAfterEvent && (
+          <div className="px-5 py-2.5 border-b border-outline-variant/30 bg-surface-container-low">
+            <p className="text-label-sm text-on-surface-variant font-semibold uppercase tracking-wider">
+              1 — Inicialização <span className="normal-case font-normal">(cole antes do &lt;/body&gt;, uma vez)</span>
+            </p>
+          </div>
+        )}
         <div className="bg-inverse-surface p-5 overflow-x-auto">
-          <pre className="text-inverse-on-surface font-mono text-[13px] leading-relaxed whitespace-pre">{embedCode}</pre>
+          <pre className="text-inverse-on-surface font-mono text-[13px] leading-relaxed whitespace-pre">{initSection}</pre>
         </div>
-        <p className="px-5 py-3 text-label-md text-outline">
-          Cole este snippet antes do <code className="bg-surface-container px-1 py-0.5 rounded text-[12px]">&lt;/body&gt;</code> do sistema-alvo. Substitua os placeholders pelos dados reais do usuário logado.
-        </p>
+
+        {embedParts.trackCode && (
+          <>
+            <div className="px-5 py-2.5 border-t border-b border-outline-variant/30 bg-surface-container-low">
+              <p className="text-label-sm text-on-surface-variant font-semibold uppercase tracking-wider">
+                2 — Disparo do evento <span className="normal-case font-normal">(chame após a ação acontecer)</span>
+              </p>
+            </div>
+            <div className="bg-inverse-surface p-5 overflow-x-auto">
+              <pre className="text-inverse-on-surface font-mono text-[13px] leading-relaxed whitespace-pre">{embedParts.trackCode}</pre>
+            </div>
+            <p className="px-5 py-3 text-label-md text-outline border-t border-outline-variant/30">
+              Use o init ao carregar a página e chame o track somente depois que a ação desejada acontecer no sistema hospedeiro.
+            </p>
+          </>
+        )}
+
+        {!embedParts.isAfterEvent && (
+          <p className="px-5 py-3 text-label-md text-outline border-t border-outline-variant/30">
+            Cole este snippet antes do <code className="bg-surface-container px-1 py-0.5 rounded text-[12px]">&lt;/body&gt;</code> do sistema-alvo. Substitua os placeholders pelos dados reais do usuário logado.
+          </p>
+        )}
       </div>
     </section>
   )

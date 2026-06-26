@@ -191,26 +191,32 @@
 
     <!-- instrução de setup: visível na página, some se não precisar -->
     <div id="setup-banner">
-      <strong>Teste embed UserPulse — QuarkClinic</strong>
+      <strong>Teste embed UserPulse — URL contém + Após evento</strong>
       <div class="step" data-n="1">
-        Sistema/Tela → <code>sistema: quarkclinic-core</code> <code>tela: agenda</code>
+        Sistema esperado: <code>QuarkClinic</code>
       </div>
       <div class="step" data-n="2">
-        Data-cy → <code>data-cy: agenda-page</code>
+        URL contém: <code>/test-embed.html</code>
       </div>
       <div class="step" data-n="3">
-        URL contém → <code>/test-embed.html</code>
+        Evento esperado: <code>home</code>
       </div>
       <div class="step" data-n="4">
-        Após evento → <code>paciente_agendado</code>
+        Ao carregar → <strong>nada deve abrir</strong>
+      </div>
+      <div class="step" data-n="5">
+        Ao clicar "Simular evento home" → <strong>campanha deve abrir</strong>
+      </div>
+      <div class="step" data-n="6">
+        Ao clicar "Simular outro_evento" → <strong>nada deve abrir</strong>
       </div>
     </div>
 
     <!-- painel de testes de evento -->
     <div id="event-panel" style="background:#eef6ff;border-bottom:1px solid #c2d9f8;padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:13px;color:#1a3a5c;">
       <strong>Testes de gatilho por evento:</strong>
-      <button onclick="window.UserPulse.track('paciente_agendado')" style="background:#0058be;color:#fff;border:0;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;">
-        Simular evento paciente_agendado
+      <button onclick="window.UserPulse.track('home')" style="background:#0058be;color:#fff;border:0;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;">
+        Simular evento home
       </button>
       <button onclick="window.UserPulse.track('outro_evento')" style="background:#fff;color:#344054;border:1px solid #d0d5dd;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;">
         Simular outro_evento (não deve abrir)
@@ -329,38 +335,15 @@
       </div>
     </main>
 
-    <!-- UserPulse embed ──────────────────────────────────────────────── -->
-    <script src="http://localhost:5173/widget.js"></script>
+    <!-- UserPulse embed — src relativo: usa widget local em /widget.js -->
+    <script src="/widget.js"></script>
     <script>
     window.UserPulse.init({
-      // sistema e tela — usados por modo Sistema/Tela, Data-cy e URL contém
-      sistema:          "QuarkClinic",
-      tela:             "agenda",
-
-      // usuário
-      usuario_id:       "4888504",
-      usuario_nome:     "ALISON FERREIRA MED",
-      usuario_email:    "ps2_qa_teste@gmail.com",
-      usuario_local_id: "16867481",
-      usuario_tipo:     "RECEPÇÃO",
-
-      // cliente / organização
-      cliente_id:       "479379",
-      cliente_nome:     "CLINICA VALIDAÇÕES - JFS",
-      cliente_local_id: "16848497",
-      organizacao_id:   "16848497",
-      organizacao_nome: "CLINICA VALIDAÇÕES - JFS",
-
-      // unidade / clínica
-      unidade_id:       "16848521",
-      unidade_nome:     "CLINICA VALIDAÇÕES - JFS (MATRIZ)",
-      unidade_local_id: "479379",
-      clinica_id:       "16848521",
-      clinica_nome:     "CLINICA VALIDAÇÕES - JFS (MATRIZ)",
-
-      // localização / perfil
-      Estado:           "RN",
-      Perfil:           "PROFISSIONAL_SAUDE",
+      sistema:       "QuarkClinic",
+      usuario_id:    "teste-" + Date.now(),
+      usuario_nome:  "Usuário Teste Local",
+      usuario_email: "teste.local@userpulse.com",
+      usuario_tipo:  "QA",
     });
     </script>
   </body>

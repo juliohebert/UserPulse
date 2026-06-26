@@ -44,16 +44,54 @@ const WIDGET_URL: string =
   import.meta.env.VITE_USERPULSE_WIDGET_URL ||
   `${window.location.origin}/widget.js`
 
+export interface EmbedParts {
+  widgetSrcTag: string
+  initCode: string
+  initNote: string | null
+  trackCode: string | null
+  isAfterEvent: boolean
+}
+
+export function gerarEmbedParts(campanha: Campanha): EmbedParts {
+  const modo = campanha.modo_identificacao || 'sistema_tela'
+  const gatilho = campanha.gatilho || 'ao_abrir_tela'
+  const sistema = campanha.sistema || 'seu-sistema'
+  const tela = campanha.tela || 'sua-tela'
+  const dataCy = campanha.data_cy || 'data-cy-da-tela'
+  const urlContem = campanha.url_contem || '/caminho-da-tela'
+  const evento = campanha.evento || 'nome_do_evento'
+  const isAfterEvent = gatilho === 'apos_evento'
+
+  const initLines: string[] = [`  sistema: "${sistema}",`]
+  if (modo === 'sistema_tela') initLines.push(`  tela: "${tela}",`)
+  initLines.push(`  usuario_id: "ID_DO_USUARIO"`)
+
+  const initCode = ['window.UserPulse.init({', ...initLines, '});'].join('\n')
+
+  const initNote: string | null =
+    modo === 'data_cy'
+      ? `// A página precisa conter um elemento com:\n// data-cy="${dataCy}"`
+      : modo === 'url_contem'
+      ? `// A URL atual precisa conter:\n// ${urlContem}`
+      : null
+
+  const trackCode: string | null = isAfterEvent
+    ? `// Chame somente após a ação desejada acontecer\nwindow.UserPulse.track("${evento}");`
+    : null
+
+  return {
+    widgetSrcTag: `<script src="${WIDGET_URL}"></script>`,
+    initCode,
+    initNote,
+    trackCode,
+    isAfterEvent,
+  }
+}
+
 export function gerarEmbed(campanha: Campanha): string {
-  return [
-    `<script src="${WIDGET_URL}"></script>`,
-    `<script>`,
-    `window.UserPulse.init({`,
-    `  slug: "${campanha.slug}",`,
-    `  usuario_id: "ID_DO_USUARIO",`,
-    `  usuario_nome: "NOME_DO_USUARIO",`,
-    `  usuario_email: "EMAIL_DO_USUARIO"`,
-    `});`,
-    `</script>`,
-  ].join('\n')
+  const p = gerarEmbedParts(campanha)
+  const body: string[] = [p.initCode]
+  if (p.initNote) body.push('', p.initNote)
+  if (p.trackCode) body.push('', p.trackCode)
+  return [p.widgetSrcTag, '<script>', ...body, '</script>'].join('\n')
 }
