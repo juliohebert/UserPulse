@@ -55,6 +55,36 @@ const EMPTY: FormState = {
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
+function buildResumo(f: FormState): string {
+  const tela = f.tela ? `"${f.tela}"` : 'tela configurada'
+  const dataCy = f.data_cy ? `"${f.data_cy}"` : 'data-cy configurado'
+  const url = f.url_contem ? `"${f.url_contem}"` : 'caminho configurado'
+  const evento = f.evento ? `"${f.evento}"` : 'evento configurado'
+
+  let base: string
+  if (f.modo_identificacao === 'sistema_tela') {
+    base = f.gatilho === 'ao_abrir_tela'
+      ? `A campanha será exibida assim que o usuário acessar a tela ${tela}.`
+      : `A campanha será exibida quando o usuário estiver na tela ${tela} e o sistema disparar o evento ${evento}.`
+  } else if (f.modo_identificacao === 'data_cy') {
+    base = f.gatilho === 'ao_abrir_tela'
+      ? `A campanha será exibida quando a página tiver o elemento data-cy ${dataCy}.`
+      : `A campanha será exibida quando a página tiver o elemento data-cy ${dataCy} e o sistema disparar o evento ${evento}.`
+  } else {
+    base = f.gatilho === 'ao_abrir_tela'
+      ? `A campanha será exibida quando a URL contiver ${url}.`
+      : `A campanha será exibida quando a URL contiver ${url} e o sistema disparar o evento ${evento}.`
+  }
+
+  const recorrencia = f.mostrar_uma_vez
+    ? 'Cada usuário verá esta campanha apenas uma vez.'
+    : f.intervalo_reexibicao_dias
+    ? `A campanha poderá aparecer novamente após ${f.intervalo_reexibicao_dias} dias da resposta.`
+    : 'A campanha não será exibida novamente após o usuário responder.'
+
+  return `${base} ${recorrencia}`
+}
+
 export function CampanhaForm() {
   const { id } = useParams<{ id: string }>()
   const isEdit = Boolean(id)
@@ -362,33 +392,39 @@ export function CampanhaForm() {
 
                   <div className="md:col-span-2">
                     <label className="block text-label-md text-on-surface-variant mb-2">
-                      Modo de identificação <span className="text-error">*</span>
+                      Onde essa campanha deve aparecer? <span className="text-error">*</span>
                     </label>
-                    <div className="flex flex-wrap gap-5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       {[
-                        { value: 'sistema_tela', label: 'Sistema / Tela' },
-                        { value: 'data_cy', label: 'Data-cy' },
-                        { value: 'url_contem', label: 'URL contém' },
-                      ].map(opt => (
-                        <label key={opt.value} className="flex items-center gap-2 text-body-md text-on-surface cursor-pointer">
-                          <input
-                            type="radio"
-                            name="modo_identificacao"
-                            value={opt.value}
-                            checked={form.modo_identificacao === opt.value}
-                            onChange={e => set('modo_identificacao', e.target.value)}
-                            className="text-primary focus:ring-primary"
-                          />
-                          {opt.label}
-                        </label>
-                      ))}
+                        { value: 'sistema_tela', label: 'Tela informada pelo sistema', desc: 'Use quando o sistema hospedeiro envia o nome da tela.' },
+                        { value: 'data_cy', label: 'Elemento da tela', desc: 'Use quando a tela possui um data-cy estável.' },
+                        { value: 'url_contem', label: 'Caminho da URL', desc: 'Use quando a página possui uma rota ou caminho conhecido.' },
+                      ].map(opt => {
+                        const active = form.modo_identificacao === opt.value
+                        return (
+                          <label key={opt.value} className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${active ? 'border-primary bg-primary-fixed' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'}`}>
+                            <input
+                              type="radio"
+                              name="modo_identificacao"
+                              value={opt.value}
+                              checked={active}
+                              onChange={e => set('modo_identificacao', e.target.value)}
+                              className="mt-0.5 text-primary focus:ring-primary shrink-0"
+                            />
+                            <div>
+                              <p className={`text-body-md font-semibold ${active ? 'text-primary' : 'text-on-surface'}`}>{opt.label}</p>
+                              <p className="text-[11px] text-on-surface-variant mt-0.5">{opt.desc}</p>
+                            </div>
+                          </label>
+                        )
+                      })}
                     </div>
                   </div>
 
                   {form.modo_identificacao === 'sistema_tela' && (
                     <div className="md:col-span-2">
                       <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Tela <span className="text-error">*</span>
+                        Nome da tela <span className="text-error">*</span>
                       </label>
                       <input
                         required
@@ -401,13 +437,14 @@ export function CampanhaForm() {
                       <datalist id="telas-list">
                         {telas.map(t => <option key={t} value={t} />)}
                       </datalist>
+                      <p className="mt-1 text-[11px] text-outline">Deve ser o mesmo valor enviado pelo sistema no UserPulse.init.</p>
                     </div>
                   )}
 
                   {form.modo_identificacao === 'data_cy' && (
                     <div className="md:col-span-2">
                       <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Valor do data-cy <span className="text-error">*</span>
+                        Data-cy da tela <span className="text-error">*</span>
                       </label>
                       <input
                         required
@@ -416,14 +453,14 @@ export function CampanhaForm() {
                         placeholder="Ex: agenda-page"
                         className={field}
                       />
-                      <p className="mt-1 text-[11px] text-outline">Widget procura por [data-cy="valor"] no DOM da página</p>
+                      <p className="mt-1 text-[11px] text-outline">Informe apenas o valor do data-cy, exemplo: agenda-page.</p>
                     </div>
                   )}
 
                   {form.modo_identificacao === 'url_contem' && (
                     <div className="md:col-span-2">
                       <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        URL contém <span className="text-error">*</span>
+                        Caminho da URL <span className="text-error">*</span>
                       </label>
                       <input
                         required
@@ -432,9 +469,17 @@ export function CampanhaForm() {
                         placeholder="Ex: /agenda ou agendamento"
                         className={field}
                       />
-                      <p className="mt-1 text-[11px] text-outline">Valida se window.location.href ou pathname contém o valor</p>
+                      <p className="mt-1 text-[11px] text-outline">Informe um trecho da URL, exemplo: /agenda.</p>
                     </div>
                   )}
+
+                  <div className="md:col-span-2 p-3 bg-primary-fixed/50 rounded-xl border border-primary/20">
+                    <p className="text-label-md font-bold text-primary mb-1.5 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[16px]">summarize</span>
+                      Resumo da configuração
+                    </p>
+                    <p className="text-body-md text-on-surface leading-snug">{buildResumo(form)}</p>
+                  </div>
 
                   <div>
                     <label className="block text-label-md text-on-surface-variant mb-1.5">Data de Início</label>
@@ -561,21 +606,29 @@ export function CampanhaForm() {
                   </div>
 
                   {/* Gatilho */}
-                  <div className="p-3 bg-surface-container rounded-xl space-y-2">
-                    <p className="text-label-md font-bold text-on-surface uppercase tracking-wider mb-1">Gatilho</p>
-                    {[
-                      { value: 'ao_abrir_tela', label: 'Ao abrir tela' },
-                      { value: 'apos_evento', label: 'Após evento' },
-                    ].map(opt => (
-                      <label key={opt.value} className="flex items-center gap-2 text-body-md text-on-surface cursor-pointer">
-                        <input type="radio" name="gatilho" value={opt.value} checked={form.gatilho === opt.value} onChange={e => set('gatilho', e.target.value)} className="text-primary focus:ring-primary" />
-                        {opt.label}
-                      </label>
-                    ))}
+                  <div className="p-3 bg-surface-container rounded-xl space-y-3">
+                    <p className="text-label-md font-bold text-on-surface uppercase tracking-wider">Quando exibir a campanha?</p>
+                    <div className="space-y-2">
+                      {[
+                        { value: 'ao_abrir_tela', label: 'Assim que a tela abrir', desc: 'A campanha aparece automaticamente quando a tela for identificada.' },
+                        { value: 'apos_evento', label: 'Depois de uma ação do usuário', desc: 'A campanha aparece somente quando o sistema disparar um evento.' },
+                      ].map(opt => {
+                        const active = form.gatilho === opt.value
+                        return (
+                          <label key={opt.value} className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${active ? 'border-primary bg-primary-fixed' : 'border-outline-variant bg-surface-bright hover:border-primary/50'}`}>
+                            <input type="radio" name="gatilho" value={opt.value} checked={active} onChange={e => set('gatilho', e.target.value)} className="mt-0.5 text-primary focus:ring-primary shrink-0" />
+                            <div>
+                              <p className={`text-body-md font-semibold ${active ? 'text-primary' : 'text-on-surface'}`}>{opt.label}</p>
+                              <p className="text-[11px] text-on-surface-variant mt-0.5">{opt.desc}</p>
+                            </div>
+                          </label>
+                        )
+                      })}
+                    </div>
                     {form.gatilho === 'apos_evento' && (
-                      <div className="pt-1">
+                      <div>
                         <label className="block text-label-md text-on-surface-variant mb-1.5">
-                          Nome do evento <span className="text-error">*</span>
+                          Nome da ação/evento <span className="text-error">*</span>
                         </label>
                         <input
                           required
@@ -584,7 +637,7 @@ export function CampanhaForm() {
                           placeholder="Ex: paciente_agendado"
                           className={field}
                         />
-                        <p className="mt-1 text-[11px] text-outline">Disparar via <code>window.UserPulse.track("nome_do_evento")</code></p>
+                        <p className="mt-1 text-[11px] text-outline">Exemplo: paciente_agendado, consulta_finalizada, fila_reordenada.</p>
                       </div>
                     )}
                   </div>
@@ -611,9 +664,12 @@ export function CampanhaForm() {
                         Informe em quantos dias esta campanha poderá aparecer novamente após o usuário responder. Deixe vazio para não exibir novamente após resposta.
                       </p>
                     </div>
-                    <label className="flex items-center gap-3 text-body-md text-on-surface cursor-pointer">
-                      <input type="checkbox" checked={form.mostrar_uma_vez} onChange={e => set('mostrar_uma_vez', e.target.checked)} className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary" />
-                      Mostrar apenas uma vez
+                    <label className="flex items-start gap-3 text-body-md text-on-surface cursor-pointer">
+                      <input type="checkbox" checked={form.mostrar_uma_vez} onChange={e => set('mostrar_uma_vez', e.target.checked)} className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary mt-0.5 shrink-0" />
+                      <span>
+                        Mostrar apenas uma vez
+                        <span className="block text-[11px] text-outline font-normal mt-0.5">Quando ativado, cada usuário verá esta campanha apenas uma vez.</span>
+                      </span>
                     </label>
                   </div>
 
@@ -650,21 +706,23 @@ export function CampanhaForm() {
                   </div>
 
                   {/* Slug */}
-                  <div className="pt-3 border-t border-outline-variant">
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Slug (somente leitura)</label>
-                    <div className="relative">
-                      <div className="flex items-center bg-surface-container-high rounded-xl px-3 py-2 border border-outline-variant/30 overflow-hidden pr-10">
-                        <span className="text-outline-variant text-code select-none shrink-0">slug: </span>
-                        <span className="text-primary font-bold text-code truncate ml-1">{slug || '—'}</span>
+                  {isEdit && (
+                    <div className="pt-3 border-t border-outline-variant">
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Slug (somente leitura)</label>
+                      <div className="relative">
+                        <div className="flex items-center bg-surface-container-high rounded-xl px-3 py-2 border border-outline-variant/30 overflow-hidden pr-10">
+                          <span className="text-outline-variant text-code select-none shrink-0">slug: </span>
+                          <span className="text-primary font-bold text-code truncate ml-1">{slug || '—'}</span>
+                        </div>
+                        {slug && (
+                          <button type="button" onClick={copySlug} title="Copiar slug" className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-surface-container-highest rounded-lg transition-colors">
+                            <span className="material-symbols-outlined text-outline text-[18px]">{copied ? 'check' : 'content_copy'}</span>
+                          </button>
+                        )}
                       </div>
-                      {slug && (
-                        <button type="button" onClick={copySlug} title="Copiar slug" className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-surface-container-highest rounded-lg transition-colors">
-                          <span className="material-symbols-outlined text-outline text-[18px]">{copied ? 'check' : 'content_copy'}</span>
-                        </button>
-                      )}
+                      {copied && <p className="text-[11px] text-tertiary mt-1">Copiado!</p>}
                     </div>
-                    {copied && <p className="text-[11px] text-tertiary mt-1">Copiado!</p>}
-                  </div>
+                  )}
                 </div>
               </div>
 
