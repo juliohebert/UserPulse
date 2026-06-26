@@ -203,6 +203,14 @@
       </div>
     </div>
 
+    <!-- painel de testes de evento -->
+    <div id="event-panel" style="background:#eef6ff;border-bottom:1px solid #c2d9f8;padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:13px;color:#1a3a5c;">
+      <strong>Testes de gatilho por evento:</strong>
+      <button onclick="window.UserPulse.track('paciente_agendado')" style="background:#0058be;color:#fff;border:0;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;">
+        Simular evento paciente_agendado
+      </button>
+    </div>
+
     <!-- chrome do sistema simulado -->
     <header>
       <div class="brand">QuarkClinic <span>v2.4</span></div>
@@ -316,11 +324,11 @@
     </main>
 
     <!-- UserPulse embed ──────────────────────────────────────────────── -->
-    <script src="http://localhost:3333/widget.js"></script>
+    <script src="https://userpulse-prod.onrender.com/widget.js"></script>
     <script>
     window.UserPulse.init({
       // identificação da campanha
-      slug:             "nova-funcionalidade-de-agenda",
+      slug:             "conheca-a-nova-funcionalidade-da-agenda",
 
       // cliente / organização
       cliente_id:       "479379",
@@ -337,12 +345,12 @@
       clinica_nome:     "CLINICA VALIDAÇÕES - JFS (MATRIZ)",
 
       // usuário
-      usuario_id:       "488853",
+      usuario_id:       "4888504",
       usuario_nome:     "ALISON FERREIRA MED",
       usuario_email:    "ps2_qa_teste@gmail.com",
       usuario_local_id: "16867481",
-      usuario_tipo:     "PROFISSIONAL_SAUDE",
-
+      //usuario_tipo:     "PROFISSIONAL_SAUDE",
+      usuario_tipo: "RECEPÇÃO",
       // localização / perfil
       Estado:           "RN",
       Perfil:           "PROFISSIONAL_SAUDE",

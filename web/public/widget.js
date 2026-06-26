@@ -688,6 +688,65 @@
       });
   }
 
+  function track(eventoNome, metadataOpcional) {
+    if (!state.config || !eventoNome) return;
+    var config = state.config;
+    if (!config.sistema || !config.tela) return;
+
+    // URLSearchParams.toString() percent-encodes values (equivalent to encodeURIComponent
+    // for query params, with spaces as %20 in key-value form).
+    var params = new URLSearchParams();
+    params.set('sistema', config.sistema);
+    params.set('tela', config.tela);
+    params.set('evento', String(eventoNome));
+    if (config.usuario_id) params.set('usuario_id', config.usuario_id);
+
+    fetch(apiUrl('/api/widget/campanha?' + params.toString()), {
+      headers: { Accept: 'application/json' },
+    })
+      .then(function (response) {
+        if (response.status === 404) return null;
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then(function (campanha) {
+        if (!campanha) return;
+        if (wasShown(campanha, config)) return;
+        if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
+
+        // Merge optional metadata into init contexto for this session.
+        // Creates a new config object — never mutates the original so subsequent
+        // track() calls without metadata still use the clean init contexto.
+        if (metadataOpcional && typeof metadataOpcional === 'object') {
+          var merged = Object.assign({}, config.contexto || {}, metadataOpcional);
+          state.config = Object.assign({}, config, { contexto: merged });
+        }
+
+        state.campanha = campanha;
+        state.open = false;
+        state.nota = null;
+        state.observacao = '';
+        state.submitting = false;
+        state.submitted = false;
+        state.error = '';
+        state.visualizacaoRegistrada = false;
+        state.feedbackId = null;
+        state.telefone = '';
+        state.phoneSubmitting = false;
+        state.phoneDone = false;
+        state.phoneError = '';
+        ensureStyles();
+        resetRoot();
+        state.open = true;
+        markShown(campanha, config);
+        state.visualizacaoRegistrada = true;
+        registrarEvento('visualizacao');
+        render();
+      })
+      .catch(function () { /* fail silently */ });
+  }
+
   window.UserPulse = window.UserPulse || {};
   window.UserPulse.init = init;
+  window.UserPulse.track = track;
 })();

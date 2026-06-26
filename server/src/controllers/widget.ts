@@ -3,7 +3,7 @@ import prisma from '../lib/prisma'
 
 export async function buscarCampanha(req: Request, res: Response) {
   try {
-    const { slug, sistema, tela, usuario_id } = req.query
+    const { slug, sistema, tela, usuario_id, evento } = req.query
 
     if (!slug && (!sistema || !tela)) {
       return res.status(400).json({ erro: 'Informe slug ou sistema+tela.' })
@@ -17,10 +17,16 @@ export async function buscarCampanha(req: Request, res: Response) {
       ],
     }
 
+    const campanhaFilter = slug
+      ? { slug: String(slug) }
+      : evento
+      ? { sistema: String(sistema), tela: String(tela), gatilho: 'apos_evento', evento: String(evento) }
+      : { sistema: String(sistema), tela: String(tela), gatilho: 'ao_abrir_tela' }
+
     const campanha = await prisma.campanha.findFirst({
       where: {
         ativo: true,
-        ...(slug ? { slug: String(slug) } : { sistema: String(sistema), tela: String(tela) }),
+        ...campanhaFilter,
         ...filtroData,
       },
       orderBy: [

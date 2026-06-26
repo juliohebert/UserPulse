@@ -495,15 +495,29 @@ export function CampanhaForm() {
                   <div className="p-3 bg-surface-container rounded-xl space-y-2">
                     <p className="text-label-md font-bold text-on-surface uppercase tracking-wider mb-1">Gatilho</p>
                     {[
-                      { value: 'ao_abrir_tela', label: 'Ao abrir tela', disabled: false },
-                      { value: 'apos_evento', label: 'Após evento', disabled: true },
+                      { value: 'ao_abrir_tela', label: 'Ao abrir tela' },
+                      { value: 'apos_evento', label: 'Após evento' },
                     ].map(opt => (
-                      <label key={opt.value} className={`flex items-center gap-2 text-body-md ${opt.disabled ? 'text-outline cursor-not-allowed opacity-60' : 'text-on-surface cursor-pointer'}`}>
-                        <input type="radio" name="gatilho" value={opt.value} checked={form.gatilho === opt.value} disabled={opt.disabled} onChange={e => set('gatilho', e.target.value)} className="text-primary focus:ring-primary" />
+                      <label key={opt.value} className="flex items-center gap-2 text-body-md text-on-surface cursor-pointer">
+                        <input type="radio" name="gatilho" value={opt.value} checked={form.gatilho === opt.value} onChange={e => set('gatilho', e.target.value)} className="text-primary focus:ring-primary" />
                         {opt.label}
-                        {opt.disabled && <span className="text-[10px] uppercase font-bold">em breve</span>}
                       </label>
                     ))}
+                    {form.gatilho === 'apos_evento' && (
+                      <div className="pt-1">
+                        <label className="block text-label-md text-on-surface-variant mb-1.5">
+                          Nome do evento <span className="text-error">*</span>
+                        </label>
+                        <input
+                          required
+                          value={form.evento}
+                          onChange={e => set('evento', e.target.value)}
+                          placeholder="Ex: paciente_agendado"
+                          className={field}
+                        />
+                        <p className="mt-1 text-[11px] text-outline">Disparar via <code>window.UserPulse.track("nome_do_evento")</code></p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Config */}
