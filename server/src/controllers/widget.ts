@@ -20,8 +20,8 @@ export async function buscarCampanha(req: Request, res: Response) {
     const campanhaFilter = slug
       ? { slug: String(slug) }
       : evento
-      ? { sistema: String(sistema), tela: String(tela), gatilho: 'apos_evento', evento: String(evento) }
-      : { sistema: String(sistema), tela: String(tela), gatilho: 'ao_abrir_tela' }
+      ? { sistema: String(sistema), tela: String(tela), gatilho: 'apos_evento', evento: String(evento), modo_identificacao: 'sistema_tela' }
+      : { sistema: String(sistema), tela: String(tela), gatilho: 'ao_abrir_tela', modo_identificacao: 'sistema_tela' }
 
     const campanha = await prisma.campanha.findFirst({
       where: {
@@ -72,6 +72,85 @@ export async function buscarCampanha(req: Request, res: Response) {
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar campanha.' })
+  }
+}
+
+export async function buscarCandidatas(req: Request, res: Response) {
+  try {
+    const { sistema, tela, gatilho, evento, usuario_id } = req.query
+
+    if (!sistema) {
+      return res.status(400).json({ erro: 'Informe sistema.' })
+    }
+
+    const agora = new Date()
+    const filtroData = {
+      AND: [
+        { OR: [{ data_inicio: null }, { data_inicio: { lte: agora } }] },
+        { OR: [{ data_fim: null }, { data_fim: { gte: agora } }] },
+      ],
+    }
+
+    const gatilhoStr = gatilho === 'apos_evento' ? 'apos_evento' : 'ao_abrir_tela'
+    const gatilhoFilter =
+      gatilhoStr === 'apos_evento' && evento
+        ? { gatilho: 'apos_evento', evento: String(evento) }
+        : { gatilho: 'ao_abrir_tela' }
+
+    // sistema_tela campaigns are filtered by tela server-side (tela must match).
+    // data_cy and url_contem campaigns are always included — the widget validates client-side.
+    const modoFiltros: object[] = []
+    if (tela) modoFiltros.push({ modo_identificacao: 'sistema_tela', tela: String(tela) })
+    modoFiltros.push({ modo_identificacao: 'data_cy' })
+    modoFiltros.push({ modo_identificacao: 'url_contem' })
+
+    const campanhas = await prisma.campanha.findMany({
+      where: {
+        ativo: true,
+        sistema: String(sistema),
+        ...gatilhoFilter,
+        OR: modoFiltros,
+        ...filtroData,
+      },
+      orderBy: [{ prioridade: 'desc' }, { ordem: 'asc' }, { criado_em: 'desc' }],
+    })
+
+    if (!usuario_id || campanhas.length === 0) {
+      return res.json(campanhas)
+    }
+
+    const uidStr = String(usuario_id)
+    const elegiveis: typeof campanhas = []
+
+    for (const campanha of campanhas) {
+      if (campanha.exige_confirmacao_leitura) {
+        const jaConfirmou = await prisma.confirmacaoLeitura.findFirst({
+          where: { campanha_id: campanha.id, usuario_id: uidStr },
+        })
+        if (!jaConfirmou) elegiveis.push(campanha)
+      } else {
+        const ultimoFeedback = await prisma.feedback.findFirst({
+          where: { campanha_id: campanha.id, usuario_id: uidStr },
+          orderBy: { criado_em: 'desc' },
+        })
+        if (!ultimoFeedback) {
+          elegiveis.push(campanha)
+        } else {
+          const intervalo = campanha.intervalo_reexibicao_dias
+          if (intervalo !== null && intervalo !== undefined) {
+            const diasDesde = Math.floor(
+              (agora.getTime() - ultimoFeedback.criado_em.getTime()) / (1000 * 60 * 60 * 24)
+            )
+            if (diasDesde >= intervalo) elegiveis.push(campanha)
+          }
+        }
+      }
+    }
+
+    res.json(elegiveis)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao buscar campanhas candidatas.' })
   }
 }
 

@@ -15,6 +15,9 @@ export interface Campanha {
   modo_exibicao: string
   gatilho: string
   evento: string | null
+  modo_identificacao: string
+  data_cy: string | null
+  url_contem: string | null
   atraso_ms: number
   mostrar_uma_vez: boolean
   prioridade: number

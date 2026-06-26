@@ -484,6 +484,46 @@
     });
   }
 
+  function fetchCandidatas(sistema, tela, gatilho, eventoNome, usuario_id) {
+    var params = new URLSearchParams();
+    params.set('sistema', sistema);
+    if (tela) params.set('tela', tela);
+    if (gatilho) params.set('gatilho', gatilho);
+    if (eventoNome) params.set('evento', String(eventoNome));
+    if (usuario_id) params.set('usuario_id', usuario_id);
+    return fetch(apiUrl('/api/widget/candidatas?' + params.toString()), {
+      headers: { Accept: 'application/json' },
+    }).then(function (response) {
+      if (!response.ok) return [];
+      return response.json();
+    });
+  }
+
+  function checkMode(campanha, config) {
+    var modo = campanha.modo_identificacao || 'sistema_tela';
+    if (modo === 'sistema_tela') {
+      return campanha.tela === config.tela;
+    }
+    if (modo === 'data_cy') {
+      var seletor = campanha.data_cy;
+      if (!seletor) return false;
+      try {
+        return Boolean(document.querySelector('[data-cy="' + seletor + '"]'));
+      } catch (_e) {
+        return false;
+      }
+    }
+    if (modo === 'url_contem') {
+      var val = campanha.url_contem;
+      if (!val) return false;
+      return (
+        window.location.href.indexOf(val) !== -1 ||
+        window.location.pathname.indexOf(val) !== -1
+      );
+    }
+    return false;
+  }
+
   function submitFeedback() {
     var campanha = state.campanha;
     var config = state.config;
@@ -675,73 +715,78 @@
     if (!normalized.slug && (!normalized.sistema || !normalized.tela)) return;
 
     ensureStyles();
-    fetchCampaign(normalized)
-      .then(function (campanha) {
-        if (!campanha) return;
-        state.campanha = campanha;
-        resetRoot();
-        render();
-        scheduleAutoOpen(campanha, normalized);
-      })
-      .catch(function () {
-        // Widget embarcado deve falhar silenciosamente para nao afetar o sistema hospedeiro.
-      });
+
+    if (normalized.slug) {
+      fetchCampaign(normalized)
+        .then(function (campanha) {
+          if (!campanha) return;
+          state.campanha = campanha;
+          resetRoot();
+          render();
+          scheduleAutoOpen(campanha, normalized);
+        })
+        .catch(function () {});
+    } else {
+      fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id)
+        .then(function (candidatos) {
+          for (var i = 0; i < candidatos.length; i++) {
+            var c = candidatos[i];
+            if (!checkMode(c, normalized)) continue;
+            state.campanha = c;
+            resetRoot();
+            render();
+            scheduleAutoOpen(c, normalized);
+            break;
+          }
+        })
+        .catch(function () {});
+    }
   }
 
   function track(eventoNome, metadataOpcional) {
     if (!state.config || !eventoNome) return;
     var config = state.config;
-    if (!config.sistema || !config.tela) return;
+    if (!config.sistema) return;
 
-    // URLSearchParams.toString() percent-encodes values (equivalent to encodeURIComponent
-    // for query params, with spaces as %20 in key-value form).
-    var params = new URLSearchParams();
-    params.set('sistema', config.sistema);
-    params.set('tela', config.tela);
-    params.set('evento', String(eventoNome));
-    if (config.usuario_id) params.set('usuario_id', config.usuario_id);
+    fetchCandidatas(config.sistema, config.tela, 'apos_evento', eventoNome, config.usuario_id)
+      .then(function (candidatos) {
+        for (var i = 0; i < candidatos.length; i++) {
+          var campanha = candidatos[i];
+          if (!checkMode(campanha, config)) continue;
+          if (wasShown(campanha, config)) continue;
 
-    fetch(apiUrl('/api/widget/campanha?' + params.toString()), {
-      headers: { Accept: 'application/json' },
-    })
-      .then(function (response) {
-        if (response.status === 404) return null;
-        if (!response.ok) return null;
-        return response.json();
-      })
-      .then(function (campanha) {
-        if (!campanha) return;
-        if (wasShown(campanha, config)) return;
-        if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
+          if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
 
-        // Merge optional metadata into init contexto for this session.
-        // Creates a new config object — never mutates the original so subsequent
-        // track() calls without metadata still use the clean init contexto.
-        if (metadataOpcional && typeof metadataOpcional === 'object') {
-          var merged = Object.assign({}, config.contexto || {}, metadataOpcional);
-          state.config = Object.assign({}, config, { contexto: merged });
+          // Merge optional metadata into init contexto for this session.
+          // Creates a new config object — never mutates the original so subsequent
+          // track() calls without metadata still use the clean init contexto.
+          if (metadataOpcional && typeof metadataOpcional === 'object') {
+            var merged = Object.assign({}, config.contexto || {}, metadataOpcional);
+            state.config = Object.assign({}, config, { contexto: merged });
+          }
+
+          state.campanha = campanha;
+          state.open = false;
+          state.nota = null;
+          state.observacao = '';
+          state.submitting = false;
+          state.submitted = false;
+          state.error = '';
+          state.visualizacaoRegistrada = false;
+          state.feedbackId = null;
+          state.telefone = '';
+          state.phoneSubmitting = false;
+          state.phoneDone = false;
+          state.phoneError = '';
+          ensureStyles();
+          resetRoot();
+          state.open = true;
+          markShown(campanha, config);
+          state.visualizacaoRegistrada = true;
+          registrarEvento('visualizacao');
+          render();
+          break;
         }
-
-        state.campanha = campanha;
-        state.open = false;
-        state.nota = null;
-        state.observacao = '';
-        state.submitting = false;
-        state.submitted = false;
-        state.error = '';
-        state.visualizacaoRegistrada = false;
-        state.feedbackId = null;
-        state.telefone = '';
-        state.phoneSubmitting = false;
-        state.phoneDone = false;
-        state.phoneError = '';
-        ensureStyles();
-        resetRoot();
-        state.open = true;
-        markShown(campanha, config);
-        state.visualizacaoRegistrada = true;
-        registrarEvento('visualizacao');
-        render();
       })
       .catch(function () { /* fail silently */ });
   }

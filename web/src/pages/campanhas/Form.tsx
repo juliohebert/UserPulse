@@ -25,6 +25,9 @@ interface FormState {
   modo_exibicao: string
   gatilho: string
   evento: string
+  modo_identificacao: string
+  data_cy: string
+  url_contem: string
   atraso_ms: string
   mostrar_uma_vez: boolean
   prioridade: string
@@ -42,7 +45,8 @@ interface FormState {
 const EMPTY: FormState = {
   titulo: '', subtitulo: '', descricao: '', tipo: 'pesquisa', sistema: '', tela: '',
   imagem_url: '', video_url: '', texto_botao: '', url_botao: '', feedback_habilitado: true,
-  modo_exibicao: 'modal_automatica', gatilho: 'ao_abrir_tela', evento: '', atraso_ms: '800',
+  modo_exibicao: 'modal_automatica', gatilho: 'ao_abrir_tela', evento: '',
+  modo_identificacao: 'sistema_tela', data_cy: '', url_contem: '', atraso_ms: '800',
   mostrar_uma_vez: false, prioridade: '0', ordem: '0',
   ativo: true, data_inicio: '', data_fim: '', pergunta_feedback: '', observacao_obrigatoria: false,
   exige_confirmacao_leitura: false, intervalo_reexibicao_dias: '', categoria: '',
@@ -94,6 +98,9 @@ export function CampanhaForm() {
           modo_exibicao: c.modo_exibicao ?? 'modal_automatica',
           gatilho: c.gatilho ?? 'ao_abrir_tela',
           evento: c.evento ?? '',
+          modo_identificacao: c.modo_identificacao ?? 'sistema_tela',
+          data_cy: c.data_cy ?? '',
+          url_contem: c.url_contem ?? '',
           atraso_ms: String(c.atraso_ms ?? 800),
           mostrar_uma_vez: c.mostrar_uma_vez ?? false,
           prioridade: String(c.prioridade ?? 0),
@@ -160,6 +167,9 @@ export function CampanhaForm() {
         texto_botao: form.texto_botao || null,
         url_botao: form.url_botao || null,
         evento: form.evento || null,
+        tela: form.modo_identificacao === 'sistema_tela' ? form.tela : '',
+        data_cy: form.data_cy || null,
+        url_contem: form.url_contem || null,
         atraso_ms: Number(form.atraso_ms || 800),
         prioridade: Number(form.prioridade || 0),
         ordem: Number(form.ordem || 0),
@@ -350,22 +360,81 @@ export function CampanhaForm() {
                     </datalist>
                   </div>
 
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">
-                      Tela <span className="text-error">*</span>
+                  <div className="md:col-span-2">
+                    <label className="block text-label-md text-on-surface-variant mb-2">
+                      Modo de identificação <span className="text-error">*</span>
                     </label>
-                    <input
-                      required
-                      list="telas-list"
-                      value={form.tela}
-                      onChange={e => set('tela', e.target.value)}
-                      placeholder="Ex: home, checkout, dashboard"
-                      className={field}
-                    />
-                    <datalist id="telas-list">
-                      {telas.map(t => <option key={t} value={t} />)}
-                    </datalist>
+                    <div className="flex flex-wrap gap-5">
+                      {[
+                        { value: 'sistema_tela', label: 'Sistema / Tela' },
+                        { value: 'data_cy', label: 'Data-cy' },
+                        { value: 'url_contem', label: 'URL contém' },
+                      ].map(opt => (
+                        <label key={opt.value} className="flex items-center gap-2 text-body-md text-on-surface cursor-pointer">
+                          <input
+                            type="radio"
+                            name="modo_identificacao"
+                            value={opt.value}
+                            checked={form.modo_identificacao === opt.value}
+                            onChange={e => set('modo_identificacao', e.target.value)}
+                            className="text-primary focus:ring-primary"
+                          />
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
                   </div>
+
+                  {form.modo_identificacao === 'sistema_tela' && (
+                    <div className="md:col-span-2">
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">
+                        Tela <span className="text-error">*</span>
+                      </label>
+                      <input
+                        required
+                        list="telas-list"
+                        value={form.tela}
+                        onChange={e => set('tela', e.target.value)}
+                        placeholder="Ex: home, checkout, dashboard"
+                        className={field}
+                      />
+                      <datalist id="telas-list">
+                        {telas.map(t => <option key={t} value={t} />)}
+                      </datalist>
+                    </div>
+                  )}
+
+                  {form.modo_identificacao === 'data_cy' && (
+                    <div className="md:col-span-2">
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">
+                        Valor do data-cy <span className="text-error">*</span>
+                      </label>
+                      <input
+                        required
+                        value={form.data_cy}
+                        onChange={e => set('data_cy', e.target.value)}
+                        placeholder="Ex: agenda-page"
+                        className={field}
+                      />
+                      <p className="mt-1 text-[11px] text-outline">Widget procura por [data-cy="valor"] no DOM da página</p>
+                    </div>
+                  )}
+
+                  {form.modo_identificacao === 'url_contem' && (
+                    <div className="md:col-span-2">
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">
+                        URL contém <span className="text-error">*</span>
+                      </label>
+                      <input
+                        required
+                        value={form.url_contem}
+                        onChange={e => set('url_contem', e.target.value)}
+                        placeholder="Ex: /agenda ou agendamento"
+                        className={field}
+                      />
+                      <p className="mt-1 text-[11px] text-outline">Valida se window.location.href ou pathname contém o valor</p>
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-label-md text-on-surface-variant mb-1.5">Data de Início</label>

@@ -1,7 +1,13 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 
-const CAMPOS_OBRIGATORIOS = ['titulo', 'descricao', 'tipo', 'sistema', 'tela'] as const
+const CAMPOS_BASE = ['titulo', 'descricao', 'tipo', 'sistema'] as const
+
+function getCamposObrigatorios(modo: string): string[] {
+  if (modo === 'data_cy') return [...CAMPOS_BASE, 'data_cy']
+  if (modo === 'url_contem') return [...CAMPOS_BASE, 'url_contem']
+  return [...CAMPOS_BASE, 'tela']
+}
 
 function gerarSlugBase(titulo: string): string {
   return titulo
@@ -56,7 +62,8 @@ export async function buscarPorId(req: Request, res: Response) {
 
 export async function criar(req: Request, res: Response) {
   try {
-    const faltando = CAMPOS_OBRIGATORIOS.filter(c => !req.body[c]?.toString().trim())
+    const modo = String(req.body.modo_identificacao || 'sistema_tela')
+    const faltando = getCamposObrigatorios(modo).filter(c => !req.body[c]?.toString().trim())
     if (faltando.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
     }
@@ -65,7 +72,8 @@ export async function criar(req: Request, res: Response) {
       titulo, subtitulo, descricao, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
-      modo_exibicao, gatilho, evento, atraso_ms, mostrar_uma_vez, prioridade, ordem,
+      modo_exibicao, gatilho, evento, modo_identificacao, data_cy, url_contem,
+      atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, intervalo_reexibicao_dias, categoria,
     } = req.body
@@ -80,7 +88,7 @@ export async function criar(req: Request, res: Response) {
         descricao: descricao.trim(),
         tipo: tipo.trim(),
         sistema: sistema.trim(),
-        tela: tela.trim(),
+        tela: tela?.trim() || '',
         imagem_url: imagem_url?.trim() || null,
         video_url: video_url?.trim() || null,
         texto_botao: texto_botao?.trim() || null,
@@ -89,6 +97,9 @@ export async function criar(req: Request, res: Response) {
         modo_exibicao: modo_exibicao?.trim() || 'modal_automatica',
         gatilho: gatilho?.trim() || 'ao_abrir_tela',
         evento: evento?.trim() || null,
+        modo_identificacao: modo_identificacao?.trim() || 'sistema_tela',
+        data_cy: data_cy?.trim() || null,
+        url_contem: url_contem?.trim() || null,
         atraso_ms: atraso_ms !== undefined ? Number(atraso_ms) : 800,
         mostrar_uma_vez: Boolean(mostrar_uma_vez),
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
@@ -118,7 +129,8 @@ export async function atualizar(req: Request, res: Response) {
     const existente = await prisma.campanha.findUnique({ where: { id } })
     if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
-    const vazios = CAMPOS_OBRIGATORIOS.filter(c => c in req.body && !req.body[c]?.toString().trim())
+    const modoAtualizado = String(req.body.modo_identificacao ?? existente.modo_identificacao ?? 'sistema_tela')
+    const vazios = getCamposObrigatorios(modoAtualizado).filter(c => c in req.body && !req.body[c]?.toString().trim())
     if (vazios.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
     }
@@ -127,7 +139,8 @@ export async function atualizar(req: Request, res: Response) {
       titulo, subtitulo, descricao, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
-      modo_exibicao, gatilho, evento, atraso_ms, mostrar_uma_vez, prioridade, ordem,
+      modo_exibicao, gatilho, evento, modo_identificacao, data_cy, url_contem,
+      atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, intervalo_reexibicao_dias, categoria,
     } = req.body
@@ -145,7 +158,7 @@ export async function atualizar(req: Request, res: Response) {
         ...(descricao !== undefined && { descricao: descricao.trim() }),
         ...(tipo !== undefined && { tipo: tipo.trim() }),
         ...(sistema !== undefined && { sistema: sistema.trim() }),
-        ...(tela !== undefined && { tela: tela.trim() }),
+        ...(tela !== undefined && { tela: tela?.trim() || '' }),
         ...(imagem_url !== undefined && { imagem_url: imagem_url?.trim() || null }),
         ...(video_url !== undefined && { video_url: video_url?.trim() || null }),
         ...(texto_botao !== undefined && { texto_botao: texto_botao?.trim() || null }),
@@ -154,6 +167,9 @@ export async function atualizar(req: Request, res: Response) {
         ...(modo_exibicao !== undefined && { modo_exibicao: modo_exibicao?.trim() || 'modal_automatica' }),
         ...(gatilho !== undefined && { gatilho: gatilho?.trim() || 'ao_abrir_tela' }),
         ...(evento !== undefined && { evento: evento?.trim() || null }),
+        ...(modo_identificacao !== undefined && { modo_identificacao: modo_identificacao?.trim() || 'sistema_tela' }),
+        ...(data_cy !== undefined && { data_cy: data_cy?.trim() || null }),
+        ...(url_contem !== undefined && { url_contem: url_contem?.trim() || null }),
         ...(atraso_ms !== undefined && { atraso_ms: Number(atraso_ms) }),
         ...(mostrar_uma_vez !== undefined && { mostrar_uma_vez: Boolean(mostrar_uma_vez) }),
         ...(prioridade !== undefined && { prioridade: Number(prioridade) }),

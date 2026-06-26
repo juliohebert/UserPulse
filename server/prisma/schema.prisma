@@ -24,6 +24,9 @@ model Campanha {
   modo_exibicao          String    @default("modal_automatica")
   gatilho                String    @default("ao_abrir_tela")
   evento                 String?
+  modo_identificacao     String    @default("sistema_tela")
+  data_cy                String?
+  url_contem             String?
   atraso_ms              Int       @default(800)
   mostrar_uma_vez        Boolean   @default(false)
   prioridade             Int       @default(0)
