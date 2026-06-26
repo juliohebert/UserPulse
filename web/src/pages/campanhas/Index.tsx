@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { get, del, put } from '../../services/api'
 import type { Campanha } from '../../types'
-import { getStatus, formatDate, gerarEmbed } from '../../utils/campanha'
+import { getStatus, formatDateTime, gerarEmbed } from '../../utils/campanha'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
@@ -15,8 +15,6 @@ const TIPOS = ['comunicado', 'melhoria', 'pesquisa']
 const STATUS_OPTIONS = ['ativa', 'inativa', 'agendada', 'encerrada']
 const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
 
-const selectCls =
-  'w-full rounded-xl border border-outline-variant py-2.5 px-3 text-body-md bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary'
 
 export function CampanhasIndex() {
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
@@ -38,6 +36,7 @@ export function CampanhasIndex() {
   const [filterSistema, setFilterSistema] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterCategoria, setFilterCategoria] = useState('')
+  const [filterAtivo, setFilterAtivo] = useState<'todas' | 'ativas' | 'inativas'>('ativas')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [quickView, setQuickView] = useState<Campanha | null>(null)
 
@@ -58,6 +57,8 @@ export function CampanhasIndex() {
 
   const busca = filterBusca.trim().toLowerCase()
   const filtered = campanhas.filter(c => {
+    if (filterAtivo === 'ativas' && !c.ativo) return false
+    if (filterAtivo === 'inativas' && c.ativo) return false
     if (busca) {
       const campos = [
         c.titulo,
@@ -86,10 +87,11 @@ export function CampanhasIndex() {
     setFilterSistema('')
     setFilterStatus('')
     setFilterCategoria('')
+    setFilterAtivo('ativas')
     setPage(1)
   }
 
-  const hasFilters = Boolean(filterBusca || filterTipo || filterSistema || filterStatus || filterCategoria)
+  const hasFilters = Boolean(filterBusca || filterTipo || filterSistema || filterStatus || filterCategoria || filterAtivo !== 'ativas')
 
   const handleToggle = async (c: Campanha) => {
     try {
@@ -118,8 +120,19 @@ export function CampanhasIndex() {
     }
   }
 
+  const handleReativar = async (id: string) => {
+    try {
+      const updated = await put<Campanha>(`/campanhas/${id}`, { ativo: true })
+      setCampanhas(prev => prev.map(x => (x.id === id ? updated : x)))
+      if (quickView?.id === id) setQuickView(updated)
+    } catch {
+      alert('Erro ao reativar campanha.')
+    }
+  }
+
   const totalFeedbacks = campanhas.reduce((s, c) => s + (c._count?.feedbacks ?? 0), 0)
   const ativas = campanhas.filter(c => getStatus(c) === 'ativa').length
+  const inativas = campanhas.filter(c => !c.ativo).length
 
   return (
     <section className="px-4 lg:px-margin-desktop py-5">
@@ -145,6 +158,32 @@ export function CampanhasIndex() {
           <span className="material-symbols-outlined text-[18px]">add</span>
           Nova Campanha
         </button>
+      </div>
+
+      {/* Status tabs */}
+      <div className="flex items-center gap-1 bg-surface-container p-1 rounded-xl w-fit mb-4">
+        {([
+          { key: 'todas', label: 'Todas', count: campanhas.length },
+          { key: 'ativas', label: 'Ativas', count: campanhas.filter(c => c.ativo).length },
+          { key: 'inativas', label: 'Inativas', count: inativas },
+        ] as const).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => { setFilterAtivo(tab.key); setPage(1) }}
+            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-label-md font-bold transition-colors ${
+              filterAtivo === tab.key
+                ? 'bg-surface-bright text-on-surface shadow-sm'
+                : 'text-on-surface-variant hover:text-on-surface'
+            }`}
+          >
+            {tab.label}
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+              filterAtivo === tab.key ? 'bg-primary/10 text-primary' : 'bg-surface-container-high text-on-surface-variant'
+            }`}>
+              {tab.count}
+            </span>
+          </button>
+        ))}
       </div>
 
       {/* Filters */}
@@ -173,38 +212,42 @@ export function CampanhasIndex() {
 
         {/* Row filters */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <div className="space-y-1">
-            <label className="text-label-md text-on-surface-variant px-1 block">Tipo</label>
-            <select value={filterTipo} onChange={e => { setFilterTipo(e.target.value); setPage(1) }} className={selectCls}>
-              <option value="">Todos os tipos</option>
-              {TIPOS.map(t => (
-                <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-label-md text-on-surface-variant px-1 block">Categoria</label>
-            <select value={filterCategoria} onChange={e => { setFilterCategoria(e.target.value); setPage(1) }} className={selectCls}>
-              <option value="">Todas as categorias</option>
-              {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-label-md text-on-surface-variant px-1 block">Sistema</label>
-            <select value={filterSistema} onChange={e => { setFilterSistema(e.target.value); setPage(1) }} className={selectCls}>
-              <option value="">Todos os sistemas</option>
-              {sistemas.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-label-md text-on-surface-variant px-1 block">Status</label>
-            <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }} className={selectCls}>
-              <option value="">Todos os status</option>
-              {STATUS_OPTIONS.map(s => (
-                <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-              ))}
-            </select>
-          </div>
+          <FilterSelect
+            label="Todos os tipos"
+            value={filterTipo}
+            options={[
+              { value: '', label: 'Todos os tipos' },
+              ...TIPOS.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+            ]}
+            onChange={v => { setFilterTipo(v); setPage(1) }}
+          />
+          <FilterSelect
+            label="Todas as categorias"
+            value={filterCategoria}
+            options={[
+              { value: '', label: 'Todas as categorias' },
+              ...CATEGORIAS.map(c => ({ value: c, label: c })),
+            ]}
+            onChange={v => { setFilterCategoria(v); setPage(1) }}
+          />
+          <FilterSelect
+            label="Todos os sistemas"
+            value={filterSistema}
+            options={[
+              { value: '', label: 'Todos os sistemas' },
+              ...sistemas.map(s => ({ value: s, label: s })),
+            ]}
+            onChange={v => { setFilterSistema(v); setPage(1) }}
+          />
+          <FilterSelect
+            label="Todos os status"
+            value={filterStatus}
+            options={[
+              { value: '', label: 'Todos os status' },
+              ...STATUS_OPTIONS.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) })),
+            ]}
+            onChange={v => { setFilterStatus(v); setPage(1) }}
+          />
           <div className="flex items-end">
             <button
               onClick={clearFilters}
@@ -234,6 +277,9 @@ export function CampanhasIndex() {
             {filterStatus && (
               <FilterChip label={filterStatus.charAt(0).toUpperCase() + filterStatus.slice(1)} onRemove={() => { setFilterStatus(''); setPage(1) }} />
             )}
+            {filterAtivo !== 'todas' && (
+              <FilterChip label={filterAtivo === 'ativas' ? 'Ativas' : 'Inativas'} onRemove={() => { setFilterAtivo('todas'); setPage(1) }} />
+            )}
             <span className="text-label-md text-on-surface-variant self-center">
               — {filtered.length} {filtered.length === 1 ? 'resultado' : 'resultados'}
             </span>
@@ -252,8 +298,10 @@ export function CampanhasIndex() {
               <table className="w-full text-left border-collapse">
                 <thead className="bg-surface-container-low border-b border-outline-variant">
                   <tr>
-                    {['Campanha', 'Tipo', 'Sistema / Tela', 'Status', 'Respostas', 'Ações'].map(h => (
-                      <th key={h} className="px-5 py-4 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">
+                    {(['Campanha', 'Tipo', 'Sistema / Tela', 'Status', 'Respostas', 'Ações'] as const).map(h => (
+                      <th key={h} className={`px-5 py-4 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap${
+                        h === 'Ações' ? ' text-right' : h === 'Respostas' ? ' text-center' : ''
+                      }`}>
                         {h}
                       </th>
                     ))}
@@ -291,7 +339,7 @@ export function CampanhasIndex() {
                       <tr
                         key={c.id}
                         onClick={() => setQuickView(c)}
-                        className={`cursor-pointer transition-colors ${
+                        className={`cursor-pointer transition-colors ${!c.ativo ? 'opacity-60' : ''} ${
                           quickView?.id === c.id
                             ? 'bg-primary-fixed/60'
                             : 'hover:bg-surface-container-low/60'
@@ -299,7 +347,14 @@ export function CampanhasIndex() {
                       >
                         {/* Campanha */}
                         <td className="px-5 py-4 max-w-[280px]">
-                          <p className="text-body-md font-bold text-on-surface truncate">{c.titulo}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-body-md font-bold text-on-surface truncate">{c.titulo}</p>
+                            {!c.ativo && (
+                              <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-error/10 text-error border border-error/20">
+                                Inativa
+                              </span>
+                            )}
+                          </div>
                           {c.subtitulo && (
                             <p className="text-[12px] text-primary truncate mt-0.5">{c.subtitulo}</p>
                           )}
@@ -309,7 +364,7 @@ export function CampanhasIndex() {
                                 {c.categoria}
                               </span>
                             )}
-                            <span className="text-[11px] text-on-surface-variant">{formatDate(c.criado_em)}</span>
+                            <span className="text-[11px] text-on-surface-variant">Criada em: {formatDateTime(c.criado_em)}</span>
                           </div>
                         </td>
 
@@ -375,13 +430,23 @@ export function CampanhasIndex() {
                           >
                             <span className="material-symbols-outlined text-[20px]">query_stats</span>
                           </button>
-                          <button
-                            onClick={() => handleInativar(c.id)}
-                            title="Inativar"
-                            className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-all"
-                          >
-                            <span className="material-symbols-outlined text-[20px]">block</span>
-                          </button>
+                          {c.ativo ? (
+                            <button
+                              onClick={() => handleInativar(c.id)}
+                              title="Inativar"
+                              className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-all"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">block</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleReativar(c.id)}
+                              title="Reativar"
+                              className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-lg transition-all"
+                            >
+                              <span className="material-symbols-outlined text-[20px]">check_circle</span>
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))
@@ -396,10 +461,11 @@ export function CampanhasIndex() {
 
       {/* Quick Stats */}
       {!loading && !error && campanhas.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-5">
           {[
             { icon: 'trending_up', color: 'primary', label: 'Total de Campanhas', value: `${campanhas.length}` },
             { icon: 'star', color: 'secondary', label: 'Campanhas Ativas', value: `${ativas}` },
+            { icon: 'block', color: 'error', label: 'Campanhas Inativas', value: `${inativas}` },
             { icon: 'forum', color: 'tertiary', label: 'Total de Feedbacks', value: totalFeedbacks.toLocaleString('pt-BR') },
           ].map(item => (
             <div
@@ -426,6 +492,75 @@ export function CampanhasIndex() {
         />
       )}
     </section>
+  )
+}
+
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: { value: string; label: string }[]
+  onChange: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const selected = options.find(o => o.value === value)
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full h-11 rounded-xl border border-outline-variant bg-surface-bright px-4 text-body-md flex justify-between items-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors hover:border-outline"
+      >
+        <span className={selected?.value ? 'text-on-surface' : 'text-on-surface-variant'}>
+          {selected?.label ?? label}
+        </span>
+        <span className={`material-symbols-outlined text-outline text-[18px] transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
+          expand_more
+        </span>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1.5 w-full rounded-xl border border-outline-variant bg-surface-bright shadow-lg overflow-hidden">
+          {options.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => { onChange(o.value); setOpen(false) }}
+              className={`w-full flex items-center justify-between px-4 py-2.5 text-body-md text-left transition-colors ${
+                value === o.value
+                  ? 'bg-primary/10 text-primary font-bold'
+                  : 'text-on-surface hover:bg-surface-container-low'
+              }`}
+            >
+              {o.label}
+              {value === o.value && (
+                <span className="material-symbols-outlined text-[16px]">check</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -368,19 +368,23 @@ export function CampanhaForm() {
                     <label className="block text-label-md text-on-surface-variant mb-1.5">
                       Tipo <span className="text-error">*</span>
                     </label>
-                    <select required value={form.tipo} onChange={e => set('tipo', e.target.value)} className={field}>
-                      {TIPOS.map(t => (
-                        <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
-                      ))}
-                    </select>
+                    <FormSelect
+                      value={form.tipo}
+                      options={TIPOS.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) }))}
+                      onChange={v => set('tipo', v)}
+                    />
                   </div>
 
                   <div>
                     <label className="block text-label-md text-on-surface-variant mb-1.5">Categoria</label>
-                    <select value={form.categoria} onChange={e => set('categoria', e.target.value)} className={field}>
-                      <option value="">Sem categoria</option>
-                      {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                    <FormSelect
+                      value={form.categoria}
+                      options={[
+                        { value: '', label: 'Sem categoria' },
+                        ...CATEGORIAS.map(c => ({ value: c, label: c })),
+                      ]}
+                      onChange={v => set('categoria', v)}
+                    />
                   </div>
 
                   <div>
@@ -825,6 +829,71 @@ export function CampanhaForm() {
           </div>
         </form>
       </section>
+    </div>
+  )
+}
+
+function FormSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string
+  options: { value: string; label: string }[]
+  onChange: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const selected = options.find(o => o.value === value)
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full h-11 rounded-xl border border-outline-variant bg-surface-bright px-4 text-body-md flex justify-between items-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors hover:border-outline text-left"
+      >
+        <span className="text-on-surface">{selected?.label ?? options[0]?.label}</span>
+        <span className={`material-symbols-outlined text-outline text-[18px] transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
+          expand_more
+        </span>
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1.5 w-full rounded-xl border border-outline-variant bg-surface-bright shadow-lg overflow-hidden">
+          {options.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => { onChange(o.value); setOpen(false) }}
+              className={`w-full flex items-center justify-between px-4 py-2.5 text-body-md text-left transition-colors ${
+                value === o.value
+                  ? 'bg-primary/10 text-primary font-bold'
+                  : 'text-on-surface hover:bg-surface-container-low'
+              }`}
+            >
+              {o.label}
+              {value === o.value && (
+                <span className="material-symbols-outlined text-[16px]">check</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
