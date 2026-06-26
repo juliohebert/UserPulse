@@ -41,16 +41,27 @@ export async function buscarCampanha(req: Request, res: Response) {
     }
 
     if (usuario_id) {
+      const uidStr = String(usuario_id)
+
+      if (campanha.mostrar_uma_vez) {
+        const jaViu = await prisma.eventoCampanha.findFirst({
+          where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
+        })
+        if (jaViu) {
+          return res.status(404).json({ erro: 'Campanha já exibida para este usuário.' })
+        }
+      }
+
       if (campanha.exige_confirmacao_leitura) {
         const jaConfirmou = await prisma.confirmacaoLeitura.findFirst({
-          where: { campanha_id: campanha.id, usuario_id: String(usuario_id) },
+          where: { campanha_id: campanha.id, usuario_id: uidStr },
         })
         if (jaConfirmou) {
           return res.status(404).json({ erro: 'Campanha já confirmada por este usuário.' })
         }
       } else {
         const ultimoFeedback = await prisma.feedback.findFirst({
-          where: { campanha_id: campanha.id, usuario_id: String(usuario_id) },
+          where: { campanha_id: campanha.id, usuario_id: uidStr },
           orderBy: { criado_em: 'desc' },
         })
         if (ultimoFeedback) {
@@ -123,28 +134,34 @@ export async function buscarCandidatas(req: Request, res: Response) {
     const elegiveis: typeof campanhas = []
 
     for (const campanha of campanhas) {
+      if (campanha.mostrar_uma_vez) {
+        const jaViu = await prisma.eventoCampanha.findFirst({
+          where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
+        })
+        if (jaViu) continue
+      }
+
       if (campanha.exige_confirmacao_leitura) {
         const jaConfirmou = await prisma.confirmacaoLeitura.findFirst({
           where: { campanha_id: campanha.id, usuario_id: uidStr },
         })
-        if (!jaConfirmou) elegiveis.push(campanha)
+        if (jaConfirmou) continue
       } else {
         const ultimoFeedback = await prisma.feedback.findFirst({
           where: { campanha_id: campanha.id, usuario_id: uidStr },
           orderBy: { criado_em: 'desc' },
         })
-        if (!ultimoFeedback) {
-          elegiveis.push(campanha)
-        } else {
+        if (ultimoFeedback) {
           const intervalo = campanha.intervalo_reexibicao_dias
-          if (intervalo !== null && intervalo !== undefined) {
-            const diasDesde = Math.floor(
-              (agora.getTime() - ultimoFeedback.criado_em.getTime()) / (1000 * 60 * 60 * 24)
-            )
-            if (diasDesde >= intervalo) elegiveis.push(campanha)
-          }
+          if (intervalo === null || intervalo === undefined) continue
+          const diasDesde = Math.floor(
+            (agora.getTime() - ultimoFeedback.criado_em.getTime()) / (1000 * 60 * 60 * 24)
+          )
+          if (diasDesde < intervalo) continue
         }
       }
+
+      elegiveis.push(campanha)
     }
 
     res.json(elegiveis)

@@ -285,7 +285,8 @@
 
   function shownKey(campanha, config) {
     var ctx = config.slug || (config.sistema + ':' + config.tela);
-    return 'userpulse:shown:' + campanha.id + ':' + ctx;
+    var uid = config.usuario_id ? ':u:' + config.usuario_id : '';
+    return 'userpulse:shown:' + campanha.id + ':' + ctx + uid;
   }
 
   function wasShown(campanha, config) {
