@@ -55,6 +55,16 @@ const EMPTY: FormState = {
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
+function normalizeUrlContem(value: string): string {
+  const v = value.trim()
+  if (!v) return v
+  try {
+    return new URL(v).pathname
+  } catch {
+    return v
+  }
+}
+
 function buildResumo(f: FormState): string {
   const tela = f.tela ? `"${f.tela}"` : 'tela configurada'
   const dataCy = f.data_cy ? `"${f.data_cy}"` : 'data-cy configurado'
@@ -199,7 +209,7 @@ export function CampanhaForm() {
         evento: form.evento || null,
         tela: form.modo_identificacao === 'sistema_tela' ? form.tela : '',
         data_cy: form.data_cy || null,
-        url_contem: form.url_contem || null,
+        url_contem: normalizeUrlContem(form.url_contem) || null,
         atraso_ms: Number(form.atraso_ms || 800),
         prioridade: Number(form.prioridade || 0),
         ordem: Number(form.ordem || 0),
@@ -460,16 +470,28 @@ export function CampanhaForm() {
                   {form.modo_identificacao === 'url_contem' && (
                     <div className="md:col-span-2">
                       <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Caminho da URL <span className="text-error">*</span>
+                        URL da tela no Clinic <span className="text-error">*</span>
                       </label>
                       <input
                         required
                         value={form.url_contem}
-                        onChange={e => set('url_contem', e.target.value)}
-                        placeholder="Ex: /agenda ou agendamento"
+                        onChange={e => set('url_contem', normalizeUrlContem(e.target.value))}
+                        placeholder="https://clinic.exemplo.com/app/atendimento/agendamentos"
                         className={field}
                       />
-                      <p className="mt-1 text-[11px] text-outline">Informe um trecho da URL, exemplo: /agenda.</p>
+                      <p className="mt-1 text-[11px] text-outline">
+                        Cole a URL completa da tela onde a campanha deve aparecer. O UserPulse usará apenas o caminho da URL para funcionar em diferentes ambientes.
+                      </p>
+                      {form.url_contem && !form.url_contem.startsWith('/') && (
+                        <p className="mt-1 text-[11px] text-amber-600">
+                          O caminho deve começar com "/". Exemplo: /app/atendimento/agendamentos
+                        </p>
+                      )}
+                      {form.url_contem && (
+                        <p className="mt-1.5 text-[11px] text-primary font-medium bg-primary/5 px-2.5 py-1.5 rounded-lg">
+                          Esta campanha será exibida quando a URL contiver: <strong>{form.url_contem}</strong>
+                        </p>
+                      )}
                     </div>
                   )}
 
