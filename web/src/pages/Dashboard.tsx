@@ -68,10 +68,14 @@ export function Dashboard() {
     .filter(x => x.count > 0)
   const semCategoria = campanhas.filter(c => !c.categoria).length
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Excluir esta campanha? Esta ação não pode ser desfeita.')) return
-    await del(`/campanhas/${id}`)
-    setCampanhas(prev => prev.filter(c => c.id !== id))
+  const handleInativar = async (id: string) => {
+    if (!window.confirm('Deseja inativar esta campanha? Ela deixará de ser exibida para os usuários, mas o histórico será preservado.')) return
+    try {
+      await del(`/campanhas/${id}`)
+      setCampanhas(prev => prev.map(c => c.id === id ? { ...c, ativo: false } : c))
+    } catch {
+      alert('Erro ao inativar campanha.')
+    }
   }
 
   return (
@@ -191,8 +195,8 @@ export function Dashboard() {
                               <button onClick={() => navigate(`/campanhas/${c.id}/dashboard`)} title="Dashboard" className="p-2 text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed rounded-lg transition-colors">
                                 <span className="material-symbols-outlined text-[20px]">query_stats</span>
                               </button>
-                              <button onClick={() => handleDelete(c.id)} title="Excluir" className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-colors">
-                                <span className="material-symbols-outlined text-[20px]">delete</span>
+                              <button onClick={() => handleInativar(c.id)} title="Inativar" className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-colors">
+                                <span className="material-symbols-outlined text-[20px]">block</span>
                               </button>
                             </td>
                           </tr>

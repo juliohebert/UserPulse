@@ -112,6 +112,14 @@ function periodoRange(p: Periodo): { inicio: Date | null; fim: Date | null } {
   }
 }
 
+function npsZona(score: number): { nome: string; bg: string; text: string; border: string } {
+  if (score >= 91) return { nome: 'Zona de Encantamento',      bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200'    }
+  if (score >= 76) return { nome: 'Zona de Excelência',        bg: 'bg-green-50',   text: 'text-green-700',   border: 'border-green-200'   }
+  if (score >= 51) return { nome: 'Zona de Qualidade',         bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' }
+  if (score >= 1)  return { nome: 'Zona de Aperfeiçoamento',   bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200'   }
+  return                   { nome: 'Zona Crítica',              bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200'     }
+}
+
 function inPeriodo(criado_em: string, inicio: Date | null, fim: Date | null): boolean {
   if (!inicio && !fim) return true
   const d = new Date(criado_em)
@@ -477,28 +485,42 @@ export function CampanhaDashboard() {
               icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
               label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
               sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
+              subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram a campanha no período selecionado."
             />
             <KpiCard
               icon="forum" iconColor="text-secondary" iconBg="bg-secondary/10"
               label="Respostas" value={kpiTotal.toLocaleString('pt-BR')}
               sub={`Taxa: ${taxaResposta.toLocaleString('pt-BR')}%`}
+              subTooltip="Taxa de resposta = respostas recebidas ÷ usuários únicos que visualizaram a campanha. O cálculo respeita o período selecionado."
             />
             <KpiCard
               icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
               label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
               sub={`Taxa: ${kpiTaxaClique.toLocaleString('pt-BR')}%`}
+              subTooltip="Taxa de clique = cliques no CTA ÷ visualizações da campanha. O cálculo respeita o período selecionado."
             />
-            {kpiTotal > 0 ? (
-              <KpiCard
-                icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
-                label="Nota Média" value={kpiMedia !== null ? kpiMedia.toFixed(1) : '—'}
-                sub={`NPS: ${npsScore > 0 ? '+' : ''}${npsScore}`}
-              />
-            ) : (
+            {kpiTotal > 0 ? (() => {
+              const zona = npsZona(npsScore)
+              return (
+                <KpiCard
+                  icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
+                  label="Nota Média" value={kpiMedia !== null ? kpiMedia.toFixed(1) : '—'}
+                  sub={`NPS: ${npsScore > 0 ? '+' : ''}${npsScore}`}
+                  tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
+                  subTooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
+                  subExtra={
+                    <span className={`inline-flex text-[11px] font-semibold px-2 py-0.5 rounded-full border ${zona.bg} ${zona.text} ${zona.border}`}>
+                      {zona.nome}
+                    </span>
+                  }
+                />
+              )
+            })() : (
               <KpiCard
                 icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
                 label="Nota Média" value="—"
                 sub="sem respostas ainda"
+                tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
               />
             )}
           </div>
@@ -543,7 +565,15 @@ export function CampanhaDashboard() {
               <KpiCard icon="sentiment_dissatisfied" iconColor="text-error" iconBg="bg-error/10"
                 label="Detratores" value={`${detratores}`} sub={`${pctDetr}% do total`} />
               <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm flex flex-col items-center justify-center text-center gap-1">
-                <p className="text-label-md text-outline">NPS</p>
+                <p className="text-label-md text-outline flex items-center gap-1">
+                  NPS
+                  <span
+                    className="material-symbols-outlined text-[13px] text-outline/50 cursor-help shrink-0"
+                    title="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
+                  >
+                    info
+                  </span>
+                </p>
                 <p className={`text-display-sm font-bold leading-none ${npsScore > 0 ? 'text-tertiary' : npsScore < 0 ? 'text-error' : 'text-on-surface'}`}>
                   {npsScore > 0 ? '+' : ''}{npsScore}
                 </p>
@@ -1143,9 +1173,10 @@ function CellText({ value }: { value: string }) {
 interface KpiCardProps {
   icon: string; iconColor: string; iconBg: string
   label: string; value: string; sub: string; large?: boolean
+  tooltip?: string; subTooltip?: string; subExtra?: React.ReactNode
 }
 
-function KpiCard({ icon, iconColor, iconBg, label, value, sub, large }: KpiCardProps) {
+function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, tooltip, subTooltip, subExtra }: KpiCardProps) {
   return (
     <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm">
       <div className="flex items-start gap-3">
@@ -1153,11 +1184,26 @@ function KpiCard({ icon, iconColor, iconBg, label, value, sub, large }: KpiCardP
           <span className={`material-symbols-outlined ${iconColor} text-[22px]`}>{icon}</span>
         </div>
         <div className="min-w-0">
-          <p className="text-label-md text-outline">{label}</p>
+          <p className="text-label-md text-outline flex items-center gap-1">
+            {label}
+            {tooltip && (
+              <span className="material-symbols-outlined text-[13px] text-outline/50 cursor-help shrink-0" title={tooltip}>
+                info
+              </span>
+            )}
+          </p>
           <p className={`font-bold text-on-surface leading-none mt-1 ${large ? 'text-display-sm' : 'text-headline-lg'}`}>
             {value}
           </p>
-          <p className="text-label-md text-outline mt-1">{sub}</p>
+          <p className="text-label-md text-outline mt-1 flex items-center gap-1">
+            {sub}
+            {subTooltip && (
+              <span className="material-symbols-outlined text-[13px] text-outline/50 cursor-help shrink-0" title={subTooltip}>
+                info
+              </span>
+            )}
+          </p>
+          {subExtra && <div className="mt-1.5">{subExtra}</div>}
         </div>
       </div>
     </div>

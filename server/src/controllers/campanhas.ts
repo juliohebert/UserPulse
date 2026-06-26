@@ -200,10 +200,10 @@ export async function remover(req: Request, res: Response) {
     const existente = await prisma.campanha.findUnique({ where: { id } })
     if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
-    await prisma.campanha.delete({ where: { id } })
-    res.status(204).send()
+    await prisma.campanha.update({ where: { id }, data: { ativo: false } })
+    res.json({ mensagem: 'Campanha inativada com sucesso.' })
   } catch (err) {
     console.error(err)
-    res.status(500).json({ erro: 'Erro ao remover campanha.' })
+    res.status(500).json({ erro: 'Erro ao inativar campanha.' })
   }
 }

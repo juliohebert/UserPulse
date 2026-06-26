@@ -90,14 +90,14 @@ export function CampanhasIndex() {
     setTimeout(() => setCopiedId(prev => (prev === c.id ? null : prev)), 2000)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm('Excluir esta campanha? Esta ação não pode ser desfeita.')) return
+  const handleInativar = async (id: string) => {
+    if (!window.confirm('Deseja inativar esta campanha? Ela deixará de ser exibida para os usuários, mas o histórico será preservado.')) return
     try {
       await del(`/campanhas/${id}`)
-      setCampanhas(prev => prev.filter(c => c.id !== id))
-      if (quickView?.id === id) setQuickView(null)
+      setCampanhas(prev => prev.map(c => c.id === id ? { ...c, ativo: false } : c))
+      if (quickView?.id === id) setQuickView(prev => prev ? { ...prev, ativo: false } : null)
     } catch {
-      alert('Erro ao excluir campanha.')
+      alert('Erro ao inativar campanha.')
     }
   }
 
@@ -357,11 +357,11 @@ export function CampanhasIndex() {
                             <span className="material-symbols-outlined text-[20px]">query_stats</span>
                           </button>
                           <button
-                            onClick={() => handleDelete(c.id)}
-                            title="Excluir"
+                            onClick={() => handleInativar(c.id)}
+                            title="Inativar"
                             className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-all"
                           >
-                            <span className="material-symbols-outlined text-[20px]">delete</span>
+                            <span className="material-symbols-outlined text-[20px]">block</span>
                           </button>
                         </td>
                       </tr>
