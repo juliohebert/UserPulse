@@ -51,7 +51,8 @@ export async function buscarCampanha(req: Request, res: Response) {
     if (usuario_id && !alwaysShow) {
       const uidStr = String(usuario_id)
 
-      if (campanha.mostrar_uma_vez) {
+      // Mandatory campaign: visualização alone doesn't block — only response/confirmation does
+      if (campanha.mostrar_uma_vez && campanha.permitir_fechar_modal) {
         const jaViu = await prisma.eventoCampanha.findFirst({
           where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
         })
@@ -144,7 +145,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
     const elegiveis: typeof campanhas = []
 
     for (const campanha of campanhas) {
-      if (campanha.mostrar_uma_vez) {
+      if (campanha.mostrar_uma_vez && campanha.permitir_fechar_modal) {
         const jaViu = await prisma.eventoCampanha.findFirst({
           where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
         })

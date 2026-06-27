@@ -37,6 +37,7 @@ model Campanha {
   pergunta_feedback         String?
   observacao_obrigatoria    Boolean   @default(false)
   exige_confirmacao_leitura   Boolean   @default(false)
+  permitir_fechar_modal       Boolean   @default(true)
   intervalo_reexibicao_dias   Int?
   categoria                   String?
   criado_em                   DateTime  @default(now())

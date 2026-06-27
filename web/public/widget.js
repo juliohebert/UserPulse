@@ -236,7 +236,7 @@
       '<div class="' + modalClass + '" role="dialog" aria-modal="true" aria-label="' + escapeHtml(campanha.titulo) + '">',
       '<div class="up-modal-header">',
       '<div class="up-brand"><div class="up-brand-icon">' + icon('chat') + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
-      '<button type="button" class="up-close" aria-label="Fechar" data-up-toggle="true">' + icon('close') + '</button>',
+      campanha.permitir_fechar_modal !== false ? '<button type="button" class="up-close" aria-label="Fechar" data-up-toggle="true">' + icon('close') + '</button>' : '',
       '</div>',
       '<div class="up-body">',
       campanha.subtitulo ? '<p class="up-subtitle">' + escapeHtml(campanha.subtitulo) + '</p>' : '',
@@ -296,6 +296,7 @@
   function wasShown(campanha, config) {
     if (!campanha.mostrar_uma_vez) return false;
     if (campanha.always_show_user) return false;
+    if (!campanha.permitir_fechar_modal) return false;
     try {
       return window.localStorage.getItem(shownKey(campanha, config)) === '1';
     } catch (_err) {
@@ -306,6 +307,7 @@
   function markShown(campanha, config) {
     if (!campanha.mostrar_uma_vez) return;
     if (campanha.always_show_user) return;
+    if (!campanha.permitir_fechar_modal) return;
     try {
       window.localStorage.setItem(shownKey(campanha, config), '1');
     } catch (_err) {}

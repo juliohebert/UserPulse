@@ -75,7 +75,7 @@ export async function criar(req: Request, res: Response) {
       modo_exibicao, gatilho, evento, modo_identificacao, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
-      exige_confirmacao_leitura, intervalo_reexibicao_dias, categoria,
+      exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias, categoria,
     } = req.body
 
     const slug = await slugUnico(gerarSlugBase(titulo))
@@ -110,6 +110,7 @@ export async function criar(req: Request, res: Response) {
         pergunta_feedback: pergunta_feedback?.trim() || null,
         observacao_obrigatoria: Boolean(observacao_obrigatoria),
         exige_confirmacao_leitura: Boolean(exige_confirmacao_leitura),
+        permitir_fechar_modal: permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : true,
         intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
         categoria: categoria?.trim() || null,
       },
@@ -142,7 +143,7 @@ export async function atualizar(req: Request, res: Response) {
       modo_exibicao, gatilho, evento, modo_identificacao, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
-      exige_confirmacao_leitura, intervalo_reexibicao_dias, categoria,
+      exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias, categoria,
     } = req.body
 
     let slug = existente.slug
@@ -180,6 +181,7 @@ export async function atualizar(req: Request, res: Response) {
         ...(pergunta_feedback !== undefined && { pergunta_feedback: pergunta_feedback?.trim() || null }),
         ...(observacao_obrigatoria !== undefined && { observacao_obrigatoria: Boolean(observacao_obrigatoria) }),
         ...(exige_confirmacao_leitura !== undefined && { exige_confirmacao_leitura: Boolean(exige_confirmacao_leitura) }),
+        ...(permitir_fechar_modal !== undefined && { permitir_fechar_modal: Boolean(permitir_fechar_modal) }),
         ...(intervalo_reexibicao_dias !== undefined && {
           intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
         }),

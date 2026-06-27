@@ -28,6 +28,7 @@ export interface Campanha {
   pergunta_feedback: string | null
   observacao_obrigatoria: boolean
   exige_confirmacao_leitura: boolean
+  permitir_fechar_modal: boolean
   intervalo_reexibicao_dias: number | null
   categoria: string | null
   criado_em: string

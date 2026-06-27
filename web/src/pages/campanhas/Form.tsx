@@ -38,6 +38,7 @@ interface FormState {
   pergunta_feedback: string
   observacao_obrigatoria: boolean
   exige_confirmacao_leitura: boolean
+  permitir_fechar_modal: boolean
   intervalo_reexibicao_dias: string
   categoria: string
 }
@@ -49,7 +50,7 @@ const EMPTY: FormState = {
   modo_identificacao: 'sistema_tela', data_cy: '', url_contem: '', atraso_ms: '800',
   mostrar_uma_vez: false, prioridade: '0', ordem: '0',
   ativo: true, data_inicio: '', data_fim: '', pergunta_feedback: '', observacao_obrigatoria: false,
-  exige_confirmacao_leitura: false, intervalo_reexibicao_dias: '', categoria: '',
+  exige_confirmacao_leitura: false, permitir_fechar_modal: true, intervalo_reexibicao_dias: '', categoria: '',
 }
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
@@ -92,7 +93,11 @@ function buildResumo(f: FormState): string {
     ? `A campanha poderá aparecer novamente após ${f.intervalo_reexibicao_dias} dias da resposta.`
     : 'A campanha não será exibida novamente após o usuário responder.'
 
-  return `${base} ${recorrencia}`
+  const fechamento = !f.permitir_fechar_modal
+    ? ' Esta campanha só poderá ser fechada após resposta ou confirmação de leitura.'
+    : ''
+
+  return `${base} ${recorrencia}${fechamento}`
 }
 
 export function CampanhaForm() {
@@ -153,6 +158,7 @@ export function CampanhaForm() {
           pergunta_feedback: c.pergunta_feedback ?? '',
           observacao_obrigatoria: c.observacao_obrigatoria,
           exige_confirmacao_leitura: c.exige_confirmacao_leitura,
+          permitir_fechar_modal: c.permitir_fechar_modal ?? true,
           intervalo_reexibicao_dias: c.intervalo_reexibicao_dias != null ? String(c.intervalo_reexibicao_dias) : '',
           categoria: c.categoria ?? '',
         })
@@ -198,6 +204,10 @@ export function CampanhaForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!form.permitir_fechar_modal && !form.feedback_habilitado && !form.exige_confirmacao_leitura) {
+      setError('Para impedir o fechamento da modal, habilite feedback ou confirmação de leitura.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -737,6 +747,19 @@ export function CampanhaForm() {
                         <span className="block text-[11px] text-outline font-normal mt-0.5">Quando ativado, cada usuário verá esta campanha apenas uma vez.</span>
                       </span>
                     </label>
+                    <label className="flex items-start gap-3 text-body-md text-on-surface cursor-pointer">
+                      <input type="checkbox" checked={form.permitir_fechar_modal} onChange={e => set('permitir_fechar_modal', e.target.checked)} className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary mt-0.5 shrink-0" />
+                      <span>
+                        Permitir fechar sem responder
+                        <span className="block text-[11px] text-outline font-normal mt-0.5">Desative quando o usuário precisar responder ou confirmar leitura para concluir a campanha.</span>
+                      </span>
+                    </label>
+                    {!form.permitir_fechar_modal && !form.feedback_habilitado && !form.exige_confirmacao_leitura && (
+                      <p className="text-[11px] text-error flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[13px]">error</span>
+                        Habilite feedback ou confirmação de leitura na seção abaixo.
+                      </p>
+                    )}
                   </div>
 
                   {/* Feedback */}
