@@ -9,5 +9,6 @@ router.get('/:id', campanhas.buscarPorId)
 router.put('/:id', campanhas.atualizar)
 router.delete('/:id', campanhas.remover)
 router.post('/:id/testar-elegibilidade', campanhas.testarElegibilidade)
+router.get('/:id/respostas.csv', campanhas.exportarRespostasCSV)
 
 export default router

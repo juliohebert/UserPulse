@@ -1,6 +1,286 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 
+// ─── Respostas helpers ────────────────────────────────────────────────────────
+
+interface RespostaRow {
+  id: string
+  tipo: 'feedback' | 'confirmacao'
+  data_hora: Date
+  usuario_id: string | null
+  usuario_nome: string | null
+  usuario_email: string | null
+  cliente_id: string | null
+  cliente_nome: string | null
+  unidade_id: string | null
+  unidade_nome: string | null
+  perfil: string | null
+  usuario_tipo: string | null
+  estado: string | null
+  nota: number | null
+  comentario: string | null
+  telefone: string | null
+  confirmacao_leitura: boolean
+}
+
+function ctxStr(ctx: unknown, key: string): string | null {
+  if (!ctx || typeof ctx !== 'object' || Array.isArray(ctx)) return null
+  const v = (ctx as Record<string, unknown>)[key]
+  if (v == null || v === '') return null
+  return String(v)
+}
+
+function csvEscape(val: unknown): string {
+  let s: string
+  if (val == null) s = ''
+  else if (val instanceof Date) {
+    s = val.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+  } else {
+    s = String(val)
+  }
+  if (s.includes(';') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+    return '"' + s.replace(/"/g, '""') + '"'
+  }
+  return s
+}
+
+type RespostaFiltros = {
+  data_inicio: string
+  data_fim: string
+  cliente_id: string
+  cliente_nome: string
+  unidade_id: string
+  unidade_nome: string
+  perfil: string
+  usuario_tipo: string
+  estado: string
+  nota: string
+  nps: string
+  tem_telefone: string
+  busca: string
+}
+
+function parseRespostaFiltros(q: Record<string, unknown>): RespostaFiltros {
+  const s = (k: string) => (typeof q[k] === 'string' ? (q[k] as string).trim() : '')
+  return {
+    data_inicio: s('data_inicio'),
+    data_fim: s('data_fim'),
+    cliente_id: s('cliente_id'),
+    cliente_nome: s('cliente_nome'),
+    unidade_id: s('unidade_id'),
+    unidade_nome: s('unidade_nome'),
+    perfil: s('perfil'),
+    usuario_tipo: s('usuario_tipo'),
+    estado: s('estado'),
+    nota: s('nota'),
+    nps: s('nps'),
+    tem_telefone: s('tem_telefone'),
+    busca: s('busca'),
+  }
+}
+
+async function buscarRespostasRows(campanhaId: string, f: RespostaFiltros): Promise<RespostaRow[]> {
+  const dateFilter: { gte?: Date; lte?: Date } = {}
+  if (f.data_inicio) dateFilter.gte = new Date(f.data_inicio)
+  if (f.data_fim) {
+    const fim = new Date(f.data_fim)
+    fim.setHours(23, 59, 59, 999)
+    dateFilter.lte = fim
+  }
+  const hasDates = Object.keys(dateFilter).length > 0
+
+  const [feedbacks, confirmacoes] = await Promise.all([
+    prisma.feedback.findMany({
+      where: {
+        campanha_id: campanhaId,
+        ...(hasDates ? { criado_em: dateFilter } : {}),
+        ...(f.nota !== '' && !isNaN(Number(f.nota)) ? { nota: Number(f.nota) } : {}),
+      },
+      orderBy: { criado_em: 'desc' },
+    }),
+    prisma.confirmacaoLeitura.findMany({
+      where: {
+        campanha_id: campanhaId,
+        ...(hasDates ? { criado_em: dateFilter } : {}),
+      },
+      orderBy: { criado_em: 'desc' },
+    }),
+  ])
+
+  const confirmacaoSet = new Set(confirmacoes.map(c => c.usuario_id).filter((v): v is string => !!v))
+  const feedbackUsuarioIds = new Set(feedbacks.map(fb => fb.usuario_id).filter((v): v is string => !!v))
+
+  const rows: RespostaRow[] = []
+
+  for (const fb of feedbacks) {
+    const ctx = fb.contexto
+    const cli_id = ctxStr(ctx, 'cliente_id')
+    const cli_nome = ctxStr(ctx, 'cliente_nome')
+    const uni_id = ctxStr(ctx, 'unidade_id')
+    const uni_nome = ctxStr(ctx, 'unidade_nome')
+    const prf = ctxStr(ctx, 'Perfil')
+    const usr_tipo = ctxStr(ctx, 'usuario_tipo')
+    const est = ctxStr(ctx, 'Estado')
+
+    if (f.cliente_id && cli_id !== f.cliente_id) continue
+    if (f.cliente_nome && (cli_nome ?? '') !== f.cliente_nome) continue
+    if (f.unidade_id && uni_id !== f.unidade_id) continue
+    if (f.unidade_nome) {
+      const uni_or_clinica = uni_nome ?? ctxStr(ctx, 'clinica_nome')
+      if ((uni_or_clinica ?? '') !== f.unidade_nome) continue
+    }
+    if (f.perfil && prf !== f.perfil) continue
+    if (f.usuario_tipo && usr_tipo !== f.usuario_tipo) continue
+    if (f.estado && est !== f.estado) continue
+    if (f.nps) {
+      if (f.nps === 'Promotor' && fb.nota < 9) continue
+      if (f.nps === 'Neutro' && (fb.nota < 7 || fb.nota > 8)) continue
+      if (f.nps === 'Detrator' && fb.nota > 6) continue
+    }
+    if (f.tem_telefone === 'sim' && !fb.telefone_contato?.trim()) continue
+    if (f.tem_telefone === 'nao' && !!fb.telefone_contato?.trim()) continue
+    if (f.busca) {
+      const q = f.busca.toLowerCase()
+      const hay = [
+        fb.usuario_nome, fb.usuario_email,
+        ctxStr(ctx, 'usuario_nome'), ctxStr(ctx, 'usuario_email'),
+        fb.observacao, fb.telefone_contato,
+      ].filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(q)) continue
+    }
+
+    rows.push({
+      id: fb.id,
+      tipo: 'feedback',
+      data_hora: fb.criado_em,
+      usuario_id: fb.usuario_id,
+      usuario_nome: fb.usuario_nome,
+      usuario_email: fb.usuario_email,
+      cliente_id: cli_id,
+      cliente_nome: cli_nome,
+      unidade_id: uni_id,
+      unidade_nome: uni_nome,
+      perfil: prf,
+      usuario_tipo: usr_tipo,
+      estado: est,
+      nota: fb.nota,
+      comentario: fb.observacao,
+      telefone: fb.telefone_contato,
+      confirmacao_leitura: fb.usuario_id ? confirmacaoSet.has(fb.usuario_id) : false,
+    })
+  }
+
+  // Confirmacoes-only (users who confirmed but left no feedback) — skipped when nota filter active
+  if (!f.nota) {
+    for (const c of confirmacoes) {
+      if (c.usuario_id && feedbackUsuarioIds.has(c.usuario_id)) continue
+
+      const ctx = c.contexto
+      const cli_id = ctxStr(ctx, 'cliente_id')
+      const cli_nome = ctxStr(ctx, 'cliente_nome')
+      const uni_id = ctxStr(ctx, 'unidade_id')
+      const uni_nome = ctxStr(ctx, 'unidade_nome')
+      const prf = ctxStr(ctx, 'Perfil')
+      const usr_tipo = ctxStr(ctx, 'usuario_tipo')
+      const est = ctxStr(ctx, 'Estado')
+
+      if (f.cliente_id && cli_id !== f.cliente_id) continue
+      if (f.cliente_nome && (cli_nome ?? '') !== f.cliente_nome) continue
+      if (f.unidade_id && uni_id !== f.unidade_id) continue
+      if (f.unidade_nome) {
+        const uni_or_clinica = uni_nome ?? ctxStr(ctx, 'clinica_nome')
+        if ((uni_or_clinica ?? '') !== f.unidade_nome) continue
+      }
+      if (f.perfil && prf !== f.perfil) continue
+      if (f.usuario_tipo && usr_tipo !== f.usuario_tipo) continue
+      if (f.estado && est !== f.estado) continue
+      if (f.nps) continue           // confirmações não têm nota
+      if (f.tem_telefone === 'sim') continue  // confirmações não têm telefone
+      if (f.busca) {
+        const q = f.busca.toLowerCase()
+        const hay = [
+          c.usuario_nome, c.usuario_email,
+          ctxStr(ctx, 'usuario_nome'), ctxStr(ctx, 'usuario_email'),
+        ].filter(Boolean).join(' ').toLowerCase()
+        if (!hay.includes(q)) continue
+      }
+
+      rows.push({
+        id: c.id,
+        tipo: 'confirmacao',
+        data_hora: c.criado_em,
+        usuario_id: c.usuario_id,
+        usuario_nome: c.usuario_nome,
+        usuario_email: c.usuario_email,
+        cliente_id: cli_id,
+        cliente_nome: cli_nome,
+        unidade_id: uni_id,
+        unidade_nome: uni_nome,
+        perfil: prf,
+        usuario_tipo: usr_tipo,
+        estado: est,
+        nota: null,
+        comentario: null,
+        telefone: null,
+        confirmacao_leitura: true,
+      })
+    }
+  }
+
+  rows.sort((a, b) => b.data_hora.getTime() - a.data_hora.getTime())
+  return rows
+}
+
+export async function exportarRespostasCSV(req: Request, res: Response) {
+  try {
+    const id = req.params.id as string
+    const campanha = await prisma.campanha.findUnique({
+      where: { id },
+      select: { id: true, titulo: true },
+    })
+    if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
+
+    const filtros = parseRespostaFiltros(req.query as Record<string, unknown>)
+    const respostas = await buscarRespostasRows(id, filtros)
+
+    const COLS = [
+      'Campanha', 'Data/Hora', 'Usuário ID', 'Usuário', 'E-mail',
+      'Cliente ID', 'Cliente', 'Unidade ID', 'Unidade',
+      'Perfil', 'Tipo de usuário', 'Estado',
+      'Nota', 'Comentário', 'Telefone', 'Confirmação de leitura',
+    ]
+    const header = COLS.map(csvEscape).join(';')
+
+    const linhas = respostas.map(r => [
+      campanha.titulo,
+      r.data_hora,
+      r.usuario_id,
+      r.usuario_nome,
+      r.usuario_email,
+      r.cliente_id,
+      r.cliente_nome,
+      r.unidade_id,
+      r.unidade_nome,
+      r.perfil,
+      r.usuario_tipo,
+      r.estado,
+      r.nota,
+      r.comentario,
+      r.telefone,
+      r.confirmacao_leitura ? 'Sim' : 'Não',
+    ].map(csvEscape).join(';'))
+
+    const csv = '﻿' + [header, ...linhas].join('\r\n')
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="respostas-${id}.csv"`)
+    res.send(csv)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao exportar CSV.' })
+  }
+}
+
 // ─── Eligibility test helpers ────────────────────────────────────────────────
 
 type CriterioStatus = 'ok' | 'bloqueado' | 'aviso' | 'nao_aplicavel'

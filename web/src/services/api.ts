@@ -39,3 +39,9 @@ export const put = <T>(path: string, body: unknown) =>
   })
 
 export const del = (path: string) => request<void>(path, { method: 'DELETE' })
+
+export const getBlob = (path: string): Promise<Blob> =>
+  fetch(`${BASE}${path}`, { headers: authHeader() }).then(res => {
+    if (!res.ok) throw new Error('Erro ao baixar arquivo')
+    return res.blob()
+  })

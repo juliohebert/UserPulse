@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { get } from '../../services/api'
+import { get, getBlob } from '../../services/api'
 import type { DashboardData, Feedback } from '../../types'
 import { formatDate, formatDateTime } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
@@ -33,10 +33,8 @@ interface ColDef {
   id: string
   label: string
   defaultOn: boolean
-  wrap?: boolean
 }
 
-// Colunas sempre visíveis — não aparecem no seletor "Colunas"
 const COLUNAS_FIXAS = [
   { id: 'data',         label: 'Data/Hora' },
   { id: 'nota',         label: 'Nota'      },
@@ -46,7 +44,6 @@ const COLUNAS_FIXAS = [
   { id: 'unidade_nome', label: 'Unidade'   },
 ] as const
 
-// Colunas opcionais — controladas pelo seletor "Colunas"
 const COLUNAS: ColDef[] = [
   { id: 'usuario_id',       label: 'Usuário ID',       defaultOn: false },
   { id: 'usuario_email',    label: 'Usuário E-mail',   defaultOn: false },
@@ -64,6 +61,12 @@ const COLUNAS: ColDef[] = [
   { id: 'perfil',           label: 'Perfil',           defaultOn: false },
   { id: 'perfil_nps',       label: 'Perfil NPS',       defaultOn: false },
 ]
+
+const LONG_TEXT_COLS = new Set([
+  'cliente_id', 'cliente_nome', 'cliente_local_id',
+  'unidade_id', 'unidade_nome', 'unidade_local_id',
+  'organizacao_id', 'organizacao_nome', 'clinica_id', 'clinica_nome', 'usuario_email',
+])
 
 const DEFAULT_COLS = new Set(COLUNAS.filter(c => c.defaultOn).map(c => c.id))
 const NI = 'Não informado'
@@ -105,7 +108,6 @@ function periodoRange(p: Periodo): { inicio: Date | null; fim: Date | null } {
       fim: new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59, 999),
     }
   }
-  // custom
   return {
     inicio: p.customInicio ? new Date(p.customInicio + 'T00:00:00') : null,
     fim:    p.customFim    ? new Date(p.customFim    + 'T23:59:59') : null,
@@ -145,7 +147,12 @@ function getCellValue(f: Feedback, colId: string): string {
     case 'usuario_nome':     return f.usuario_nome || ctx.usuario_nome || NI
     case 'usuario_email':    return f.usuario_email || ctx.usuario_email || NI
     case 'usuario_tipo':     return ctx.usuario_tipo || NI
-    case 'cliente_id':       return ctx.cliente_id || NI
+    case 'cliente_id': {
+      const nome = ctx.cliente_nome
+      const cid = ctx.cliente_id
+      if (!cid) return NI
+      return nome ? `${nome} (${cid})` : cid
+    }
     case 'cliente_nome':     return ctx.cliente_nome || NI
     case 'cliente_local_id': return ctx.cliente_local_id || NI
     case 'unidade_id':       return ctx.unidade_id || NI
@@ -177,6 +184,14 @@ export function CampanhaDashboard() {
   const [filtroEvento, setFiltroEvento] = useState<'Todos' | 'Visualização' | 'Clique'>('Todos')
   const [buscaEvento, setBuscaEvento] = useState('')
   const [periodo, setPeriodo] = useState<Periodo>(PERIODO_INICIAL)
+  const [csvLoading, setCsvLoading] = useState(false)
+  const [csvError, setCsvError] = useState<string | null>(null)
+  // paginação respostas
+  const [pagResp, setPagResp] = useState(1)
+  const [tamPagResp, setTamPagResp] = useState(10)
+  // paginação interações
+  const [pagInter, setPagInter] = useState(1)
+  const [tamPagInter, setTamPagInter] = useState(10)
   const colMenuRef = useRef<HTMLDivElement>(null)
 
   const load = () => {
@@ -200,6 +215,12 @@ export function CampanhaDashboard() {
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [showColMenu])
+
+  // reset respostas page when filters or period change
+  useEffect(() => { setPagResp(1) }, [filtros, periodo])
+
+  // reset interações page when filters change
+  useEffect(() => { setPagInter(1) }, [filtroEvento, buscaEvento, periodo])
 
   const toggleCol = (colId: string) => {
     setVisibleCols(prev => {
@@ -269,6 +290,13 @@ export function CampanhaDashboard() {
     })
   }, [feedbacksPeriodo, filtros])
 
+  // paginação respostas
+  const feedbacksPaginados = useMemo(() => {
+    const start = (pagResp - 1) * tamPagResp
+    return feedbacksFiltrados.slice(start, start + tamPagResp)
+  }, [feedbacksFiltrados, pagResp, tamPagResp])
+  const totalPagResp = Math.ceil(feedbacksFiltrados.length / tamPagResp)
+
   const totalFiltrado = feedbacksFiltrados.length
   const mediaFiltrada = totalFiltrado > 0
     ? Math.round(feedbacksFiltrados.reduce((s, f) => s + f.nota, 0) / totalFiltrado * 10) / 10
@@ -280,7 +308,6 @@ export function CampanhaDashboard() {
     filtros.unidade !== '' || filtros.perfil !== '' || filtros.estado !== '' || filtros.telefone !== 'Todos'
   const temFiltros = temFiltrosAvancados || filtros.busca !== ''
 
-  // how many advanced filter dimensions are active
   const qtdFiltrosAvancados = [
     filtros.nps !== 'Todos', filtros.nota !== '', filtros.cliente !== '',
     filtros.unidade !== '', filtros.perfil !== '', filtros.estado !== '', filtros.telefone !== 'Todos',
@@ -305,11 +332,16 @@ export function CampanhaDashboard() {
     return list
   }, [eventosPeriodo, filtroEvento, buscaEvento])
 
+  // paginação interações
+  const eventosPaginados = useMemo(() => {
+    const start = (pagInter - 1) * tamPagInter
+    return eventosFiltrados.slice(start, start + tamPagInter)
+  }, [eventosFiltrados, pagInter, tamPagInter])
+  const totalPagInter = Math.ceil(eventosFiltrados.length / tamPagInter)
+
   const temFiltroEvento = filtroEvento !== 'Todos' || buscaEvento !== ''
 
   // ── KPI metrics — período-aware ──────────────────────────────────────────
-  // "Todo período" → usa dados agregados do backend (mais precisos)
-  // Qualquer outro período → recomputa dos arrays filtrados
   const kpiVisualizacoes = periodoAtivo
     ? eventosPeriodo.filter(e => e.tipo_evento === 'visualizacao').length
     : (data?.visualizacoes ?? 0)
@@ -336,6 +368,39 @@ export function CampanhaDashboard() {
   const activeCols = COLUNAS.filter(c => visibleCols.has(c.id))
   const maxDist = Math.max(1, ...Object.values(kpiDistribuicao))
 
+  const exportarCSV = async () => {
+    if (!id) return
+    setCsvLoading(true)
+    setCsvError(null)
+    try {
+      const { inicio, fim } = periodoRange(periodo)
+      const params = new URLSearchParams()
+      if (inicio) params.set('data_inicio', inicio.toISOString().slice(0, 10))
+      if (fim) params.set('data_fim', fim.toISOString().slice(0, 10))
+      if (filtros.nota) params.set('nota', filtros.nota)
+      if (filtros.estado) params.set('estado', filtros.estado)
+      if (filtros.perfil) params.set('usuario_tipo', filtros.perfil)
+      if (filtros.nps !== 'Todos') params.set('nps', filtros.nps)
+      if (filtros.telefone !== 'Todos') params.set('tem_telefone', filtros.telefone === 'Informado' ? 'sim' : 'nao')
+      if (filtros.cliente) params.set('cliente_nome', filtros.cliente)
+      if (filtros.unidade) params.set('unidade_nome', filtros.unidade)
+      if (filtros.busca.trim()) params.set('busca', filtros.busca.trim())
+      const blob = await getBlob(`/campanhas/${id}/respostas.csv?${params}`)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `respostas-${id}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      setCsvError('Não foi possível exportar. Tente novamente.')
+    } finally {
+      setCsvLoading(false)
+    }
+  }
+
   const promotores = (kpiDistribuicao['9'] ?? 0) + (kpiDistribuicao['10'] ?? 0)
   const neutros    = (kpiDistribuicao['7'] ?? 0) + (kpiDistribuicao['8'] ?? 0)
   const detratores = [0,1,2,3,4,5,6].reduce((s, n) => s + (kpiDistribuicao[String(n)] ?? 0), 0)
@@ -355,7 +420,6 @@ export function CampanhaDashboard() {
     return 'bg-tertiary'
   }
 
-  // quick-filter chips for respostas
   const atalhos = [
     {
       label: 'Todos',
@@ -622,7 +686,7 @@ export function CampanhaDashboard() {
 
             {/* Header */}
             <div className="px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-baseline gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-title-md font-bold text-on-surface">
                   {temFiltros ? `${totalFiltrado} de ${feedbacksPeriodo.length}` : feedbacksPeriodo.length}
                 </span>
@@ -634,18 +698,26 @@ export function CampanhaDashboard() {
                   <span className="text-label-md text-outline">· Média {mediaFiltrada.toFixed(1)}</span>
                 )}
                 {detraComTel > 0 && (
-                  <span className="text-label-md text-error font-semibold">
-                    · {detraComTel} detrator{detraComTel > 1 ? 'es' : ''} c/ tel
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-error/10 text-error border border-error/20">
+                    <span className="material-symbols-outlined text-[12px]">phone</span>
+                    {detraComTel} detrator{detraComTel > 1 ? 'es' : ''} com telefone
                   </span>
                 )}
                 {detraSemTel > 0 && (
-                  <span className="text-label-md text-yellow-700 font-semibold">
-                    · {detraSemTel} s/ tel
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                    <span className="material-symbols-outlined text-[12px]">phone_disabled</span>
+                    {detraSemTel} detrator{detraSemTel > 1 ? 'es' : ''} sem telefone
                   </span>
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                {csvError && (
+                  <span className="text-[12px] text-error flex items-center gap-0.5">
+                    <span className="material-symbols-outlined text-[13px]">error</span>
+                    {csvError}
+                  </span>
+                )}
                 {temFiltros && (
                   <button
                     onClick={() => setFiltros(FILTROS_INICIAIS)}
@@ -656,13 +728,22 @@ export function CampanhaDashboard() {
                     Limpar
                   </button>
                 )}
+                <button
+                  onClick={exportarCSV}
+                  disabled={csvLoading || data.feedbacks_recentes.length === 0}
+                  title={temFiltros ? 'Exportar CSV com os filtros ativos' : 'Exportar respostas do período em CSV (abre no Excel)'}
+                  className="flex items-center gap-1.5 px-3 py-1.5 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors disabled:opacity-40"
+                >
+                  <span className="material-symbols-outlined text-[16px]">download</span>
+                  {csvLoading ? 'Exportando…' : 'CSV'}
+                </button>
                 <div className="relative" ref={colMenuRef}>
                   <button
                     onClick={() => setShowColMenu(v => !v)}
                     className="flex items-center gap-1.5 px-3 py-1.5 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors"
                   >
                     <span className="material-symbols-outlined text-[16px]">view_column</span>
-                    Colunas ({visibleCols.size})
+                    {visibleCols.size > 0 ? `Colunas extras (${visibleCols.size})` : 'Colunas extras'}
                   </button>
                   {showColMenu && (
                     <div className="absolute right-0 top-full mt-1 z-20 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-lg py-2 w-52 max-h-80 overflow-y-auto">
@@ -736,45 +817,68 @@ export function CampanhaDashboard() {
                 {/* Filtros avançados — colapsável */}
                 {showFiltrosAvancados && (
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <FiltroSelect label="NPS" value={filtros.nps} onChange={v => setFiltros(f => ({ ...f, nps: v as NpsFiltro }))}>
-                      <option value="Todos">Todos</option>
-                      <option value="Promotor">Promotor</option>
-                      <option value="Neutro">Neutro</option>
-                      <option value="Detrator">Detrator</option>
-                    </FiltroSelect>
-                    <FiltroSelect label="Nota" value={filtros.nota} onChange={v => setFiltros(f => ({ ...f, nota: v }))}>
-                      <option value="">Todas</option>
-                      {Array.from({ length: 11 }, (_, i) => <option key={i} value={String(i)}>{i}</option>)}
-                    </FiltroSelect>
+                    <FiltroSelect
+                      label="NPS"
+                      value={filtros.nps}
+                      options={[
+                        { value: 'Todos', label: 'Todos' },
+                        { value: 'Promotor', label: 'Promotor' },
+                        { value: 'Neutro', label: 'Neutro' },
+                        { value: 'Detrator', label: 'Detrator' },
+                      ]}
+                      onChange={v => setFiltros(f => ({ ...f, nps: v as NpsFiltro }))}
+                    />
+                    <FiltroSelect
+                      label="Nota"
+                      value={filtros.nota}
+                      options={[
+                        { value: '', label: 'Todas' },
+                        ...Array.from({ length: 11 }, (_, i) => ({ value: String(i), label: String(i) })),
+                      ]}
+                      onChange={v => setFiltros(f => ({ ...f, nota: v }))}
+                    />
                     {opcoesCliente.length > 0 && (
-                      <FiltroSelect label="Cliente" value={filtros.cliente} onChange={v => setFiltros(f => ({ ...f, cliente: v }))}>
-                        <option value="">Todos</option>
-                        {opcoesCliente.map(v => <option key={v} value={v}>{v}</option>)}
-                      </FiltroSelect>
+                      <FiltroSelect
+                        label="Cliente"
+                        value={filtros.cliente}
+                        options={[{ value: '', label: 'Todos' }, ...opcoesCliente.map(v => ({ value: v, label: v }))]}
+                        onChange={v => setFiltros(f => ({ ...f, cliente: v }))}
+                      />
                     )}
                     {opcoesUnidade.length > 0 && (
-                      <FiltroSelect label="Unidade" value={filtros.unidade} onChange={v => setFiltros(f => ({ ...f, unidade: v }))}>
-                        <option value="">Todas</option>
-                        {opcoesUnidade.map(v => <option key={v} value={v}>{v}</option>)}
-                      </FiltroSelect>
+                      <FiltroSelect
+                        label="Unidade"
+                        value={filtros.unidade}
+                        options={[{ value: '', label: 'Todas' }, ...opcoesUnidade.map(v => ({ value: v, label: v }))]}
+                        onChange={v => setFiltros(f => ({ ...f, unidade: v }))}
+                      />
                     )}
                     {opcoesPerfil.length > 0 && (
-                      <FiltroSelect label="Perfil" value={filtros.perfil} onChange={v => setFiltros(f => ({ ...f, perfil: v }))}>
-                        <option value="">Todos</option>
-                        {opcoesPerfil.map(v => <option key={v} value={v}>{v}</option>)}
-                      </FiltroSelect>
+                      <FiltroSelect
+                        label="Perfil"
+                        value={filtros.perfil}
+                        options={[{ value: '', label: 'Todos' }, ...opcoesPerfil.map(v => ({ value: v, label: v }))]}
+                        onChange={v => setFiltros(f => ({ ...f, perfil: v }))}
+                      />
                     )}
                     {opcoesEstado.length > 0 && (
-                      <FiltroSelect label="Estado" value={filtros.estado} onChange={v => setFiltros(f => ({ ...f, estado: v }))}>
-                        <option value="">Todos</option>
-                        {opcoesEstado.map(v => <option key={v} value={v}>{v}</option>)}
-                      </FiltroSelect>
+                      <FiltroSelect
+                        label="Estado"
+                        value={filtros.estado}
+                        options={[{ value: '', label: 'Todos' }, ...opcoesEstado.map(v => ({ value: v, label: v }))]}
+                        onChange={v => setFiltros(f => ({ ...f, estado: v }))}
+                      />
                     )}
-                    <FiltroSelect label="Telefone" value={filtros.telefone} onChange={v => setFiltros(f => ({ ...f, telefone: v as TelefoneFiltro }))}>
-                      <option value="Todos">Todos</option>
-                      <option value="Informado">Informado</option>
-                      <option value="Não informado">Não informado</option>
-                    </FiltroSelect>
+                    <FiltroSelect
+                      label="Telefone"
+                      value={filtros.telefone}
+                      options={[
+                        { value: 'Todos', label: 'Todos' },
+                        { value: 'Informado', label: 'Informado' },
+                        { value: 'Não informado', label: 'Não informado' },
+                      ]}
+                      onChange={v => setFiltros(f => ({ ...f, telefone: v as TelefoneFiltro }))}
+                    />
                   </div>
                 )}
               </div>
@@ -800,63 +904,77 @@ export function CampanhaDashboard() {
                 message="Nenhuma resposta corresponde aos filtros selecionados. Tente ajustar ou limpar os filtros."
               />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-surface-container-low border-b border-outline-variant">
-                    <tr>
-                      {COLUNAS_FIXAS.map(col => (
-                        <th key={col.id} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">
-                          {col.label}
-                        </th>
-                      ))}
-                      {activeCols.map(col => (
-                        <th key={col.id} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">
-                          {col.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-outline-variant/30">
-                    {feedbacksFiltrados.map(f => (
-                      <tr key={f.id} className="hover:bg-surface-container-low/50 transition-colors">
-                        {/* Colunas fixas — sempre visíveis */}
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <CellText value={getCellValue(f, 'data')} />
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-label-md font-bold text-white shrink-0 ${notaColor(f.nota)}`}>
-                              {f.nota}
-                            </span>
-                            <NpsBadge nota={f.nota} />
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 max-w-[220px]">
-                          <ObservacaoCell value={getCellValue(f, 'observacao')} />
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <UsuarioCellFeedback f={f} />
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <CellText value={getCellValue(f, 'telefone')} />
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <UnidadeCell f={f} />
-                        </td>
-                        {/* Colunas opcionais — controladas pelo seletor */}
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-surface-container-low border-b border-outline-variant">
+                      <tr>
+                        {COLUNAS_FIXAS.map(col => (
+                          <th key={col.id} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">
+                            {col.label}
+                          </th>
+                        ))}
                         {activeCols.map(col => (
-                          <td key={col.id} className="px-4 py-3 whitespace-nowrap">
-                            {col.id === 'perfil_nps'
-                              ? <NpsBadge nota={f.nota} />
-                              : <CellText value={getCellValue(f, col.id)} />
-                            }
-                          </td>
+                          <th key={col.id} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">
+                            {col.label}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/30">
+                      {feedbacksPaginados.map(f => (
+                        <tr key={f.id} className="hover:bg-surface-container-low/50 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap align-middle">
+                            <CellText value={getCellValue(f, 'data')} />
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-label-md font-bold text-white shrink-0 ${notaColor(f.nota)}`}>
+                                {f.nota}
+                              </span>
+                              <NpsBadge nota={f.nota} />
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 max-w-[220px] align-middle">
+                            <ObservacaoCell value={getCellValue(f, 'observacao')} />
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle">
+                            <UsuarioCellFeedback f={f} />
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle">
+                            <CellText value={getCellValue(f, 'telefone')} />
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle">
+                            <UnidadeCell f={f} />
+                          </td>
+                          {activeCols.map(col => {
+                            const isLong = LONG_TEXT_COLS.has(col.id)
+                            return (
+                              <td key={col.id} className={`px-4 py-3 whitespace-nowrap align-middle ${isLong ? 'max-w-[180px]' : ''}`}>
+                                {col.id === 'perfil_nps'
+                                  ? <NpsBadge nota={f.nota} />
+                                  : <CellText value={getCellValue(f, col.id)} truncate={isLong} />
+                                }
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {totalPagResp > 1 && (
+                  <Paginacao
+                    total={feedbacksFiltrados.length}
+                    pagina={pagResp}
+                    tamPagina={tamPagResp}
+                    onChange={setPagResp}
+                    onChangeTam={t => { setTamPagResp(t); setPagResp(1) }}
+                    unidade="resposta"
+                    unidadePlural="respostas"
+                  />
+                )}
+              </>
             )}
           </div>
 
@@ -867,7 +985,7 @@ export function CampanhaDashboard() {
 
             {/* Header */}
             <div className="px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-baseline gap-2">
+              <div className="flex items-center gap-2">
                 <span className="text-title-md font-bold text-on-surface">
                   {temFiltroEvento ? `${eventosFiltrados.length} de ${eventosPeriodo.length}` : eventosPeriodo.length}
                 </span>
@@ -886,11 +1004,16 @@ export function CampanhaDashboard() {
                     Limpar
                   </button>
                 )}
-                <FiltroSelect label="Tipo" value={filtroEvento} onChange={v => setFiltroEvento(v as typeof filtroEvento)}>
-                  <option value="Todos">Todos</option>
-                  <option value="Visualização">Visualização</option>
-                  <option value="Clique">Clique CTA</option>
-                </FiltroSelect>
+                <FiltroSelect
+                  label="Tipo"
+                  value={filtroEvento}
+                  options={[
+                    { value: 'Todos', label: 'Todos' },
+                    { value: 'Visualização', label: 'Visualização' },
+                    { value: 'Clique', label: 'Clique CTA' },
+                  ]}
+                  onChange={v => setFiltroEvento(v as typeof filtroEvento)}
+                />
               </div>
             </div>
 
@@ -935,61 +1058,74 @@ export function CampanhaDashboard() {
                 message="Nenhuma interação corresponde aos filtros selecionados. Tente ajustar o tipo ou a busca."
               />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-surface-container-low border-b border-outline-variant">
-                    <tr>
-                      {['Tipo', 'Data/Hora', 'Usuário', 'Perfil', 'Cliente', 'Unidade', 'Estado'].map(h => (
-                        <th key={h} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-outline-variant/30">
-                    {eventosFiltrados.map(e => {
-                      const c = (e.contexto ?? {}) as Record<string, string>
-                      const nome = c.usuario_nome || e.usuario_id
-                      const email = c.usuario_email
-                      const unidade = c.unidade_nome || c.clinica_nome
-                      return (
-                        <tr key={e.id} className="hover:bg-surface-container-low/50 transition-colors">
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <EventoBadge tipo={e.tipo_evento} />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <CellText value={formatDateTime(e.criado_em)} />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap max-w-[180px]">
-                            <div className="flex flex-col gap-0.5">
-                              <span className={`text-[13px] truncate ${nome ? 'text-on-surface' : 'text-outline italic'}`} title={nome ?? undefined}>
-                                {nome ?? NI}
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-surface-container-low border-b border-outline-variant">
+                      <tr>
+                        {['Tipo', 'Data/Hora', 'Usuário', 'Perfil', 'Cliente', 'Unidade', 'Estado'].map(h => (
+                          <th key={h} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/30">
+                      {eventosPaginados.map(e => {
+                        const c = (e.contexto ?? {}) as Record<string, string>
+                        const nome = c.usuario_nome || e.usuario_id
+                        const email = c.usuario_email
+                        const unidade = c.unidade_nome || c.clinica_nome
+                        return (
+                          <tr key={e.id} className="hover:bg-surface-container-low/50 transition-colors">
+                            <td className="px-4 py-3 whitespace-nowrap align-middle">
+                              <EventoBadge tipo={e.tipo_evento} />
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap align-middle">
+                              <CellText value={formatDateTime(e.criado_em)} />
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[180px]">
+                              <div className="flex flex-col gap-0.5">
+                                <span className={`text-[13px] truncate ${nome ? 'text-on-surface' : 'text-outline italic'}`} title={nome ?? undefined}>
+                                  {nome ?? NI}
+                                </span>
+                                {email && (
+                                  <span className="text-[11px] text-outline truncate" title={email}>{email}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap align-middle">
+                              <CellText value={c.usuario_tipo || NI} />
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[160px]">
+                              <span className={`text-[13px] truncate block ${c.cliente_nome ? 'text-on-surface' : 'text-outline italic'}`} title={c.cliente_nome ?? undefined}>
+                                {c.cliente_nome ?? NI}
                               </span>
-                              {email && (
-                                <span className="text-[11px] text-outline truncate" title={email}>{email}</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <CellText value={c.usuario_tipo || NI} />
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap max-w-[160px]">
-                            <span className={`text-[13px] truncate block ${c.cliente_nome ? 'text-on-surface' : 'text-outline italic'}`} title={c.cliente_nome ?? undefined}>
-                              {c.cliente_nome ?? NI}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap max-w-[160px]">
-                            <span className={`text-[13px] truncate block ${unidade ? 'text-on-surface' : 'text-outline italic'}`} title={unidade ?? undefined}>
-                              {unidade ?? NI}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <CellText value={c.Estado || NI} />
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[160px]">
+                              <span className={`text-[13px] truncate block ${unidade ? 'text-on-surface' : 'text-outline italic'}`} title={unidade ?? undefined}>
+                                {unidade ?? NI}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap align-middle">
+                              <CellText value={c.Estado || NI} />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {totalPagInter > 1 && (
+                  <Paginacao
+                    total={eventosFiltrados.length}
+                    pagina={pagInter}
+                    tamPagina={tamPagInter}
+                    onChange={setPagInter}
+                    onChangeTam={t => { setTamPagInter(t); setPagInter(1) }}
+                    unidade="interação"
+                    unidadePlural="interações"
+                  />
+                )}
+              </>
             )}
           </div>
         </>
@@ -1015,6 +1151,137 @@ function EmptySection({ icon, title, message }: { icon: string; title: string; m
       <span className="material-symbols-outlined text-[36px] text-outline/50">{icon}</span>
       <p className="text-body-md font-semibold text-on-surface-variant">{title}</p>
       <p className="text-body-sm text-outline max-w-sm">{message}</p>
+    </div>
+  )
+}
+
+function Paginacao({ total, pagina, tamPagina, onChange, onChangeTam, unidade, unidadePlural }: {
+  total: number
+  pagina: number
+  tamPagina: number
+  onChange: (p: number) => void
+  onChangeTam: (t: number) => void
+  unidade: string
+  unidadePlural: string
+}) {
+  const totalPaginas = Math.ceil(total / tamPagina)
+  const inicio = Math.min((pagina - 1) * tamPagina + 1, total)
+  const fim = Math.min(pagina * tamPagina, total)
+  return (
+    <div className="px-5 py-3 border-t border-outline-variant/30 flex flex-wrap items-center justify-between gap-3 bg-surface-container-lowest">
+      <span className="text-label-md text-outline">
+        Exibindo {inicio}–{fim} de {total} {total === 1 ? unidade : unidadePlural}
+      </span>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1">
+          <span className="text-label-md text-outline mr-1">Por página:</span>
+          {[10, 25, 50].map(t => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => onChangeTam(t)}
+              className={`px-2.5 py-1 rounded-lg text-label-md transition-colors ${
+                tamPagina === t
+                  ? 'bg-primary text-on-primary font-bold'
+                  : 'text-on-surface-variant hover:bg-surface-container-low'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onChange(pagina - 1)}
+            disabled={pagina <= 1}
+            className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container-low disabled:opacity-30 transition-colors"
+          >
+            <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+          </button>
+          <span className="text-label-md text-on-surface-variant px-1 min-w-[4rem] text-center">
+            {pagina} / {totalPaginas}
+          </span>
+          <button
+            type="button"
+            onClick={() => onChange(pagina + 1)}
+            disabled={pagina >= totalPaginas}
+            className="p-1 rounded-lg text-on-surface-variant hover:bg-surface-container-low disabled:opacity-30 transition-colors"
+          >
+            <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FiltroSelect({ label, value, options, onChange }: {
+  label: string
+  value: string
+  options: { value: string; label: string }[]
+  onChange: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const selected = options.find(o => o.value === value)
+  const isActive = !!value  // non-empty value means filter is active
+
+  return (
+    <div className="flex items-center gap-1 shrink-0">
+      <span className="text-[11px] text-outline whitespace-nowrap font-medium">{label}</span>
+      <div className="relative" ref={ref}>
+        <button
+          type="button"
+          onClick={() => setOpen(v => !v)}
+          className={`flex items-center gap-0.5 pl-2.5 pr-1.5 py-1 rounded-xl border text-[13px] transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${
+            isActive
+              ? 'border-primary/40 bg-primary/5 text-primary'
+              : 'border-outline-variant bg-surface-bright text-on-surface hover:border-outline'
+          }`}
+        >
+          <span className="max-w-[120px] truncate block">{selected?.label ?? '—'}</span>
+          <span className={`material-symbols-outlined text-[14px] transition-transform duration-150 shrink-0 ${open ? 'rotate-180' : ''} ${isActive ? 'text-primary' : 'text-outline'}`}>
+            expand_more
+          </span>
+        </button>
+        {open && (
+          <div className="absolute left-0 top-full z-50 mt-1 min-w-max rounded-xl border border-outline-variant bg-surface-bright shadow-lg overflow-hidden">
+            {options.map(o => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => { onChange(o.value); setOpen(false) }}
+                className={`w-full flex items-center justify-between gap-4 px-3 py-2 text-[13px] text-left transition-colors whitespace-nowrap ${
+                  value === o.value
+                    ? 'bg-primary/10 text-primary font-bold'
+                    : 'text-on-surface hover:bg-surface-container-low'
+                }`}
+              >
+                {o.label}
+                {value === o.value && (
+                  <span className="material-symbols-outlined text-[13px] shrink-0">check</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1046,23 +1313,6 @@ function FunnelArrow({ label }: { label: string }) {
       <span className="material-symbols-outlined text-outline text-[18px] rotate-90 sm:rotate-0">arrow_forward</span>
       <span className="text-[10px] text-outline font-semibold text-center leading-tight sm:hidden">{label}</span>
     </div>
-  )
-}
-
-function FiltroSelect({ label, value, onChange, children }: {
-  label: string; value: string; onChange: (v: string) => void; children: React.ReactNode
-}) {
-  return (
-    <label className="flex items-center gap-1.5 shrink-0">
-      <span className="text-label-md text-outline whitespace-nowrap">{label}:</span>
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="border border-outline-variant rounded-xl px-2.5 py-1.5 text-body-sm bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
-      >
-        {children}
-      </select>
-    </label>
   )
 }
 
@@ -1161,10 +1411,13 @@ function EventoBadge({ tipo }: { tipo: string }) {
   )
 }
 
-function CellText({ value }: { value: string }) {
+function CellText({ value, truncate }: { value: string; truncate?: boolean }) {
   const empty = value === NI
   return (
-    <span className={`text-[13px] leading-snug ${empty ? 'text-outline italic' : 'text-on-surface'}`}>
+    <span
+      className={`text-[13px] leading-snug ${empty ? 'text-outline italic' : 'text-on-surface'} ${truncate && !empty ? 'truncate block max-w-[160px]' : ''}`}
+      title={!empty ? value : undefined}
+    >
       {value}
     </span>
   )
