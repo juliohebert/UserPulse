@@ -104,6 +104,7 @@ export function CampanhaForm() {
   const [slug, setSlug] = useState('')
   const [sistemas, setSistemas] = useState<string[]>([])
   const [telas, setTelas] = useState<string[]>([])
+  const [todasCampanhas, setTodasCampanhas] = useState<Campanha[]>([])
   const [loadingCampanha, setLoadingCampanha] = useState(isEdit)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -114,6 +115,7 @@ export function CampanhaForm() {
 
   useEffect(() => {
     get<Campanha[]>('/campanhas').then(cs => {
+      setTodasCampanhas(cs)
       setSistemas([...new Set(cs.map(c => c.sistema).filter(Boolean))])
       setTelas([...new Set(cs.map(c => c.tela).filter(Boolean))])
     }).catch(() => {})
@@ -231,6 +233,18 @@ export function CampanhaForm() {
   }
 
   if (loadingCampanha) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+
+  const urlNorm = normalizeUrlContem(form.url_contem)
+  const campanhaConflitante =
+    form.modo_identificacao === 'url_contem' && urlNorm && form.ativo
+      ? todasCampanhas.find(c =>
+          c.ativo &&
+          c.modo_identificacao === 'url_contem' &&
+          c.sistema === form.sistema &&
+          normalizeUrlContem(c.url_contem ?? '') === urlNorm &&
+          c.id !== id
+        ) ?? null
+      : null
 
   const previewQuestion = form.pergunta_feedback.trim() || form.titulo.trim() || 'Como podemos melhorar?'
 
@@ -495,6 +509,16 @@ export function CampanhaForm() {
                         <p className="mt-1.5 text-[11px] text-primary font-medium bg-primary/5 px-2.5 py-1.5 rounded-lg">
                           Esta campanha será exibida quando a URL contiver: <strong>{form.url_contem}</strong>
                         </p>
+                      )}
+                      {campanhaConflitante && (
+                        <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2.5">
+                          <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">warning</span>
+                          <div className="text-[12px] leading-snug">
+                            <p className="font-semibold">Já existe uma campanha ativa para esta URL neste sistema.</p>
+                            <p className="mt-0.5 text-amber-700">Se mantiver as duas ativas, apenas uma poderá ser exibida por vez para o usuário final.</p>
+                            <p className="mt-1 font-medium">Campanha existente: <span className="font-bold">{campanhaConflitante.titulo}</span></p>
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
