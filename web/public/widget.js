@@ -27,6 +27,7 @@
   var spaListenerBound = false;
   var lastUrl = '';
   var urlChangeTimer = null;
+  var pendingContext = {};
 
   function escapeHtml(value) {
     return String(value == null ? '' : value)
@@ -473,7 +474,25 @@
       usuario_nome: c.usuario_nome ? String(c.usuario_nome) : '',
       usuario_email: c.usuario_email ? String(c.usuario_email) : '',
       contexto: Object.keys(contexto).length ? contexto : null,
+      contextProvider: typeof c.contextProvider === 'function' ? c.contextProvider : null,
     };
+  }
+
+  // Consulta o contextProvider (se configurado) e faz merge no contexto atual.
+  // Chamado antes de cada avaliação de campanha para garantir contexto atualizado em SPAs.
+  function resolveContexto() {
+    var config = state.config;
+    if (!config) return null;
+    var provider = config.contextProvider;
+    if (provider && typeof provider === 'function') {
+      try {
+        var resultado = provider();
+        if (resultado && typeof resultado === 'object') {
+          config.contexto = Object.assign({}, config.contexto || {}, resultado);
+        }
+      } catch (_e) { /* provider falhou — mantém contexto anterior */ }
+    }
+    return config.contexto;
   }
 
   function fetchCampaign(config) {
@@ -714,6 +733,10 @@
     document.body.style.overflow = state.bodyOverflow || '';
 
     var normalized = normalizeConfig(config || {});
+    if (Object.keys(pendingContext).length) {
+      normalized.contexto = Object.assign({}, normalized.contexto || {}, pendingContext);
+      pendingContext = {};
+    }
     state.config = normalized;
     state.campanha = null;
     state.open = false;
@@ -747,6 +770,7 @@
     ensureStyles();
 
     if (normalized.slug) {
+      resolveContexto(); // atualiza normalized.contexto via provider, se existir
       fetchCampaign(normalized)
         .then(function (campanha) {
           if (!campanha) return;
@@ -757,7 +781,8 @@
         })
         .catch(function () {});
     } else {
-      fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id, normalized.contexto)
+      var contextoInit = resolveContexto();
+      fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id, contextoInit)
         .then(function (candidatos) {
           for (var i = 0; i < candidatos.length; i++) {
             var c = candidatos[i];
@@ -778,7 +803,8 @@
     var config = state.config;
     if (!config.sistema) return;
 
-    fetchCandidatas(config.sistema, config.tela, 'apos_evento', eventoNome, config.usuario_id, config.contexto)
+    var contextoTrack = resolveContexto();
+    fetchCandidatas(config.sistema, config.tela, 'apos_evento', eventoNome, config.usuario_id, contextoTrack)
       .then(function (candidatos) {
         for (var i = 0; i < candidatos.length; i++) {
           var campanha = candidatos[i];
@@ -826,7 +852,8 @@
     if (!config || !config.sistema) return;
     if (state.open) return;
 
-    fetchCandidatas(config.sistema, '', 'ao_abrir_tela', null, config.usuario_id, config.contexto)
+    var contextoUrl = resolveContexto();
+    fetchCandidatas(config.sistema, '', 'ao_abrir_tela', null, config.usuario_id, contextoUrl)
       .then(function (candidatos) {
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
@@ -857,6 +884,59 @@
         }
       })
       .catch(function () {});
+  }
+
+  // Reavalia candidatas com o config/contexto atual (todos os modos).
+  // Usado por updateContext e pode ser chamado quando o contexto muda sem reload.
+  function evaluateCampaigns() {
+    var config = state.config;
+    if (!config || !config.sistema) return;
+    if (state.open) return;
+    var contexto = resolveContexto();
+    fetchCandidatas(config.sistema, config.tela, 'ao_abrir_tela', null, config.usuario_id, contexto)
+      .then(function (candidatos) {
+        if (state.open) return;
+        for (var i = 0; i < candidatos.length; i++) {
+          var c = candidatos[i];
+          if (!checkMode(c, config)) continue;
+          if (wasShown(c, config)) continue;
+          if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
+          state.campanha = c;
+          state.open = false;
+          state.nota = null;
+          state.observacao = '';
+          state.submitting = false;
+          state.submitted = false;
+          state.error = '';
+          state.visualizacaoRegistrada = false;
+          state.feedbackId = null;
+          state.telefone = '';
+          state.phoneSubmitting = false;
+          state.phoneDone = false;
+          state.phoneError = '';
+          ensureStyles();
+          resetRoot();
+          scheduleAutoOpen(c, config);
+          break;
+        }
+      })
+      .catch(function () {});
+  }
+
+  // ─── SPA Context Updates ──────────────────────────────────────────────────
+  // Em SPAs que trocam cliente/unidade/perfil sem recarregar a página, chame:
+  //   window.UserPulse.updateContext({ cliente_id: '123', unidade_id: '456' })
+  // Ou defina contextProvider no init() para ser consultado antes de cada avaliação:
+  //   UserPulse.init({ ..., contextProvider: function() { return { cliente_id: getCurrentClient() } } })
+  // A segmentação por cliente/unidade depende do contexto atualizado pelo sistema integrado.
+  function updateContext(novoContexto) {
+    if (!novoContexto || typeof novoContexto !== 'object') return;
+    if (!state.config) {
+      pendingContext = Object.assign({}, pendingContext, novoContexto);
+      return;
+    }
+    state.config.contexto = Object.assign({}, state.config.contexto || {}, novoContexto);
+    evaluateCampaigns();
   }
 
   function handleUrlChange() {
@@ -895,12 +975,14 @@
   window.UserPulse = window.UserPulse || {};
   window.UserPulse.init = init;
   window.UserPulse.track = track;
+  window.UserPulse.updateContext = updateContext;
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
     for (var _qi = 0; _qi < _q.length; _qi++) {
       var _qc = _q[_qi];
       if (_qc[0] === 'init') init.apply(null, _qc[1]);
       else if (_qc[0] === 'track') track.apply(null, _qc[1]);
+      else if (_qc[0] === 'updateContext') updateContext.apply(null, _qc[1]);
     }
   }
 })();

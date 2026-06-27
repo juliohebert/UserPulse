@@ -4,9 +4,9 @@
  * URL fixa que o sistema integrado inclui. Carrega automaticamente o
  * widget.js com cache-busting (?v=<versao>) definido pelo UserPulse.
  *
- * Chamadas a window.UserPulse.init() e .track() feitas antes do
- * widget.js terminar de carregar são enfileiradas e executadas assim
- * que o widget estiver pronto.
+ * Chamadas a window.UserPulse.init(), .track() e .updateContext() feitas
+ * antes do widget.js terminar de carregar são enfileiradas e executadas
+ * assim que o widget estiver pronto.
  *
  * A versão é injetada pelo servidor Express em tempo de requisição.
  * Não edite este arquivo manualmente — ele é servido como template.
@@ -20,6 +20,7 @@
       _q: _q,
       init: function () { _q.push(['init', arguments]); },
       track: function () { _q.push(['track', arguments]); },
+      updateContext: function () { _q.push(['updateContext', arguments]); },
     };
   }
 
