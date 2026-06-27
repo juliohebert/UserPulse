@@ -295,6 +295,7 @@
 
   function wasShown(campanha, config) {
     if (!campanha.mostrar_uma_vez) return false;
+    if (campanha.always_show_user) return false;
     try {
       return window.localStorage.getItem(shownKey(campanha, config)) === '1';
     } catch (_err) {
@@ -304,6 +305,7 @@
 
   function markShown(campanha, config) {
     if (!campanha.mostrar_uma_vez) return;
+    if (campanha.always_show_user) return;
     try {
       window.localStorage.setItem(shownKey(campanha, config), '1');
     } catch (_err) {}

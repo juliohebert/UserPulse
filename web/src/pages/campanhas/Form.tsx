@@ -541,6 +541,22 @@ export function CampanhaForm() {
                     <input type="date" value={form.data_fim} onChange={e => set('data_fim', e.target.value)} className={field} />
                   </div>
 
+                  <div>
+                    <label className="block text-label-md text-on-surface-variant mb-1.5">Prioridade</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={form.prioridade}
+                      onChange={e => set('prioridade', e.target.value)}
+                      placeholder="Ex: 10"
+                      className={field}
+                    />
+                    <p className="mt-1 text-[11px] text-outline">
+                      Quando mais de uma campanha for elegível ao mesmo tempo, a campanha com maior prioridade será exibida primeiro.
+                    </p>
+                  </div>
+
                   <div className="md:col-span-2">
                     <label className="block text-label-md text-on-surface-variant mb-1.5">Status</label>
                     <label className="relative inline-flex items-center cursor-pointer mt-1">

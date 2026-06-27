@@ -1,6 +1,13 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 
+function isAlwaysShowUser(usuarioId?: string): boolean {
+  if (!usuarioId) return false
+  const raw = process.env.USERPULSE_ALWAYS_SHOW_USER_IDS || ''
+  if (!raw.trim()) return false
+  return raw.split(',').map(s => s.trim()).filter(Boolean).includes(usuarioId)
+}
+
 export async function buscarCampanha(req: Request, res: Response) {
   try {
     const { slug, sistema, tela, usuario_id, evento } = req.query
@@ -31,7 +38,6 @@ export async function buscarCampanha(req: Request, res: Response) {
       },
       orderBy: [
         { prioridade: 'desc' },
-        { ordem: 'asc' },
         { criado_em: 'desc' },
       ],
     })
@@ -40,7 +46,9 @@ export async function buscarCampanha(req: Request, res: Response) {
       return res.status(404).json({ erro: 'Nenhuma campanha ativa encontrada.' })
     }
 
-    if (usuario_id) {
+    const alwaysShow = usuario_id ? isAlwaysShowUser(String(usuario_id)) : false
+
+    if (usuario_id && !alwaysShow) {
       const uidStr = String(usuario_id)
 
       if (campanha.mostrar_uma_vez) {
@@ -79,7 +87,7 @@ export async function buscarCampanha(req: Request, res: Response) {
       }
     }
 
-    res.json(campanha)
+    res.json(alwaysShow ? { ...campanha, always_show_user: true } : campanha)
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar campanha.' })
@@ -123,11 +131,13 @@ export async function buscarCandidatas(req: Request, res: Response) {
         OR: modoFiltros,
         ...filtroData,
       },
-      orderBy: [{ prioridade: 'desc' }, { ordem: 'asc' }, { criado_em: 'desc' }],
+      orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
     })
 
-    if (!usuario_id || campanhas.length === 0) {
-      return res.json(campanhas)
+    const alwaysShow = usuario_id ? isAlwaysShowUser(String(usuario_id)) : false
+
+    if (!usuario_id || campanhas.length === 0 || alwaysShow) {
+      return res.json(alwaysShow ? campanhas.map(c => ({ ...c, always_show_user: true })) : campanhas)
     }
 
     const uidStr = String(usuario_id)

@@ -364,6 +364,12 @@ export function CampanhasIndex() {
                                 {c.categoria}
                               </span>
                             )}
+                            {(c.prioridade ?? 0) > 0 && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary" title="Prioridade">
+                                <span className="material-symbols-outlined text-[10px]">arrow_upward</span>
+                                {c.prioridade}
+                              </span>
+                            )}
                             <span className="text-[11px] text-on-surface-variant">Criada em: {formatDateTime(c.criado_em)}</span>
                           </div>
                         </td>
