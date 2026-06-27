@@ -31,7 +31,10 @@ export function CampanhaPreview() {
   const [phoneDone, setPhoneDone] = useState(false)
 
   // Eligibility test
-  const [eligForm, setEligForm] = useState({ sistema: '', tela: '', url: '', usuario_id: '', evento: '' })
+  const [eligForm, setEligForm] = useState({
+    sistema: '', tela: '', url: '', usuario_id: '', evento: '',
+    cliente_id: '', unidade_id: '', perfil: '', usuario_tipo: '', estado: '',
+  })
   const [eligResult, setEligResult] = useState<ResultadoElegibilidade | null>(null)
   const [eligLoading, setEligLoading] = useState(false)
   const [eligError, setEligError] = useState<string | null>(null)
@@ -56,6 +59,7 @@ export function CampanhaPreview() {
           url: modo === 'url_contem' ? (c.url_contem ?? '') : '',
           usuario_id: '',
           evento: c.evento ?? '',
+          cliente_id: '', unidade_id: '', perfil: '', usuario_tipo: '', estado: '',
         })
       })
       .catch(e => setError(e.message))
@@ -99,6 +103,11 @@ export function CampanhaPreview() {
       if (eligForm.url) body.url = eligForm.url
       if (eligForm.usuario_id) body.usuario_id = eligForm.usuario_id
       if (eligForm.evento) body.evento = eligForm.evento
+      if (eligForm.cliente_id) body.cliente_id = eligForm.cliente_id
+      if (eligForm.unidade_id) body.unidade_id = eligForm.unidade_id
+      if (eligForm.perfil) body.perfil = eligForm.perfil
+      if (eligForm.usuario_tipo) body.usuario_tipo = eligForm.usuario_tipo
+      if (eligForm.estado) body.estado = eligForm.estado
       const result = await post<ResultadoElegibilidade>(`/campanhas/${id}/testar-elegibilidade`, body)
       setEligResult(result)
     } catch (err) {
@@ -447,6 +456,85 @@ export function CampanhaPreview() {
                   placeholder={campanha.evento ?? 'ex: paciente_agendado'}
                   className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
                 />
+              </div>
+            )}
+
+            {/* Contexto de segmentação (only shown when campaign has segmentation) */}
+            {(campanha.segmentar_cliente_ids.length > 0 || campanha.segmentar_unidade_ids.length > 0 ||
+              campanha.segmentar_perfis.length > 0 || campanha.segmentar_usuario_tipos.length > 0 ||
+              campanha.segmentar_estados.length > 0) && (
+              <div className="md:col-span-2 border-t border-outline-variant/40 pt-3 space-y-3">
+                <p className="text-label-md font-bold text-on-surface flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[15px] text-secondary">target</span>
+                  Contexto de segmentação
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {campanha.segmentar_cliente_ids.length > 0 && (
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">
+                        Cliente ID <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_cliente_ids.join(', ')}]</span>
+                      </label>
+                      <input
+                        value={eligForm.cliente_id}
+                        onChange={e => setEligForm(f => ({ ...f, cliente_id: e.target.value }))}
+                        placeholder="cliente_id no init()"
+                        className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  )}
+                  {campanha.segmentar_unidade_ids.length > 0 && (
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">
+                        Unidade ID <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_unidade_ids.join(', ')}]</span>
+                      </label>
+                      <input
+                        value={eligForm.unidade_id}
+                        onChange={e => setEligForm(f => ({ ...f, unidade_id: e.target.value }))}
+                        placeholder="unidade_id no init()"
+                        className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  )}
+                  {campanha.segmentar_perfis.length > 0 && (
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">
+                        Perfil <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_perfis.join(', ')}]</span>
+                      </label>
+                      <input
+                        value={eligForm.perfil}
+                        onChange={e => setEligForm(f => ({ ...f, perfil: e.target.value }))}
+                        placeholder="Perfil no init()"
+                        className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  )}
+                  {campanha.segmentar_usuario_tipos.length > 0 && (
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">
+                        Tipo de usuário <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_usuario_tipos.join(', ')}]</span>
+                      </label>
+                      <input
+                        value={eligForm.usuario_tipo}
+                        onChange={e => setEligForm(f => ({ ...f, usuario_tipo: e.target.value }))}
+                        placeholder="usuario_tipo no init()"
+                        className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  )}
+                  {campanha.segmentar_estados.length > 0 && (
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">
+                        Estado <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_estados.join(', ')}]</span>
+                      </label>
+                      <input
+                        value={eligForm.estado}
+                        onChange={e => setEligForm(f => ({ ...f, estado: e.target.value }))}
+                        placeholder="Estado no init()"
+                        className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -41,6 +41,11 @@ interface FormState {
   permitir_fechar_modal: boolean
   intervalo_reexibicao_dias: string
   categoria: string
+  segmentar_cliente_ids: string[]
+  segmentar_unidade_ids: string[]
+  segmentar_perfis: string[]
+  segmentar_usuario_tipos: string[]
+  segmentar_estados: string[]
 }
 
 const EMPTY: FormState = {
@@ -51,6 +56,8 @@ const EMPTY: FormState = {
   mostrar_uma_vez: false, prioridade: '0', ordem: '0',
   ativo: true, data_inicio: '', data_fim: '', pergunta_feedback: '', observacao_obrigatoria: false,
   exige_confirmacao_leitura: false, permitir_fechar_modal: true, intervalo_reexibicao_dias: '', categoria: '',
+  segmentar_cliente_ids: [], segmentar_unidade_ids: [], segmentar_perfis: [],
+  segmentar_usuario_tipos: [], segmentar_estados: [],
 }
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
@@ -167,6 +174,11 @@ export function CampanhaForm() {
           permitir_fechar_modal: c.permitir_fechar_modal ?? true,
           intervalo_reexibicao_dias: c.intervalo_reexibicao_dias != null ? String(c.intervalo_reexibicao_dias) : '',
           categoria: c.categoria ?? '',
+          segmentar_cliente_ids: c.segmentar_cliente_ids ?? [],
+          segmentar_unidade_ids: c.segmentar_unidade_ids ?? [],
+          segmentar_perfis: c.segmentar_perfis ?? [],
+          segmentar_usuario_tipos: c.segmentar_usuario_tipos ?? [],
+          segmentar_estados: c.segmentar_estados ?? [],
         })
         setSlug(c.slug)
       })
@@ -174,7 +186,7 @@ export function CampanhaForm() {
       .finally(() => setLoadingCampanha(false))
   }, [id])
 
-  const set = (key: keyof FormState, value: string | boolean) =>
+  const set = (key: keyof FormState, value: string | boolean | string[]) =>
     setForm(prev => ({ ...prev, [key]: value }))
 
   const handleTitulo = (v: string) => {
@@ -277,6 +289,13 @@ export function CampanhaForm() {
       : null
 
   const previewQuestion = form.pergunta_feedback.trim() || form.titulo.trim() || 'Como podemos melhorar?'
+  const isSegmented = (
+    form.segmentar_cliente_ids.length > 0 ||
+    form.segmentar_unidade_ids.length > 0 ||
+    form.segmentar_perfis.length > 0 ||
+    form.segmentar_usuario_tipos.length > 0 ||
+    form.segmentar_estados.length > 0
+  )
 
   return (
     <div className="relative">
@@ -714,10 +733,9 @@ export function CampanhaForm() {
               </div>
 
               {/* Feature cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 {[
                   { icon: 'auto_awesome', color: 'text-primary', bg: 'psychology', label: 'Ajudante de IA', desc: 'Deixe nossa IA otimizar sua pergunta para melhores conversões.' },
-                  { icon: 'target', color: 'text-secondary', bg: 'group', label: 'Segmentação', desc: 'Defina exatamente quais usuários verão este Pulse.' },
                 ].map(c => (
                   <div key={c.label} className="bg-surface-container-low p-5 rounded-xl border border-outline-variant/50 relative overflow-hidden min-h-28 cursor-not-allowed opacity-70">
                     <div className="relative z-10">
@@ -731,6 +749,41 @@ export function CampanhaForm() {
                     <span className="absolute top-3 right-3 text-[10px] font-bold text-outline bg-surface-container px-2 py-0.5 rounded-full uppercase tracking-wider">Em breve</span>
                   </div>
                 ))}
+              </div>
+
+              {/* Segmentação */}
+              <div className={card}>
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="p-1.5 bg-secondary-fixed rounded-lg text-secondary material-symbols-outlined text-[20px]">target</span>
+                  <div>
+                    <h3 className="text-title-lg font-bold text-on-surface">Segmentação</h3>
+                    <p className="text-label-md text-on-surface-variant">Deixe em branco para exibir para todos.</p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {[
+                    { key: 'segmentar_cliente_ids' as const, label: 'Cliente IDs', hint: 'cliente_id no init()' },
+                    { key: 'segmentar_unidade_ids' as const, label: 'Unidade IDs', hint: 'unidade_id no init()' },
+                    { key: 'segmentar_perfis' as const, label: 'Perfis', hint: 'Perfil no init()' },
+                    { key: 'segmentar_usuario_tipos' as const, label: 'Tipos de usuário', hint: 'usuario_tipo no init()' },
+                    { key: 'segmentar_estados' as const, label: 'Estados', hint: 'Estado no init()' },
+                  ].map(({ key, label, hint }) => (
+                    <div key={key}>
+                      <label className="block text-label-md text-on-surface-variant mb-1">{label}</label>
+                      <ChipInput
+                        values={form[key]}
+                        onChange={v => set(key, v)}
+                        placeholder={`${hint} — Enter ou vírgula`}
+                      />
+                    </div>
+                  ))}
+                  {isSegmented && (
+                    <p className="text-[11px] text-amber-700 flex items-center gap-1.5 bg-amber-50 border border-amber-100 px-3 py-2 rounded-lg">
+                      <span className="material-symbols-outlined text-[14px] shrink-0">info</span>
+                      Esta campanha só será exibida para usuários que correspondam a todos os filtros ativos.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1039,6 +1092,59 @@ function FormSelect({
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function ChipInput({
+  values,
+  onChange,
+  placeholder,
+}: {
+  values: string[]
+  onChange: (v: string[]) => void
+  placeholder?: string
+}) {
+  const [input, setInput] = useState('')
+
+  const commit = () => {
+    const toAdd = input.split(',').map(s => s.trim()).filter(s => s && !values.includes(s))
+    if (toAdd.length) onChange([...values, ...toAdd])
+    setInput('')
+  }
+
+  return (
+    <div
+      className="flex flex-wrap gap-1.5 min-h-[42px] px-2.5 py-2 rounded-lg border border-outline-variant bg-surface-bright focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary transition-colors cursor-text"
+      onClick={e => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}
+    >
+      {values.map(v => (
+        <span key={v} className="inline-flex items-center gap-1 bg-primary/10 text-primary text-[12px] font-medium px-2 py-0.5 rounded-md shrink-0">
+          {v}
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onChange(values.filter(x => x !== v)) }}
+            className="hover:text-error ml-0.5 leading-none"
+          >
+            <span className="material-symbols-outlined text-[12px]">close</span>
+          </button>
+        </span>
+      ))}
+      <input
+        className="flex-1 min-w-[120px] bg-transparent text-body-md text-on-surface outline-none placeholder:text-outline"
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault()
+            commit()
+          } else if (e.key === 'Backspace' && !input && values.length > 0) {
+            onChange(values.slice(0, -1))
+          }
+        }}
+        onBlur={commit}
+        placeholder={values.length === 0 ? (placeholder ?? 'Separar por vírgula ou Enter') : ''}
+      />
     </div>
   )
 }

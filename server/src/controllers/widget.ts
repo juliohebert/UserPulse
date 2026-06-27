@@ -1,6 +1,37 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 
+interface SegCtx {
+  cliente_id?: string
+  unidade_id?: string
+  perfil?: string
+  usuario_tipo?: string
+  estado?: string
+}
+
+interface SegCampanha {
+  segmentar_cliente_ids: string[]
+  segmentar_unidade_ids: string[]
+  segmentar_perfis: string[]
+  segmentar_usuario_tipos: string[]
+  segmentar_estados: string[]
+}
+
+function passaSegmentacao(campanha: SegCampanha, ctx: SegCtx): boolean {
+  const check = (lista: string[], valor?: string) => {
+    if (lista.length === 0) return true
+    if (!valor) return false
+    return lista.includes(valor)
+  }
+  return (
+    check(campanha.segmentar_cliente_ids, ctx.cliente_id) &&
+    check(campanha.segmentar_unidade_ids, ctx.unidade_id) &&
+    check(campanha.segmentar_perfis, ctx.perfil) &&
+    check(campanha.segmentar_usuario_tipos, ctx.usuario_tipo) &&
+    check(campanha.segmentar_estados, ctx.estado)
+  )
+}
+
 function isAlwaysShowUser(usuarioId?: string): boolean {
   if (!usuarioId) return false
   const raw = process.env.USERPULSE_ALWAYS_SHOW_USER_IDS || ''
@@ -10,7 +41,7 @@ function isAlwaysShowUser(usuarioId?: string): boolean {
 
 export async function buscarCampanha(req: Request, res: Response) {
   try {
-    const { slug, sistema, tela, usuario_id, evento } = req.query
+    const { slug, sistema, tela, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
 
     if (!slug && (!sistema || !tela)) {
       return res.status(400).json({ erro: 'Informe slug ou sistema+tela.' })
@@ -43,6 +74,18 @@ export async function buscarCampanha(req: Request, res: Response) {
     })
 
     if (!campanha) {
+      return res.status(404).json({ erro: 'Nenhuma campanha ativa encontrada.' })
+    }
+
+    const ctx: SegCtx = {
+      cliente_id: cliente_id ? String(cliente_id) : undefined,
+      unidade_id: unidade_id ? String(unidade_id) : undefined,
+      perfil: perfil ? String(perfil) : undefined,
+      usuario_tipo: usuario_tipo ? String(usuario_tipo) : undefined,
+      estado: estado ? String(estado) : undefined,
+    }
+
+    if (!passaSegmentacao(campanha, ctx)) {
       return res.status(404).json({ erro: 'Nenhuma campanha ativa encontrada.' })
     }
 
@@ -97,7 +140,7 @@ export async function buscarCampanha(req: Request, res: Response) {
 
 export async function buscarCandidatas(req: Request, res: Response) {
   try {
-    const { sistema, tela, gatilho, evento, usuario_id } = req.query
+    const { sistema, tela, gatilho, evento, usuario_id, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
 
     if (!sistema) {
       return res.status(400).json({ erro: 'Informe sistema.' })
@@ -135,16 +178,26 @@ export async function buscarCandidatas(req: Request, res: Response) {
       orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
     })
 
+    const ctx: SegCtx = {
+      cliente_id: cliente_id ? String(cliente_id) : undefined,
+      unidade_id: unidade_id ? String(unidade_id) : undefined,
+      perfil: perfil ? String(perfil) : undefined,
+      usuario_tipo: usuario_tipo ? String(usuario_tipo) : undefined,
+      estado: estado ? String(estado) : undefined,
+    }
+
+    const segmentadas = campanhas.filter(c => passaSegmentacao(c, ctx))
+
     const alwaysShow = usuario_id ? isAlwaysShowUser(String(usuario_id)) : false
 
-    if (!usuario_id || campanhas.length === 0 || alwaysShow) {
-      return res.json(alwaysShow ? campanhas.map(c => ({ ...c, always_show_user: true })) : campanhas)
+    if (!usuario_id || segmentadas.length === 0 || alwaysShow) {
+      return res.json(alwaysShow ? segmentadas.map(c => ({ ...c, always_show_user: true })) : segmentadas)
     }
 
     const uidStr = String(usuario_id)
-    const elegiveis: typeof campanhas = []
+    const elegiveis: typeof segmentadas = []
 
-    for (const campanha of campanhas) {
+    for (const campanha of segmentadas) {
       if (campanha.mostrar_uma_vez && campanha.permitir_fechar_modal) {
         const jaViu = await prisma.eventoCampanha.findFirst({
           where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },

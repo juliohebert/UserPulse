@@ -40,6 +40,11 @@ model Campanha {
   permitir_fechar_modal       Boolean   @default(true)
   intervalo_reexibicao_dias   Int?
   categoria                   String?
+  segmentar_cliente_ids       String[]  @default([])
+  segmentar_unidade_ids       String[]  @default([])
+  segmentar_perfis            String[]  @default([])
+  segmentar_usuario_tipos     String[]  @default([])
+  segmentar_estados           String[]  @default([])
   criado_em                   DateTime  @default(now())
   atualizado_em             DateTime  @updatedAt
 

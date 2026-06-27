@@ -485,6 +485,7 @@
       params.set('tela', config.tela);
     }
     if (config.usuario_id) params.set('usuario_id', config.usuario_id);
+    appendContexto(params, config.contexto);
     return fetch(apiUrl('/api/widget/campanha?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -494,13 +495,23 @@
     });
   }
 
-  function fetchCandidatas(sistema, tela, gatilho, eventoNome, usuario_id) {
+  function appendContexto(params, contexto) {
+    if (!contexto) return;
+    if (contexto.cliente_id) params.set('cliente_id', contexto.cliente_id);
+    if (contexto.unidade_id) params.set('unidade_id', contexto.unidade_id);
+    if (contexto.Perfil) params.set('perfil', contexto.Perfil);
+    if (contexto.usuario_tipo) params.set('usuario_tipo', contexto.usuario_tipo);
+    if (contexto.Estado) params.set('estado', contexto.Estado);
+  }
+
+  function fetchCandidatas(sistema, tela, gatilho, eventoNome, usuario_id, contexto) {
     var params = new URLSearchParams();
     params.set('sistema', sistema);
     if (tela) params.set('tela', tela);
     if (gatilho) params.set('gatilho', gatilho);
     if (eventoNome) params.set('evento', String(eventoNome));
     if (usuario_id) params.set('usuario_id', usuario_id);
+    appendContexto(params, contexto);
     return fetch(apiUrl('/api/widget/candidatas?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -746,7 +757,7 @@
         })
         .catch(function () {});
     } else {
-      fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id)
+      fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id, normalized.contexto)
         .then(function (candidatos) {
           for (var i = 0; i < candidatos.length; i++) {
             var c = candidatos[i];
@@ -767,7 +778,7 @@
     var config = state.config;
     if (!config.sistema) return;
 
-    fetchCandidatas(config.sistema, config.tela, 'apos_evento', eventoNome, config.usuario_id)
+    fetchCandidatas(config.sistema, config.tela, 'apos_evento', eventoNome, config.usuario_id, config.contexto)
       .then(function (candidatos) {
         for (var i = 0; i < candidatos.length; i++) {
           var campanha = candidatos[i];
@@ -815,7 +826,7 @@
     if (!config || !config.sistema) return;
     if (state.open) return;
 
-    fetchCandidatas(config.sistema, '', 'ao_abrir_tela', null, config.usuario_id)
+    fetchCandidatas(config.sistema, '', 'ao_abrir_tela', null, config.usuario_id, config.contexto)
       .then(function (candidatos) {
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];

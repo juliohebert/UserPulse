@@ -31,6 +31,11 @@ export interface Campanha {
   permitir_fechar_modal: boolean
   intervalo_reexibicao_dias: number | null
   categoria: string | null
+  segmentar_cliente_ids: string[]
+  segmentar_unidade_ids: string[]
+  segmentar_perfis: string[]
+  segmentar_usuario_tipos: string[]
+  segmentar_estados: string[]
   criado_em: string
   atualizado_em: string
   _count?: { feedbacks: number }

@@ -77,6 +77,12 @@ function validarFechamentoObrigatorio(
   return null
 }
 
+function parseArray(v: unknown): string[] {
+  if (Array.isArray(v)) return (v as unknown[]).map(String).filter(s => s.trim())
+  if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean)
+  return []
+}
+
 async function slugUnico(base: string, ignorarId?: string): Promise<string> {
   let slug = base
   let contador = 1
@@ -133,6 +139,7 @@ export async function criar(req: Request, res: Response) {
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias, categoria,
+      segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
 
     const pfm = permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : true
@@ -178,6 +185,11 @@ export async function criar(req: Request, res: Response) {
         permitir_fechar_modal: permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : true,
         intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
         categoria: categoria?.trim() || null,
+        segmentar_cliente_ids: parseArray(segmentar_cliente_ids),
+        segmentar_unidade_ids: parseArray(segmentar_unidade_ids),
+        segmentar_perfis: parseArray(segmentar_perfis),
+        segmentar_usuario_tipos: parseArray(segmentar_usuario_tipos),
+        segmentar_estados: parseArray(segmentar_estados),
       },
     })
 
@@ -209,6 +221,7 @@ export async function atualizar(req: Request, res: Response) {
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias, categoria,
+      segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
 
     // Merge incoming values with existing to validate even on partial update
@@ -258,6 +271,11 @@ export async function atualizar(req: Request, res: Response) {
           intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
         }),
         ...(categoria !== undefined && { categoria: categoria?.trim() || null }),
+        ...(segmentar_cliente_ids !== undefined && { segmentar_cliente_ids: parseArray(segmentar_cliente_ids) }),
+        ...(segmentar_unidade_ids !== undefined && { segmentar_unidade_ids: parseArray(segmentar_unidade_ids) }),
+        ...(segmentar_perfis !== undefined && { segmentar_perfis: parseArray(segmentar_perfis) }),
+        ...(segmentar_usuario_tipos !== undefined && { segmentar_usuario_tipos: parseArray(segmentar_usuario_tipos) }),
+        ...(segmentar_estados !== undefined && { segmentar_estados: parseArray(segmentar_estados) }),
       },
     })
 
@@ -285,7 +303,7 @@ export async function remover(req: Request, res: Response) {
 export async function testarElegibilidade(req: Request, res: Response) {
   try {
     const id = req.params.id as string
-    const { sistema, tela, url, usuario_id, evento } = req.body
+    const { sistema, tela, url, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.body
 
     const campanha = await prisma.campanha.findUnique({ where: { id } })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
@@ -382,7 +400,33 @@ export async function testarElegibilidade(req: Request, res: Response) {
       ok('Gatilho', 'Exibição ao abrir a tela.')
     }
 
-    // 6. Histórico do usuário
+    // 6. Segmentação por contexto
+    const ctx = {
+      cliente_id: cliente_id ? String(cliente_id).trim() : '',
+      unidade_id: unidade_id ? String(unidade_id).trim() : '',
+      perfil: perfil ? String(perfil).trim() : '',
+      usuario_tipo: usuario_tipo ? String(usuario_tipo).trim() : '',
+      estado: estado ? String(estado).trim() : '',
+    }
+    ;[
+      { lista: campanha.segmentar_cliente_ids, valor: ctx.cliente_id, nome: 'Segmentação — cliente', chave: 'cliente_id' },
+      { lista: campanha.segmentar_unidade_ids, valor: ctx.unidade_id, nome: 'Segmentação — unidade', chave: 'unidade_id' },
+      { lista: campanha.segmentar_perfis, valor: ctx.perfil, nome: 'Segmentação — perfil', chave: 'Perfil' },
+      { lista: campanha.segmentar_usuario_tipos, valor: ctx.usuario_tipo, nome: 'Segmentação — tipo de usuário', chave: 'usuario_tipo' },
+      { lista: campanha.segmentar_estados, valor: ctx.estado, nome: 'Segmentação — estado', chave: 'Estado' },
+    ].forEach(({ lista, valor, nome, chave }) => {
+      if (lista.length === 0) {
+        ok(nome, `Sem restrição de ${chave}.`)
+      } else if (!valor) {
+        block(nome, `Segmentação ativa por ${chave}, mas nenhum valor informado.`, `Lista: [${lista.join(', ')}]`)
+      } else if (!lista.includes(valor)) {
+        block(nome, `"${valor}" não está nos ${chave} permitidos.`, `Lista: [${lista.join(', ')}]`)
+      } else {
+        ok(nome, `"${valor}" está nos ${chave} permitidos.`)
+      }
+    })
+
+    // 7. Histórico do usuário
     const uid = usuario_id ? String(usuario_id).trim() : ''
     const alwaysShow = uid ? isAlwaysShowUser(uid) : false
 
@@ -441,7 +485,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
       }
     }
 
-    // 7. Prioridade (apenas se elegível até aqui)
+    // 8. Prioridade (apenas se elegível até aqui)
     let campanhaConcorrente: ResultadoElegibilidade['campanha_concorrente'] = null
 
     if (elegivel) {

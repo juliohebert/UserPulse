@@ -370,6 +370,14 @@ export function CampanhasIndex() {
                                 {c.prioridade}
                               </span>
                             )}
+                            {(c.segmentar_cliente_ids?.length > 0 || c.segmentar_unidade_ids?.length > 0 ||
+                              c.segmentar_perfis?.length > 0 || c.segmentar_usuario_tipos?.length > 0 ||
+                              c.segmentar_estados?.length > 0) && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-secondary/10 text-secondary" title="Segmentação ativa">
+                                <span className="material-symbols-outlined text-[10px]">target</span>
+                                Segmentada
+                              </span>
+                            )}
                             <span className="text-[11px] text-on-surface-variant">Criada em: {formatDateTime(c.criado_em)}</span>
                           </div>
                         </td>
