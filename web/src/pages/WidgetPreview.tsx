@@ -87,7 +87,7 @@ export function WidgetPreview() {
     setSubmitted(true)
   }
 
-  const widgetSrc = typeof window === 'undefined' ? 'https://seu-dominio.com/widget.js' : `${window.location.origin}/widget.js`
+  const widgetSrc = typeof window === 'undefined' ? 'https://seu-dominio.com/widget-loader.js' : `${window.location.origin}/widget-loader.js`
   const embedCode = campanha
     ? `<script src="${widgetSrc}"></script>
 <script>

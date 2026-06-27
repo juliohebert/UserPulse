@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import fs from 'fs'
 import path from 'path'
 import campanhasRouter from './routes/campanhas'
 import widgetRouter from './routes/widget'
@@ -11,6 +12,22 @@ dotenv.config()
 const app = express()
 const PORT = process.env.PORT ?? 3333
 const WEB_DIST = path.resolve(__dirname, '../../web/dist')
+
+// Version injected into the widget loader for cache-busting.
+// Set WIDGET_VERSION on the deploy platform (e.g., git rev-parse --short HEAD).
+const WIDGET_VERSION =
+  process.env.WIDGET_VERSION ||
+  process.env.npm_package_version ||
+  String(Date.now())
+
+const WIDGET_LOADER_TEMPLATE = path.join(WEB_DIST, 'widget-loader.js')
+let widgetLoaderJs: string | null = null
+function getWidgetLoader(): string {
+  if (!widgetLoaderJs) {
+    widgetLoaderJs = fs.readFileSync(WIDGET_LOADER_TEMPLATE, 'utf8').replace('__UP_VERSION__', WIDGET_VERSION)
+  }
+  return widgetLoaderJs
+}
 
 // Origens permitidas para rotas de admin (campanhas + dashboard).
 // Em dev, CORS_ORIGINS não definido → aceita qualquer origem.
@@ -42,9 +59,18 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
 })
 
-// Widget embarcável — rota explícita com Content-Type correto
+// Widget loader — URL fixa, sem cache, injeta versão atual
+app.get('/widget-loader.js', corsWidget, (_req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate')
+  res.setHeader('Pragma', 'no-cache')
+  res.send(getWidgetLoader())
+})
+
+// Widget embarcável — cacheável por versão (chamado com ?v=<versao> pelo loader)
 app.get('/widget.js', (_req, res) => {
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
   res.sendFile(path.join(WEB_DIST, 'widget.js'))
 })
 

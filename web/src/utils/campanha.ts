@@ -42,7 +42,7 @@ export function toInputDate(iso: string | null): string {
 
 const WIDGET_URL: string =
   import.meta.env.VITE_USERPULSE_WIDGET_URL ||
-  `${window.location.origin}/widget.js`
+  `${window.location.origin}/widget-loader.js`
 
 export interface EmbedParts {
   widgetSrcTag: string

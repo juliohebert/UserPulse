@@ -88,8 +88,9 @@
       '.up-brand{display:flex;align-items:center;gap:10px;min-width:0}',
       '.up-brand-icon{width:32px;height:32px;border-radius:999px;background:#d8e2ff;color:#0058be;display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
       '.up-title{font-size:15px;line-height:21px;font-weight:800;color:#0b1c30;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-      '.up-close{border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0;flex-shrink:0}',
+      '.up-close{border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0;flex-shrink:0;display:flex;align-items:center;justify-content:center}',
       '.up-close:hover{background:#eff4ff;color:#0b1c30}',
+      '.up-close svg{width:20px;height:20px;fill:currentColor;display:block;flex-shrink:0}',
       '.up-body{padding:18px 20px 20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;flex:1;min-height:0}',
       '.up-subtitle{margin:0;color:#0058be;font-size:13px;line-height:18px;font-weight:800}',
       '.up-description{margin:0;color:#424754;font-size:14px;line-height:21px}',
@@ -236,7 +237,7 @@
       '<div class="' + modalClass + '" role="dialog" aria-modal="true" aria-label="' + escapeHtml(campanha.titulo) + '">',
       '<div class="up-modal-header">',
       '<div class="up-brand"><div class="up-brand-icon">' + icon('chat') + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
-      campanha.permitir_fechar_modal !== false ? '<button type="button" class="up-close" aria-label="Fechar" data-up-toggle="true">' + icon('close') + '</button>' : '',
+      campanha.permitir_fechar_modal !== false ? '<button type="button" class="up-close" aria-label="Fechar campanha" title="Fechar" data-up-toggle="true">' + icon('close') + '</button>' : '',
       '</div>',
       '<div class="up-body">',
       campanha.subtitulo ? '<p class="up-subtitle">' + escapeHtml(campanha.subtitulo) + '</p>' : '',
@@ -878,7 +879,17 @@
     window.addEventListener('hashchange', handleUrlChange);
   }
 
+  // Drain any calls queued by widget-loader.js before this script finished loading
+  var _q = window.UserPulse && window.UserPulse._q;
   window.UserPulse = window.UserPulse || {};
   window.UserPulse.init = init;
   window.UserPulse.track = track;
+  window.UserPulse._up_ready = true;
+  if (_q && _q.length) {
+    for (var _qi = 0; _qi < _q.length; _qi++) {
+      var _qc = _q[_qi];
+      if (_qc[0] === 'init') init.apply(null, _qc[1]);
+      else if (_qc[0] === 'track') track.apply(null, _qc[1]);
+    }
+  }
 })();

@@ -835,7 +835,9 @@ export function CampanhaForm() {
                         {form.titulo || 'Título da campanha'}
                       </span>
                     </div>
-                    <span className="material-symbols-outlined text-[18px] text-outline shrink-0">close</span>
+                    {form.permitir_fechar_modal && (
+                      <span className="material-symbols-outlined text-[18px] text-outline shrink-0" title="Fechar">close</span>
+                    )}
                   </div>
 
                   {/* Body */}
