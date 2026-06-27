@@ -523,10 +523,13 @@
     if (modo === 'url_contem') {
       var val = campanha.url_contem;
       if (!val) return false;
-      return (
-        window.location.href.indexOf(val) !== -1 ||
-        window.location.pathname.indexOf(val) !== -1
-      );
+      var normalized = val.trim();
+      try { normalized = new URL(normalized).pathname; } catch (_) {}
+      if (normalized.charAt(0) !== '/') {
+        return window.location.href.indexOf(normalized) !== -1;
+      }
+      var p = window.location.pathname;
+      return p === normalized || p.startsWith(normalized + '/');
     }
     return false;
   }

@@ -82,8 +82,8 @@ function buildResumo(f: FormState): string {
       : `A campanha será exibida quando a página tiver o elemento data-cy ${dataCy} e o sistema disparar o evento ${evento}.`
   } else {
     base = f.gatilho === 'ao_abrir_tela'
-      ? `A campanha será exibida quando a URL contiver ${url}.`
-      : `A campanha será exibida quando a URL contiver ${url} e o sistema disparar o evento ${evento}.`
+      ? `A campanha será exibida quando o caminho da URL corresponder a ${url} ou às suas subrotas.`
+      : `A campanha será exibida quando o caminho da URL corresponder a ${url} e o sistema disparar o evento ${evento}.`
   }
 
   const recorrencia = f.mostrar_uma_vez
@@ -507,7 +507,7 @@ export function CampanhaForm() {
                       )}
                       {form.url_contem && (
                         <p className="mt-1.5 text-[11px] text-primary font-medium bg-primary/5 px-2.5 py-1.5 rounded-lg">
-                          Esta campanha será exibida quando a URL contiver: <strong>{form.url_contem}</strong>
+                          Esta campanha será exibida nesta rota e em suas subrotas: <strong>{form.url_contem}</strong>
                         </p>
                       )}
                       {campanhaConflitante && (
