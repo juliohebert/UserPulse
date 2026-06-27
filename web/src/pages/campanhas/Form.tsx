@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { Campanha } from '../../types'
+import type { Campanha, TelaCatalogo } from '../../types'
 import { gerarSlug, toInputDate } from '../../utils/campanha'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
@@ -115,6 +115,8 @@ export function CampanhaForm() {
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [appliedTemplate, setAppliedTemplate] = useState<string | null>(null)
+  const [selectedScreen, setSelectedScreen] = useState<string | null>(null)
+  const [catalogoTelas, setCatalogoTelas] = useState<TelaCatalogo[]>([])
   const [previewNota, setPreviewNota] = useState<number | null>(null)
   const copyTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -124,6 +126,10 @@ export function CampanhaForm() {
       setSistemas([...new Set(cs.map(c => c.sistema).filter(Boolean))])
       setTelas([...new Set(cs.map(c => c.tela).filter(Boolean))])
     }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    get<TelaCatalogo[]>('/catalogo-telas?ativo=true').then(setCatalogoTelas).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -193,6 +199,20 @@ export function CampanhaForm() {
     }))
     if (!isEdit) setSlug(gerarSlug(tpl.fields.titulo))
     setAppliedTemplate(templateId)
+  }
+
+  const applyScreen = (screenId: string) => {
+    const screen = catalogoTelas.find(s => s.id === screenId)
+    if (!screen) return
+    setForm(prev => ({
+      ...prev,
+      sistema: screen.sistema,
+      modo_identificacao: screen.modo_identificacao,
+      url_contem: screen.url_contem ?? '',
+      tela: screen.tela ?? '',
+      data_cy: screen.data_cy ?? '',
+    }))
+    setSelectedScreen(screenId)
   }
 
   const copySlug = () => {
@@ -411,6 +431,66 @@ export function CampanhaForm() {
                     />
                   </div>
 
+                  {/* Catálogo de telas */}
+                  {catalogoTelas.length > 0 && (
+                    <div className="md:col-span-2 rounded-xl border border-outline-variant/60 bg-surface-container-low/40 p-3">
+                      {/* Header */}
+                      <div className="flex items-start gap-2 mb-3">
+                        <span className="material-symbols-outlined text-[16px] text-on-surface-variant mt-0.5 shrink-0">grid_view</span>
+                        <div>
+                          <p className="text-label-md font-semibold text-on-surface leading-tight">Catálogo de telas</p>
+                          <p className="text-[11px] text-outline mt-0.5 leading-snug">
+                            Selecione uma tela para preencher sistema, modo e URL automaticamente.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Grupos por categoria */}
+                      <div className="space-y-2.5">
+                        {[...new Set(catalogoTelas.map(s => s.categoria))].sort().map(cat => (
+                          <div key={cat}>
+                            <p className="text-[10px] font-semibold uppercase tracking-wider text-outline mb-1.5">{cat}</p>
+                            <div className="flex flex-wrap gap-2">
+                              {catalogoTelas.filter(s => s.categoria === cat).map(screen => {
+                                const active = selectedScreen === screen.id
+                                return (
+                                  <button
+                                    key={screen.id}
+                                    type="button"
+                                    onClick={() => active ? setSelectedScreen(null) : applyScreen(screen.id)}
+                                    className={`flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-left transition-all w-full sm:w-auto sm:min-w-[160px] sm:max-w-[240px] hover:border-primary hover:bg-primary-fixed/30 ${
+                                      active
+                                        ? 'border-primary bg-primary-fixed/60 shadow-sm'
+                                        : 'border-outline-variant bg-surface'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className={`text-label-sm font-semibold leading-tight truncate ${active ? 'text-primary' : 'text-on-surface'}`}>
+                                        {screen.nome}
+                                      </span>
+                                      {active && (
+                                        <span className="inline-flex items-center gap-0.5 bg-primary text-on-primary text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none shrink-0">
+                                          <span className="material-symbols-outlined text-[9px]">check</span>
+                                          Selecionado
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-[10px] text-on-surface-variant leading-tight">{screen.categoria}</span>
+                                    {(screen.url_contem || screen.tela || screen.data_cy) && (
+                                      <span className="text-[10px] text-outline font-mono leading-tight truncate">
+                                        {screen.url_contem ?? screen.tela ?? screen.data_cy}
+                                      </span>
+                                    )}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-label-md text-on-surface-variant mb-1.5">
                       Sistema <span className="text-error">*</span>
@@ -419,7 +499,7 @@ export function CampanhaForm() {
                       required
                       list="sistemas-list"
                       value={form.sistema}
-                      onChange={e => set('sistema', e.target.value)}
+                      onChange={e => { set('sistema', e.target.value); setSelectedScreen(null) }}
                       placeholder="Ex: portal, crm, mobile"
                       className={field}
                     />
@@ -446,7 +526,7 @@ export function CampanhaForm() {
                               name="modo_identificacao"
                               value={opt.value}
                               checked={active}
-                              onChange={e => set('modo_identificacao', e.target.value)}
+                              onChange={e => { set('modo_identificacao', e.target.value); setSelectedScreen(null) }}
                               className="mt-0.5 text-primary focus:ring-primary shrink-0"
                             />
                             <div>
@@ -503,7 +583,7 @@ export function CampanhaForm() {
                       <input
                         required
                         value={form.url_contem}
-                        onChange={e => set('url_contem', normalizeUrlContem(e.target.value))}
+                        onChange={e => { set('url_contem', normalizeUrlContem(e.target.value)); setSelectedScreen(null) }}
                         placeholder="https://clinic.exemplo.com/app/atendimento/agendamentos"
                         className={field}
                       />

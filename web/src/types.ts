@@ -82,6 +82,20 @@ export interface DashboardData {
   cliques_unicos: number
 }
 
+export interface TelaCatalogo {
+  id: string
+  nome: string
+  sistema: string
+  categoria: string
+  modo_identificacao: string
+  tela: string | null
+  url_contem: string | null
+  data_cy: string | null
+  ativo: boolean
+  criado_em: string
+  atualizado_em: string
+}
+
 export type StatusCampanha = 'ativa' | 'inativa' | 'agendada' | 'encerrada'
 
 export type CriterioStatus = 'ok' | 'bloqueado' | 'aviso' | 'nao_aplicavel'

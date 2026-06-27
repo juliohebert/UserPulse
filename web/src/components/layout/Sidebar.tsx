@@ -4,7 +4,7 @@ const navItems = [
   { icon: 'dashboard', label: 'Dashboard', to: '/' },
   { icon: 'campaign', label: 'Campanhas', to: '/campanhas' },
   { icon: 'add_circle', label: 'Nova Campanha', to: '/campanhas/nova' },
-  { icon: 'widgets', label: 'Widget Preview', to: '/widget' },
+  { icon: 'grid_view', label: 'Catálogo de Telas', to: '/catalogo-telas' },
 ]
 
 interface Props {
@@ -86,24 +86,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         ))}
       </nav>
 
-      <div className="mt-auto border-t border-outline-variant pt-stack-md space-y-1">
-        {!collapsed && (
-          <div className="mb-3 p-3 rounded-xl bg-primary-container/15 text-primary border border-primary/10">
-            <p className="text-label-md font-bold mb-1 uppercase tracking-wider whitespace-nowrap">Upgrade Plan</p>
-            <p className="text-[12px] text-on-surface-variant mb-2">Analytics avançados e campanhas ilimitadas.</p>
-            <button className="w-full py-1.5 bg-surface-container-lowest text-primary rounded-lg font-bold text-label-md border border-primary/10 active:scale-95 transition-transform">
-              Ver Planos
-            </button>
-          </div>
-        )}
-        <a
-          href="#"
-          title={collapsed ? 'Suporte' : undefined}
-          className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-xl text-on-surface-variant hover:bg-surface-container-high transition-colors`}
-        >
-          <span className="material-symbols-outlined">help</span>
-          {!collapsed && <span className="text-body-md whitespace-nowrap">Suporte</span>}
-        </a>
+      <div className="mt-auto border-t border-outline-variant pt-stack-md">
         <a
           href="#"
           title={collapsed ? 'Sair' : undefined}

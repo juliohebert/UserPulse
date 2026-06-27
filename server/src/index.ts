@@ -6,6 +6,7 @@ import path from 'path'
 import campanhasRouter from './routes/campanhas'
 import widgetRouter from './routes/widget'
 import dashboardRouter from './routes/dashboard'
+import catalogoTelasRouter from './routes/catalogoTelas'
 
 dotenv.config()
 
@@ -76,6 +77,7 @@ app.get('/widget.js', (_req, res) => {
 
 // Rotas da API
 app.use('/api/campanhas', corsAdmin, requireAdminToken, campanhasRouter)
+app.use('/api/catalogo-telas', corsAdmin, requireAdminToken, catalogoTelasRouter)
 app.use('/api/widget', corsWidget, widgetRouter)
 app.use('/api/dashboard', corsAdmin, requireAdminToken, dashboardRouter)
 

@@ -85,6 +85,22 @@ model Feedback {
   @@map("feedbacks")
 }
 
+model TelaCatalogo {
+  id                 String   @id @default(uuid())
+  nome               String
+  sistema            String
+  categoria          String
+  modo_identificacao String   @default("url_contem")
+  tela               String?
+  url_contem         String?
+  data_cy            String?
+  ativo              Boolean  @default(true)
+  criado_em          DateTime @default(now())
+  atualizado_em      DateTime @updatedAt
+
+  @@map("telas_catalogo")
+}
+
 model EventoCampanha {
   id          String   @id @default(uuid())
   campanha_id String

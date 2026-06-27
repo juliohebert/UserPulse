@@ -5,7 +5,7 @@ import { CampanhasIndex } from './pages/campanhas/Index'
 import { CampanhaForm } from './pages/campanhas/Form'
 import { CampanhaDashboard } from './pages/campanhas/CampanhaDashboard'
 import { CampanhaPreview } from './pages/campanhas/Preview'
-import { WidgetPreview } from './pages/WidgetPreview'
+import { CatalogoTelasIndex } from './pages/catalogo/Index'
 
 export default function App() {
   return (
@@ -17,7 +17,7 @@ export default function App() {
         <Route path="campanhas/:id/editar" element={<CampanhaForm />} />
         <Route path="campanhas/:id/dashboard" element={<CampanhaDashboard />} />
         <Route path="campanhas/:id/preview" element={<CampanhaPreview />} />
-        <Route path="widget" element={<WidgetPreview />} />
+        <Route path="catalogo-telas" element={<CatalogoTelasIndex />} />
       </Route>
     </Routes>
   )
