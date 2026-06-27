@@ -1,6 +1,52 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 
+// ─── Eligibility test helpers ────────────────────────────────────────────────
+
+type CriterioStatus = 'ok' | 'bloqueado' | 'aviso' | 'nao_aplicavel'
+
+interface Criterio {
+  nome: string
+  status: CriterioStatus
+  detalhe?: string
+}
+
+interface ResultadoElegibilidade {
+  elegivel: boolean
+  exibiria: boolean
+  motivo: string
+  criterios: Criterio[]
+  campanha_concorrente: {
+    id: string
+    titulo: string
+    prioridade: number
+    motivo: string
+  } | null
+}
+
+function isAlwaysShowUser(usuarioId: string): boolean {
+  const raw = process.env.USERPULSE_ALWAYS_SHOW_USER_IDS || ''
+  if (!raw.trim()) return false
+  return raw.split(',').map(s => s.trim()).filter(Boolean).includes(usuarioId)
+}
+
+// Mirrors the url_contem matching logic in widget.js checkMode()
+function matchesUrlContem(urlContem: string, testedUrl: string): boolean {
+  let normalized = urlContem.trim()
+  try { normalized = new URL(normalized).pathname } catch { /* keep as-is */ }
+
+  if (!normalized.startsWith('/')) {
+    return testedUrl.includes(normalized)
+  }
+
+  let testPathname: string
+  try { testPathname = new URL(testedUrl).pathname } catch { testPathname = testedUrl }
+
+  return testPathname === normalized || testPathname.startsWith(normalized + '/')
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const CAMPOS_BASE = ['titulo', 'descricao', 'tipo', 'sistema'] as const
 
 function getCamposObrigatorios(modo: string): string[] {
@@ -233,5 +279,281 @@ export async function remover(req: Request, res: Response) {
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao inativar campanha.' })
+  }
+}
+
+export async function testarElegibilidade(req: Request, res: Response) {
+  try {
+    const id = req.params.id as string
+    const { sistema, tela, url, usuario_id, evento } = req.body
+
+    const campanha = await prisma.campanha.findUnique({ where: { id } })
+    if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
+
+    const criterios: Criterio[] = []
+    let elegivel = true
+    let firstBlock: string | null = null
+    const agora = new Date()
+
+    function block(nome: string, motivo: string, detalhe?: string) {
+      criterios.push({ nome, status: 'bloqueado', detalhe: detalhe ?? motivo })
+      if (!firstBlock) firstBlock = motivo
+      elegivel = false
+    }
+    function ok(nome: string, detalhe?: string) {
+      criterios.push({ nome, status: 'ok', detalhe })
+    }
+    function warn(nome: string, detalhe: string) {
+      criterios.push({ nome, status: 'aviso', detalhe })
+    }
+    function fmtDate(d: Date) {
+      return d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    }
+
+    // 1. Campanha ativa
+    if (!campanha.ativo) {
+      block('Campanha ativa', 'A campanha está inativa.')
+    } else {
+      ok('Campanha ativa')
+    }
+
+    // 2. Vigência
+    if (campanha.data_inicio && agora < campanha.data_inicio) {
+      block('Vigência', `Campanha ainda não iniciou. Início: ${fmtDate(campanha.data_inicio)}.`)
+    } else if (campanha.data_fim && agora > campanha.data_fim) {
+      block('Vigência', `Campanha encerrou em ${fmtDate(campanha.data_fim)}.`)
+    } else {
+      ok('Vigência', campanha.data_inicio || campanha.data_fim ? 'Dentro do período configurado.' : 'Sem restrição de período.')
+    }
+
+    // 3. Sistema
+    const sistemaInf = sistema ? String(sistema).trim() : ''
+    if (!sistemaInf) {
+      warn('Sistema', `Nenhum sistema informado. A campanha é para "${campanha.sistema}".`)
+    } else if (campanha.sistema !== sistemaInf) {
+      block('Sistema', `Sistema "${sistemaInf}" não corresponde ao configurado "${campanha.sistema}".`)
+    } else {
+      ok('Sistema', campanha.sistema)
+    }
+
+    // 4. Modo de identificação
+    const modo = campanha.modo_identificacao || 'sistema_tela'
+    if (modo === 'sistema_tela') {
+      const telaInf = tela ? String(tela).trim() : ''
+      if (!telaInf) {
+        warn('Tela', `A campanha usa tela "${campanha.tela}". Nenhuma tela foi informada.`)
+      } else if (campanha.tela !== telaInf) {
+        block('Tela', `Tela "${telaInf}" não corresponde à configurada "${campanha.tela}".`)
+      } else {
+        ok('Tela', campanha.tela)
+      }
+    } else if (modo === 'url_contem') {
+      const urlInf = url ? String(url).trim() : ''
+      if (!campanha.url_contem) {
+        ok('URL', 'Nenhuma URL configurada na campanha.')
+      } else if (!urlInf) {
+        block('URL', `A campanha requer URL compatível com "${campanha.url_contem}". Nenhuma URL foi informada.`)
+      } else if (!matchesUrlContem(campanha.url_contem, urlInf)) {
+        block('URL', `"${urlInf}" não corresponde ao padrão "${campanha.url_contem}".`)
+      } else {
+        ok('URL', `"${urlInf}" corresponde ao padrão "${campanha.url_contem}".`)
+      }
+    } else if (modo === 'data_cy') {
+      warn(
+        'Seletor CSS (data-cy)',
+        `A campanha usa data-cy="${campanha.data_cy}". A verificação depende do DOM do sistema integrado e não pode ser simulada aqui.`
+      )
+    }
+
+    // 5. Gatilho e evento
+    const gatilho = campanha.gatilho || 'ao_abrir_tela'
+    if (gatilho === 'apos_evento') {
+      const eventoInf = evento ? String(evento).trim() : ''
+      if (!campanha.evento) {
+        ok('Gatilho', 'Gatilho: após evento (sem evento específico configurado).')
+      } else if (!eventoInf) {
+        block('Gatilho/Evento', `A campanha dispara no evento "${campanha.evento}". Nenhum evento foi informado.`)
+      } else if (eventoInf !== campanha.evento) {
+        block('Gatilho/Evento', `Evento "${eventoInf}" não corresponde ao configurado "${campanha.evento}".`)
+      } else {
+        ok('Gatilho/Evento', `Evento "${campanha.evento}" corresponde.`)
+      }
+    } else {
+      ok('Gatilho', 'Exibição ao abrir a tela.')
+    }
+
+    // 6. Histórico do usuário
+    const uid = usuario_id ? String(usuario_id).trim() : ''
+    const alwaysShow = uid ? isAlwaysShowUser(uid) : false
+
+    if (!uid) {
+      ok('Histórico', 'Nenhum usuário informado — verificação de histórico ignorada.')
+    } else if (alwaysShow) {
+      ok('Histórico', `Usuário "${uid}" está na lista always-show — bloqueios de histórico ignorados.`)
+    } else {
+      // mostrar_uma_vez: visualização bloqueia apenas em campanhas com permitir_fechar_modal
+      if (campanha.mostrar_uma_vez) {
+        if (campanha.permitir_fechar_modal) {
+          const jaViu = await prisma.eventoCampanha.findFirst({
+            where: { campanha_id: id, usuario_id: uid, tipo_evento: 'visualizacao' },
+          })
+          if (jaViu) {
+            block('Exibição única', `Usuário "${uid}" já visualizou esta campanha (mostrar_uma_vez = true).`)
+          } else {
+            ok('Exibição única', `Usuário "${uid}" ainda não visualizou esta campanha.`)
+          }
+        } else {
+          // Mandatory: visualização não bloqueia — só feedback/confirmação
+          warn('Exibição única', 'Campanha obrigatória: visualização anterior não bloqueia a reexibição. Somente feedback ou confirmação bloqueiam.')
+        }
+      }
+
+      // Confirmação de leitura OR feedback (exclusivos)
+      if (campanha.exige_confirmacao_leitura) {
+        const jaConfirmou = await prisma.confirmacaoLeitura.findFirst({
+          where: { campanha_id: id, usuario_id: uid },
+        })
+        if (jaConfirmou) {
+          block('Confirmação de leitura', `Usuário "${uid}" já confirmou leitura desta campanha.`)
+        } else {
+          ok('Confirmação de leitura', `Usuário "${uid}" ainda não confirmou leitura.`)
+        }
+      } else if (campanha.feedback_habilitado) {
+        const ultimoFeedback = await prisma.feedback.findFirst({
+          where: { campanha_id: id, usuario_id: uid },
+          orderBy: { criado_em: 'desc' },
+        })
+        if (ultimoFeedback) {
+          const intervalo = campanha.intervalo_reexibicao_dias
+          if (intervalo === null || intervalo === undefined) {
+            block('Histórico de resposta', `Usuário "${uid}" já respondeu esta campanha.`)
+          } else {
+            const diasDesde = Math.floor((agora.getTime() - ultimoFeedback.criado_em.getTime()) / 86400000)
+            if (diasDesde < intervalo) {
+              block('Intervalo de reexibição', `Respondeu há ${diasDesde} dia(s). Disponível em ${intervalo - diasDesde} dia(s).`)
+            } else {
+              ok('Intervalo de reexibição', `Respondeu há ${diasDesde} dia(s). Intervalo de ${intervalo} dias já transcorreu.`)
+            }
+          }
+        } else {
+          ok('Histórico de resposta', `Usuário "${uid}" ainda não respondeu esta campanha.`)
+        }
+      }
+    }
+
+    // 7. Prioridade (apenas se elegível até aqui)
+    let campanhaConcorrente: ResultadoElegibilidade['campanha_concorrente'] = null
+
+    if (elegivel) {
+      const filtroData = {
+        AND: [
+          { OR: [{ data_inicio: null as Date | null }, { data_inicio: { lte: agora } }] },
+          { OR: [{ data_fim: null as Date | null }, { data_fim: { gte: agora } }] },
+        ],
+      }
+
+      const gatilhoFilter = gatilho === 'apos_evento' && campanha.evento
+        ? { gatilho: 'apos_evento', evento: campanha.evento }
+        : { gatilho: 'ao_abrir_tela' }
+
+      const modoFiltros: object[] = []
+      const telaStr = tela ? String(tela).trim() : campanha.tela
+      if (telaStr) modoFiltros.push({ modo_identificacao: 'sistema_tela', tela: telaStr })
+      modoFiltros.push({ modo_identificacao: 'data_cy' })
+      modoFiltros.push({ modo_identificacao: 'url_contem' })
+
+      const candidatos = await prisma.campanha.findMany({
+        where: {
+          ativo: true,
+          sistema: campanha.sistema,
+          id: { not: id },
+          OR: modoFiltros,
+          ...gatilhoFilter,
+          ...filtroData,
+        },
+        orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
+      })
+
+      // Filter by mode match (same logic as widget.js checkMode)
+      const urlInf2 = url ? String(url).trim() : ''
+      const competidores = candidatos.filter(c => {
+        const modoC = c.modo_identificacao || 'sistema_tela'
+        if (modoC === 'sistema_tela') return c.tela === telaStr
+        if (modoC === 'url_contem') return !!c.url_contem && !!urlInf2 && matchesUrlContem(c.url_contem, urlInf2)
+        return false // data_cy: can't verify remotely
+      })
+
+      // Find first competitor that ranks before ours AND is eligible for the user
+      for (const c of competidores) {
+        const ranksFirst = c.prioridade > campanha.prioridade
+          || (c.prioridade === campanha.prioridade && c.criado_em > campanha.criado_em)
+        if (!ranksFirst) continue
+
+        // Quick user eligibility check for this competitor
+        let competitorBlocked = false
+        if (uid && !alwaysShow) {
+          if (c.mostrar_uma_vez && c.permitir_fechar_modal) {
+            const jaViu = await prisma.eventoCampanha.findFirst({
+              where: { campanha_id: c.id, usuario_id: uid, tipo_evento: 'visualizacao' },
+            })
+            if (jaViu) competitorBlocked = true
+          }
+          if (!competitorBlocked) {
+            if (c.exige_confirmacao_leitura) {
+              const jaConf = await prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: c.id, usuario_id: uid } })
+              if (jaConf) competitorBlocked = true
+            } else {
+              const uf = await prisma.feedback.findFirst({
+                where: { campanha_id: c.id, usuario_id: uid },
+                orderBy: { criado_em: 'desc' },
+              })
+              if (uf) {
+                const intv = c.intervalo_reexibicao_dias
+                if (intv === null || intv === undefined) {
+                  competitorBlocked = true
+                } else {
+                  const dias = Math.floor((agora.getTime() - uf.criado_em.getTime()) / 86400000)
+                  if (dias < intv) competitorBlocked = true
+                }
+              }
+            }
+          }
+        }
+
+        if (!competitorBlocked) {
+          campanhaConcorrente = {
+            id: c.id,
+            titulo: c.titulo,
+            prioridade: c.prioridade,
+            motivo: `Prioridade ${c.prioridade} > ${campanha.prioridade}`,
+          }
+          break
+        }
+      }
+
+      if (campanhaConcorrente) {
+        warn('Prioridade', `A campanha "${campanhaConcorrente.titulo}" (prioridade ${campanhaConcorrente.prioridade}) será exibida primeiro. Esta campanha não seria a primeira exibida nesta visita.`)
+      } else {
+        ok('Prioridade', 'Nenhuma campanha concorrente com maior prioridade para este contexto.')
+      }
+    }
+
+    const exibiria = elegivel && campanhaConcorrente === null
+
+    const resultado: ResultadoElegibilidade = {
+      elegivel,
+      exibiria,
+      motivo: firstBlock
+        ?? (campanhaConcorrente
+          ? `A campanha "${campanhaConcorrente.titulo}" seria exibida antes desta.`
+          : 'Campanha elegível para exibição.'),
+      criterios,
+      campanha_concorrente: campanhaConcorrente,
+    }
+
+    res.json(resultado)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao testar elegibilidade.' })
   }
 }

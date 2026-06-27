@@ -83,3 +83,24 @@ export interface DashboardData {
 }
 
 export type StatusCampanha = 'ativa' | 'inativa' | 'agendada' | 'encerrada'
+
+export type CriterioStatus = 'ok' | 'bloqueado' | 'aviso' | 'nao_aplicavel'
+
+export interface Criterio {
+  nome: string
+  status: CriterioStatus
+  detalhe?: string
+}
+
+export interface ResultadoElegibilidade {
+  elegivel: boolean
+  exibiria: boolean
+  motivo: string
+  criterios: Criterio[]
+  campanha_concorrente: {
+    id: string
+    titulo: string
+    prioridade: number
+    motivo: string
+  } | null
+}

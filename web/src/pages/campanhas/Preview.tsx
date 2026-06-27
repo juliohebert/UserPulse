@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { get } from '../../services/api'
-import type { Campanha } from '../../types'
+import { get, post } from '../../services/api'
+import type { Campanha, Criterio, ResultadoElegibilidade } from '../../types'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { gerarEmbed, gerarEmbedParts } from '../../utils/campanha'
@@ -30,6 +30,12 @@ export function CampanhaPreview() {
   const [telefone, setTelefone] = useState('')
   const [phoneDone, setPhoneDone] = useState(false)
 
+  // Eligibility test
+  const [eligForm, setEligForm] = useState({ sistema: '', tela: '', url: '', usuario_id: '', evento: '' })
+  const [eligResult, setEligResult] = useState<ResultadoElegibilidade | null>(null)
+  const [eligLoading, setEligLoading] = useState(false)
+  const [eligError, setEligError] = useState<string | null>(null)
+
   const load = () => {
     if (!id) return
     setLoading(true)
@@ -41,6 +47,16 @@ export function CampanhaPreview() {
         setNota(null)
         setObservacao('')
         setSubmitted(false)
+        setEligResult(null)
+        setEligError(null)
+        const modo = c.modo_identificacao || 'sistema_tela'
+        setEligForm({
+          sistema: c.sistema,
+          tela: modo === 'sistema_tela' ? (c.tela ?? '') : '',
+          url: modo === 'url_contem' ? (c.url_contem ?? '') : '',
+          usuario_id: '',
+          evento: c.evento ?? '',
+        })
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -68,6 +84,29 @@ export function CampanhaPreview() {
 
   if (loading) return <div className="px-margin-desktop py-stack-lg"><LoadingSpinner /></div>
   if (error || !campanha) return <div className="px-margin-desktop py-stack-lg"><ErrorState message={error ?? 'Campanha não encontrada.'} onRetry={load} /></div>
+
+  const modo = campanha.modo_identificacao || 'sistema_tela'
+  const isAfterEvent = (campanha.gatilho || 'ao_abrir_tela') === 'apos_evento'
+
+  const testarElegibilidade = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setEligLoading(true)
+    setEligError(null)
+    setEligResult(null)
+    try {
+      const body: Record<string, string> = { sistema: eligForm.sistema }
+      if (eligForm.tela) body.tela = eligForm.tela
+      if (eligForm.url) body.url = eligForm.url
+      if (eligForm.usuario_id) body.usuario_id = eligForm.usuario_id
+      if (eligForm.evento) body.evento = eligForm.evento
+      const result = await post<ResultadoElegibilidade>(`/campanhas/${id}/testar-elegibilidade`, body)
+      setEligResult(result)
+    } catch (err) {
+      setEligError(err instanceof Error ? err.message : 'Erro ao testar elegibilidade.')
+    } finally {
+      setEligLoading(false)
+    }
+  }
 
   const question = campanha.pergunta_feedback || 'Como podemos melhorar?'
   const embedCode = gerarEmbed(campanha)
@@ -316,6 +355,207 @@ export function CampanhaPreview() {
           <p className="px-5 py-3 text-label-md text-outline border-t border-outline-variant/30">
             Cole este snippet antes do <code className="bg-surface-container px-1 py-0.5 rounded text-[12px]">&lt;/body&gt;</code> do sistema-alvo. Substitua os placeholders pelos dados reais do usuário logado.
           </p>
+        )}
+      </div>
+
+      {/* ── Teste de elegibilidade ── */}
+      <div className="mt-5 bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-outline-variant/30">
+          <span className="material-symbols-outlined text-on-surface-variant">rule</span>
+          <div>
+            <h3 className="text-title-lg font-bold text-on-surface">Teste de elegibilidade</h3>
+            <p className="text-label-md text-outline mt-0.5">Simule se esta campanha seria exibida para um usuário. Nenhum dado é registrado.</p>
+          </div>
+        </div>
+
+        <form onSubmit={testarElegibilidade} className="p-5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Sistema */}
+            <div>
+              <label className="block text-label-md text-on-surface-variant mb-1.5">Sistema</label>
+              <input
+                value={eligForm.sistema}
+                onChange={e => setEligForm(f => ({ ...f, sistema: e.target.value }))}
+                placeholder={campanha.sistema}
+                className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            {/* Tela (sistema_tela) */}
+            {modo === 'sistema_tela' && (
+              <div>
+                <label className="block text-label-md text-on-surface-variant mb-1.5">Tela</label>
+                <input
+                  value={eligForm.tela}
+                  onChange={e => setEligForm(f => ({ ...f, tela: e.target.value }))}
+                  placeholder={campanha.tela ?? 'ex: agendamentos'}
+                  className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            )}
+
+            {/* URL (url_contem) */}
+            {modo === 'url_contem' && (
+              <div className="md:col-span-1">
+                <label className="block text-label-md text-on-surface-variant mb-1.5">URL atual</label>
+                <input
+                  value={eligForm.url}
+                  onChange={e => setEligForm(f => ({ ...f, url: e.target.value }))}
+                  placeholder={campanha.url_contem ?? 'https://sistema.exemplo.com/tela'}
+                  className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            )}
+
+            {/* URL extra para data_cy (informacional) */}
+            {modo === 'data_cy' && (
+              <div>
+                <label className="block text-label-md text-on-surface-variant mb-1.5">
+                  URL atual <span className="text-outline font-normal">(opcional)</span>
+                </label>
+                <input
+                  value={eligForm.url}
+                  onChange={e => setEligForm(f => ({ ...f, url: e.target.value }))}
+                  placeholder="https://sistema.exemplo.com/tela"
+                  className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            )}
+
+            {/* Usuário ID */}
+            <div>
+              <label className="block text-label-md text-on-surface-variant mb-1.5">
+                Usuário ID <span className="text-outline font-normal">(opcional)</span>
+              </label>
+              <input
+                value={eligForm.usuario_id}
+                onChange={e => setEligForm(f => ({ ...f, usuario_id: e.target.value }))}
+                placeholder="ex: 488855"
+                className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
+            {/* Evento (apos_evento) */}
+            {(isAfterEvent || campanha.evento) && (
+              <div>
+                <label className="block text-label-md text-on-surface-variant mb-1.5">
+                  Evento {isAfterEvent ? '' : <span className="text-outline font-normal">(opcional)</span>}
+                </label>
+                <input
+                  value={eligForm.evento}
+                  onChange={e => setEligForm(f => ({ ...f, evento: e.target.value }))}
+                  placeholder={campanha.evento ?? 'ex: paciente_agendado'}
+                  className="w-full bg-surface-bright border border-outline-variant rounded-xl px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+            )}
+          </div>
+
+          {modo === 'data_cy' && (
+            <p className="text-label-md text-on-surface-variant bg-surface-container-low rounded-xl px-4 py-2.5 flex items-start gap-2">
+              <span className="material-symbols-outlined text-[16px] mt-0.5 shrink-0">info</span>
+              <span>Esta campanha usa seletor <code className="bg-surface-container px-1 rounded text-[12px]">data-cy="{campanha.data_cy}"</code>. A correspondência depende do DOM do sistema integrado e não pode ser verificada aqui.</span>
+            </p>
+          )}
+
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              type="submit"
+              disabled={eligLoading || !eligForm.sistema.trim()}
+              className="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-opacity disabled:opacity-40"
+            >
+              {eligLoading
+                ? <><span className="material-symbols-outlined text-[18px] animate-spin">progress_activity</span> Testando…</>
+                : <><span className="material-symbols-outlined text-[18px]">labs</span> Testar elegibilidade</>
+              }
+            </button>
+            {eligResult && (
+              <button type="button" onClick={() => setEligResult(null)} className="text-label-md text-outline hover:text-on-surface transition-colors">
+                Limpar resultado
+              </button>
+            )}
+          </div>
+        </form>
+
+        {/* Resultado */}
+        {eligError && (
+          <div className="mx-5 mb-5 p-4 bg-error-container text-on-error-container rounded-xl text-body-md flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
+            {eligError}
+          </div>
+        )}
+
+        {eligResult && (
+          <div className="mx-5 mb-5 space-y-3">
+            {/* Veredicto */}
+            <div className={`rounded-xl p-4 flex items-start gap-3 ${
+              eligResult.exibiria
+                ? 'bg-[#e6f4ea] border border-[#a8d5b5]'
+                : eligResult.elegivel
+                  ? 'bg-[#fff8e1] border border-[#ffe082]'
+                  : 'bg-error-container border border-[#f5c6c6]'
+            }`}>
+              <span className={`material-symbols-outlined text-[22px] shrink-0 mt-0.5 ms-fill ${
+                eligResult.exibiria ? 'text-[#1e7e34]' : eligResult.elegivel ? 'text-[#e65100]' : 'text-error'
+              }`}>
+                {eligResult.exibiria ? 'check_circle' : eligResult.elegivel ? 'warning' : 'cancel'}
+              </span>
+              <div>
+                <p className={`text-body-md font-bold ${
+                  eligResult.exibiria ? 'text-[#1e7e34]' : eligResult.elegivel ? 'text-[#e65100]' : 'text-error'
+                }`}>
+                  {eligResult.exibiria
+                    ? 'A campanha seria exibida para este usuário.'
+                    : eligResult.elegivel
+                      ? 'A campanha é elegível, mas não seria a primeira exibida.'
+                      : 'A campanha não seria exibida.'}
+                </p>
+                <p className="text-body-sm text-on-surface-variant mt-0.5">{eligResult.motivo}</p>
+              </div>
+            </div>
+
+            {/* Critérios */}
+            <div className="rounded-xl border border-outline-variant/50 overflow-hidden">
+              <div className="px-4 py-2.5 bg-surface-container-low border-b border-outline-variant/30">
+                <p className="text-label-sm text-on-surface-variant font-semibold uppercase tracking-wider">Critérios avaliados</p>
+              </div>
+              <ul className="divide-y divide-outline-variant/20">
+                {eligResult.criterios.map((c: Criterio, i: number) => (
+                  <li key={i} className="flex items-start gap-3 px-4 py-3">
+                    <span className={`material-symbols-outlined text-[16px] shrink-0 mt-0.5 ms-fill ${
+                      c.status === 'ok' ? 'text-[#1e7e34]'
+                      : c.status === 'bloqueado' ? 'text-error'
+                      : c.status === 'aviso' ? 'text-[#e65100]'
+                      : 'text-outline'
+                    }`}>
+                      {c.status === 'ok' ? 'check_circle'
+                        : c.status === 'bloqueado' ? 'cancel'
+                        : c.status === 'aviso' ? 'warning'
+                        : 'radio_button_unchecked'}
+                    </span>
+                    <div className="min-w-0">
+                      <span className="text-body-sm font-semibold text-on-surface">{c.nome}</span>
+                      {c.detalhe && <p className="text-body-sm text-on-surface-variant mt-0.5">{c.detalhe}</p>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Campanha concorrente */}
+            {eligResult.campanha_concorrente && (
+              <div className="rounded-xl border border-[#ffe082] bg-[#fff8e1] p-4">
+                <p className="text-label-sm text-[#e65100] font-semibold uppercase tracking-wider mb-2">Campanha concorrente com maior prioridade</p>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-body-md font-bold text-on-surface">{eligResult.campanha_concorrente.titulo}</p>
+                  <span className="px-2.5 py-0.5 bg-[#ffe082] text-[#e65100] rounded-full text-label-sm font-bold shrink-0">
+                    Prioridade {eligResult.campanha_concorrente.prioridade}
+                  </span>
+                </div>
+                <p className="text-body-sm text-on-surface-variant mt-1">{eligResult.campanha_concorrente.motivo}</p>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </section>
