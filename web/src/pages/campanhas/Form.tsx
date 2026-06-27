@@ -280,8 +280,8 @@ export function CampanhaForm() {
 
   return (
     <div className="relative">
-      {/* ── Sticky action bar ── */}
-      <div className="sticky top-16 z-30 bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
+      {/* ── Page action bar ── */}
+      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <nav className="flex gap-2 text-label-md text-outline mb-0.5">
