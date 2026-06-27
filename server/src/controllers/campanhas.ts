@@ -20,6 +20,17 @@ function gerarSlugBase(titulo: string): string {
     .replace(/-+/g, '-')
 }
 
+function validarFechamentoObrigatorio(
+  permitirFechar: boolean,
+  feedbackHabilitado: boolean,
+  exigeConfirmacao: boolean
+): string | null {
+  if (!permitirFechar && !feedbackHabilitado && !exigeConfirmacao) {
+    return 'Para impedir o fechamento da modal, habilite feedback ou confirmação de leitura.'
+  }
+  return null
+}
+
 async function slugUnico(base: string, ignorarId?: string): Promise<string> {
   let slug = base
   let contador = 1
@@ -77,6 +88,14 @@ export async function criar(req: Request, res: Response) {
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias, categoria,
     } = req.body
+
+    const pfm = permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : true
+    const erroFechamento = validarFechamentoObrigatorio(
+      pfm,
+      feedback_habilitado !== undefined ? Boolean(feedback_habilitado) : true,
+      Boolean(exige_confirmacao_leitura)
+    )
+    if (erroFechamento) return res.status(400).json({ erro: erroFechamento })
 
     const slug = await slugUnico(gerarSlugBase(titulo))
 
@@ -145,6 +164,13 @@ export async function atualizar(req: Request, res: Response) {
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias, categoria,
     } = req.body
+
+    // Merge incoming values with existing to validate even on partial update
+    const pfm = permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : existente.permitir_fechar_modal
+    const fh = feedback_habilitado !== undefined ? Boolean(feedback_habilitado) : existente.feedback_habilitado
+    const ecl = exige_confirmacao_leitura !== undefined ? Boolean(exige_confirmacao_leitura) : existente.exige_confirmacao_leitura
+    const erroFechamento = validarFechamentoObrigatorio(pfm, fh, ecl)
+    if (erroFechamento) return res.status(400).json({ erro: erroFechamento })
 
     let slug = existente.slug
     if (titulo && titulo.trim() !== existente.titulo) {
