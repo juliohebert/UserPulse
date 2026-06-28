@@ -614,7 +614,12 @@
 
     state.submitting = true;
     state.error = '';
-    render();
+    if (state.root) {
+      var btn = state.root.querySelector('[data-up-submit]');
+      if (btn) { btn.disabled = true; btn.textContent = 'Enviando...'; }
+      var errEl = state.root.querySelector('.up-error');
+      if (errEl) errEl.textContent = '';
+    }
 
     fetch(apiUrl('/api/widget/feedback'), {
       method: 'POST',
@@ -674,7 +679,12 @@
 
     state.submitting = true;
     state.error = '';
-    render();
+    if (state.root) {
+      var btn = state.root.querySelector('[data-up-confirm]');
+      if (btn) { btn.disabled = true; btn.textContent = 'Aguarde…'; }
+      var errEl = state.root.querySelector('.up-error');
+      if (errEl) errEl.textContent = '';
+    }
 
     fetch(apiUrl('/api/widget/confirmacao'), {
       method: 'POST',
@@ -726,7 +736,14 @@
 
     state.phoneSubmitting = true;
     state.phoneError = '';
-    render();
+    if (state.root) {
+      var phoneInput = state.root.querySelector('[data-up-telefone]');
+      if (phoneInput) phoneInput.disabled = true;
+      var btn = state.root.querySelector('[data-up-telefone-submit]');
+      if (btn) { btn.disabled = true; btn.textContent = 'Salvando…'; }
+      var errEl = state.root.querySelector('.up-error');
+      if (errEl) errEl.textContent = '';
+    }
 
     fetch(apiUrl('/api/widget/feedback/' + state.feedbackId + '/telefone'), {
       method: 'PATCH',
