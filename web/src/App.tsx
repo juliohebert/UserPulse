@@ -7,10 +7,12 @@ import { CampanhaDashboard } from './pages/campanhas/CampanhaDashboard'
 import { CampanhaPreview } from './pages/campanhas/Preview'
 import { CatalogoTelasIndex } from './pages/catalogo/Index'
 import { IntegracaoPage } from './pages/Integracao'
+import { ApresentacaoPage } from './pages/Apresentacao'
 
 export default function App() {
   return (
     <Routes>
+      <Route path="apresentacao" element={<ApresentacaoPage />} />
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="campanhas" element={<CampanhasIndex />} />
