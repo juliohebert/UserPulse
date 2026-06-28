@@ -22,6 +22,7 @@
     phoneSubmitting: false,
     phoneDone: false,
     phoneError: '',
+    closeTimer: null,
   };
 
   var spaListenerBound = false;
@@ -334,6 +335,33 @@
     }, delay);
   }
 
+  var AUTO_CLOSE_MS = 2500;
+
+  function doClose() {
+    if (state.closeTimer) {
+      window.clearTimeout(state.closeTimer);
+      state.closeTimer = null;
+    }
+    if (!state.open) return;
+    state.open = false;
+    state.submitted = false;
+    state.nota = null;
+    state.observacao = '';
+    state.error = '';
+    render();
+  }
+
+  function scheduleAutoClose(delayMs) {
+    if (state.closeTimer) {
+      window.clearTimeout(state.closeTimer);
+      state.closeTimer = null;
+    }
+    state.closeTimer = window.setTimeout(function () {
+      state.closeTimer = null;
+      doClose();
+    }, delayMs != null ? delayMs : AUTO_CLOSE_MS);
+  }
+
   function bindEvents() {
     if (!state.root) return;
 
@@ -375,12 +403,7 @@
       if (target.closest('[data-up-close]')) {
         event.preventDefault();
         event.stopPropagation();
-        state.open = false;
-        state.submitted = false;
-        state.nota = null;
-        state.observacao = '';
-        state.error = '';
-        render();
+        doClose();
         return;
       }
 
@@ -431,6 +454,10 @@
         state.observacao = target.value;
       }
       if (target && target.matches && target.matches('[data-up-telefone]')) {
+        if (state.closeTimer) {
+          window.clearTimeout(state.closeTimer);
+          state.closeTimer = null;
+        }
         var masked = maskPhone(target.value);
         target.value = masked;
         state.telefone = masked;
@@ -575,6 +602,7 @@
 
     if (!config.usuario_id) {
       state.submitted = true;
+      scheduleAutoClose();
       render();
       return;
     }
@@ -624,6 +652,7 @@
       .then(function (data) {
         state.submitted = true;
         state.feedbackId = (data && data.id) ? data.id : null;
+        scheduleAutoClose();
       })
       .catch(function (error) {
         state.error = error && error.message ? error.message : 'Erro ao enviar feedback.';
@@ -641,6 +670,7 @@
 
     if (!config.usuario_id) {
       state.submitted = true;
+      scheduleAutoClose();
       render();
       return;
     }
@@ -672,6 +702,7 @@
       })
       .then(function () {
         state.submitted = true;
+        scheduleAutoClose();
       })
       .catch(function (error) {
         state.error = error && error.message ? error.message : 'Erro ao confirmar leitura.';
@@ -718,6 +749,7 @@
       })
       .then(function () {
         state.phoneDone = true;
+        scheduleAutoClose(2000);
       })
       .catch(function (err) {
         state.phoneError = err && err.message ? err.message : 'Erro ao salvar telefone.';
@@ -754,6 +786,10 @@
     if (state.timer) {
       window.clearTimeout(state.timer);
       state.timer = null;
+    }
+    if (state.closeTimer) {
+      window.clearTimeout(state.closeTimer);
+      state.closeTimer = null;
     }
 
     var oldRoot = document.getElementById(WIDGET_ID);
