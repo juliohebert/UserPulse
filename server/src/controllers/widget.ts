@@ -125,6 +125,38 @@ async function verificarHistorico(
   return { bloqueado: false }
 }
 
+type ConclusaoResult = { bloqueado: false } | { bloqueado: true; eventoEm: Date }
+
+async function verificarConclusaoGlobal(
+  campanha: {
+    sistema: string
+    evento_conclusao: string | null
+    segmentar_cliente_ids: string[]
+    segmentar_unidade_ids: string[]
+    segmentar_perfis: string[]
+    segmentar_usuario_tipos: string[]
+    segmentar_estados: string[]
+  },
+  uidStr: string
+): Promise<ConclusaoResult> {
+  if (!campanha.evento_conclusao) return { bloqueado: false }
+  const eventos = await prisma.eventoUsuario.findMany({
+    where: { sistema: campanha.sistema, usuario_id: uidStr, evento: campanha.evento_conclusao },
+    orderBy: { criado_em: 'desc' },
+  })
+  for (const ev of eventos) {
+    const ok = (
+      (campanha.segmentar_cliente_ids.length === 0 || (ev.cliente_id !== null && campanha.segmentar_cliente_ids.includes(ev.cliente_id))) &&
+      (campanha.segmentar_unidade_ids.length === 0 || (ev.unidade_id !== null && campanha.segmentar_unidade_ids.includes(ev.unidade_id))) &&
+      (campanha.segmentar_perfis.length === 0 || (ev.perfil !== null && campanha.segmentar_perfis.includes(ev.perfil))) &&
+      (campanha.segmentar_usuario_tipos.length === 0 || (ev.usuario_tipo !== null && campanha.segmentar_usuario_tipos.includes(ev.usuario_tipo))) &&
+      (campanha.segmentar_estados.length === 0 || (ev.estado !== null && campanha.segmentar_estados.includes(ev.estado)))
+    )
+    if (ok) return { bloqueado: true, eventoEm: ev.criado_em }
+  }
+  return { bloqueado: false }
+}
+
 export async function buscarCampanha(req: Request, res: Response) {
   try {
     const { slug, sistema, tela, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
@@ -176,6 +208,14 @@ export async function buscarCampanha(req: Request, res: Response) {
     }
 
     const alwaysShow = usuario_id ? isAlwaysShowUser(String(usuario_id)) : false
+
+    // Conclusao check always applies — not bypassed by always-show
+    if (usuario_id && campanha.encerrar_apos_evento && campanha.evento_conclusao) {
+      const conclusao = await verificarConclusaoGlobal(campanha, String(usuario_id))
+      if (conclusao.bloqueado) {
+        return res.status(404).json({ erro: 'Usuário já realizou o evento de conclusão desta campanha.' })
+      }
+    }
 
     if (usuario_id && !alwaysShow) {
       const resultado = await verificarHistorico(campanha, String(usuario_id), agora)
@@ -243,14 +283,29 @@ export async function buscarCandidatas(req: Request, res: Response) {
 
     const alwaysShow = usuario_id ? isAlwaysShowUser(String(usuario_id)) : false
 
-    if (!usuario_id || segmentadas.length === 0 || alwaysShow) {
-      return res.json(alwaysShow ? segmentadas.map(c => ({ ...c, always_show_user: true })) : segmentadas)
+    if (!usuario_id || segmentadas.length === 0) {
+      return res.json(segmentadas)
     }
 
     const uidStr = String(usuario_id)
-    const elegiveis: typeof segmentadas = []
 
+    // Step 1: filter conclusao — applies even to always-show users
+    const semConclusao: typeof segmentadas = []
     for (const campanha of segmentadas) {
+      if (campanha.encerrar_apos_evento && campanha.evento_conclusao) {
+        const conclusao = await verificarConclusaoGlobal(campanha, uidStr)
+        if (conclusao.bloqueado) continue
+      }
+      semConclusao.push(campanha)
+    }
+
+    if (alwaysShow) {
+      return res.json(semConclusao.map(c => ({ ...c, always_show_user: true })))
+    }
+
+    // Step 2: filter by reexhibition policy
+    const elegiveis: typeof segmentadas = []
+    for (const campanha of semConclusao) {
       const resultado = await verificarHistorico(campanha, uidStr, agora)
       if (!resultado.bloqueado) {
         elegiveis.push(campanha)
@@ -383,6 +438,131 @@ export async function registrarFeedback(req: Request, res: Response) {
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao registrar feedback.' })
+  }
+}
+
+export async function registrarConclusaoEvento(req: Request, res: Response) {
+  try {
+    const { evento, sistema, usuario_id, contexto } = req.body
+
+    if (!evento || !sistema || !usuario_id) {
+      return res.status(400).json({ erro: 'evento, sistema e usuario_id são obrigatórios.' })
+    }
+
+    const eventoStr = String(evento).trim()
+    const sistemaStr = String(sistema).trim()
+    const uidStr = String(usuario_id).trim()
+
+    // Build segmentation context from the user's current session state
+    const ctx: SegCtx = {
+      cliente_id: contexto?.cliente_id ? String(contexto.cliente_id) : undefined,
+      unidade_id: contexto?.unidade_id ? String(contexto.unidade_id) : undefined,
+      perfil: contexto?.perfil ? String(contexto.perfil) : undefined,
+      usuario_tipo: contexto?.usuario_tipo ? String(contexto.usuario_tipo) : undefined,
+      estado: contexto?.estado ? String(contexto.estado) : undefined,
+    }
+
+    // Limitation: only campaigns active at the time of track() are concluded here.
+    // Campaigns created after this event fire are not retroactively blocked.
+    const campanhas = await prisma.campanha.findMany({
+      where: { ativo: true, sistema: sistemaStr, encerrar_apos_evento: true, evento_conclusao: eventoStr },
+      select: {
+        id: true,
+        segmentar_cliente_ids: true,
+        segmentar_unidade_ids: true,
+        segmentar_perfis: true,
+        segmentar_usuario_tipos: true,
+        segmentar_estados: true,
+      },
+    })
+
+    // Apply segmentation — only conclude campaigns that match the user's context
+    const elegiveis = campanhas.filter(c => passaSegmentacao(c, ctx))
+
+    for (const c of elegiveis) {
+      const jaExiste = await prisma.eventoCampanha.findFirst({
+        where: { campanha_id: c.id, usuario_id: uidStr, tipo_evento: 'conclusao' },
+      })
+      if (!jaExiste) {
+        await prisma.eventoCampanha.create({
+          data: {
+            campanha_id: c.id,
+            tipo_evento: 'conclusao',
+            usuario_id: uidStr,
+            sistema: sistemaStr,
+          },
+        })
+      }
+    }
+
+    res.status(201).json({ ok: true, campanhas_concluidas: elegiveis.length })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao registrar conclusão de evento.' })
+  }
+}
+
+export async function registrarEventoUsuario(req: Request, res: Response) {
+  try {
+    const { evento, sistema, usuario_id, contexto,
+      cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.body
+
+    const eventoStr   = evento    ? String(evento).trim()    : ''
+    const sistemaStr  = sistema   ? String(sistema).trim()   : ''
+    const uidStr      = usuario_id ? String(usuario_id).trim() : ''
+
+    if (!eventoStr || !sistemaStr || !uidStr) {
+      return res.status(400).json({ erro: 'evento, sistema e usuario_id são obrigatórios.' })
+    }
+
+    const ctx = (contexto && typeof contexto === 'object' && !Array.isArray(contexto))
+      ? contexto as Record<string, unknown>
+      : {}
+
+    // Accept segmentation fields from direct body params or nested contexto object
+    const resolve = (direct: unknown, key: string) =>
+      direct ? String(direct) : (ctx[key] ? String(ctx[key]) : null)
+
+    const clienteId  = resolve(cliente_id,  'cliente_id')
+    const unidadeId  = resolve(unidade_id,  'unidade_id')
+    const perfilStr  = resolve(perfil,       'perfil')
+    const usuTipo    = resolve(usuario_tipo, 'usuario_tipo')
+    const estadoStr  = resolve(estado,       'estado')
+
+    // Deduplicate: skip if identical event was registered in the last 5 seconds
+    const cincoSegundosAtras = new Date(Date.now() - 5000)
+    const jaExiste = await prisma.eventoUsuario.findFirst({
+      where: {
+        sistema: sistemaStr,
+        usuario_id: uidStr,
+        evento: eventoStr,
+        cliente_id: clienteId,
+        unidade_id: unidadeId,
+        criado_em: { gte: cincoSegundosAtras },
+      },
+    })
+    if (jaExiste) {
+      return res.status(200).json({ ok: true, deduplicado: true })
+    }
+
+    await prisma.eventoUsuario.create({
+      data: {
+        sistema: sistemaStr,
+        usuario_id: uidStr,
+        evento: eventoStr,
+        cliente_id: clienteId,
+        unidade_id: unidadeId,
+        perfil: perfilStr,
+        usuario_tipo: usuTipo,
+        estado: estadoStr,
+        contexto: contexto ?? null,
+      },
+    })
+
+    res.status(201).json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao registrar evento do usuário.' })
   }
 }
 

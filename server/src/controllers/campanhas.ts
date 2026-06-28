@@ -439,7 +439,9 @@ export async function criar(req: Request, res: Response) {
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
-      politica_reexibicao, reexibir_apos_dias, categoria,
+      politica_reexibicao, reexibir_apos_dias,
+      encerrar_apos_evento, evento_conclusao,
+      categoria,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
 
@@ -455,6 +457,12 @@ export async function criar(req: Request, res: Response) {
     const diasReexibir = reexibir_apos_dias != null && reexibir_apos_dias !== '' ? Number(reexibir_apos_dias) : null
     const erroPolitica = validarPoliticaReexibicao(politica, diasReexibir, pfm)
     if (erroPolitica) return res.status(400).json({ erro: erroPolitica })
+
+    const encerrarAposEvento = Boolean(encerrar_apos_evento)
+    const eventoConclusao = evento_conclusao?.trim() || null
+    if (encerrarAposEvento && !eventoConclusao) {
+      return res.status(400).json({ erro: 'Informe o nome do evento de conclusão (evento_conclusao).' })
+    }
 
     const slug = await slugUnico(gerarSlugBase(titulo))
 
@@ -492,6 +500,8 @@ export async function criar(req: Request, res: Response) {
         intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
         politica_reexibicao: politica,
         reexibir_apos_dias: diasReexibir,
+        encerrar_apos_evento: encerrarAposEvento,
+        evento_conclusao: eventoConclusao,
         categoria: categoria?.trim() || null,
         segmentar_cliente_ids: parseArray(segmentar_cliente_ids),
         segmentar_unidade_ids: parseArray(segmentar_unidade_ids),
@@ -529,7 +539,9 @@ export async function atualizar(req: Request, res: Response) {
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
-      politica_reexibicao, reexibir_apos_dias, categoria,
+      politica_reexibicao, reexibir_apos_dias,
+      encerrar_apos_evento, evento_conclusao,
+      categoria,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
 
@@ -548,6 +560,16 @@ export async function atualizar(req: Request, res: Response) {
       : existente.reexibir_apos_dias
     const erroPolitica = validarPoliticaReexibicao(politica, diasReexibir, pfm)
     if (erroPolitica) return res.status(400).json({ erro: erroPolitica })
+
+    const encerrarAposEvento = encerrar_apos_evento !== undefined
+      ? Boolean(encerrar_apos_evento)
+      : existente.encerrar_apos_evento
+    const eventoConclusao = evento_conclusao !== undefined
+      ? (evento_conclusao?.trim() || null)
+      : existente.evento_conclusao
+    if (encerrarAposEvento && !eventoConclusao) {
+      return res.status(400).json({ erro: 'Informe o nome do evento de conclusão (evento_conclusao).' })
+    }
 
     let slug = existente.slug
     if (titulo && titulo.trim() !== existente.titulo) {
@@ -590,6 +612,8 @@ export async function atualizar(req: Request, res: Response) {
         }),
         ...(politica_reexibicao !== undefined && { politica_reexibicao: politica }),
         ...(reexibir_apos_dias !== undefined && { reexibir_apos_dias: diasReexibir }),
+        ...(encerrar_apos_evento !== undefined && { encerrar_apos_evento: encerrarAposEvento }),
+        ...(evento_conclusao !== undefined && { evento_conclusao: eventoConclusao }),
         ...(categoria !== undefined && { categoria: categoria?.trim() || null }),
         ...(segmentar_cliente_ids !== undefined && { segmentar_cliente_ids: parseArray(segmentar_cliente_ids) }),
         ...(segmentar_unidade_ids !== undefined && { segmentar_unidade_ids: parseArray(segmentar_unidade_ids) }),
@@ -834,6 +858,35 @@ export async function testarElegibilidade(req: Request, res: Response) {
       }
     }
 
+    // 7.5 Evento de conclusão
+    if (campanha.encerrar_apos_evento && campanha.evento_conclusao) {
+      if (!uid) {
+        ok('Evento de conclusão', `Evento "${campanha.evento_conclusao}" configurado. Nenhum usuário informado — verificação ignorada.`)
+      } else {
+        const evList = await prisma.eventoUsuario.findMany({
+          where: { sistema: campanha.sistema, usuario_id: uid, evento: campanha.evento_conclusao },
+          orderBy: { criado_em: 'desc' },
+        })
+        let conclusaoEm: Date | null = null
+        for (const ev of evList) {
+          const compat = (
+            (campanha.segmentar_cliente_ids.length === 0 || (ev.cliente_id !== null && campanha.segmentar_cliente_ids.includes(ev.cliente_id))) &&
+            (campanha.segmentar_unidade_ids.length === 0 || (ev.unidade_id !== null && campanha.segmentar_unidade_ids.includes(ev.unidade_id))) &&
+            (campanha.segmentar_perfis.length === 0 || (ev.perfil !== null && campanha.segmentar_perfis.includes(ev.perfil))) &&
+            (campanha.segmentar_usuario_tipos.length === 0 || (ev.usuario_tipo !== null && campanha.segmentar_usuario_tipos.includes(ev.usuario_tipo))) &&
+            (campanha.segmentar_estados.length === 0 || (ev.estado !== null && campanha.segmentar_estados.includes(ev.estado)))
+          )
+          if (compat) { conclusaoEm = ev.criado_em; break }
+        }
+        if (conclusaoEm) {
+          const fmtDt = (d: Date) => d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+          block('Evento de conclusão', `Usuário "${uid}" já realizou o evento "${campanha.evento_conclusao}". Bloqueado permanentemente.`, `Registrado em ${fmtDt(conclusaoEm)}.`)
+        } else {
+          ok('Evento de conclusão', `Usuário "${uid}" ainda não realizou o evento "${campanha.evento_conclusao}".`)
+        }
+      }
+    }
+
     // 8. Prioridade (apenas se elegível até aqui)
     let campanhaConcorrente: ResultadoElegibilidade['campanha_concorrente'] = null
 
@@ -884,7 +937,24 @@ export async function testarElegibilidade(req: Request, res: Response) {
 
         // Quick user eligibility check for this competitor using the same policy logic
         let competitorBlocked = false
-        if (uid && !alwaysShow) {
+
+        // Conclusao check — applies even to always-show users
+        if (uid && c.encerrar_apos_evento && c.evento_conclusao) {
+          const evConc = await prisma.eventoUsuario.findMany({
+            where: { sistema: c.sistema, usuario_id: uid, evento: c.evento_conclusao },
+            orderBy: { criado_em: 'desc' },
+          })
+          const concluido = evConc.some(ev =>
+            (c.segmentar_cliente_ids.length === 0 || (ev.cliente_id !== null && c.segmentar_cliente_ids.includes(ev.cliente_id))) &&
+            (c.segmentar_unidade_ids.length === 0 || (ev.unidade_id !== null && c.segmentar_unidade_ids.includes(ev.unidade_id))) &&
+            (c.segmentar_perfis.length === 0 || (ev.perfil !== null && c.segmentar_perfis.includes(ev.perfil))) &&
+            (c.segmentar_usuario_tipos.length === 0 || (ev.usuario_tipo !== null && c.segmentar_usuario_tipos.includes(ev.usuario_tipo))) &&
+            (c.segmentar_estados.length === 0 || (ev.estado !== null && c.segmentar_estados.includes(ev.estado)))
+          )
+          if (concluido) competitorBlocked = true
+        }
+
+        if (uid && !alwaysShow && !competitorBlocked) {
           const cPolicy = c.politica_reexibicao || 'uma_vez_apos_visualizacao'
           if (cPolicy === 'uma_vez_apos_visualizacao') {
             const jaViu = await prisma.eventoCampanha.findFirst({ where: { campanha_id: c.id, usuario_id: uid, tipo_evento: 'visualizacao' } })

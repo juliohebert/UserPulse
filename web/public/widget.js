@@ -852,7 +852,24 @@
     var config = state.config;
     if (!config.sistema) return;
 
+    // Resolve context first — shared between conclusao POST and fetchCandidatas
     var contextoTrack = resolveContexto();
+
+    // Register event in global user history — enables retroactive blocking for
+    // campaigns created after this event fires.
+    if (config.usuario_id) {
+      fetch(apiUrl('/widget/eventos'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          evento: eventoNome,
+          sistema: config.sistema,
+          usuario_id: config.usuario_id,
+          contexto: contextoTrack,
+        }),
+      }).catch(function () { /* fail silently */ });
+    }
+
     fetchCandidatas(config.sistema, config.tela, 'apos_evento', eventoNome, config.usuario_id, contextoTrack)
       .then(function (candidatos) {
         for (var i = 0; i < candidatos.length; i++) {

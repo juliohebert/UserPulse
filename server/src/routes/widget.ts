@@ -9,5 +9,7 @@ router.post('/evento', widget.registrarEvento)
 router.post('/feedback', widget.registrarFeedback)
 router.patch('/feedback/:id/telefone', widget.atualizarTelefone)
 router.post('/confirmacao', widget.registrarConfirmacao)
+router.post('/conclusao-evento', widget.registrarConclusaoEvento)
+router.post('/eventos', widget.registrarEventoUsuario)
 
 export default router
