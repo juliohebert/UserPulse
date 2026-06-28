@@ -602,7 +602,6 @@
 
     if (!config.usuario_id) {
       state.submitted = true;
-      scheduleAutoClose();
       render();
       return;
     }
@@ -652,7 +651,6 @@
       .then(function (data) {
         state.submitted = true;
         state.feedbackId = (data && data.id) ? data.id : null;
-        scheduleAutoClose();
       })
       .catch(function (error) {
         state.error = error && error.message ? error.message : 'Erro ao enviar feedback.';
@@ -670,7 +668,6 @@
 
     if (!config.usuario_id) {
       state.submitted = true;
-      scheduleAutoClose();
       render();
       return;
     }
@@ -702,7 +699,6 @@
       })
       .then(function () {
         state.submitted = true;
-        scheduleAutoClose();
       })
       .catch(function (error) {
         state.error = error && error.message ? error.message : 'Erro ao confirmar leitura.';
