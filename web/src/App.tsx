@@ -6,6 +6,7 @@ import { CampanhaForm } from './pages/campanhas/Form'
 import { CampanhaDashboard } from './pages/campanhas/CampanhaDashboard'
 import { CampanhaPreview } from './pages/campanhas/Preview'
 import { CatalogoTelasIndex } from './pages/catalogo/Index'
+import { IntegracaoPage } from './pages/Integracao'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="campanhas/:id/dashboard" element={<CampanhaDashboard />} />
         <Route path="campanhas/:id/preview" element={<CampanhaPreview />} />
         <Route path="catalogo-telas" element={<CatalogoTelasIndex />} />
+        <Route path="integracao" element={<IntegracaoPage />} />
       </Route>
     </Routes>
   )
