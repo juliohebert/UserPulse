@@ -872,43 +872,6 @@ export function CampanhaForm() {
                       <label className="block text-label-md text-on-surface-variant mb-1.5">Atraso para abrir (ms)</label>
                       <input type="number" min={0} value={form.atraso_ms} onChange={e => set('atraso_ms', e.target.value)} className={field} />
                     </div>
-                    <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">Política de reexibição</label>
-                      <select
-                        value={form.politica_reexibicao}
-                        onChange={e => {
-                          set('politica_reexibicao', e.target.value)
-                          if (e.target.value !== 'reexibir_apos_dias') set('reexibir_apos_dias', '')
-                        }}
-                        className={field}
-                      >
-                        <option value="uma_vez_apos_visualizacao">Uma vez após visualização</option>
-                        <option value="ate_responder_ou_confirmar">Até responder/confirmar</option>
-                        <option value="reexibir_apos_dias">Reexibir após X dias</option>
-                      </select>
-                      <p className="mt-1 text-[11px] text-outline">
-                        {form.politica_reexibicao === 'uma_vez_apos_visualizacao' && 'Uma vez após visualização: ideal para novidades e melhorias.'}
-                        {form.politica_reexibicao === 'ate_responder_ou_confirmar' && 'Até responder/confirmar: ideal para campanhas obrigatórias.'}
-                        {form.politica_reexibicao === 'reexibir_apos_dias' && 'Reexibir após X dias: ideal para NPS e pesquisas recorrentes.'}
-                      </p>
-                    </div>
-                    {form.politica_reexibicao === 'reexibir_apos_dias' && (
-                      <div>
-                        <label className="block text-label-md text-on-surface-variant mb-1.5">Reexibir após (dias) <span className="text-error">*</span></label>
-                        <input
-                          type="number"
-                          min={1}
-                          step={1}
-                          value={form.reexibir_apos_dias}
-                          onChange={e => set('reexibir_apos_dias', e.target.value)}
-                          placeholder="Ex: 30"
-                          className={field}
-                        />
-                        <p className="mt-1 text-[11px] text-outline">
-                          Dias contados a partir da última interação do usuário (visualização, resposta ou confirmação).
-                        </p>
-                      </div>
-                    )}
                     <label className="flex items-start gap-3 text-body-md text-on-surface cursor-pointer">
                       <input type="checkbox" checked={form.permitir_fechar_modal} onChange={e => set('permitir_fechar_modal', e.target.checked)} className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary mt-0.5 shrink-0" />
                       <span>
@@ -920,12 +883,6 @@ export function CampanhaForm() {
                       <p className="text-[11px] text-error flex items-center gap-1">
                         <span className="material-symbols-outlined text-[13px]">error</span>
                         Habilite feedback ou confirmação de leitura na seção abaixo.
-                      </p>
-                    )}
-                    {!form.permitir_fechar_modal && form.politica_reexibicao === 'uma_vez_apos_visualizacao' && (
-                      <p className="text-[11px] text-error flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[13px]">error</span>
-                        Campanhas obrigatórias não podem usar a política "Uma vez após visualização".
                       </p>
                     )}
                   </div>
@@ -979,6 +936,97 @@ export function CampanhaForm() {
                       </div>
                       {copied && <p className="text-[11px] text-tertiary mt-1">Copiado!</p>}
                     </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Reexibição */}
+              <div className={card}>
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="p-1.5 bg-tertiary-fixed rounded-lg text-tertiary material-symbols-outlined text-[20px]">repeat</span>
+                  <div>
+                    <h3 className="text-title-lg font-bold text-on-surface">Reexibição</h3>
+                    <p className="text-label-md text-on-surface-variant">Defina quando esta campanha poderá aparecer novamente para o mesmo usuário.</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {([
+                    {
+                      value: 'uma_vez_apos_visualizacao',
+                      label: 'Uma vez após visualização',
+                      desc: 'Ideal para novidades, melhorias e comunicados simples. Depois que o usuário visualizar, a campanha não aparece novamente.',
+                    },
+                    {
+                      value: 'ate_responder_ou_confirmar',
+                      label: 'Até responder/confirmar',
+                      desc: 'Ideal para campanhas obrigatórias. A campanha reaparece até o usuário responder ou confirmar leitura.',
+                    },
+                    {
+                      value: 'reexibir_apos_dias',
+                      label: 'Reexibir após X dias',
+                      desc: 'Ideal para NPS e pesquisas recorrentes. A campanha pode aparecer novamente após o intervalo definido.',
+                    },
+                  ] as const).map(opt => {
+                    const active = form.politica_reexibicao === opt.value
+                    const incompativel = opt.value === 'uma_vez_apos_visualizacao' && !form.permitir_fechar_modal
+                    return (
+                      <label
+                        key={opt.value}
+                        className={`flex gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
+                          incompativel
+                            ? 'border-error/40 bg-error-container/30'
+                            : active
+                            ? 'border-primary bg-primary-fixed'
+                            : 'border-outline-variant bg-surface-bright hover:border-primary/50'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="politica_reexibicao"
+                          value={opt.value}
+                          checked={active}
+                          onChange={e => {
+                            set('politica_reexibicao', e.target.value)
+                            if (e.target.value !== 'reexibir_apos_dias') set('reexibir_apos_dias', '')
+                          }}
+                          className="mt-0.5 text-primary focus:ring-primary shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-body-md font-semibold ${active && !incompativel ? 'text-primary' : incompativel ? 'text-error' : 'text-on-surface'}`}>
+                            {opt.label}
+                            {incompativel && (
+                              <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-error">Incompatível</span>
+                            )}
+                          </p>
+                          <p className="text-[11px] text-on-surface-variant mt-0.5">{opt.desc}</p>
+                          {active && opt.value === 'reexibir_apos_dias' && (
+                            <div className="mt-3">
+                              <label className="block text-label-md text-on-surface-variant mb-1.5">
+                                Intervalo em dias <span className="text-error">*</span>
+                              </label>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={form.reexibir_apos_dias}
+                                onChange={e => set('reexibir_apos_dias', e.target.value)}
+                                placeholder="Ex: 30"
+                                className={`${field} max-w-[160px]`}
+                              />
+                              <p className="mt-1 text-[11px] text-outline">
+                                A campanha poderá reaparecer após esse número de dias desde a última interação.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    )
+                  })}
+                  {!form.permitir_fechar_modal && form.politica_reexibicao === 'uma_vez_apos_visualizacao' && (
+                    <p className="text-[11px] text-error flex items-center gap-1.5 bg-error-container/40 px-3 py-2 rounded-lg">
+                      <span className="material-symbols-outlined text-[14px] shrink-0">error</span>
+                      Campanhas obrigatórias não podem usar esta política. Selecione "Até responder/confirmar".
+                    </p>
                   )}
                 </div>
               </div>
