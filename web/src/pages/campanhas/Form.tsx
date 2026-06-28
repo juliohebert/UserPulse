@@ -42,6 +42,8 @@ interface FormState {
   intervalo_reexibicao_dias: string
   politica_reexibicao: string
   reexibir_apos_dias: string
+  encerrar_apos_evento: boolean
+  evento_conclusao: string
   categoria: string
   segmentar_cliente_ids: string[]
   segmentar_unidade_ids: string[]
@@ -58,7 +60,8 @@ const EMPTY: FormState = {
   mostrar_uma_vez: false, prioridade: '0', ordem: '0',
   ativo: true, data_inicio: '', data_fim: '', pergunta_feedback: '', observacao_obrigatoria: false,
   exige_confirmacao_leitura: false, permitir_fechar_modal: true, intervalo_reexibicao_dias: '',
-  politica_reexibicao: 'uma_vez_apos_visualizacao', reexibir_apos_dias: '', categoria: '',
+  politica_reexibicao: 'uma_vez_apos_visualizacao', reexibir_apos_dias: '',
+  encerrar_apos_evento: false, evento_conclusao: '', categoria: '',
   segmentar_cliente_ids: [], segmentar_unidade_ids: [], segmentar_perfis: [],
   segmentar_usuario_tipos: [], segmentar_estados: [],
 }
@@ -178,6 +181,8 @@ export function CampanhaForm() {
           intervalo_reexibicao_dias: c.intervalo_reexibicao_dias != null ? String(c.intervalo_reexibicao_dias) : '',
           politica_reexibicao: c.politica_reexibicao ?? 'uma_vez_apos_visualizacao',
           reexibir_apos_dias: c.reexibir_apos_dias != null ? String(c.reexibir_apos_dias) : '',
+          encerrar_apos_evento: c.encerrar_apos_evento ?? false,
+          evento_conclusao: c.evento_conclusao ?? '',
           categoria: c.categoria ?? '',
           segmentar_cliente_ids: c.segmentar_cliente_ids ?? [],
           segmentar_unidade_ids: c.segmentar_unidade_ids ?? [],
@@ -253,6 +258,10 @@ export function CampanhaForm() {
       setError('Informe quantos dias antes de reexibir.')
       return
     }
+    if (form.encerrar_apos_evento && !form.evento_conclusao.trim()) {
+      setError('Informe o nome do evento de conclusão.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -275,6 +284,8 @@ export function CampanhaForm() {
         pergunta_feedback: form.pergunta_feedback || null,
         intervalo_reexibicao_dias: form.intervalo_reexibicao_dias !== '' ? Number(form.intervalo_reexibicao_dias) : null,
         reexibir_apos_dias: form.reexibir_apos_dias !== '' ? Number(form.reexibir_apos_dias) : null,
+        encerrar_apos_evento: form.encerrar_apos_evento,
+        evento_conclusao: form.evento_conclusao.trim() || null,
         categoria: form.categoria || null,
       }
       const saved = isEdit
@@ -1028,6 +1039,49 @@ export function CampanhaForm() {
                       Campanhas obrigatórias não podem usar esta política. Selecione "Até responder/confirmar".
                     </p>
                   )}
+
+                  {/* Encerrar após evento */}
+                  <div className="border-t border-outline-variant pt-3 mt-1">
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.encerrar_apos_evento}
+                        onChange={e => {
+                          set('encerrar_apos_evento', e.target.checked)
+                          if (!e.target.checked) set('evento_conclusao', '')
+                        }}
+                        className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary mt-0.5 shrink-0"
+                      />
+                      <span>
+                        <span className="text-body-md font-semibold text-on-surface">Encerrar após evento realizado</span>
+                        <span className="block text-[11px] text-on-surface-variant mt-0.5">
+                          Quando o sistema integrado disparar este evento para o usuário, a campanha não será exibida novamente.
+                        </span>
+                      </span>
+                    </label>
+                    {form.encerrar_apos_evento && (
+                      <div className="mt-3 ml-7">
+                        <label className="block text-label-md text-on-surface-variant mb-1.5">
+                          Nome do evento <span className="text-error">*</span>
+                        </label>
+                        <input
+                          value={form.evento_conclusao}
+                          onChange={e => set('evento_conclusao', e.target.value)}
+                          placeholder="usou_nova_agenda"
+                          className={`${field} max-w-xs`}
+                        />
+                        <p className="mt-1 text-[11px] text-outline">
+                          Use o mesmo nome passado para <span className="font-mono">UserPulse.track("nome_do_evento")</span>.
+                        </p>
+                        {form.encerrar_apos_evento && !form.evento_conclusao.trim() && (
+                          <p className="mt-1 text-[11px] text-error flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[13px]">error</span>
+                            Informe o nome do evento.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
