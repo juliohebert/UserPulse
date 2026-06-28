@@ -30,6 +30,8 @@ export interface Campanha {
   exige_confirmacao_leitura: boolean
   permitir_fechar_modal: boolean
   intervalo_reexibicao_dias: number | null
+  politica_reexibicao: string
+  reexibir_apos_dias: number | null
   categoria: string | null
   segmentar_cliente_ids: string[]
   segmentar_unidade_ids: string[]

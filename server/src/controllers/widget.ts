@@ -39,6 +39,92 @@ function isAlwaysShowUser(usuarioId?: string): boolean {
   return raw.split(',').map(s => s.trim()).filter(Boolean).includes(usuarioId)
 }
 
+type HistoricoResult =
+  | { bloqueado: false }
+  | { bloqueado: true; motivo: string }
+
+async function verificarHistorico(
+  campanha: {
+    id: string
+    politica_reexibicao: string
+    reexibir_apos_dias: number | null
+    exige_confirmacao_leitura: boolean
+  },
+  uidStr: string,
+  agora: Date
+): Promise<HistoricoResult> {
+  const policy = campanha.politica_reexibicao || 'uma_vez_apos_visualizacao'
+
+  if (policy === 'uma_vez_apos_visualizacao') {
+    const jaViu = await prisma.eventoCampanha.findFirst({
+      where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
+    })
+    if (jaViu) return { bloqueado: true, motivo: 'Campanha já exibida para este usuário.' }
+
+    if (campanha.exige_confirmacao_leitura) {
+      const jaConf = await prisma.confirmacaoLeitura.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+      })
+      if (jaConf) return { bloqueado: true, motivo: 'Campanha já confirmada por este usuário.' }
+    } else {
+      const uf = await prisma.feedback.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        orderBy: { criado_em: 'desc' },
+      })
+      if (uf) return { bloqueado: true, motivo: 'Campanha já respondida por este usuário.' }
+    }
+  }
+
+  if (policy === 'ate_responder_ou_confirmar') {
+    if (campanha.exige_confirmacao_leitura) {
+      const jaConf = await prisma.confirmacaoLeitura.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+      })
+      if (jaConf) return { bloqueado: true, motivo: 'Campanha já confirmada por este usuário.' }
+    } else {
+      const uf = await prisma.feedback.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        orderBy: { criado_em: 'desc' },
+      })
+      if (uf) return { bloqueado: true, motivo: 'Campanha já respondida por este usuário.' }
+    }
+  }
+
+  if (policy === 'reexibir_apos_dias') {
+    const dias = campanha.reexibir_apos_dias
+    if (!dias || dias <= 0) return { bloqueado: false }
+
+    const [ultimaViz, ultimoFb, ultimaConf] = await Promise.all([
+      prisma.eventoCampanha.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
+        orderBy: { criado_em: 'desc' },
+      }),
+      prisma.feedback.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        orderBy: { criado_em: 'desc' },
+      }),
+      prisma.confirmacaoLeitura.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        orderBy: { criado_em: 'desc' },
+      }),
+    ])
+
+    const datas = [ultimaViz?.criado_em, ultimoFb?.criado_em, ultimaConf?.criado_em].filter((d): d is Date => !!d)
+    if (datas.length === 0) return { bloqueado: false }
+
+    const maisRecente = new Date(Math.max(...datas.map(d => d.getTime())))
+    const diasDesde = Math.floor((agora.getTime() - maisRecente.getTime()) / 86400000)
+    if (diasDesde < dias) {
+      return {
+        bloqueado: true,
+        motivo: 'Campanha já respondida. Disponível novamente em ' + (dias - diasDesde) + ' dia(s).',
+      }
+    }
+  }
+
+  return { bloqueado: false }
+}
+
 export async function buscarCampanha(req: Request, res: Response) {
   try {
     const { slug, sistema, tela, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
@@ -92,42 +178,9 @@ export async function buscarCampanha(req: Request, res: Response) {
     const alwaysShow = usuario_id ? isAlwaysShowUser(String(usuario_id)) : false
 
     if (usuario_id && !alwaysShow) {
-      const uidStr = String(usuario_id)
-
-      // Mandatory campaign: visualização alone doesn't block — only response/confirmation does
-      if (campanha.mostrar_uma_vez && campanha.permitir_fechar_modal) {
-        const jaViu = await prisma.eventoCampanha.findFirst({
-          where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
-        })
-        if (jaViu) {
-          return res.status(404).json({ erro: 'Campanha já exibida para este usuário.' })
-        }
-      }
-
-      if (campanha.exige_confirmacao_leitura) {
-        const jaConfirmou = await prisma.confirmacaoLeitura.findFirst({
-          where: { campanha_id: campanha.id, usuario_id: uidStr },
-        })
-        if (jaConfirmou) {
-          return res.status(404).json({ erro: 'Campanha já confirmada por este usuário.' })
-        }
-      } else {
-        const ultimoFeedback = await prisma.feedback.findFirst({
-          where: { campanha_id: campanha.id, usuario_id: uidStr },
-          orderBy: { criado_em: 'desc' },
-        })
-        if (ultimoFeedback) {
-          const intervalo = campanha.intervalo_reexibicao_dias
-          if (intervalo === null || intervalo === undefined) {
-            return res.status(404).json({ erro: 'Campanha já respondida por este usuário.' })
-          }
-          const diasDesde = Math.floor(
-            (agora.getTime() - ultimoFeedback.criado_em.getTime()) / (1000 * 60 * 60 * 24)
-          )
-          if (diasDesde < intervalo) {
-            return res.status(404).json({ erro: 'Campanha já respondida. Disponível novamente em ' + (intervalo - diasDesde) + ' dia(s).' })
-          }
-        }
+      const resultado = await verificarHistorico(campanha, String(usuario_id), agora)
+      if (resultado.bloqueado) {
+        return res.status(404).json({ erro: resultado.motivo })
       }
     }
 
@@ -198,34 +251,10 @@ export async function buscarCandidatas(req: Request, res: Response) {
     const elegiveis: typeof segmentadas = []
 
     for (const campanha of segmentadas) {
-      if (campanha.mostrar_uma_vez && campanha.permitir_fechar_modal) {
-        const jaViu = await prisma.eventoCampanha.findFirst({
-          where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
-        })
-        if (jaViu) continue
+      const resultado = await verificarHistorico(campanha, uidStr, agora)
+      if (!resultado.bloqueado) {
+        elegiveis.push(campanha)
       }
-
-      if (campanha.exige_confirmacao_leitura) {
-        const jaConfirmou = await prisma.confirmacaoLeitura.findFirst({
-          where: { campanha_id: campanha.id, usuario_id: uidStr },
-        })
-        if (jaConfirmou) continue
-      } else {
-        const ultimoFeedback = await prisma.feedback.findFirst({
-          where: { campanha_id: campanha.id, usuario_id: uidStr },
-          orderBy: { criado_em: 'desc' },
-        })
-        if (ultimoFeedback) {
-          const intervalo = campanha.intervalo_reexibicao_dias
-          if (intervalo === null || intervalo === undefined) continue
-          const diasDesde = Math.floor(
-            (agora.getTime() - ultimoFeedback.criado_em.getTime()) / (1000 * 60 * 60 * 24)
-          )
-          if (diasDesde < intervalo) continue
-        }
-      }
-
-      elegiveis.push(campanha)
     }
 
     res.json(elegiveis)

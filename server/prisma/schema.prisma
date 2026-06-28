@@ -39,6 +39,8 @@ model Campanha {
   exige_confirmacao_leitura   Boolean   @default(false)
   permitir_fechar_modal       Boolean   @default(true)
   intervalo_reexibicao_dias   Int?
+  politica_reexibicao         String    @default("uma_vez_apos_visualizacao")
+  reexibir_apos_dias          Int?
   categoria                   String?
   segmentar_cliente_ids       String[]  @default([])
   segmentar_unidade_ids       String[]  @default([])

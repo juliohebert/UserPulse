@@ -378,6 +378,18 @@ export function CampanhasIndex() {
                                 Segmentada
                               </span>
                             )}
+                            {(c.politica_reexibicao || 'uma_vez_apos_visualizacao') === 'ate_responder_ou_confirmar' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary" title="Até responder/confirmar">
+                                <span className="material-symbols-outlined text-[10px]">repeat</span>
+                                Até responder
+                              </span>
+                            )}
+                            {(c.politica_reexibicao || 'uma_vez_apos_visualizacao') === 'reexibir_apos_dias' && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-tertiary/10 text-tertiary" title={`Reexibe após ${c.reexibir_apos_dias ?? '?'} dias`}>
+                                <span className="material-symbols-outlined text-[10px]">schedule</span>
+                                Reexibe em {c.reexibir_apos_dias ?? '?'}d
+                              </span>
+                            )}
                             <span className="text-[11px] text-on-surface-variant">Criada em: {formatDateTime(c.criado_em)}</span>
                           </div>
                         </td>

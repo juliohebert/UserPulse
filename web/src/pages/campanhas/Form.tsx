@@ -40,6 +40,8 @@ interface FormState {
   exige_confirmacao_leitura: boolean
   permitir_fechar_modal: boolean
   intervalo_reexibicao_dias: string
+  politica_reexibicao: string
+  reexibir_apos_dias: string
   categoria: string
   segmentar_cliente_ids: string[]
   segmentar_unidade_ids: string[]
@@ -55,7 +57,8 @@ const EMPTY: FormState = {
   modo_identificacao: 'sistema_tela', data_cy: '', url_contem: '', atraso_ms: '800',
   mostrar_uma_vez: false, prioridade: '0', ordem: '0',
   ativo: true, data_inicio: '', data_fim: '', pergunta_feedback: '', observacao_obrigatoria: false,
-  exige_confirmacao_leitura: false, permitir_fechar_modal: true, intervalo_reexibicao_dias: '', categoria: '',
+  exige_confirmacao_leitura: false, permitir_fechar_modal: true, intervalo_reexibicao_dias: '',
+  politica_reexibicao: 'uma_vez_apos_visualizacao', reexibir_apos_dias: '', categoria: '',
   segmentar_cliente_ids: [], segmentar_unidade_ids: [], segmentar_perfis: [],
   segmentar_usuario_tipos: [], segmentar_estados: [],
 }
@@ -94,11 +97,11 @@ function buildResumo(f: FormState): string {
       : `A campanha será exibida quando o caminho da URL corresponder a ${url} e o sistema disparar o evento ${evento}.`
   }
 
-  const recorrencia = f.mostrar_uma_vez
-    ? 'Cada usuário verá esta campanha apenas uma vez.'
-    : f.intervalo_reexibicao_dias
-    ? `A campanha poderá aparecer novamente após ${f.intervalo_reexibicao_dias} dias da resposta.`
-    : 'A campanha não será exibida novamente após o usuário responder.'
+  const recorrencia = f.politica_reexibicao === 'ate_responder_ou_confirmar'
+    ? 'A campanha reaparece até o usuário responder ou confirmar leitura.'
+    : f.politica_reexibicao === 'reexibir_apos_dias' && f.reexibir_apos_dias
+    ? `A campanha pode reaparecer após ${f.reexibir_apos_dias} dias da última interação.`
+    : 'Cada usuário verá esta campanha apenas uma vez.'
 
   const fechamento = !f.permitir_fechar_modal
     ? ' Esta campanha só poderá ser fechada após resposta ou confirmação de leitura.'
@@ -173,6 +176,8 @@ export function CampanhaForm() {
           exige_confirmacao_leitura: c.exige_confirmacao_leitura,
           permitir_fechar_modal: c.permitir_fechar_modal ?? true,
           intervalo_reexibicao_dias: c.intervalo_reexibicao_dias != null ? String(c.intervalo_reexibicao_dias) : '',
+          politica_reexibicao: c.politica_reexibicao ?? 'uma_vez_apos_visualizacao',
+          reexibir_apos_dias: c.reexibir_apos_dias != null ? String(c.reexibir_apos_dias) : '',
           categoria: c.categoria ?? '',
           segmentar_cliente_ids: c.segmentar_cliente_ids ?? [],
           segmentar_unidade_ids: c.segmentar_unidade_ids ?? [],
@@ -240,6 +245,14 @@ export function CampanhaForm() {
       setError('Para impedir o fechamento da modal, habilite feedback ou confirmação de leitura.')
       return
     }
+    if (!form.permitir_fechar_modal && form.politica_reexibicao === 'uma_vez_apos_visualizacao') {
+      setError('Campanhas obrigatórias não podem usar a política "Uma vez após visualização".')
+      return
+    }
+    if (form.politica_reexibicao === 'reexibir_apos_dias' && (!form.reexibir_apos_dias || Number(form.reexibir_apos_dias) <= 0)) {
+      setError('Informe quantos dias antes de reexibir.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
@@ -261,6 +274,7 @@ export function CampanhaForm() {
         data_fim: form.data_fim || null,
         pergunta_feedback: form.pergunta_feedback || null,
         intervalo_reexibicao_dias: form.intervalo_reexibicao_dias !== '' ? Number(form.intervalo_reexibicao_dias) : null,
+        reexibir_apos_dias: form.reexibir_apos_dias !== '' ? Number(form.reexibir_apos_dias) : null,
         categoria: form.categoria || null,
       }
       const saved = isEdit
@@ -859,27 +873,42 @@ export function CampanhaForm() {
                       <input type="number" min={0} value={form.atraso_ms} onChange={e => set('atraso_ms', e.target.value)} className={field} />
                     </div>
                     <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">Reexibir após resposta</label>
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={form.intervalo_reexibicao_dias}
-                        onChange={e => set('intervalo_reexibicao_dias', e.target.value)}
-                        placeholder="Ex: 60"
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Política de reexibição</label>
+                      <select
+                        value={form.politica_reexibicao}
+                        onChange={e => {
+                          set('politica_reexibicao', e.target.value)
+                          if (e.target.value !== 'reexibir_apos_dias') set('reexibir_apos_dias', '')
+                        }}
                         className={field}
-                      />
+                      >
+                        <option value="uma_vez_apos_visualizacao">Uma vez após visualização</option>
+                        <option value="ate_responder_ou_confirmar">Até responder/confirmar</option>
+                        <option value="reexibir_apos_dias">Reexibir após X dias</option>
+                      </select>
                       <p className="mt-1 text-[11px] text-outline">
-                        Informe em quantos dias esta campanha poderá aparecer novamente após o usuário responder. Deixe vazio para não exibir novamente após resposta.
+                        {form.politica_reexibicao === 'uma_vez_apos_visualizacao' && 'Uma vez após visualização: ideal para novidades e melhorias.'}
+                        {form.politica_reexibicao === 'ate_responder_ou_confirmar' && 'Até responder/confirmar: ideal para campanhas obrigatórias.'}
+                        {form.politica_reexibicao === 'reexibir_apos_dias' && 'Reexibir após X dias: ideal para NPS e pesquisas recorrentes.'}
                       </p>
                     </div>
-                    <label className="flex items-start gap-3 text-body-md text-on-surface cursor-pointer">
-                      <input type="checkbox" checked={form.mostrar_uma_vez} onChange={e => set('mostrar_uma_vez', e.target.checked)} className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary mt-0.5 shrink-0" />
-                      <span>
-                        Mostrar apenas uma vez
-                        <span className="block text-[11px] text-outline font-normal mt-0.5">Quando ativado, cada usuário verá esta campanha apenas uma vez.</span>
-                      </span>
-                    </label>
+                    {form.politica_reexibicao === 'reexibir_apos_dias' && (
+                      <div>
+                        <label className="block text-label-md text-on-surface-variant mb-1.5">Reexibir após (dias) <span className="text-error">*</span></label>
+                        <input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={form.reexibir_apos_dias}
+                          onChange={e => set('reexibir_apos_dias', e.target.value)}
+                          placeholder="Ex: 30"
+                          className={field}
+                        />
+                        <p className="mt-1 text-[11px] text-outline">
+                          Dias contados a partir da última interação do usuário (visualização, resposta ou confirmação).
+                        </p>
+                      </div>
+                    )}
                     <label className="flex items-start gap-3 text-body-md text-on-surface cursor-pointer">
                       <input type="checkbox" checked={form.permitir_fechar_modal} onChange={e => set('permitir_fechar_modal', e.target.checked)} className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary mt-0.5 shrink-0" />
                       <span>
@@ -891,6 +920,12 @@ export function CampanhaForm() {
                       <p className="text-[11px] text-error flex items-center gap-1">
                         <span className="material-symbols-outlined text-[13px]">error</span>
                         Habilite feedback ou confirmação de leitura na seção abaixo.
+                      </p>
+                    )}
+                    {!form.permitir_fechar_modal && form.politica_reexibicao === 'uma_vez_apos_visualizacao' && (
+                      <p className="text-[11px] text-error flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[13px]">error</span>
+                        Campanhas obrigatórias não podem usar a política "Uma vez após visualização".
                       </p>
                     )}
                   </div>

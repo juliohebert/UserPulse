@@ -357,6 +357,26 @@ function validarFechamentoObrigatorio(
   return null
 }
 
+const POLITICAS_VALIDAS = ['uma_vez_apos_visualizacao', 'ate_responder_ou_confirmar', 'reexibir_apos_dias'] as const
+type PoliticaReexibicao = typeof POLITICAS_VALIDAS[number]
+
+function validarPoliticaReexibicao(
+  politica: string,
+  reexibirDias: number | null | undefined,
+  permitirFechar: boolean
+): string | null {
+  if (!POLITICAS_VALIDAS.includes(politica as PoliticaReexibicao)) {
+    return `Política de reexibição inválida. Use: ${POLITICAS_VALIDAS.join(', ')}.`
+  }
+  if (politica === 'reexibir_apos_dias' && (!reexibirDias || Number(reexibirDias) <= 0)) {
+    return 'Informe quantos dias antes de reexibir (campo "Reexibir após X dias").'
+  }
+  if (!permitirFechar && politica === 'uma_vez_apos_visualizacao') {
+    return 'Campanhas obrigatórias (que não permitem fechar) não podem usar a política "Uma vez após visualização".'
+  }
+  return null
+}
+
 function parseArray(v: unknown): string[] {
   if (Array.isArray(v)) return (v as unknown[]).map(String).filter(s => s.trim())
   if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean)
@@ -418,7 +438,8 @@ export async function criar(req: Request, res: Response) {
       modo_exibicao, gatilho, evento, modo_identificacao, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
-      exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias, categoria,
+      exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
+      politica_reexibicao, reexibir_apos_dias, categoria,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
 
@@ -429,6 +450,11 @@ export async function criar(req: Request, res: Response) {
       Boolean(exige_confirmacao_leitura)
     )
     if (erroFechamento) return res.status(400).json({ erro: erroFechamento })
+
+    const politica = (politica_reexibicao?.trim() || 'uma_vez_apos_visualizacao') as string
+    const diasReexibir = reexibir_apos_dias != null && reexibir_apos_dias !== '' ? Number(reexibir_apos_dias) : null
+    const erroPolitica = validarPoliticaReexibicao(politica, diasReexibir, pfm)
+    if (erroPolitica) return res.status(400).json({ erro: erroPolitica })
 
     const slug = await slugUnico(gerarSlugBase(titulo))
 
@@ -462,8 +488,10 @@ export async function criar(req: Request, res: Response) {
         pergunta_feedback: pergunta_feedback?.trim() || null,
         observacao_obrigatoria: Boolean(observacao_obrigatoria),
         exige_confirmacao_leitura: Boolean(exige_confirmacao_leitura),
-        permitir_fechar_modal: permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : true,
+        permitir_fechar_modal: pfm,
         intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
+        politica_reexibicao: politica,
+        reexibir_apos_dias: diasReexibir,
         categoria: categoria?.trim() || null,
         segmentar_cliente_ids: parseArray(segmentar_cliente_ids),
         segmentar_unidade_ids: parseArray(segmentar_unidade_ids),
@@ -500,7 +528,8 @@ export async function atualizar(req: Request, res: Response) {
       modo_exibicao, gatilho, evento, modo_identificacao, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
-      exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias, categoria,
+      exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
+      politica_reexibicao, reexibir_apos_dias, categoria,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
 
@@ -510,6 +539,15 @@ export async function atualizar(req: Request, res: Response) {
     const ecl = exige_confirmacao_leitura !== undefined ? Boolean(exige_confirmacao_leitura) : existente.exige_confirmacao_leitura
     const erroFechamento = validarFechamentoObrigatorio(pfm, fh, ecl)
     if (erroFechamento) return res.status(400).json({ erro: erroFechamento })
+
+    const politica = politica_reexibicao !== undefined
+      ? (politica_reexibicao?.trim() || 'uma_vez_apos_visualizacao')
+      : existente.politica_reexibicao
+    const diasReexibir = reexibir_apos_dias !== undefined
+      ? (reexibir_apos_dias != null && reexibir_apos_dias !== '' ? Number(reexibir_apos_dias) : null)
+      : existente.reexibir_apos_dias
+    const erroPolitica = validarPoliticaReexibicao(politica, diasReexibir, pfm)
+    if (erroPolitica) return res.status(400).json({ erro: erroPolitica })
 
     let slug = existente.slug
     if (titulo && titulo.trim() !== existente.titulo) {
@@ -550,6 +588,8 @@ export async function atualizar(req: Request, res: Response) {
         ...(intervalo_reexibicao_dias !== undefined && {
           intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
         }),
+        ...(politica_reexibicao !== undefined && { politica_reexibicao: politica }),
+        ...(reexibir_apos_dias !== undefined && { reexibir_apos_dias: diasReexibir }),
         ...(categoria !== undefined && { categoria: categoria?.trim() || null }),
         ...(segmentar_cliente_ids !== undefined && { segmentar_cliente_ids: parseArray(segmentar_cliente_ids) }),
         ...(segmentar_unidade_ids !== undefined && { segmentar_unidade_ids: parseArray(segmentar_unidade_ids) }),
@@ -706,61 +746,90 @@ export async function testarElegibilidade(req: Request, res: Response) {
       }
     })
 
-    // 7. Histórico do usuário
+    // 7. Política de reexibição / histórico do usuário
     const uid = usuario_id ? String(usuario_id).trim() : ''
     const alwaysShow = uid ? isAlwaysShowUser(uid) : false
+    const policy = campanha.politica_reexibicao || 'uma_vez_apos_visualizacao'
+
+    const labelPolitica = {
+      uma_vez_apos_visualizacao: 'Uma vez após visualização',
+      ate_responder_ou_confirmar: 'Até responder/confirmar',
+      reexibir_apos_dias: `Reexibir após ${campanha.reexibir_apos_dias ?? '?'} dias`,
+    }[policy] ?? policy
 
     if (!uid) {
-      ok('Histórico', 'Nenhum usuário informado — verificação de histórico ignorada.')
+      ok('Política de reexibição', `Política: ${labelPolitica}. Nenhum usuário informado — verificação de histórico ignorada.`)
     } else if (alwaysShow) {
-      ok('Histórico', `Usuário "${uid}" está na lista always-show — bloqueios de histórico ignorados.`)
+      ok('Política de reexibição', `Usuário "${uid}" está na lista always-show — bloqueios de histórico ignorados.`)
     } else {
-      // mostrar_uma_vez: visualização bloqueia apenas em campanhas com permitir_fechar_modal
-      if (campanha.mostrar_uma_vez) {
-        if (campanha.permitir_fechar_modal) {
-          const jaViu = await prisma.eventoCampanha.findFirst({
-            where: { campanha_id: id, usuario_id: uid, tipo_evento: 'visualizacao' },
-          })
-          if (jaViu) {
-            block('Exibição única', `Usuário "${uid}" já visualizou esta campanha (mostrar_uma_vez = true).`)
+      if (policy === 'uma_vez_apos_visualizacao') {
+        const jaViu = await prisma.eventoCampanha.findFirst({
+          where: { campanha_id: id, usuario_id: uid, tipo_evento: 'visualizacao' },
+        })
+        if (jaViu) {
+          block('Política de reexibição', `Usuário "${uid}" já visualizou esta campanha.`, `Política: ${labelPolitica}`)
+        } else if (campanha.exige_confirmacao_leitura) {
+          const jaConf = await prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: id, usuario_id: uid } })
+          if (jaConf) {
+            block('Política de reexibição', `Usuário "${uid}" já confirmou leitura desta campanha.`, `Política: ${labelPolitica}`)
           } else {
-            ok('Exibição única', `Usuário "${uid}" ainda não visualizou esta campanha.`)
+            ok('Política de reexibição', `Usuário "${uid}" ainda não visualizou nem confirmou. Política: ${labelPolitica}.`)
           }
         } else {
-          // Mandatory: visualização não bloqueia — só feedback/confirmação
-          warn('Exibição única', 'Campanha obrigatória: visualização anterior não bloqueia a reexibição. Somente feedback ou confirmação bloqueiam.')
+          const uf = await prisma.feedback.findFirst({ where: { campanha_id: id, usuario_id: uid }, orderBy: { criado_em: 'desc' } })
+          if (uf) {
+            block('Política de reexibição', `Usuário "${uid}" já respondeu esta campanha.`, `Política: ${labelPolitica}`)
+          } else {
+            ok('Política de reexibição', `Usuário "${uid}" ainda não visualizou nem respondeu. Política: ${labelPolitica}.`)
+          }
         }
       }
 
-      // Confirmação de leitura OR feedback (exclusivos)
-      if (campanha.exige_confirmacao_leitura) {
-        const jaConfirmou = await prisma.confirmacaoLeitura.findFirst({
-          where: { campanha_id: id, usuario_id: uid },
-        })
-        if (jaConfirmou) {
-          block('Confirmação de leitura', `Usuário "${uid}" já confirmou leitura desta campanha.`)
-        } else {
-          ok('Confirmação de leitura', `Usuário "${uid}" ainda não confirmou leitura.`)
-        }
-      } else if (campanha.feedback_habilitado) {
-        const ultimoFeedback = await prisma.feedback.findFirst({
-          where: { campanha_id: id, usuario_id: uid },
-          orderBy: { criado_em: 'desc' },
-        })
-        if (ultimoFeedback) {
-          const intervalo = campanha.intervalo_reexibicao_dias
-          if (intervalo === null || intervalo === undefined) {
-            block('Histórico de resposta', `Usuário "${uid}" já respondeu esta campanha.`)
+      if (policy === 'ate_responder_ou_confirmar') {
+        if (campanha.exige_confirmacao_leitura) {
+          const jaConf = await prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: id, usuario_id: uid } })
+          if (jaConf) {
+            block('Política de reexibição', `Usuário "${uid}" já confirmou leitura desta campanha.`, `Política: ${labelPolitica}`)
           } else {
-            const diasDesde = Math.floor((agora.getTime() - ultimoFeedback.criado_em.getTime()) / 86400000)
-            if (diasDesde < intervalo) {
-              block('Intervalo de reexibição', `Respondeu há ${diasDesde} dia(s). Disponível em ${intervalo - diasDesde} dia(s).`)
-            } else {
-              ok('Intervalo de reexibição', `Respondeu há ${diasDesde} dia(s). Intervalo de ${intervalo} dias já transcorreu.`)
-            }
+            ok('Política de reexibição', `Usuário "${uid}" ainda não confirmou leitura. A campanha pode reaparecer. Política: ${labelPolitica}.`)
           }
         } else {
-          ok('Histórico de resposta', `Usuário "${uid}" ainda não respondeu esta campanha.`)
+          const uf = await prisma.feedback.findFirst({ where: { campanha_id: id, usuario_id: uid }, orderBy: { criado_em: 'desc' } })
+          if (uf) {
+            block('Política de reexibição', `Usuário "${uid}" já respondeu esta campanha.`, `Política: ${labelPolitica}`)
+          } else {
+            ok('Política de reexibição', `Usuário "${uid}" ainda não respondeu. A campanha pode reaparecer. Política: ${labelPolitica}.`)
+          }
+        }
+      }
+
+      if (policy === 'reexibir_apos_dias') {
+        const dias = campanha.reexibir_apos_dias
+        if (!dias || dias <= 0) {
+          warn('Política de reexibição', `Política "${labelPolitica}" configurada mas sem número de dias definido.`)
+        } else {
+          const [ultimaViz, ultimoFb, ultimaConf] = await Promise.all([
+            prisma.eventoCampanha.findFirst({ where: { campanha_id: id, usuario_id: uid, tipo_evento: 'visualizacao' }, orderBy: { criado_em: 'desc' } }),
+            prisma.feedback.findFirst({ where: { campanha_id: id, usuario_id: uid }, orderBy: { criado_em: 'desc' } }),
+            prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: id, usuario_id: uid }, orderBy: { criado_em: 'desc' } }),
+          ])
+          const datas = [ultimaViz?.criado_em, ultimoFb?.criado_em, ultimaConf?.criado_em].filter((d): d is Date => !!d)
+          if (datas.length === 0) {
+            ok('Política de reexibição', `Usuário "${uid}" nunca interagiu com esta campanha. Política: ${labelPolitica}.`)
+          } else {
+            const maisRecente = new Date(Math.max(...datas.map(d => d.getTime())))
+            const diasDesde = Math.floor((agora.getTime() - maisRecente.getTime()) / 86400000)
+            const reabrir = new Date(maisRecente.getTime() + dias * 86400000)
+            if (diasDesde < dias) {
+              block(
+                'Política de reexibição',
+                `Usuário só poderá visualizar novamente após ${fmtDate(reabrir)}.`,
+                `Última interação há ${diasDesde} dia(s). Faltam ${dias - diasDesde} dia(s). Política: ${labelPolitica}.`
+              )
+            } else {
+              ok('Política de reexibição', `Última interação há ${diasDesde} dia(s). Intervalo de ${dias} dias já transcorreu. Política: ${labelPolitica}.`)
+            }
+          }
         }
       }
     }
@@ -813,32 +882,43 @@ export async function testarElegibilidade(req: Request, res: Response) {
           || (c.prioridade === campanha.prioridade && c.criado_em > campanha.criado_em)
         if (!ranksFirst) continue
 
-        // Quick user eligibility check for this competitor
+        // Quick user eligibility check for this competitor using the same policy logic
         let competitorBlocked = false
         if (uid && !alwaysShow) {
-          if (c.mostrar_uma_vez && c.permitir_fechar_modal) {
-            const jaViu = await prisma.eventoCampanha.findFirst({
-              where: { campanha_id: c.id, usuario_id: uid, tipo_evento: 'visualizacao' },
-            })
+          const cPolicy = c.politica_reexibicao || 'uma_vez_apos_visualizacao'
+          if (cPolicy === 'uma_vez_apos_visualizacao') {
+            const jaViu = await prisma.eventoCampanha.findFirst({ where: { campanha_id: c.id, usuario_id: uid, tipo_evento: 'visualizacao' } })
             if (jaViu) competitorBlocked = true
-          }
-          if (!competitorBlocked) {
+            if (!competitorBlocked) {
+              if (c.exige_confirmacao_leitura) {
+                const jaConf = await prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: c.id, usuario_id: uid } })
+                if (jaConf) competitorBlocked = true
+              } else {
+                const uf = await prisma.feedback.findFirst({ where: { campanha_id: c.id, usuario_id: uid }, orderBy: { criado_em: 'desc' } })
+                if (uf) competitorBlocked = true
+              }
+            }
+          } else if (cPolicy === 'ate_responder_ou_confirmar') {
             if (c.exige_confirmacao_leitura) {
               const jaConf = await prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: c.id, usuario_id: uid } })
               if (jaConf) competitorBlocked = true
             } else {
-              const uf = await prisma.feedback.findFirst({
-                where: { campanha_id: c.id, usuario_id: uid },
-                orderBy: { criado_em: 'desc' },
-              })
-              if (uf) {
-                const intv = c.intervalo_reexibicao_dias
-                if (intv === null || intv === undefined) {
-                  competitorBlocked = true
-                } else {
-                  const dias = Math.floor((agora.getTime() - uf.criado_em.getTime()) / 86400000)
-                  if (dias < intv) competitorBlocked = true
-                }
+              const uf = await prisma.feedback.findFirst({ where: { campanha_id: c.id, usuario_id: uid }, orderBy: { criado_em: 'desc' } })
+              if (uf) competitorBlocked = true
+            }
+          } else if (cPolicy === 'reexibir_apos_dias') {
+            const dias = c.reexibir_apos_dias
+            if (dias && dias > 0) {
+              const [v, f, cf] = await Promise.all([
+                prisma.eventoCampanha.findFirst({ where: { campanha_id: c.id, usuario_id: uid, tipo_evento: 'visualizacao' }, orderBy: { criado_em: 'desc' } }),
+                prisma.feedback.findFirst({ where: { campanha_id: c.id, usuario_id: uid }, orderBy: { criado_em: 'desc' } }),
+                prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: c.id, usuario_id: uid }, orderBy: { criado_em: 'desc' } }),
+              ])
+              const datas = [v?.criado_em, f?.criado_em, cf?.criado_em].filter((d): d is Date => !!d)
+              if (datas.length > 0) {
+                const maisRecente = new Date(Math.max(...datas.map(d => d.getTime())))
+                const diasDesde = Math.floor((agora.getTime() - maisRecente.getTime()) / 86400000)
+                if (diasDesde < dias) competitorBlocked = true
               }
             }
           }
