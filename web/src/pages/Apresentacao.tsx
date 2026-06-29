@@ -275,14 +275,30 @@ export function ApresentacaoPage() {
 
       {/* ── Navbar ── */}
       <nav className="fixed top-0 inset-x-0 z-50 bg-[#0f172a]/95 backdrop-blur border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5 shrink-0">
             <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-on-primary">
               <span className="material-symbols-outlined text-[15px]" style={{ fontVariationSettings: "'FILL' 1" }}>pulse_alert</span>
             </div>
             <span className="text-white font-bold text-[15px] tracking-tight">UserPulse</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="hidden lg:flex items-center gap-1">
+            {([
+              { label: 'Campanhas em ação', id: 'casos-de-uso' },
+              { label: 'Possibilidades',    id: 'por-que-usar' },
+              { label: 'Benefícios',        id: 'valor-por-area' },
+              { label: 'Como funciona',     id: 'como-funciona' },
+            ] as const).map(link => (
+              <button
+                key={link.id}
+                onClick={() => scrollTo(link.id)}
+                className="px-3 py-1.5 rounded-lg text-[13px] text-slate-300 hover:text-white hover:bg-white/8 transition-all"
+              >
+                {link.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
             <a href="/integracao" className="hidden sm:block text-[13px] text-slate-300 hover:text-white transition-colors">
               Documentação
             </a>
@@ -332,6 +348,23 @@ export function ApresentacaoPage() {
               Como funciona
             </button>
           </div>
+          <div className="flex flex-wrap items-center justify-center gap-2 mt-8">
+            {([
+              { label: 'Ver campanhas em ação', id: 'casos-de-uso' },
+              { label: 'Possibilidades',         id: 'por-que-usar' },
+              { label: 'Benefícios',             id: 'valor-por-area' },
+              { label: 'Como funciona',          id: 'como-funciona' },
+              { label: 'Integração',             id: 'integracao' },
+            ] as const).map(link => (
+              <button
+                key={link.id}
+                onClick={() => scrollTo(link.id)}
+                className="px-3 py-1 rounded-full text-[12px] font-medium text-slate-400 border border-white/10 hover:border-white/30 hover:text-white transition-all"
+              >
+                {link.label}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -357,13 +390,57 @@ export function ApresentacaoPage() {
         </div>
       </section>
 
+      {/* ── Antes e Depois ── */}
+      <section className="py-14 px-4 sm:px-6 bg-white">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-8">
+            <p className="text-[12px] font-bold text-slate-500 uppercase tracking-widest mb-2">Transformação</p>
+            <h2 className="text-2xl font-extrabold text-slate-900">Antes e depois do UserPulse</h2>
+          </div>
+          <div className="grid sm:grid-cols-2 rounded-2xl overflow-hidden border border-slate-200 shadow-md">
+            <div className="bg-rose-50 p-7 sm:p-8">
+              <div className="flex items-center gap-2.5 mb-5">
+                <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-rose-500 text-[18px]">close</span>
+                </div>
+                <h3 className="text-[16px] font-extrabold text-rose-700">Antes</h3>
+              </div>
+              <ul className="space-y-3">
+                {['E-mails e formulários externos', 'Baixa taxa de resposta', 'Feedback fora do contexto de uso', 'Pouca visão por cliente e perfil'].map(item => (
+                  <li key={item} className="flex items-start gap-2.5 text-[14px] text-rose-900/80">
+                    <span className="material-symbols-outlined text-rose-400 text-[16px] shrink-0 mt-0.5">cancel</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="bg-emerald-50 p-7 sm:p-8 border-t sm:border-t-0 sm:border-l border-slate-200">
+              <div className="flex items-center gap-2.5 mb-5">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                  <span className="material-symbols-outlined text-emerald-600 text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                </div>
+                <h3 className="text-[16px] font-extrabold text-emerald-700">Com UserPulse</h3>
+              </div>
+              <ul className="space-y-3">
+                {['Campanhas dentro do produto', 'Segmentação por cliente, unidade e perfil', 'Feedback no momento de uso', 'Dashboard e CSV para decisão'].map(item => (
+                  <li key={item} className="flex items-start gap-2.5 text-[14px] text-emerald-900/80">
+                    <span className="material-symbols-outlined text-emerald-500 text-[16px] shrink-0 mt-0.5" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── Solução ── */}
       <section className="py-20 px-4 sm:px-6 bg-white">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">A solução</p>
-            <h2 className="text-3xl font-extrabold text-slate-900 mb-4">UserPulse resolve na raiz</h2>
-            <p className="text-slate-500 max-w-xl mx-auto">Campanhas in-product, segmentadas e com regras inteligentes de exibição — integradas em uma única tag de script.</p>
+            <h2 className="text-3xl font-extrabold text-slate-900 mb-4">A camada de comunicação do seu produto</h2>
+            <p className="text-slate-500 max-w-xl mx-auto">Pesquisa, comunicado, anúncio ou aviso obrigatório — dentro do produto, no momento certo, para o perfil certo.</p>
           </div>
           <div className="grid sm:grid-cols-3 gap-6">
             {SOLUCOES.map(s => (
@@ -852,8 +929,50 @@ export function ApresentacaoPage() {
         </div>
       </section>
 
+      {/* ── Por que usar ── */}
+      <section id="por-que-usar" className="py-20 px-4 sm:px-6 bg-white scroll-mt-14">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">Por que usar</p>
+            <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Por que usar o UserPulse?</h2>
+            <p className="text-slate-500 max-w-xl mx-auto">
+              Mais do que pesquisas: uma camada de comunicação, feedback e adoção dentro do produto.
+            </p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-6">
+            <div className="rounded-2xl p-7 bg-slate-50 border border-slate-200 hover:border-primary/30 hover:shadow-md transition-all">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+                <span className="material-symbols-outlined text-primary text-[26px]">dashboard_customize</span>
+              </div>
+              <h3 className="text-[17px] font-extrabold text-slate-900 mb-2">Possibilidades</h3>
+              <p className="text-[14px] text-slate-600 leading-relaxed">
+                NPS, comunicados obrigatórios, anúncios de melhoria, vídeos, tutoriais, pesquisas por tela e campanhas de adoção — tudo no mesmo painel.
+              </p>
+            </div>
+            <div className="rounded-2xl p-7 bg-slate-50 border border-slate-200 hover:border-primary/30 hover:shadow-md transition-all">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+                <span className="material-symbols-outlined text-primary text-[26px]">bolt</span>
+              </div>
+              <h3 className="text-[17px] font-extrabold text-slate-900 mb-2">Facilidade de uso</h3>
+              <p className="text-[14px] text-slate-600 leading-relaxed">
+                Integre uma vez via script. A partir daí, crie, publique e ajuste campanhas pelo painel — sem deploy, sem código adicional, sem envolver o time técnico.
+              </p>
+            </div>
+            <div className="rounded-2xl p-7 bg-slate-50 border border-slate-200 hover:border-primary/30 hover:shadow-md transition-all">
+              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+                <span className="material-symbols-outlined text-primary text-[26px]">insights</span>
+              </div>
+              <h3 className="text-[17px] font-extrabold text-slate-900 mb-2">Benefício mensurável</h3>
+              <p className="text-[14px] text-slate-600 leading-relaxed">
+                Visualizações, respostas, cliques, NPS e comentários segmentados por cliente, unidade e perfil. Exporte em CSV para análise e apresentação.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── Valor por área ── */}
-      <section className="py-20 px-4 sm:px-6 bg-white">
+      <section id="valor-por-area" className="py-20 px-4 sm:px-6 bg-white scroll-mt-14">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">Valor</p>
@@ -879,6 +998,35 @@ export function ApresentacaoPage() {
                 </ul>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── CTA Final ── */}
+      <section className="py-24 px-4 sm:px-6 bg-gradient-to-br from-[#0f172a] via-[#1e3a5f] to-[#0f172a]">
+        <div className="max-w-3xl mx-auto text-center">
+          <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-4">Pronto para começar?</p>
+          <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-5 leading-tight">
+            Pronto para transformar comunicação em produto?
+          </h2>
+          <p className="text-slate-300 max-w-xl mx-auto mb-10 text-[16px] leading-relaxed">
+            Com uma única integração, o UserPulse permite comunicar, pesquisar, medir adoção e coletar feedback contextual.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() => scrollTo('integracao')}
+              className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-on-primary font-bold text-[15px] hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-primary/30"
+            >
+              <span className="material-symbols-outlined text-[18px]">integration_instructions</span>
+              Ver integração
+            </button>
+            <a
+              href="mailto:contato@userpulse.com.br?subject=Demonstração UserPulse"
+              className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-white/10 border border-white/20 text-white font-bold text-[15px] hover:bg-white/20 active:scale-95 transition-all"
+            >
+              <span className="material-symbols-outlined text-[18px]">mail</span>
+              Solicitar demonstração
+            </a>
           </div>
         </div>
       </section>
