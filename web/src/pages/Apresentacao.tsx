@@ -435,7 +435,7 @@ export function ApresentacaoPage() {
       </section>
 
       {/* ── Solução ── */}
-      <section className="py-20 px-4 sm:px-6 bg-white">
+      <section className="py-20 px-4 sm:px-6 bg-slate-50">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">A solução</p>
@@ -972,7 +972,7 @@ export function ApresentacaoPage() {
       </section>
 
       {/* ── Valor por área ── */}
-      <section id="valor-por-area" className="py-20 px-4 sm:px-6 bg-white scroll-mt-14">
+      <section id="valor-por-area" className="py-20 px-4 sm:px-6 bg-slate-50 scroll-mt-14">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">Valor</p>
@@ -1012,7 +1012,7 @@ export function ApresentacaoPage() {
           <p className="text-slate-300 max-w-xl mx-auto mb-10 text-[16px] leading-relaxed">
             Com uma única integração, o UserPulse permite comunicar, pesquisar, medir adoção e coletar feedback contextual.
           </p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <div className="flex justify-center">
             <button
               onClick={() => scrollTo('integracao')}
               className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-primary text-on-primary font-bold text-[15px] hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-primary/30"
@@ -1020,13 +1020,6 @@ export function ApresentacaoPage() {
               <span className="material-symbols-outlined text-[18px]">integration_instructions</span>
               Ver integração
             </button>
-            <a
-              href="mailto:contato@userpulse.com.br?subject=Demonstração UserPulse"
-              className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl bg-white/10 border border-white/20 text-white font-bold text-[15px] hover:bg-white/20 active:scale-95 transition-all"
-            >
-              <span className="material-symbols-outlined text-[18px]">mail</span>
-              Solicitar demonstração
-            </a>
           </div>
         </div>
       </section>
@@ -1043,20 +1036,13 @@ export function ApresentacaoPage() {
             </p>
           </div>
           <CodeSnippet code={CODE_INTEGRACAO} />
-          <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
+          <div className="flex justify-center mt-8">
             <a
               href="/integracao"
               className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary text-on-primary font-bold text-[14px] hover:opacity-90 transition-opacity"
             >
               <span className="material-symbols-outlined text-[18px]">integration_instructions</span>
               Ver documentação completa
-            </a>
-            <a
-              href="mailto:contato@userpulse.com.br?subject=Demonstração UserPulse"
-              className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-white/10 border border-white/20 text-white font-bold text-[14px] hover:bg-white/20 transition-all"
-            >
-              <span className="material-symbols-outlined text-[18px]">mail</span>
-              Solicitar demonstração
             </a>
           </div>
         </div>
