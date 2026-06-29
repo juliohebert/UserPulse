@@ -54,18 +54,18 @@ const PROBLEMAS = [
 const SOLUCOES = [
   {
     icon: 'frame_inspect', color: 'text-primary', bg: 'bg-primary-fixed',
-    titulo: 'In-product, na hora certa',
-    desc: 'A campanha aparece dentro do sistema, na tela exata onde o usuário está, com o atraso configurado.',
+    titulo: 'In-app, na tela certa',
+    desc: 'A campanha aparece dentro do sistema, na tela exata onde o usuário está — não em email enviado dias depois.',
   },
   {
     icon: 'manage_accounts', color: 'text-secondary', bg: 'bg-secondary-fixed',
-    titulo: 'Para quem realmente importa',
-    desc: 'Segmentação por cliente, unidade, perfil, tipo de usuário e estado — sem esforço de lista manual.',
+    titulo: 'Segmentação sem esforço',
+    desc: 'Por cliente, unidade, perfil, tipo de usuário e estado — combine quantos filtros precisar, sem lista manual.',
   },
   {
-    icon: 'tune', color: 'text-tertiary', bg: 'bg-tertiary-fixed',
-    titulo: 'Regras inteligentes de exibição',
-    desc: 'Uma vez, recorrente, até responder, ou encerrada automaticamente quando o usuário adotar a funcionalidade.',
+    icon: 'event_available', color: 'text-tertiary', bg: 'bg-tertiary-fixed',
+    titulo: 'Encerramento por evento',
+    desc: 'Defina um evento de adoção e a campanha se encerra automaticamente quando o usuário o dispara.',
   },
 ]
 
@@ -104,22 +104,22 @@ const VALOR = [
   {
     icon: 'corporate_fare', area: 'CEO',
     cor: 'from-slate-700 to-slate-900',
-    items: ['Adoção real de funcionalidades', 'Satisfação medida in-product', 'Impacto com segmentação por cliente'],
+    items: ['Adoção de funcionalidades medida em dados reais', 'Satisfação segmentada por cliente e perfil', 'Decisões de produto embasadas, não inferidas'],
   },
   {
     icon: 'support_agent', area: 'CX',
     cor: 'from-blue-600 to-blue-800',
-    items: ['Feedback por cliente, unidade e perfil', 'NPS contextualizado por tela', 'Histórico de respostas exportável'],
+    items: ['Feedback contextualizado por tela e momento de uso', 'Triagem por cliente, unidade e perfil de usuário', 'Respostas exportáveis em CSV para análise imediata'],
   },
   {
     icon: 'science', area: 'Produto',
     cor: 'from-violet-600 to-violet-900',
-    items: ['Validação de funcionalidades antes do rollout', 'Pesquisa qualitativa in-product', 'Métricas de uso real por cohort'],
+    items: ['Valide features com quem já usa, não com toda a base', 'Campanha encerra quando o evento de adoção ocorre', 'Pesquisa qualitativa in-product, sem formulário externo'],
   },
   {
     icon: 'handshake', area: 'Vendas',
     cor: 'from-emerald-600 to-emerald-800',
-    items: ['Prova de valor com dados reais', 'NPS por cliente para expansão', 'Benchmark de satisfação por perfil'],
+    items: ['NPS por conta para embasar upsell e renovação', 'Evidência de satisfação para apresentar ao cliente', 'Identifique risco de churn antes da próxima renovação'],
   },
 ]
 
@@ -171,15 +171,15 @@ const COMENTARIOS = [
 
 function ScaleSelector({ value, onChange }: { value: number | null; onChange: (n: number) => void }) {
   return (
-    <div className="flex gap-1.5 flex-wrap justify-center">
-      {[1,2,3,4,5,6,7,8,9,10].map(n => (
+    <div className="flex gap-0.5 w-full">
+      {[0,1,2,3,4,5,6,7,8,9,10].map(n => (
         <button
           key={n}
           type="button"
           onClick={() => onChange(n)}
-          className={`w-9 h-9 rounded-xl text-[13px] font-bold border transition-all ${
+          className={`flex-1 min-w-0 aspect-square rounded-md text-[10px] font-bold border transition-all ${
             value === n
-              ? 'bg-primary text-on-primary border-primary shadow-md scale-110'
+              ? 'bg-primary text-on-primary border-primary shadow-sm'
               : 'bg-white border-slate-200 text-slate-500 hover:border-primary hover:text-primary'
           }`}
         >
@@ -227,7 +227,10 @@ export function ApresentacaoPage() {
   const [npsPhase, setNpsPhase] = useState<'idle' | 'sending' | 'success'>('idle')
 
   // Melhoria state
-  const [melhoriaPhase, setMelhoriaPhase] = useState<'idle' | 'playing' | 'cta_done' | 'postponed'>('idle')
+  const [melhoriaPhase, setMelhoriaPhase] = useState<'idle' | 'playing' | 'fb_sending' | 'fb_success' | 'postponed'>('idle')
+  const [melhoriaCtaDone, setMelhoriaCtaDone] = useState(false)
+  const [melhoriaFbNota, setMelhoriaFbNota] = useState<number | null>(null)
+  const [melhoriaFbObs,  setMelhoriaFbObs]  = useState('')
 
   // Feedback detalhado state
   const [fbNota, setFbNota]   = useState<number | null>(null)
@@ -235,7 +238,7 @@ export function ApresentacaoPage() {
   const [fbPhase, setFbPhase] = useState<'idle' | 'sending' | 'success'>('idle')
 
   function resetNps()      { setNpsNota(null);    setNpsPhase('idle') }
-  function resetMelhoria() { setMelhoriaPhase('idle') }
+  function resetMelhoria() { setMelhoriaPhase('idle'); setMelhoriaCtaDone(false); setMelhoriaFbNota(null); setMelhoriaFbObs('') }
   function resetFeedback() { setFbNota(null); setFbObs(''); setFbPhase('idle') }
 
   function sendNps() {
@@ -250,9 +253,15 @@ export function ApresentacaoPage() {
     setTimeout(() => setFbPhase('success'), 1100)
   }
 
+  function sendMelhoriaFb() {
+    if (!melhoriaFbNota) return
+    setMelhoriaPhase('fb_sending')
+    setTimeout(() => setMelhoriaPhase('fb_success'), 1100)
+  }
+
   const isTerminal =
     (mockTab === 'nps'      && npsPhase === 'success') ||
-    (mockTab === 'melhoria' && (melhoriaPhase === 'cta_done' || melhoriaPhase === 'postponed')) ||
+    (mockTab === 'melhoria' && (melhoriaPhase === 'fb_success' || melhoriaPhase === 'postponed')) ||
     (mockTab === 'feedback' && fbPhase === 'success')
 
   useEffect(() => {
@@ -296,7 +305,7 @@ export function ApresentacaoPage() {
         <div className="relative max-w-4xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-[12px] font-semibold mb-6">
             <span className="material-symbols-outlined text-[14px]">bolt</span>
-            Feedback &amp; Comunicação In-product
+            Campanhas In-app · NPS · Comunicados · Eventos
           </div>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-tight tracking-tight mb-6">
             Campanhas no momento{' '}
@@ -305,15 +314,16 @@ export function ApresentacaoPage() {
             <span className="text-primary">certo</span>
           </h1>
           <p className="text-lg sm:text-xl text-slate-300 max-w-2xl mx-auto mb-10 leading-relaxed">
-            O UserPulse exibe feedbacks, pesquisas e comunicados dentro do seu produto — segmentados por cliente,
-            unidade e perfil — com regras de reexibição e análise de resultados.
+            NPS, comunicados obrigatórios, anúncios de funcionalidade e pesquisas qualitativas —
+            tudo in-app, na tela certa, segmentado por cliente, perfil e unidade.
+            Sem email. Sem formulário externo.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
               onClick={() => scrollTo('casos-de-uso')}
               className="px-7 py-3.5 rounded-xl bg-primary text-on-primary font-bold text-[15px] hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-primary/30"
             >
-              Ver exemplos
+              Ver campanhas em ação
             </button>
             <button
               onClick={() => scrollTo('como-funciona')}
@@ -399,8 +409,8 @@ export function ApresentacaoPage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">Casos de uso</p>
-            <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Para o que você pode usar</h2>
-            <p className="text-slate-500 max-w-xl mx-auto">Cada campanha tem configuração própria — tipos, regras e segmentação diferentes.</p>
+            <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Muito além do NPS</h2>
+            <p className="text-slate-500 max-w-xl mx-auto">Do NPS ao comunicado obrigatório: configure qualquer tipo de campanha com segmentação, reexibição e encerramento automático por evento.</p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {CASOS.map(c => (
@@ -421,8 +431,8 @@ export function ApresentacaoPage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">Plataforma</p>
-            <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Recursos disponíveis</h2>
-            <p className="text-slate-500 max-w-xl mx-auto">Tudo que você precisa para gerenciar comunicação in-product com precisão.</p>
+            <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Uma plataforma completa</h2>
+            <p className="text-slate-500 max-w-xl mx-auto">Segmentação, reexibição, eventos, prioridade entre campanhas, dashboard analítico e exportação — tudo pronto para SaaS B2B.</p>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {RECURSOS.map(r => (
@@ -447,20 +457,21 @@ export function ApresentacaoPage() {
           </div>
 
           {/* 3-tab selector */}
-          <div className="flex bg-slate-100 rounded-xl p-1 gap-1 max-w-md mx-auto mb-8">
+          <div className="flex bg-slate-100 rounded-xl p-1 gap-1 max-w-xs sm:max-w-lg mx-auto mb-8">
             {([
-              { key: 'nps',      icon: 'star_rate',    label: 'Pesquisa NPS' },
-              { key: 'melhoria', icon: 'new_releases', label: 'Nova funcionalidade' },
-              { key: 'feedback', icon: 'rate_review',  label: 'Feedback detalhado' },
+              { key: 'nps',      icon: 'star_rate',    short: 'NPS',      label: 'Pesquisa NPS' },
+              { key: 'melhoria', icon: 'new_releases', short: 'Melhoria', label: 'Nova funcionalidade' },
+              { key: 'feedback', icon: 'rate_review',  short: 'Feedback', label: 'Feedback detalhado' },
             ] as const).map(tab => (
               <button
                 key={tab.key}
                 onClick={() => setMockTab(tab.key)}
-                className={`flex-1 flex items-center justify-center gap-1 py-2 rounded-lg text-[11px] font-semibold transition-all ${
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-[11px] font-semibold transition-all ${
                   mockTab === tab.key ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
-                <span className="material-symbols-outlined text-[14px]">{tab.icon}</span>
+                <span className="material-symbols-outlined text-[15px]">{tab.icon}</span>
+                <span className="sm:hidden">{tab.short}</span>
                 <span className="hidden sm:inline">{tab.label}</span>
               </button>
             ))}
@@ -481,7 +492,7 @@ export function ApresentacaoPage() {
             </div>
 
             {/* App content */}
-            <div className="relative bg-slate-50" style={{ minHeight: 440 }}>
+            <div className="relative bg-slate-50 min-h-[420px] sm:min-h-[620px]">
               {/* Fake app chrome */}
               <div className="absolute inset-0 flex">
                 <div className="w-14 bg-slate-800 flex flex-col items-center pt-3 gap-3 shrink-0">
@@ -506,11 +517,11 @@ export function ApresentacaoPage() {
               </div>
 
               {/* Overlay */}
-              <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-4">
+              <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
 
                 {/* ── NPS modal ── */}
                 {mockTab === 'nps' && (
-                  <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm border border-slate-100">
+                  <div className="bg-white rounded-2xl shadow-2xl p-5 sm:p-6 w-full max-w-[300px] sm:max-w-xs border border-slate-100">
                     <ModalHeader />
                     {npsPhase === 'success' ? (
                       <SuccessCard message="Sua avaliação foi registrada." />
@@ -525,7 +536,7 @@ export function ApresentacaoPage() {
                         <p className="text-[12px] text-slate-400 mb-4">Sua opinião nos ajuda a melhorar a experiência.</p>
                         <ScaleSelector value={npsNota} onChange={setNpsNota} />
                         <div className="flex justify-between text-[10px] text-slate-400 mt-1 mb-4">
-                          <span>Péssima</span><span>Excelente</span>
+                          <span>Ruim</span><span>Excelente</span>
                         </div>
                         <button
                           onClick={sendNps}
@@ -541,46 +552,59 @@ export function ApresentacaoPage() {
 
                 {/* ── Melhoria modal ── */}
                 {mockTab === 'melhoria' && (
-                  <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm border border-slate-100">
-                    <ModalHeader />
+                  <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm border border-slate-100 overflow-hidden">
 
-                    {melhoriaPhase === 'cta_done' ? (
-                      <div className="text-center py-3 mt-2">
-                        <div className="w-11 h-11 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto mb-2">
-                          <span className="material-symbols-outlined text-emerald-500 text-[22px]" style={{ fontVariationSettings: "'FILL' 1" }}>open_in_new</span>
-                        </div>
-                        <p className="text-[14px] font-bold text-slate-800 mb-0.5">Clique registrado</p>
-                        <p className="text-[12px] text-slate-400">O usuário seria direcionado para a funcionalidade.</p>
-                      </div>
-                    ) : melhoriaPhase === 'postponed' ? (
-                      <div className="text-center py-3 mt-2">
-                        <div className="w-11 h-11 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center mx-auto mb-2">
-                          <span className="material-symbols-outlined text-slate-400 text-[22px]">schedule</span>
-                        </div>
-                        <p className="text-[14px] font-bold text-slate-800 mb-0.5">Campanha adiada</p>
-                        <p className="text-[12px] text-slate-400">Será reexibida conforme a política configurada.</p>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="mt-3 mb-2">
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold">
-                            <span className="material-symbols-outlined text-[12px]" style={{ fontVariationSettings: "'FILL' 1" }}>new_releases</span>
-                            Melhoria disponível
-                          </span>
-                        </div>
-                        <h3 className="text-[15px] font-bold text-slate-800 mb-0.5">Conheça a nova agenda</h3>
-                        <p className="text-[12px] text-slate-400 mb-3">Veja em poucos segundos como otimizar sua rotina.</p>
+                    {/* Header — título da campanha + X */}
+                    <div className="flex items-center gap-2 px-3 py-2.5 border-b border-slate-100 bg-slate-50/80">
+                      <span className="material-symbols-outlined text-primary text-[16px] shrink-0" style={{ fontVariationSettings: "'FILL' 1" }}>campaign</span>
+                      <span className="flex-1 text-[11px] text-slate-700 font-semibold leading-tight">
+                        Conheça a Funcionalidade de Agendamentos do QuarkClinic
+                      </span>
+                      <span className="material-symbols-outlined text-slate-300 text-[15px] select-none shrink-0">close</span>
+                    </div>
 
-                        {/* Video mock */}
+                    {/* Fases terminais */}
+                    {melhoriaPhase === 'fb_success' && (
+                      <div className="p-5">
+                        <SuccessCard message="Novidade registrada. Feedback enviado!" />
+                      </div>
+                    )}
+
+                    {melhoriaPhase === 'fb_sending' && (
+                      <div className="px-5 py-8 text-center">
+                        <div className="w-7 h-7 rounded-full border-2 border-primary border-t-transparent animate-spin mx-auto mb-2.5" />
+                        <p className="text-[12px] text-slate-400">Enviando...</p>
+                      </div>
+                    )}
+
+                    {melhoriaPhase === 'postponed' && (
+                      <div className="px-5 py-7 text-center">
+                        <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center mx-auto mb-2">
+                          <span className="material-symbols-outlined text-slate-400 text-[20px]">schedule</span>
+                        </div>
+                        <p className="text-[13px] font-bold text-slate-800 mb-0.5">Campanha adiada</p>
+                        <p className="text-[11px] text-slate-400">Será reexibida conforme a política configurada.</p>
+                      </div>
+                    )}
+
+                    {/* Conteúdo principal — idle ou playing */}
+                    {(melhoriaPhase === 'idle' || melhoriaPhase === 'playing') && (
+                      <div className="px-4 pt-3 pb-4 flex flex-col gap-2">
+
+                        {/* Subtítulo azul */}
+                        <p className="text-[12px] font-semibold text-blue-600 leading-tight">
+                          Confira o que chegou de novo para você
+                        </p>
+
+                        {/* Vídeo */}
                         <div
-                          className="relative w-full rounded-xl overflow-hidden mb-3 bg-gradient-to-br from-slate-700 to-slate-900 cursor-pointer"
-                          style={{ height: 100 }}
+                          className="relative w-full rounded-xl overflow-hidden bg-gradient-to-br from-slate-700 to-slate-900 cursor-pointer h-[88px] sm:h-[112px]"
                           onClick={() => melhoriaPhase === 'idle' && setMelhoriaPhase('playing')}
                         >
                           <div className="absolute inset-0 opacity-20 select-none pointer-events-none">
-                            <div className="absolute top-3 left-4 w-20 h-2.5 bg-white/40 rounded-full" />
-                            <div className="absolute top-7 left-4 w-14 h-2.5 bg-white/25 rounded-full" />
-                            <div className="absolute top-3 right-4 w-9 h-9 rounded-xl bg-white/10" />
+                            <div className="absolute top-2 left-3 w-16 h-2 bg-white/40 rounded-full" />
+                            <div className="absolute top-5 left-3 w-11 h-2 bg-white/25 rounded-full" />
+                            <div className="absolute top-2 right-3 w-8 h-8 rounded-lg bg-white/10" />
                           </div>
                           {melhoriaPhase === 'playing' ? (
                             <>
@@ -589,52 +613,94 @@ export function ApresentacaoPage() {
                                   <span className="material-symbols-outlined text-white text-[18px]" style={{ fontVariationSettings: "'FILL' 1" }}>pause</span>
                                 </div>
                               </div>
-                              <div className="absolute top-2 left-2.5 flex items-center gap-1.5 bg-black/50 rounded px-1.5 py-0.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                <span className="text-[10px] text-white/90 font-mono">Em reprodução</span>
+                              <div className="absolute top-1.5 left-2 flex items-center gap-1 bg-black/50 rounded px-1.5 py-0.5">
+                                <span className="w-1 h-1 rounded-full bg-emerald-400" />
+                                <span className="text-[9px] text-white/90 font-mono">Em reprodução</span>
                               </div>
-                              <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/20">
-                                <div className="h-full bg-primary rounded-full" style={{ width: '58%' }} />
+                              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white/20">
+                                <div className="h-full bg-primary" style={{ width: '58%' }} />
                               </div>
-                              <span className="absolute bottom-2 right-2.5 text-[10px] text-white/80 font-mono bg-black/50 px-1.5 py-0.5 rounded">0:25</span>
                             </>
                           ) : (
                             <>
                               <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="w-10 h-10 rounded-full bg-white/20 border border-white/40 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors">
-                                  <span className="material-symbols-outlined text-white text-[22px]" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
+                                <div className="w-9 h-9 rounded-full bg-white/20 border border-white/40 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 transition-colors">
+                                  <span className="material-symbols-outlined text-white text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>play_arrow</span>
                                 </div>
                               </div>
-                              <span className="absolute bottom-2 right-2.5 text-[10px] text-white/80 font-mono bg-black/50 px-1.5 py-0.5 rounded">0:42</span>
+                              <span className="absolute bottom-1.5 right-2 text-[9px] text-white/70 font-mono bg-black/50 px-1.5 py-0.5 rounded">0:42</span>
                             </>
                           )}
                         </div>
 
-                        <p className="text-[12px] text-slate-500 mb-3 leading-relaxed">
-                          A nova agenda unifica agendamentos em um único painel — menos cliques, mais agilidade.
+                        {/* Texto explicativo */}
+                        <p className="text-[11px] text-slate-600 leading-relaxed">
+                          Temos uma novidade que vai facilitar o seu dia a dia! Acesse agora mesmo e explore todas as possibilidades do QuarkClinic.
                         </p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setMelhoriaPhase('cta_done')}
-                            className="flex-1 py-2.5 rounded-xl bg-primary text-on-primary text-[13px] font-bold hover:opacity-90 transition-opacity"
-                          >
-                            Ver novidade
-                          </button>
+
+                        {/* CTA */}
+                        <button
+                          onClick={() => setMelhoriaCtaDone(true)}
+                          className={`w-full py-2 rounded-xl text-[12px] font-bold transition-all flex items-center justify-center gap-1.5 ${
+                            melhoriaCtaDone
+                              ? 'bg-emerald-50 border border-emerald-300 text-emerald-700'
+                              : 'bg-primary text-on-primary hover:opacity-90'
+                          }`}
+                        >
+                          {melhoriaCtaDone && (
+                            <span className="material-symbols-outlined text-[14px]" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+                          )}
+                          {melhoriaCtaDone ? 'Clique registrado' : 'Ver novidade'}
+                        </button>
+
+                        {/* Separador */}
+                        <div className="border-t border-slate-100" />
+
+                        {/* Feedback section */}
+                        <p className="text-[11px] font-bold text-slate-800 leading-tight">
+                          O que você achou dessa novidade?
+                        </p>
+
+                        <ScaleSelector value={melhoriaFbNota} onChange={setMelhoriaFbNota} />
+
+                        <div className="flex justify-between text-[9px] font-semibold text-slate-400 tracking-wide -mt-1">
+                          <span>RUIM</span><span>EXCELENTE</span>
+                        </div>
+
+                        <textarea
+                          value={melhoriaFbObs}
+                          onChange={e => setMelhoriaFbObs(e.target.value)}
+                          placeholder="Observação (opcional)"
+                          rows={2}
+                          className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white text-[11px] text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-none"
+                        />
+
+                        <button
+                          onClick={sendMelhoriaFb}
+                          disabled={!melhoriaFbNota}
+                          className="w-full py-2 rounded-xl bg-primary text-on-primary text-[12px] font-bold transition-opacity disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90"
+                        >
+                          Enviar Feedback
+                        </button>
+
+                        <p className="text-center -mt-0.5">
                           <button
                             onClick={() => setMelhoriaPhase('postponed')}
-                            className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-500 text-[13px] hover:bg-slate-50 transition-colors"
+                            className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
                           >
-                            Depois
+                            Lembrar depois
                           </button>
-                        </div>
-                      </>
+                        </p>
+
+                      </div>
                     )}
+
                   </div>
                 )}
 
                 {/* ── Feedback detalhado modal ── */}
                 {mockTab === 'feedback' && (
-                  <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm border border-slate-100">
+                  <div className="bg-white rounded-2xl shadow-2xl p-5 sm:p-6 w-full max-w-[320px] sm:max-w-sm md:max-w-md border border-slate-100">
                     <ModalHeader />
                     {fbPhase === 'success' ? (
                       <SuccessCard message="Seu feedback foi registrado." />
@@ -649,7 +715,7 @@ export function ApresentacaoPage() {
                         <p className="text-[12px] text-slate-400 mb-4">Sua opinião ajuda a melhorar a funcionalidade.</p>
                         <ScaleSelector value={fbNota} onChange={setFbNota} />
                         <div className="flex justify-between text-[10px] text-slate-400 mt-1 mb-3">
-                          <span>Péssima</span><span>Excelente</span>
+                          <span>Ruim</span><span>Excelente</span>
                         </div>
                         <label className="block text-[11px] font-semibold text-slate-500 mb-1">Observação <span className="font-normal text-slate-400">(opcional)</span></label>
                         <textarea
@@ -657,7 +723,7 @@ export function ApresentacaoPage() {
                           onChange={e => setFbObs(e.target.value)}
                           placeholder="Conte pra gente o motivo da sua nota..."
                           rows={3}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-[12px] text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-none mb-3"
+                          className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-[12px] text-slate-700 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors resize-none mb-3 min-h-[72px]"
                         />
                         <button
                           onClick={sendFeedback}
@@ -822,8 +888,11 @@ export function ApresentacaoPage() {
         <div className="max-w-3xl mx-auto">
           <div className="text-center mb-10">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">Integração</p>
-            <h2 className="text-3xl font-extrabold text-white mb-4">3 linhas para começar</h2>
-            <p className="text-slate-400 max-w-xl mx-auto">Uma tag <code className="text-primary font-mono text-[13px]">&lt;script&gt;</code> no HTML e três chamadas JavaScript — sem backend, sem configuração de banco, sem build pipeline.</p>
+            <h2 className="text-3xl font-extrabold text-white mb-4">Pronto em minutos, não em semanas</h2>
+            <p className="text-slate-400 max-w-xl mx-auto">Uma tag{' '}
+              <code className="text-primary font-mono text-[13px]">&lt;script&gt;</code>{' '}
+              no HTML. Três funções JavaScript. Sem backend adicional, sem banco de dados, sem build pipeline.
+            </p>
           </div>
           <CodeSnippet code={CODE_INTEGRACAO} />
           <div className="flex flex-col sm:flex-row gap-3 justify-center mt-8">
@@ -833,6 +902,13 @@ export function ApresentacaoPage() {
             >
               <span className="material-symbols-outlined text-[18px]">integration_instructions</span>
               Ver documentação completa
+            </a>
+            <a
+              href="mailto:contato@userpulse.com.br?subject=Demonstração UserPulse"
+              className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-white/10 border border-white/20 text-white font-bold text-[14px] hover:bg-white/20 transition-all"
+            >
+              <span className="material-symbols-outlined text-[18px]">mail</span>
+              Solicitar demonstração
             </a>
           </div>
         </div>
