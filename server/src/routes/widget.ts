@@ -11,5 +11,8 @@ router.patch('/feedback/:id/telefone', widget.atualizarTelefone)
 router.post('/confirmacao', widget.registrarConfirmacao)
 router.post('/conclusao-evento', widget.registrarConclusaoEvento)
 router.post('/eventos', widget.registrarEventoUsuario)
+router.get('/tour', widget.buscarTour)
+router.get('/tour/candidatas', widget.buscarTourCandidatos)
+router.post('/tour/evento', widget.registrarEventoTour)
 
 export default router

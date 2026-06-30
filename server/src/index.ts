@@ -7,6 +7,7 @@ import campanhasRouter from './routes/campanhas'
 import widgetRouter from './routes/widget'
 import dashboardRouter from './routes/dashboard'
 import catalogoTelasRouter from './routes/catalogoTelas'
+import toursRouter from './routes/tours'
 
 dotenv.config()
 
@@ -75,9 +76,20 @@ app.get('/widget.js', (_req, res) => {
   res.sendFile(path.join(WEB_DIST, 'widget.js'))
 })
 
+// Conveniência de dev — serve o test-embed.html da raiz do repo para os botões
+// "Abrir test-embed" do admin (preview de campanhas/tours). Não existe no
+// build de produção (web/dist), então em produção isso só resulta em 404.
+const TEST_EMBED_PATH = path.resolve(__dirname, '../../test-embed.html')
+app.get('/test-embed.html', (_req, res) => {
+  res.sendFile(TEST_EMBED_PATH, err => {
+    if (err && !res.headersSent) res.status(404).end()
+  })
+})
+
 // Rotas da API
 app.use('/api/campanhas', corsAdmin, requireAdminToken, campanhasRouter)
 app.use('/api/catalogo-telas', corsAdmin, requireAdminToken, catalogoTelasRouter)
+app.use('/api/tours', corsAdmin, requireAdminToken, toursRouter)
 app.use('/api/widget', corsWidget, widgetRouter)
 app.use('/api/dashboard', corsAdmin, requireAdminToken, dashboardRouter)
 

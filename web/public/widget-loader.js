@@ -21,6 +21,7 @@
       init: function () { _q.push(['init', arguments]); },
       track: function () { _q.push(['track', arguments]); },
       updateContext: function () { _q.push(['updateContext', arguments]); },
+      iniciarTour: function () { _q.push(['iniciarTour', arguments]); },
     };
   }
 

@@ -191,7 +191,7 @@
 
     <!-- instrução de setup: visível na página, some se não precisar -->
     <div id="setup-banner">
-      <strong>Teste embed UserPulse — QuarkClinic</strong>
+      <strong>Teste embed UserPulse — QuarkClinic (widget local)</strong>
       <div class="step" data-n="1">
         Sistema/Tela → <code>sistema: quarkclinic-core</code> <code>tela: agenda</code>
       </div>
@@ -217,6 +217,17 @@
       </button>
     </div>
 
+    <!-- painel de testes de tour guiado (Fase 2) -->
+    <div id="tour-panel" style="background:#f3eeff;border-bottom:1px solid #d9c9fb;padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:13px;color:#3a1a6b;">
+      <strong>Testes de tour guiado:</strong>
+      <button onclick="window.UserPulse.iniciarTour('conhecendo-a-agenda')" style="background:#6b38d4;color:#fff;border:0;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;">
+        Iniciar tour: Conhecendo a Agenda (também inicia sozinho ao carregar a página)
+      </button>
+      <button onclick="window.UserPulse.iniciarTour('teste-elemento-ausente')" style="background:#fff;color:#6b38d4;border:1px solid #c9b6f5;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;">
+        Iniciar tour: elemento ausente (1º passo deve falhar)
+      </button>
+    </div>
+
     <!-- chrome do sistema simulado -->
     <header>
       <div class="brand">QuarkClinic <span>v2.4</span></div>
@@ -237,7 +248,17 @@
           <h1>Agenda</h1>
           <p>Quarta-feira, 25 de junho de 2026 &mdash; CLINICA VALIDAÇÕES - JFS (MATRIZ)</p>
         </div>
-        <button class="btn btn-primary">+ Nova consulta</button>
+        <button class="btn btn-primary" data-cy="botao-novo-agendamento" onclick="document.getElementById('novo-agendamento-painel').style.display='block'">+ Nova consulta</button>
+      </div>
+
+      <div id="novo-agendamento-painel" class="card" style="display:none;margin-bottom:16px;padding:18px 20px;">
+        <h2 style="font-size:15px;margin-bottom:12px;">Novo agendamento</h2>
+        <label style="display:block;font-size:12px;font-weight:600;color:#667085;margin-bottom:6px;">Paciente</label>
+        <input type="text" class="search-input" style="width:280px;margin-bottom:14px;" placeholder="Nome do paciente" data-cy="campo-paciente" />
+        <div>
+          <button class="btn btn-primary" data-cy="botao-salvar-agendamento" onclick="document.getElementById('novo-agendamento-painel').style.display='none'">Salvar agendamento</button>
+          <button class="btn btn-secondary" onclick="document.getElementById('novo-agendamento-painel').style.display='none'">Cancelar</button>
+        </div>
       </div>
 
       <div class="toolbar">
@@ -330,7 +351,22 @@
     </main>
 
     <!-- UserPulse embed ──────────────────────────────────────────────── -->
-    <script src="https://userpulse-866c.onrender.com/widget.js"></script>
+    <!-- Caminho relativo seguro — nunca commitar uma URL fixa de localhost aqui.
+         Para testar contra o widget local (npm start, :3333), abra este arquivo
+         direto no navegador com ?local=1 na URL, ex.:
+         file:///.../test-embed.html?local=1 — funciona em URLs file:// também.
+         Sem o parâmetro, usa o caminho relativo /widget-loader.js (seguro para
+         commit, ainda que não resolva nada sob file://).
+         document.write mantém o carregamento síncrono/bloqueante, igual a um
+         <script src> estático, para que o UserPulse.init() abaixo já encontre
+         a fila (window.UserPulse._q) pronta. -->
+    <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var base = params.get('local') === '1' ? 'http://localhost:3333' : '';
+      document.write('<script src="' + base + '/widget-loader.js"><\/script>');
+    })();
+    </script>
     <script>
     window.UserPulse.init({
       // sistema e tela — usados por modo Sistema/Tela, Data-cy e URL contém
@@ -362,6 +398,15 @@
       Estado:           "RN",
       Perfil:           "PROFISSIONAL_SAUDE",
     });
+
+    // Suporte ao botão "Abrir test-embed" do admin (preview de tour guiado):
+    // ?tour=<slug> inicia o tour manualmente assim que o widget estiver pronto.
+    // window.UserPulse.iniciarTour() enfileira a chamada normalmente caso o
+    // widget.js ainda não tenha carregado.
+    (function () {
+      var tourSlug = new URLSearchParams(window.location.search).get('tour');
+      if (tourSlug) window.UserPulse.iniciarTour(tourSlug);
+    })();
     </script>
   </body>
 </html>

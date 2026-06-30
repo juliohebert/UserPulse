@@ -131,6 +131,30 @@
       '.up-phone-input{width:100%;border:1px solid #c2c6d6;border-radius:12px;background:#f8f9ff;color:#0b1c30;padding:10px 12px;font:inherit;font-size:14px;line-height:20px;outline:none}',
       '.up-phone-input:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
       '.up-phone-done{margin:0;color:#006947;font-size:13px;line-height:18px;font-weight:600;text-align:center}',
+      '.up-tour-overlay{position:fixed;inset:0;z-index:2147483600;pointer-events:none}',
+      '.up-tour-spotlight{position:fixed;border-radius:10px;box-shadow:0 0 0 9999px rgba(11,28,48,.55),0 0 0 3px #0058be,0 0 0 5px rgba(0,88,190,.25);pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
+      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid #c2c6d6;border-radius:14px;box-shadow:0 18px 50px rgba(11,28,48,.3);padding:16px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
+      '.up-tour-progress{font-size:11px;font-weight:800;color:#0058be;text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px}',
+      '.up-tour-title{font-size:15px;font-weight:800;color:#0b1c30;margin:0 0 6px;line-height:20px}',
+      '.up-tour-desc{font-size:13px;line-height:19px;color:#424754;margin:0}',
+      '.up-tour-warning{font-size:12px;line-height:17px;color:#ba1a1a;margin-top:10px;display:flex;gap:6px;align-items:flex-start;background:rgba(186,26,26,.08);border-radius:8px;padding:8px 10px}',
+      '.up-tour-warning svg{width:15px;height:15px;flex-shrink:0;margin-top:1px;fill:currentColor}',
+      '.up-tour-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:8px}',
+      '.up-tour-dots{display:flex;gap:4px;align-items:center}',
+      '.up-tour-dot{width:6px;height:6px;border-radius:999px;background:#d8dbe6;flex-shrink:0}',
+      '.up-tour-dot-active{background:#0058be;width:14px;border-radius:4px}',
+      '.up-tour-nav{display:flex;gap:6px}',
+      '.up-tour-btn{border:0;border-radius:9px;padding:8px 13px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;transition:opacity .15s ease,transform .15s ease}',
+      '.up-tour-btn:hover{opacity:.9}',
+      '.up-tour-btn:active{transform:scale(.97)}',
+      '.up-tour-btn:disabled{opacity:.35;cursor:not-allowed;transform:none}',
+      '.up-tour-btn-primary{background:#0058be;color:#fff}',
+      '.up-tour-btn-secondary{background:#eff4ff;color:#0058be}',
+      '.up-tour-btn-text{background:transparent;color:#727785;padding:8px 4px}',
+      '.up-tour-close{position:absolute;top:10px;right:10px;border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0}',
+      '.up-tour-close:hover{background:#eff4ff;color:#0b1c30}',
+      '.up-tour-close svg{width:16px;height:16px;fill:currentColor;display:block}',
+      '@media (max-width:480px){.up-tour-tooltip{width:calc(100vw - 24px)}}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -845,6 +869,8 @@
         })
         .catch(function () {});
     }
+
+    if (normalized.sistema) avaliarTourAutomatico(normalized);
   }
 
   function track(eventoNome, metadataOpcional) {
@@ -858,7 +884,7 @@
     // Register event in global user history — enables retroactive blocking for
     // campaigns created after this event fires.
     if (config.usuario_id) {
-      fetch(apiUrl('/widget/eventos'), {
+      fetch(apiUrl('/api/widget/eventos'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
@@ -1036,12 +1062,389 @@
     window.addEventListener('hashchange', handleUrlChange);
   }
 
+  // ─── Tours guiados ────────────────────────────────────────────────────────
+
+  var TOUR_WIDGET_ID = 'userpulse-tour-root';
+  var TOUR_RETRY_MAX = 12;
+  var TOUR_RETRY_INTERVAL_MS = 300;
+
+  var tourState = {
+    tour: null,
+    indice: 0,
+    root: null,
+    elementoAtual: null,
+    naoEncontrado: false,
+    buscaTimer: null,
+    reposTimer: null,
+    ativo: false,
+  };
+
+  function fetchTour(slug) {
+    var params = new URLSearchParams();
+    params.set('slug', slug);
+    return fetch(apiUrl('/api/widget/tour?' + params.toString()), {
+      headers: { Accept: 'application/json' },
+    }).then(function (response) {
+      if (!response.ok) return null;
+      return response.json();
+    });
+  }
+
+  function fetchTourCandidatos(sistema, tela, usuario_id, contexto) {
+    var params = new URLSearchParams();
+    params.set('sistema', sistema);
+    if (tela) params.set('tela', tela);
+    if (usuario_id) params.set('usuario_id', usuario_id);
+    appendContexto(params, contexto);
+    return fetch(apiUrl('/api/widget/tour/candidatas?' + params.toString()), {
+      headers: { Accept: 'application/json' },
+    }).then(function (response) {
+      if (!response.ok) return [];
+      return response.json();
+    });
+  }
+
+  // Reexibição: quando há usuario_id, o servidor é a fonte da verdade — já filtra
+  // tours concluídos/pulados em buscarTourCandidatos, e libera de volta para
+  // usuários de validação (USERPULSE_ALWAYS_SHOW_USER_IDS), igual às campanhas.
+  // O localStorage só entra como fallback quando NÃO há usuario_id (o servidor
+  // não tem como identificar o usuário para fazer esse dedupe).
+  function tourShownKey(tour) {
+    return 'userpulse:tour:' + tour.id;
+  }
+
+  function tourWasShown(tour) {
+    try {
+      return window.localStorage.getItem(tourShownKey(tour)) === '1';
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  function tourMarkShown(tour) {
+    try {
+      window.localStorage.setItem(tourShownKey(tour), '1');
+    } catch (_err) {}
+  }
+
+  function registrarEventoTour(tipoEvento, passoOrdem) {
+    var tour = tourState.tour;
+    var config = state.config;
+    if (!tour || !config) return;
+    fetch(apiUrl('/api/widget/tour/evento'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        tour_id: tour.id,
+        tipo_evento: tipoEvento,
+        passo_ordem: passoOrdem != null ? passoOrdem : undefined,
+        usuario_id: config.usuario_id || undefined,
+        sistema: config.sistema || undefined,
+        tela: config.tela || undefined,
+        navegador: window.navigator.userAgent,
+        dispositivo: getDevice(),
+        contexto: config.contexto || undefined,
+      }),
+    }).catch(function () { /* fail silently */ });
+  }
+
+  function selecionarElementoPasso(passo) {
+    try {
+      var el = passo.seletor_tipo === 'css'
+        ? document.querySelector(passo.seletor)
+        : document.querySelector('[data-cy="' + passo.seletor + '"]');
+      if (!el) return null;
+      // Elemento existe no DOM mas está oculto (display:none, etc.) — trata como
+      // ainda-não-encontrado para dar tempo do host revelá-lo (ex.: outro passo
+      // do tour abriu um painel) antes de cair no estado de erro.
+      var rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return null;
+      return el;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function localizarComRetry(passo, tentativa, cb) {
+    var el = selecionarElementoPasso(passo);
+    if (el) { cb(el); return; }
+    if (tentativa >= TOUR_RETRY_MAX) { cb(null); return; }
+    tourState.buscaTimer = window.setTimeout(function () {
+      localizarComRetry(passo, tentativa + 1, cb);
+    }, TOUR_RETRY_INTERVAL_MS);
+  }
+
+  function limparBuscaTimer() {
+    if (tourState.buscaTimer) {
+      window.clearTimeout(tourState.buscaTimer);
+      tourState.buscaTimer = null;
+    }
+  }
+
+  function clampPos(pos, w, h) {
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    return {
+      top: Math.min(Math.max(pos.top, 8), Math.max(8, vh - h - 8)),
+      left: Math.min(Math.max(pos.left, 8), Math.max(8, vw - w - 8)),
+    };
+  }
+
+  function calcularPosicaoTooltip(rect, posicaoDesejada, tooltipW, tooltipH) {
+    var margin = 16;
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var positions = {
+      top: { top: rect.top - tooltipH - margin, left: rect.left + rect.width / 2 - tooltipW / 2 },
+      bottom: { top: rect.bottom + margin, left: rect.left + rect.width / 2 - tooltipW / 2 },
+      left: { top: rect.top + rect.height / 2 - tooltipH / 2, left: rect.left - tooltipW - margin },
+      right: { top: rect.top + rect.height / 2 - tooltipH / 2, left: rect.right + margin },
+    };
+    function fits(pos) {
+      return pos.top >= 8 && pos.left >= 8 && pos.top + tooltipH <= vh - 8 && pos.left + tooltipW <= vw - 8;
+    }
+    var ordem;
+    if (posicaoDesejada === 'top') ordem = ['top', 'bottom', 'right', 'left'];
+    else if (posicaoDesejada === 'left') ordem = ['left', 'right', 'bottom', 'top'];
+    else if (posicaoDesejada === 'right') ordem = ['right', 'left', 'bottom', 'top'];
+    else if (posicaoDesejada === 'bottom') ordem = ['bottom', 'top', 'right', 'left'];
+    else ordem = ['bottom', 'top', 'right', 'left'];
+
+    for (var i = 0; i < ordem.length; i++) {
+      if (fits(positions[ordem[i]])) return clampPos(positions[ordem[i]], tooltipW, tooltipH);
+    }
+    return clampPos(positions[ordem[0]], tooltipW, tooltipH);
+  }
+
+  function renderTourNaoEncontrado() {
+    var passo = tourState.tour.passos[tourState.indice];
+    var total = tourState.tour.passos.length;
+    var ultimo = tourState.indice === total - 1;
+    return [
+      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
+      '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Pular tour">' + icon('close') + '</button>',
+      '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
+      '<p class="up-tour-title">' + escapeHtml(passo.titulo) + '</p>',
+      passo.descricao ? '<p class="up-tour-desc">' + escapeHtml(passo.descricao) + '</p>' : '',
+      '<div class="up-tour-warning">' + icon('close') + '<span>Não foi possível localizar este elemento na tela atual.</span></div>',
+      tourFooter(total, ultimo),
+      '</div>',
+    ].join('');
+  }
+
+  function tourFooter(total, ultimo) {
+    return [
+      '<div class="up-tour-footer">',
+      '<button type="button" class="up-tour-btn up-tour-btn-text" data-up-tour-skip="true">Pular</button>',
+      '<div class="up-tour-nav">',
+      '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-back="true"' + (tourState.indice === 0 ? ' disabled' : '') + '>Voltar</button>',
+      ultimo
+        ? '<button type="button" class="up-tour-btn up-tour-btn-primary" data-up-tour-finish="true">Concluir</button>'
+        : '<button type="button" class="up-tour-btn up-tour-btn-primary" data-up-tour-next="true">Próximo</button>',
+      '</div>',
+      '</div>',
+    ].join('');
+  }
+
+  function renderTour() {
+    if (!tourState.ativo || !tourState.tour) return;
+
+    var oldRoot = document.getElementById(TOUR_WIDGET_ID);
+    if (oldRoot) oldRoot.remove();
+
+    var root = document.createElement('div');
+    root.id = TOUR_WIDGET_ID;
+    root.className = 'up-tour-overlay';
+    tourState.root = root;
+
+    if (tourState.naoEncontrado || !tourState.elementoAtual) {
+      root.innerHTML = renderTourNaoEncontrado();
+      document.body.appendChild(root);
+      bindTourEvents();
+      return;
+    }
+
+    var rect = tourState.elementoAtual.getBoundingClientRect();
+    var passo = tourState.tour.passos[tourState.indice];
+    var total = tourState.tour.passos.length;
+    var ultimo = tourState.indice === total - 1;
+    var dots = [];
+    for (var i = 0; i < total; i++) {
+      dots.push('<span class="up-tour-dot' + (i === tourState.indice ? ' up-tour-dot-active' : '') + '"></span>');
+    }
+
+    var tooltipW = 300;
+    var tooltipH = 200; // estimativa; reposicionado após medir o elemento real
+    var pos = calcularPosicaoTooltip(rect, passo.tooltip_posicao || 'auto', tooltipW, tooltipH);
+
+    root.innerHTML = [
+      '<div class="up-tour-spotlight" style="top:' + (rect.top - 4) + 'px;left:' + (rect.left - 4) + 'px;width:' + (rect.width + 8) + 'px;height:' + (rect.height + 8) + 'px"></div>',
+      '<div class="up-tour-tooltip" id="up-tour-tooltip-el" style="top:' + pos.top + 'px;left:' + pos.left + 'px">',
+      '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Pular tour">' + icon('close') + '</button>',
+      '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
+      '<p class="up-tour-title">' + escapeHtml(passo.titulo) + '</p>',
+      passo.descricao ? '<p class="up-tour-desc">' + escapeHtml(passo.descricao) + '</p>' : '',
+      '<div class="up-tour-dots" style="margin-top:10px">' + dots.join('') + '</div>',
+      tourFooter(total, ultimo),
+      '</div>',
+    ].join('');
+
+    document.body.appendChild(root);
+    bindTourEvents();
+
+    // Reposiciona com a altura real do tooltip (a estimativa acima evita flash fora da tela)
+    var tooltipEl = root.querySelector('#up-tour-tooltip-el');
+    if (tooltipEl) {
+      var realH = tooltipEl.offsetHeight;
+      if (Math.abs(realH - tooltipH) > 4) {
+        var pos2 = calcularPosicaoTooltip(rect, passo.tooltip_posicao || 'auto', tooltipW, realH);
+        tooltipEl.style.top = pos2.top + 'px';
+        tooltipEl.style.left = pos2.left + 'px';
+      }
+    }
+  }
+
+  function reposicionarTour() {
+    if (!tourState.ativo || tourState.naoEncontrado || !tourState.elementoAtual) return;
+    window.requestAnimationFrame(renderTour);
+  }
+
+  var tourReposHandlersBound = false;
+  function bindTourReposHandlers() {
+    if (tourReposHandlersBound) return;
+    tourReposHandlersBound = true;
+    window.addEventListener('scroll', reposicionarTour, true);
+    window.addEventListener('resize', reposicionarTour);
+  }
+  function unbindTourReposHandlers() {
+    if (!tourReposHandlersBound) return;
+    tourReposHandlersBound = false;
+    window.removeEventListener('scroll', reposicionarTour, true);
+    window.removeEventListener('resize', reposicionarTour);
+  }
+
+  function tourKeydown(event) {
+    if (event.key === 'Escape') tourPular();
+  }
+
+  function bindTourEvents() {
+    if (!tourState.root) return;
+    tourState.root.addEventListener('click', function (event) {
+      var target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest('[data-up-tour-back]')) { event.preventDefault(); tourVoltar(); return; }
+      if (target.closest('[data-up-tour-next]')) { event.preventDefault(); tourProximo(); return; }
+      if (target.closest('[data-up-tour-finish]')) { event.preventDefault(); tourConcluir(); return; }
+      if (target.closest('[data-up-tour-skip]')) { event.preventDefault(); tourPular(); return; }
+    });
+  }
+
+  function irParaPasso(indice) {
+    limparBuscaTimer();
+    tourState.indice = indice;
+    tourState.naoEncontrado = false;
+    tourState.elementoAtual = null;
+
+    var passo = tourState.tour.passos[indice];
+    if (!passo) { finalizarTour(); return; }
+
+    localizarComRetry(passo, 0, function (el) {
+      if (!tourState.ativo) return; // tour foi encerrado enquanto buscava
+      if (!el) {
+        tourState.naoEncontrado = true;
+        registrarEventoTour('elemento_nao_encontrado', indice);
+        renderTour();
+        return;
+      }
+      tourState.elementoAtual = el;
+      registrarEventoTour('passo_visualizado', indice);
+      try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_e) {}
+      window.setTimeout(renderTour, 320);
+    });
+  }
+
+  function tourProximo() {
+    if (tourState.indice < tourState.tour.passos.length - 1) irParaPasso(tourState.indice + 1);
+  }
+
+  function tourVoltar() {
+    if (tourState.indice > 0) irParaPasso(tourState.indice - 1);
+  }
+
+  function tourPular() {
+    registrarEventoTour('pulado', tourState.indice);
+    if (tourState.tour && (!state.config || !state.config.usuario_id)) tourMarkShown(tourState.tour);
+    finalizarTour();
+  }
+
+  function tourConcluir() {
+    registrarEventoTour('concluido', tourState.indice);
+    if (tourState.tour && (!state.config || !state.config.usuario_id)) tourMarkShown(tourState.tour);
+    finalizarTour();
+  }
+
+  function finalizarTour() {
+    limparBuscaTimer();
+    unbindTourReposHandlers();
+    document.removeEventListener('keydown', tourKeydown);
+    var oldRoot = document.getElementById(TOUR_WIDGET_ID);
+    if (oldRoot) oldRoot.remove();
+    tourState.ativo = false;
+    tourState.tour = null;
+    tourState.root = null;
+    tourState.elementoAtual = null;
+    tourState.naoEncontrado = false;
+  }
+
+  function iniciarTour(tour) {
+    if (!tour || !tour.passos || tour.passos.length === 0) return;
+    finalizarTour();
+    ensureStyles();
+    tourState.tour = tour;
+    tourState.ativo = true;
+    registrarEventoTour('inicio', 0);
+    bindTourReposHandlers();
+    document.addEventListener('keydown', tourKeydown);
+    irParaPasso(0);
+  }
+
+  // Avalia automaticamente, no init(), se há um tour guiado elegível para o
+  // contexto atual (mesmo princípio do checkMode usado para campanhas).
+  function avaliarTourAutomatico(config) {
+    if (tourState.ativo || !config.sistema) return;
+    fetchTourCandidatos(config.sistema, config.tela, config.usuario_id, config.contexto)
+      .then(function (candidatos) {
+        if (tourState.ativo) return;
+        for (var i = 0; i < candidatos.length; i++) {
+          var c = candidatos[i];
+          if (!checkMode(c, config)) continue;
+          // Com usuario_id, confia no backend (já fez dedupe/reexibição). Sem
+          // usuario_id, o servidor não tem como identificar o usuário — cai
+          // no fallback localStorage.
+          if (!config.usuario_id && tourWasShown(c)) continue;
+          iniciarTour(c);
+          break;
+        }
+      })
+      .catch(function () { /* fail silently */ });
+  }
+
+  // API pública para disparar um tour manualmente (ex.: botão "Ver tour" no host):
+  //   window.UserPulse.iniciarTour('slug-do-tour')
+  function iniciarTourPublico(slug) {
+    if (!slug) return;
+    fetchTour(slug).then(function (tour) {
+      if (tour) iniciarTour(tour);
+    }).catch(function () { /* fail silently */ });
+  }
+
   // Drain any calls queued by widget-loader.js before this script finished loading
   var _q = window.UserPulse && window.UserPulse._q;
   window.UserPulse = window.UserPulse || {};
   window.UserPulse.init = init;
   window.UserPulse.track = track;
   window.UserPulse.updateContext = updateContext;
+  window.UserPulse.iniciarTour = iniciarTourPublico;
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
     for (var _qi = 0; _qi < _q.length; _qi++) {
@@ -1049,6 +1452,7 @@
       if (_qc[0] === 'init') init.apply(null, _qc[1]);
       else if (_qc[0] === 'track') track.apply(null, _qc[1]);
       else if (_qc[0] === 'updateContext') updateContext.apply(null, _qc[1]);
+      else if (_qc[0] === 'iniciarTour') iniciarTourPublico.apply(null, _qc[1]);
     }
   }
 })();

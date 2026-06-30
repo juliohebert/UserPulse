@@ -107,6 +107,37 @@ export interface TelaCatalogo {
 
 export type StatusCampanha = 'ativa' | 'inativa' | 'agendada' | 'encerrada'
 
+export interface TourPasso {
+  id: string
+  tour_id: string
+  ordem: number
+  titulo: string
+  descricao: string | null
+  seletor_tipo: string
+  seletor: string
+  tooltip_posicao: string
+  criado_em: string
+  atualizado_em: string
+}
+
+export interface TourGuiado {
+  id: string
+  slug: string
+  titulo: string
+  descricao: string | null
+  sistema: string
+  modo_identificacao: string
+  tela: string | null
+  data_cy: string | null
+  url_contem: string | null
+  prioridade: number
+  ativo: boolean
+  criado_em: string
+  atualizado_em: string
+  passos?: TourPasso[]
+  _count?: { passos: number }
+}
+
 export type CriterioStatus = 'ok' | 'bloqueado' | 'aviso' | 'nao_aplicavel'
 
 export interface Criterio {

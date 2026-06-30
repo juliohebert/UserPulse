@@ -127,6 +127,64 @@ model EventoCampanha {
   @@map("eventos_campanha")
 }
 
+model TourGuiado {
+  id                 String   @id @default(uuid())
+  slug               String   @unique
+  titulo             String
+  descricao          String?
+  sistema            String
+  modo_identificacao String   @default("sistema_tela")
+  tela               String?
+  data_cy            String?
+  url_contem         String?
+  prioridade         Int      @default(0)
+  ativo              Boolean  @default(true)
+  criado_em          DateTime @default(now())
+  atualizado_em      DateTime @updatedAt
+
+  passos             TourPasso[]
+  eventos            EventoTour[]
+
+  @@map("tours_guiados")
+}
+
+model EventoTour {
+  id          String     @id @default(uuid())
+  tour_id     String
+  tipo_evento String
+  passo_ordem Int?
+  usuario_id  String?
+  sistema     String?
+  tela        String?
+  navegador   String?
+  dispositivo String?
+  contexto    Json?
+  criado_em   DateTime   @default(now())
+
+  tour        TourGuiado @relation(fields: [tour_id], references: [id])
+
+  @@index([tour_id])
+  @@map("eventos_tour")
+}
+
+model TourPasso {
+  id                String     @id @default(uuid())
+  tour_id           String
+  ordem             Int        @default(0)
+  titulo            String
+  descricao         String?
+  seletor_tipo      String     @default("data_cy")
+  seletor           String
+  tooltip_posicao   String     @default("auto")
+  criado_em         DateTime   @default(now())
+  atualizado_em     DateTime   @updatedAt
+
+  tour              TourGuiado @relation(fields: [tour_id], references: [id], onDelete: Cascade)
+
+  @@index([tour_id])
+  @@map("tour_passos")
+}
+
 model EventoUsuario {
   id           String   @id @default(uuid())
   sistema      String
