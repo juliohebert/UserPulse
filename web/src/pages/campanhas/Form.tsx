@@ -6,6 +6,7 @@ import { gerarSlug, toInputDate } from '../../utils/campanha'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { TEMPLATES } from '../../utils/templates'
+import { DestinoCampanha } from '../../components/campanhas/DestinoCampanha'
 
 const TIPOS = ['comunicado', 'melhoria', 'pesquisa']
 const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
@@ -475,196 +476,6 @@ export function CampanhaForm() {
                     />
                   </div>
 
-                  {/* Catálogo de telas */}
-                  {catalogoTelas.length > 0 && (
-                    <div className="md:col-span-2 rounded-xl border border-outline-variant/60 bg-surface-container-low/40 p-3">
-                      {/* Header */}
-                      <div className="flex items-start gap-2 mb-3">
-                        <span className="material-symbols-outlined text-[16px] text-on-surface-variant mt-0.5 shrink-0">grid_view</span>
-                        <div>
-                          <p className="text-label-md font-semibold text-on-surface leading-tight">Catálogo de telas</p>
-                          <p className="text-[11px] text-outline mt-0.5 leading-snug">
-                            Selecione uma tela para preencher sistema, modo e URL automaticamente.
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Grupos por categoria */}
-                      <div className="space-y-2.5">
-                        {[...new Set(catalogoTelas.map(s => s.categoria))].sort().map(cat => (
-                          <div key={cat}>
-                            <p className="text-[10px] font-semibold uppercase tracking-wider text-outline mb-1.5">{cat}</p>
-                            <div className="flex flex-wrap gap-2">
-                              {catalogoTelas.filter(s => s.categoria === cat).map(screen => {
-                                const active = selectedScreen === screen.id
-                                return (
-                                  <button
-                                    key={screen.id}
-                                    type="button"
-                                    onClick={() => active ? setSelectedScreen(null) : applyScreen(screen.id)}
-                                    className={`flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-left transition-all w-full sm:w-auto sm:min-w-[160px] sm:max-w-[240px] hover:border-primary hover:bg-primary-fixed/30 ${
-                                      active
-                                        ? 'border-primary bg-primary-fixed/60 shadow-sm'
-                                        : 'border-outline-variant bg-surface'
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className={`text-label-sm font-semibold leading-tight truncate ${active ? 'text-primary' : 'text-on-surface'}`}>
-                                        {screen.nome}
-                                      </span>
-                                      {active && (
-                                        <span className="inline-flex items-center gap-0.5 bg-primary text-on-primary text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none shrink-0">
-                                          <span className="material-symbols-outlined text-[9px]">check</span>
-                                          Selecionado
-                                        </span>
-                                      )}
-                                    </div>
-                                    <span className="text-[10px] text-on-surface-variant leading-tight">{screen.categoria}</span>
-                                    {(screen.url_contem || screen.tela || screen.data_cy) && (
-                                      <span className="text-[10px] text-outline font-mono leading-tight truncate">
-                                        {screen.url_contem ?? screen.tela ?? screen.data_cy}
-                                      </span>
-                                    )}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">
-                      Sistema <span className="text-error">*</span>
-                    </label>
-                    <input
-                      required
-                      list="sistemas-list"
-                      value={form.sistema}
-                      onChange={e => { set('sistema', e.target.value); setSelectedScreen(null) }}
-                      placeholder="Ex: portal, crm, mobile"
-                      className={field}
-                    />
-                    <datalist id="sistemas-list">
-                      {sistemas.map(s => <option key={s} value={s} />)}
-                    </datalist>
-                  </div>
-
-                  <div className="md:col-span-2">
-                    <label className="block text-label-md text-on-surface-variant mb-2">
-                      Onde essa campanha deve aparecer? <span className="text-error">*</span>
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {[
-                        { value: 'sistema_tela', label: 'Tela informada pelo sistema', desc: 'Use quando o sistema hospedeiro envia o nome da tela.' },
-                        { value: 'data_cy', label: 'Elemento da tela', desc: 'Use quando a tela possui um data-cy estável.' },
-                        { value: 'url_contem', label: 'Caminho da URL', desc: 'Use quando a página possui uma rota ou caminho conhecido.' },
-                      ].map(opt => {
-                        const active = form.modo_identificacao === opt.value
-                        return (
-                          <label key={opt.value} className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${active ? 'border-primary bg-primary-fixed' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'}`}>
-                            <input
-                              type="radio"
-                              name="modo_identificacao"
-                              value={opt.value}
-                              checked={active}
-                              onChange={e => { set('modo_identificacao', e.target.value); setSelectedScreen(null) }}
-                              className="mt-0.5 text-primary focus:ring-primary shrink-0"
-                            />
-                            <div>
-                              <p className={`text-body-md font-semibold ${active ? 'text-primary' : 'text-on-surface'}`}>{opt.label}</p>
-                              <p className="text-[11px] text-on-surface-variant mt-0.5">{opt.desc}</p>
-                            </div>
-                          </label>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {form.modo_identificacao === 'sistema_tela' && (
-                    <div className="md:col-span-2">
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Nome da tela <span className="text-error">*</span>
-                      </label>
-                      <input
-                        required
-                        list="telas-list"
-                        value={form.tela}
-                        onChange={e => set('tela', e.target.value)}
-                        placeholder="Ex: home, checkout, dashboard"
-                        className={field}
-                      />
-                      <datalist id="telas-list">
-                        {telas.map(t => <option key={t} value={t} />)}
-                      </datalist>
-                      <p className="mt-1 text-[11px] text-outline">Deve ser o mesmo valor enviado pelo sistema no UserPulse.init.</p>
-                    </div>
-                  )}
-
-                  {form.modo_identificacao === 'data_cy' && (
-                    <div className="md:col-span-2">
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Data-cy da tela <span className="text-error">*</span>
-                      </label>
-                      <input
-                        required
-                        value={form.data_cy}
-                        onChange={e => set('data_cy', e.target.value)}
-                        placeholder="Ex: agenda-page"
-                        className={field}
-                      />
-                      <p className="mt-1 text-[11px] text-outline">Informe apenas o valor do data-cy, exemplo: agenda-page.</p>
-                    </div>
-                  )}
-
-                  {form.modo_identificacao === 'url_contem' && (
-                    <div className="md:col-span-2">
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        URL da tela no Clinic <span className="text-error">*</span>
-                      </label>
-                      <input
-                        required
-                        value={form.url_contem}
-                        onChange={e => { set('url_contem', normalizeUrlContem(e.target.value)); setSelectedScreen(null) }}
-                        placeholder="https://clinic.exemplo.com/app/atendimento/agendamentos"
-                        className={field}
-                      />
-                      <p className="mt-1 text-[11px] text-outline">
-                        Cole a URL completa da tela onde a campanha deve aparecer. O UserPulse usará apenas o caminho da URL para funcionar em diferentes ambientes.
-                      </p>
-                      {form.url_contem && !form.url_contem.startsWith('/') && (
-                        <p className="mt-1 text-[11px] text-amber-600">
-                          O caminho deve começar com "/". Exemplo: /app/atendimento/agendamentos
-                        </p>
-                      )}
-                      {form.url_contem && (
-                        <p className="mt-1.5 text-[11px] text-primary font-medium bg-primary/5 px-2.5 py-1.5 rounded-lg">
-                          Esta campanha será exibida nesta rota e em suas subrotas: <strong>{form.url_contem}</strong>
-                        </p>
-                      )}
-                      {campanhaConflitante && (
-                        <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2.5">
-                          <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">warning</span>
-                          <div className="text-[12px] leading-snug">
-                            <p className="font-semibold">Já existe uma campanha ativa para esta URL neste sistema.</p>
-                            <p className="mt-0.5 text-amber-700">Se mantiver as duas ativas, apenas uma poderá ser exibida por vez para o usuário final.</p>
-                            <p className="mt-1 font-medium">Campanha existente: <span className="font-bold">{campanhaConflitante.titulo}</span></p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="md:col-span-2 p-3 bg-primary-fixed/50 rounded-xl border border-primary/20">
-                    <p className="text-label-md font-bold text-primary mb-1.5 flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-[16px]">summarize</span>
-                      Resumo da configuração
-                    </p>
-                    <p className="text-body-md text-on-surface leading-snug">{buildResumo(form)}</p>
-                  </div>
-
                   <div>
                     <label className="block text-label-md text-on-surface-variant mb-1.5">Data de Início</label>
                     <input type="date" value={form.data_inicio} onChange={e => set('data_inicio', e.target.value)} className={field} />
@@ -706,6 +517,24 @@ export function CampanhaForm() {
                   </div>
                 </div>
               </div>
+
+              {/* Destino da campanha */}
+              <DestinoCampanha
+                catalogoTelas={catalogoTelas}
+                sistemasSugeridas={sistemas}
+                telasSugeridas={telas}
+                selectedScreenId={selectedScreen}
+                onSelectScreen={applyScreen}
+                onClearScreen={() => setSelectedScreen(null)}
+                sistema={form.sistema}
+                modoIdentificacao={form.modo_identificacao}
+                tela={form.tela}
+                dataCy={form.data_cy}
+                urlContem={form.url_contem}
+                onFieldChange={(key, value) => set(key, key === 'url_contem' ? normalizeUrlContem(value) : value)}
+                campanhaConflitante={campanhaConflitante}
+                resumo={buildResumo(form)}
+              />
 
               {/* Conteúdo da Campanha */}
               <div className={card}>
