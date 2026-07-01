@@ -238,7 +238,19 @@
       // empilhada, pra ocupar menos espaço vertical no card.
       '.up-rec-revisao-alertas{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px}',
       '.up-rec-revisao-alertas li{font-size:10.5px;line-height:1.3;color:#e65100;background:rgba(230,81,0,.08);border-radius:6px;padding:3px 7px}',
+      '.up-rec-troca-btn{display:inline-flex;margin-top:4px}',
       '@media (max-width:480px){.up-rec-revisao-grid{grid-template-columns:1fr}}',
+      // Mini painel "Escolha o seletor deste passo" (troca de elemento).
+      '.up-rec-modal-escolha{max-width:520px}',
+      '.up-rec-escolha-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px}',
+      '.up-rec-escolha-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e0e2ef;border-radius:10px;background:#fff;cursor:pointer;text-align:left;width:100%;font-family:inherit}',
+      '.up-rec-escolha-item:hover{border-color:#0058be;background:#f6f9ff}',
+      '.up-rec-escolha-tipo{font-size:11px;font-weight:800;color:#424754;flex-shrink:0;min-width:64px}',
+      '.up-rec-escolha-codigo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f8;border:1px solid #dde1ee;border-radius:6px;padding:3px 7px;color:#425066}',
+      '.up-rec-escolha-qualidade{font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0}',
+      '.up-rec-qualidade-recomendado{background:#e3f6ea;color:#0f7b3d}',
+      '.up-rec-qualidade-bom{background:#eff4ff;color:#0058be}',
+      '.up-rec-qualidade-fragil{background:rgba(230,81,0,.12);color:#e65100}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -1808,6 +1820,7 @@
 
   var RECORDER_BAR_ID = 'userpulse-recorder-bar';
   var RECORDER_PAINEL_ID = 'userpulse-recorder-painel';
+  var RECORDER_TROCA_BAR_ID = 'userpulse-recorder-troca-bar';
   var RECORDER_INPUT_DEBOUNCE_MS = 500;
   var RECORDER_CLIQUE_DEDUPE_MS = 600;
   var RECORDER_URL_POLL_MS = 500;
@@ -1826,6 +1839,11 @@
     elParaIndice: null,
     urlPollTimer: null,
     pausadoAntesRevisao: false,
+    // Índice do passo em edição via "Trocar elemento" na revisão — null
+    // quando não está nesse modo. Nunca persistido: é um estado efêmero de UI,
+    // não um dado do tour (se a página recarregar no meio, a troca é
+    // simplesmente abandonada sem alterar o passo).
+    trocaIndice: null,
   };
 
   // Opções editáveis na revisão — mesmos valores aceitos pelo backend/admin
@@ -1891,9 +1909,18 @@
     }
   }
 
+  // Cobre TODA a UI própria do gravador: barra principal, painel (revisão,
+  // final ou escolha de seletor — reaproveitam o mesmo container) e a barra
+  // de "Trocar elemento". Usado tanto na captura normal quanto na captura de
+  // troca de elemento, pra nunca tratar um clique na própria UI do gravador
+  // como interação com a tela do host.
   function recorderElementoNaBarra(el) {
     if (!el || !el.closest) return false;
-    try { return Boolean(el.closest('#' + RECORDER_BAR_ID + ', #' + RECORDER_PAINEL_ID)); } catch (_e) { return false; }
+    try {
+      return Boolean(el.closest('#' + RECORDER_BAR_ID + ', #' + RECORDER_PAINEL_ID + ', #' + RECORDER_TROCA_BAR_ID));
+    } catch (_e) {
+      return false;
+    }
   }
 
   // Heurística por atributos do próprio elemento — nunca pelo valor digitado
@@ -1959,6 +1986,70 @@
     } catch (_e) {
       return { seletor_tipo: 'css', seletor: el.tagName ? el.tagName.toLowerCase() : '*' };
     }
+  }
+
+  // Lista de candidatos pra "Trocar elemento" na revisão — mesma ordem de
+  // preferência de recorderGerarSeletor, mas retorna TODAS as opções
+  // disponíveis (não só a melhor) pra o usuário escolher. "role + texto" só
+  // entra quando o texto é curto (texto estático do próprio elemento — nunca
+  // valor digitado, já que inputs não têm textContent). O fallback CSS
+  // simples está sempre disponível, marcado como frágil.
+  //
+  // Compatibilidade: só existem dois seletor_tipo válidos no runtime/formato
+  // do tour — 'data_cy' (valor bruto, sem montar CSS) e 'css' (qualquer outro
+  // candidato, sempre um seletor CSS de verdade, nunca dependente de texto —
+  // CSS não seleciona por conteúdo textual).
+  var RECORDER_TIPOS_SELETOR_VALIDOS = ['data_cy', 'css'];
+
+  // Escaping seguro pra valores usados DENTRO de um seletor de atributo entre
+  // aspas (ex.: [name="valor"]) — diferente de recorderCssEscapeSimples, que
+  // escapa caracteres especiais de CSS fora de aspas (ex.: #id). Aqui só
+  // precisa escapar barra invertida e a própria aspa que delimita a string
+  // (a ordem importa: escapa a barra invertida primeiro).
+  function recorderCssEscapeAtributo(valor) {
+    return String(valor).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function recorderGerarCandidatosSeletor(el) {
+    var candidatos = [];
+    try {
+      var dataCy = el.getAttribute && el.getAttribute('data-cy');
+      if (dataCy) candidatos.push({ rotulo: 'data-cy', seletor_tipo: 'data_cy', seletor: dataCy, qualidade: 'recomendado' });
+
+      if (el.id) {
+        candidatos.push({ rotulo: 'id', seletor_tipo: 'css', seletor: '#' + recorderCssEscapeSimples(el.id), qualidade: 'bom' });
+      }
+
+      var name = el.getAttribute && el.getAttribute('name');
+      if (name) {
+        candidatos.push({ rotulo: 'name', seletor_tipo: 'css', seletor: '[name="' + recorderCssEscapeAtributo(name) + '"]', qualidade: 'bom' });
+      }
+
+      var ariaLabel = el.getAttribute && el.getAttribute('aria-label');
+      if (ariaLabel) {
+        candidatos.push({ rotulo: 'aria-label', seletor_tipo: 'css', seletor: '[aria-label="' + recorderCssEscapeAtributo(ariaLabel) + '"]', qualidade: 'bom' });
+      }
+
+      var title = el.getAttribute && el.getAttribute('title');
+      if (title) {
+        candidatos.push({ rotulo: 'title', seletor_tipo: 'css', seletor: '[title="' + recorderCssEscapeAtributo(title) + '"]', qualidade: 'bom' });
+      }
+
+      // role sozinho raramente é único na página — o texto só ajuda o usuário
+      // a reconhecer visualmente qual elemento é (rótulo), nunca entra no
+      // seletor CSS salvo (document.querySelector não seleciona por texto).
+      // Por isso o seletor real é só [role="..."], marcado como frágil.
+      var role = el.getAttribute && el.getAttribute('role');
+      var texto = (el.textContent || '').trim().replace(/\s+/g, ' ');
+      if (role && texto && texto.length <= 40) {
+        candidatos.push({ rotulo: 'role + texto ("' + texto + '")', seletor_tipo: 'css', seletor: '[role="' + recorderCssEscapeAtributo(role) + '"]', qualidade: 'fragil' });
+      }
+
+      candidatos.push({ rotulo: 'CSS (fallback)', seletor_tipo: 'css', seletor: recorderSeletorFallback(el), qualidade: 'fragil' });
+    } catch (_e) {
+      candidatos.push({ rotulo: 'CSS (fallback)', seletor_tipo: 'css', seletor: el.tagName ? el.tagName.toLowerCase() : '*', qualidade: 'fragil' });
+    }
+    return candidatos;
   }
 
   // botão/link/menu → ao_clicar; input/textarea/select e autocomplete/combobox
@@ -2285,6 +2376,7 @@
       '<div>',
       '<span class="up-rec-revisao-label">Seletor</span>',
       '<code class="up-rec-revisao-codigo" title="' + escapeHtml(p.seletor) + '">' + escapeHtml(p.seletor_tipo) + ': ' + escapeHtml(p.seletor) + '</code>',
+      '<button type="button" class="up-rec-btn-icone up-rec-troca-btn" data-rev-trocar data-rev-index="' + i + '" title="Clicar novamente no elemento na tela real">Trocar elemento</button>',
       '</div>',
       '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSelectHtml('tooltip_posicao', i, p.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
       '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSelectHtml('modo_avanco_interacao', i, p.modo_avanco_interacao, RECORDER_MODOS_AVANCO) + '</div>',
@@ -2428,6 +2520,13 @@
       }
       return;
     }
+
+    var btnTrocar = alvo.closest('[data-rev-trocar]');
+    if (btnTrocar) {
+      var idxT = Number(btnTrocar.getAttribute('data-rev-index'));
+      recorderIniciarTrocaElemento(idxT);
+      return;
+    }
   }
 
   function recorderRenderRevisao() {
@@ -2443,6 +2542,186 @@
     root.addEventListener('input', recorderRevisaoOnInput);
     root.addEventListener('change', recorderRevisaoOnInput);
     root.addEventListener('click', recorderRevisaoOnClick);
+  }
+
+  // ─── Trocar elemento de um passo (dentro da revisão) ─────────────────────
+  // Deixa o usuário reapontar o seletor de um passo já capturado, clicando de
+  // novo no elemento certo na página real — útil quando o seletor veio
+  // frágil/errado. Nunca cria um passo novo: só atualiza o existente na
+  // mesma posição.
+
+  var recorderTrocaAvisoTimer = null;
+
+  // Some com o painel de revisão (senão o overlay dele bloquearia cliques na
+  // página real) e mostra uma barra pequena — igual à barra principal — que
+  // NÃO cobre a tela, deixando o usuário clicar livremente no elemento certo.
+  function recorderIniciarTrocaElemento(indice) {
+    if (!recorderState.passos[indice]) return;
+    recorderState.trocaIndice = indice;
+    var painel = document.getElementById(RECORDER_PAINEL_ID);
+    if (painel) painel.remove();
+    recorderRenderTrocaBarra(indice);
+    document.addEventListener('click', recorderCapturarTrocaElemento, true);
+  }
+
+  function recorderRenderTrocaBarra(indice) {
+    if (document.getElementById(RECORDER_TROCA_BAR_ID)) return;
+    var bar = document.createElement('div');
+    bar.id = RECORDER_TROCA_BAR_ID;
+    bar.className = 'up-rec-bar';
+    bar.innerHTML = [
+      '<span class="up-rec-dot"></span>',
+      '<span class="up-rec-label" data-troca-aviso>Clique no novo elemento para o Passo ' + (indice + 1) + '</span>',
+      '<div class="up-rec-actions">',
+      '<button type="button" class="up-rec-btn up-rec-btn-danger" data-troca-cancelar>Cancelar seleção</button>',
+      '</div>',
+    ].join('');
+    document.body.appendChild(bar);
+
+    bar.addEventListener('click', function (event) {
+      var alvo = event.target;
+      if (!(alvo instanceof Element)) return;
+      if (alvo.closest('[data-troca-cancelar]')) { recorderCancelarTroca(); return; }
+    });
+  }
+
+  // Mensagem temporária na barra de troca (ex.: elemento sensível clicado) —
+  // volta ao texto original depois de alguns segundos, sem encerrar o modo de
+  // seleção (o usuário continua podendo clicar em outro elemento).
+  function recorderAvisarNaBarraTroca(texto) {
+    var bar = document.getElementById(RECORDER_TROCA_BAR_ID);
+    if (!bar) return;
+    var span = bar.querySelector('[data-troca-aviso]');
+    if (!span) return;
+    var original = 'Clique no novo elemento para o Passo ' + (recorderState.trocaIndice + 1);
+    if (recorderTrocaAvisoTimer) window.clearTimeout(recorderTrocaAvisoTimer);
+    span.textContent = texto;
+    recorderTrocaAvisoTimer = window.setTimeout(function () {
+      recorderTrocaAvisoTimer = null;
+      span.textContent = original;
+    }, 3200);
+  }
+
+  function recorderPararEscutaTroca() {
+    document.removeEventListener('click', recorderCapturarTrocaElemento, true);
+    if (recorderTrocaAvisoTimer) {
+      window.clearTimeout(recorderTrocaAvisoTimer);
+      recorderTrocaAvisoTimer = null;
+    }
+    var bar = document.getElementById(RECORDER_TROCA_BAR_ID);
+    if (bar) bar.remove();
+  }
+
+  function recorderCancelarTroca() {
+    recorderPararEscutaTroca();
+    recorderState.trocaIndice = null;
+    recorderRenderRevisao(); // volta pro painel de revisão sem alterar o passo
+  }
+
+  // Único clique escutado enquanto o modo de troca está ativo. Roda em fase
+  // de captura e sempre bloqueia o clique real (preventDefault/stopPropagation
+  // /stopImmediatePropagation) assim que decide que o alvo é candidato a novo
+  // elemento — exceto cliques dentro da própria UI do gravador (ex.: o botão
+  // "Cancelar seleção"), que precisam funcionar normalmente.
+  function recorderCapturarTrocaElemento(event) {
+    var el = event.target;
+    if (!(el instanceof Element)) return;
+    if (recorderElementoNaBarra(el)) return; // clique na própria UI do gravador (ex.: Cancelar) — deixa funcionar normal
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+
+    if (recorderCampoSensivel(el)) {
+      recorderAvisarNaBarraTroca('Esse elemento parece um campo sensível (senha/CPF/e-mail/telefone/cartão) — escolha outro elemento.');
+      return; // continua no modo de seleção, esperando outro clique
+    }
+
+    recorderPararEscutaTroca();
+    recorderMostrarEscolhaSeletor(el);
+  }
+
+  function recorderQualidadeLabel(qualidade) {
+    if (qualidade === 'recomendado') return 'Recomendado';
+    if (qualidade === 'bom') return 'Bom';
+    return 'Frágil';
+  }
+
+  function recorderHtmlEscolhaSeletor(candidatos) {
+    var itens = candidatos.map(function (c, i) {
+      return [
+        '<button type="button" class="up-rec-escolha-item" data-esc-escolher data-esc-index="' + i + '">',
+        '<span class="up-rec-escolha-tipo">' + escapeHtml(c.rotulo) + '</span>',
+        '<code class="up-rec-escolha-codigo" title="' + escapeHtml(c.seletor) + '">' + escapeHtml(c.seletor) + '</code>',
+        '<span class="up-rec-escolha-qualidade up-rec-qualidade-' + c.qualidade + '">' + recorderQualidadeLabel(c.qualidade) + '</span>',
+        '</button>',
+      ].join('');
+    }).join('');
+
+    return [
+      '<div class="up-rec-modal up-rec-modal-escolha">',
+      '<h3 class="up-rec-modal-title">Escolha o seletor deste passo</h3>',
+      '<p class="up-rec-modal-sub">Selecione a opção mais estável para localizar este elemento na tela.</p>',
+      '<div class="up-rec-escolha-lista">' + itens + '</div>',
+      '<div class="up-rec-modal-actions">',
+      '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-esc-cancelar>Cancelar</button>',
+      '</div>',
+      '</div>',
+    ].join('');
+  }
+
+  // Mini painel de escolha — reaproveita o mesmo container (RECORDER_PAINEL_ID)
+  // do painel de revisão/final, já que nunca aparecem ao mesmo tempo.
+  function recorderMostrarEscolhaSeletor(el) {
+    var candidatos = recorderGerarCandidatosSeletor(el);
+
+    var existente = document.getElementById(RECORDER_PAINEL_ID);
+    if (existente) existente.remove();
+
+    var root = document.createElement('div');
+    root.id = RECORDER_PAINEL_ID;
+    root.className = 'up-rec-overlay';
+    root.innerHTML = recorderHtmlEscolhaSeletor(candidatos);
+    document.body.appendChild(root);
+
+    root.addEventListener('click', function (event) {
+      var alvo = event.target;
+      if (!(alvo instanceof Element)) return;
+
+      if (alvo.closest('[data-esc-cancelar]')) {
+        recorderState.trocaIndice = null;
+        recorderRenderRevisao(); // cancelar aqui também não altera o passo
+        return;
+      }
+
+      var botaoEscolher = alvo.closest('[data-esc-escolher]');
+      if (botaoEscolher) {
+        var indice = Number(botaoEscolher.getAttribute('data-esc-index'));
+        var candidato = candidatos[indice];
+        if (candidato) recorderAplicarNovoSeletor(el, candidato);
+        return;
+      }
+    });
+  }
+
+  // Atualiza só seletor_tipo/seletor do passo (mantém a mesma posição no
+  // array). Título só é preenchido se ainda estiver vazio — nunca sobrescreve
+  // o que o usuário já escreveu na revisão. Descrição nunca tem uma fonte
+  // automática (o gravador nunca inventa descrição), então fica como estava.
+  function recorderAplicarNovoSeletor(el, candidato) {
+    var indice = recorderState.trocaIndice;
+    var passo = recorderState.passos[indice];
+    // Defesa extra: só aplica se o candidato tiver um seletor_tipo válido
+    // (data_cy ou css) — recorderGerarCandidatosSeletor já só gera esses dois,
+    // isso só protege contra um candidato inválido chegar aqui por engano.
+    if (passo && RECORDER_TIPOS_SELETOR_VALIDOS.indexOf(candidato.seletor_tipo) !== -1) {
+      passo.seletor_tipo = candidato.seletor_tipo;
+      passo.seletor = candidato.seletor;
+      if (!passo.titulo || !passo.titulo.trim()) passo.titulo = recorderGerarTitulo(el);
+      recorderPersistir();
+    }
+    recorderState.trocaIndice = null;
+    recorderRenderRevisao();
   }
 
   var RECORDER_COPIAR_FEEDBACK_MS = 1600;
