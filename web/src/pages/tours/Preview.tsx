@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { get } from '../../services/api'
 import type { TourGuiado } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
-import { comandoIniciarTour, testEmbedUrl } from '../../utils/tour'
+import { comandoIniciarTour, comandoTestarSeletor, testEmbedUrl } from '../../utils/tour'
 
 const card = 'bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden mb-5'
 const codeChip = 'bg-surface-container px-1 py-0.5 rounded text-[12px] font-mono'
@@ -112,6 +112,9 @@ export function TourPreview() {
         </p>
       </div>
 
+      {/* Validação dos passos */}
+      <ValidacaoPassosCard tour={tour} />
+
       {/* Como testar */}
       <div className={card}>
         <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3">
@@ -144,5 +147,98 @@ export function TourPreview() {
         </div>
       </div>
     </section>
+  )
+}
+
+// O elemento real só existe na aplicação integrada, não no admin — por isso
+// esta seção só confere se sistema/tipo/seletor foram preenchidos, sem
+// tentar localizar nada no DOM local.
+function ValidacaoPassosCard({ tour }: { tour: TourGuiado }) {
+  const [copiadoIndex, setCopiadoIndex] = useState<number | null>(null)
+  const passos = tour.passos ?? []
+
+  const copiarComandoPasso = (index: number, seletorTipo: string, seletor: string) => {
+    navigator.clipboard.writeText(comandoTestarSeletor(seletorTipo, seletor)).catch(() => {})
+    setCopiadoIndex(index)
+    setTimeout(() => setCopiadoIndex(prev => (prev === index ? null : prev)), 2000)
+  }
+
+  return (
+    <div className={card}>
+      <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3">
+        <span className="material-symbols-outlined text-on-surface-variant">fact_check</span>
+        <div>
+          <h3 className="text-title-lg font-bold text-on-surface">Validação dos passos</h3>
+          <p className="text-label-md text-outline mt-0.5">
+            Confere se os seletores foram preenchidos — o elemento em si só existe na aplicação integrada, não é validado aqui.
+          </p>
+        </div>
+      </div>
+
+      {passos.length === 0 ? (
+        <p className="px-5 py-4 text-body-md text-on-surface-variant">Este tour ainda não tem passos cadastrados.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-surface-container-low border-b border-outline-variant">
+              <tr>
+                {['#', 'Título', 'Tipo', 'Seletor', 'Status', ''].map(h => (
+                  <th key={h} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-outline-variant/30">
+              {passos.map((p, i) => {
+                const preenchido = Boolean(p.seletor.trim())
+                return (
+                  <tr key={p.id ?? i} className="hover:bg-surface-container-low/50 transition-colors">
+                    <td className="px-4 py-3 align-top whitespace-nowrap text-[13px] text-on-surface-variant">{i + 1}</td>
+                    <td className="px-4 py-3 align-top max-w-[220px]">
+                      <span className="text-[13px] text-on-surface truncate block" title={p.titulo}>{p.titulo}</span>
+                    </td>
+                    <td className="px-4 py-3 align-top whitespace-nowrap">
+                      <span className="text-[13px] text-on-surface-variant font-mono">{p.seletor_tipo}</span>
+                      {p.seletor_tipo === 'css' && (
+                        <span className="flex items-center gap-1 text-[11px] text-[#e65100] mt-1">
+                          <span className="material-symbols-outlined text-[13px]">warning</span>
+                          Prefira data-cy
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top max-w-[200px]">
+                      {preenchido ? (
+                        <span className="text-[13px] font-mono text-on-surface truncate block" title={p.seletor}>{p.seletor}</span>
+                      ) : (
+                        <span className="text-[13px] text-outline italic">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 align-top whitespace-nowrap">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                        preenchido ? 'bg-tertiary/10 text-tertiary' : 'bg-error/10 text-error'
+                      }`}>
+                        <span className="material-symbols-outlined text-[12px]">{preenchido ? 'check_circle' : 'error'}</span>
+                        {preenchido ? 'Preenchido' : 'Vazio'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 align-top whitespace-nowrap">
+                      <button
+                        type="button"
+                        disabled={!preenchido}
+                        onClick={() => copiarComandoPasso(i, p.seletor_tipo, p.seletor)}
+                        title="Copiar comando de teste"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-outline-variant text-[12px] font-bold text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-40"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">{copiadoIndex === i ? 'check' : 'content_copy'}</span>
+                        {copiadoIndex === i ? 'Copiado!' : 'Copiar comando'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }

@@ -5,6 +5,7 @@ import type { TourGuiado } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
+import { comandoTestarSeletor } from '../../utils/tour'
 
 interface PassoState {
   id?: string
@@ -192,6 +193,7 @@ export function TourForm() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [templateAplicadoId, setTemplateAplicadoId] = useState<string | null>(null)
+  const [copiadoPasso, setCopiadoPasso] = useState<{ index: number; tipo: 'seletor' | 'comando' } | null>(null)
 
   // Feedback de "salvo com sucesso" sobrevive ao redirecionamento pós-criação
   // (de /tours/novo para /tours/:id/editar) via router state, em vez de um
@@ -299,6 +301,28 @@ export function TourForm() {
       ;[next[index], next[target]] = [next[target], next[index]]
       return next
     })
+  }
+
+  // Ações discretas por passo — só copiam para a área de transferência, não
+  // validam nada. O elemento real só existe na aplicação integrada.
+  const copiarSeletor = (index: number) => {
+    const passo = passos[index]
+    if (!passo.seletor.trim()) return
+    navigator.clipboard.writeText(passo.seletor).catch(() => {})
+    setCopiadoPasso({ index, tipo: 'seletor' })
+    window.setTimeout(() => {
+      setCopiadoPasso(prev => (prev?.index === index && prev.tipo === 'seletor' ? null : prev))
+    }, 2000)
+  }
+
+  const copiarComandoTeste = (index: number) => {
+    const passo = passos[index]
+    if (!passo.seletor.trim()) return
+    navigator.clipboard.writeText(comandoTestarSeletor(passo.seletor_tipo, passo.seletor)).catch(() => {})
+    setCopiadoPasso({ index, tipo: 'comando' })
+    window.setTimeout(() => {
+      setCopiadoPasso(prev => (prev?.index === index && prev.tipo === 'comando' ? null : prev))
+    }, 2000)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -736,26 +760,58 @@ export function TourForm() {
                         className={`${field} text-[13px] py-2 resize-none`}
                       />
                     </div>
-                    <div>
-                      <label className="block text-label-sm text-on-surface-variant mb-1">Tipo de seletor</label>
-                      <Select
-                        value={passo.seletor_tipo}
-                        onChange={v => setPasso(i, 'seletor_tipo', v)}
-                        options={SELETOR_TIPOS}
-                        size="sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-label-sm text-on-surface-variant mb-1">
-                        Seletor <span className="text-error">*</span>
-                      </label>
-                      <input
-                        required
-                        value={passo.seletor}
-                        onChange={e => setPasso(i, 'seletor', e.target.value)}
-                        placeholder={passo.seletor_tipo === 'css' ? '#botao-novo-agendamento' : 'novo-agendamento-btn'}
-                        className={`${field} text-[13px] py-2 font-mono`}
-                      />
+                    {/* Tipo de seletor + Seletor em grid próprio: em xl (sidebar aberta
+                        conta como espaço a menos), os dois campos ficam lado a lado;
+                        abaixo disso, empilham — evita espremer o input e as ações. */}
+                    <div className="md:col-span-2 grid grid-cols-1 xl:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-label-sm text-on-surface-variant mb-1">Tipo de seletor</label>
+                        <Select
+                          value={passo.seletor_tipo}
+                          onChange={v => setPasso(i, 'seletor_tipo', v)}
+                          options={SELETOR_TIPOS}
+                          size="sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-label-sm text-on-surface-variant mb-1">
+                          Seletor <span className="text-error">*</span>
+                        </label>
+                        <input
+                          required
+                          value={passo.seletor}
+                          onChange={e => setPasso(i, 'seletor', e.target.value)}
+                          placeholder={passo.seletor_tipo === 'css' ? '#botao-novo-agendamento' : 'novo-agendamento-btn'}
+                          className={`${field} text-[13px] py-2 font-mono`}
+                        />
+                        {/* Ações discretas abaixo do input — nunca disputam espaço com
+                            ele. Empilham à esquerda no mobile, uma linha à direita a
+                            partir de sm. */}
+                        <div className="flex flex-col items-start gap-1 mt-1.5 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+                          <button
+                            type="button"
+                            onClick={() => copiarSeletor(i)}
+                            disabled={!passo.seletor.trim()}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-on-surface-variant hover:bg-surface-container-high hover:text-primary transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+                          >
+                            <span className="material-symbols-outlined text-[13px]">
+                              {copiadoPasso?.index === i && copiadoPasso.tipo === 'seletor' ? 'check' : 'content_copy'}
+                            </span>
+                            {copiadoPasso?.index === i && copiadoPasso.tipo === 'seletor' ? 'Copiado!' : 'Copiar seletor'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => copiarComandoTeste(i)}
+                            disabled={!passo.seletor.trim()}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-on-surface-variant hover:bg-surface-container-high hover:text-primary transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
+                          >
+                            <span className="material-symbols-outlined text-[13px]">
+                              {copiadoPasso?.index === i && copiadoPasso.tipo === 'comando' ? 'check' : 'terminal'}
+                            </span>
+                            {copiadoPasso?.index === i && copiadoPasso.tipo === 'comando' ? 'Copiado!' : 'Copiar comando'}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                     <div className="md:col-span-2 max-w-xs">
                       <label className="block text-label-sm text-on-surface-variant mb-1">Posição do tooltip</label>

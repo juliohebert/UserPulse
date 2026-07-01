@@ -25,3 +25,14 @@ export function testEmbedUrl(tour: Pick<TourGuiado, 'slug'>): string {
   const params = new URLSearchParams({ local: '1', tour: tour.slug })
   return `${WIDGET_ORIGIN}/test-embed.html?${params.toString()}`
 }
+
+// Comando para colar no console do navegador (na página real do sistema
+// integrado, não aqui no admin) e conferir se o seletor configurado acha o
+// elemento — mesma lógica de seleção usada por selecionarElementoPasso() em
+// widget.js.
+export function comandoTestarSeletor(seletorTipo: string, seletor: string): string {
+  if (seletorTipo === 'css') {
+    return `document.querySelector('${seletor}')`
+  }
+  return `document.querySelector('[data-cy="${seletor}"]')`
+}
