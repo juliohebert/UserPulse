@@ -1078,6 +1078,7 @@
     reposTimer: null,
     ativo: false,
     elementClickHandler: null,
+    elementClickTimer: null,
   };
 
   function fetchTour(slug) {
@@ -1361,22 +1362,35 @@
     return false;
   }
 
+  // Cancela qualquer avanço agendado por clique no elemento. Chamado sempre que
+  // o passo muda (irParaPasso, inclusive via Voltar) ou o tour termina — sem
+  // isso, um clique em Voltar logo após um clique-avanço podia deixar o timeout
+  // "zumbi" vivo e, se o usuário voltasse a passar pelo mesmo elemento físico
+  // (mesmo nó do DOM) antes dele disparar, o avanço atrasado acontecia de novo
+  // sem pedido, fazendo o tour parecer "perder" o Voltar.
+  function limparElementClickTimer() {
+    if (tourState.elementClickTimer) {
+      window.clearTimeout(tourState.elementClickTimer);
+      tourState.elementClickTimer = null;
+    }
+  }
+
   function unbindElementClick() {
     if (tourState.elementoAtual && tourState.elementClickHandler) {
       tourState.elementoAtual.removeEventListener('click', tourState.elementClickHandler);
     }
     tourState.elementClickHandler = null;
+    limparElementClickTimer();
   }
 
   function bindElementClick(el) {
-    var disparado = false;
     var handler = function (event) {
-      if (disparado) return;
       if (isEditableTarget(event.target)) return; // não autoavança em campos editáveis
-      disparado = true;
-      window.setTimeout(function () {
-        // Confere se o passo ainda é o mesmo — evita avanço duplicado/atrasado
-        // caso o usuário tenha clicado mais de uma vez, ou o tour já tenha mudado.
+      if (tourState.elementClickTimer) return; // já há um avanço agendado — não empilha outro
+      tourState.elementClickTimer = window.setTimeout(function () {
+        tourState.elementClickTimer = null;
+        // Confere se o passo/elemento ainda é o mesmo — segunda camada de
+        // proteção, além do cancelamento em unbindElementClick/limparElementClickTimer.
         if (!tourState.ativo || tourState.elementoAtual !== el) return;
         var ultimo = tourState.indice === tourState.tour.passos.length - 1;
         if (ultimo) tourConcluir(); else tourProximo();

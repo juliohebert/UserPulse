@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
 import type { TourGuiado } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
+import { Select } from '../../components/ui/Select'
 
 interface PassoState {
   id?: string
@@ -48,6 +49,11 @@ const TOOLTIP_POSICOES = [
   { value: 'right', label: 'Direita' },
 ]
 
+const SELETOR_TIPOS = [
+  { value: 'data_cy', label: 'data-cy' },
+  { value: 'css', label: 'CSS' },
+]
+
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
@@ -61,6 +67,14 @@ export function TourForm() {
   const [loadingTour, setLoadingTour] = useState(isEdit)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+  const successTimer = useRef<number | null>(null)
+  const redirectTimer = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (successTimer.current) window.clearTimeout(successTimer.current)
+    if (redirectTimer.current) window.clearTimeout(redirectTimer.current)
+  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -123,6 +137,7 @@ export function TourForm() {
     }
     setSubmitting(true)
     setError(null)
+    setSuccess(false)
     try {
       const payload = {
         ...form,
@@ -142,9 +157,14 @@ export function TourForm() {
       const saved = isEdit
         ? await put<TourGuiado>(`/tours/${id}`, payload)
         : await post<TourGuiado>('/tours', payload)
-      navigate(`/tours/${saved.id}/editar`)
+
+      // Mostra o feedback de sucesso antes de redirecionar, para não perdê-lo
+      // no caso de criação (que troca de rota de /tours/novo para /tours/:id/editar).
+      setSuccess(true)
+      successTimer.current = window.setTimeout(() => setSuccess(false), 3000)
+      redirectTimer.current = window.setTimeout(() => navigate(`/tours/${saved.id}/editar`), 900)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao salvar tour guiado.')
+      setError(e instanceof Error ? e.message : 'Não foi possível salvar o tour guiado. Tente novamente.')
     } finally {
       setSubmitting(false)
     }
@@ -199,8 +219,15 @@ export function TourForm() {
       </div>
 
       <section className="px-4 lg:px-margin-desktop py-5 max-w-4xl">
+        {success && (
+          <div className="mb-5 p-3 bg-tertiary/10 text-tertiary rounded-xl text-body-md flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px]">check_circle</span>
+            Tour salvo com sucesso.
+          </div>
+        )}
         {error && (
-          <div className="mb-5 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">
+          <div className="mb-5 p-3 bg-error-container text-on-error-container rounded-xl text-body-md flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px]">error</span>
             {error}
           </div>
         )}
@@ -434,14 +461,12 @@ export function TourForm() {
                     </div>
                     <div>
                       <label className="block text-label-sm text-on-surface-variant mb-1">Tipo de seletor</label>
-                      <select
+                      <Select
                         value={passo.seletor_tipo}
-                        onChange={e => setPasso(i, 'seletor_tipo', e.target.value)}
-                        className={`${field} text-[13px] py-2`}
-                      >
-                        <option value="data_cy">data-cy</option>
-                        <option value="css">CSS</option>
-                      </select>
+                        onChange={v => setPasso(i, 'seletor_tipo', v)}
+                        options={SELETOR_TIPOS}
+                        size="sm"
+                      />
                     </div>
                     <div>
                       <label className="block text-label-sm text-on-surface-variant mb-1">
@@ -455,15 +480,14 @@ export function TourForm() {
                         className={`${field} text-[13px] py-2 font-mono`}
                       />
                     </div>
-                    <div className="md:col-span-2">
+                    <div className="md:col-span-2 max-w-xs">
                       <label className="block text-label-sm text-on-surface-variant mb-1">Posição do tooltip</label>
-                      <select
+                      <Select
                         value={passo.tooltip_posicao}
-                        onChange={e => setPasso(i, 'tooltip_posicao', e.target.value)}
-                        className={`${field} text-[13px] py-2 max-w-xs`}
-                      >
-                        {TOOLTIP_POSICOES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-                      </select>
+                        onChange={v => setPasso(i, 'tooltip_posicao', v)}
+                        options={TOOLTIP_POSICOES}
+                        size="sm"
+                      />
                     </div>
                   </div>
                 </div>

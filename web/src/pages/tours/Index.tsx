@@ -6,6 +6,7 @@ import { formatDateTime } from '../../utils/campanha'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
+import { Select } from '../../components/ui/Select'
 
 const PER_PAGE = 10
 
@@ -85,14 +86,17 @@ export function ToursIndex() {
               className="w-full pl-9 pr-3 py-2.5 bg-surface-bright border border-outline-variant rounded-xl text-body-md focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
-          <select
-            value={filterSistema}
-            onChange={e => { setFilterSistema(e.target.value); setPage(1) }}
-            className="px-3 py-2.5 bg-surface-bright border border-outline-variant rounded-xl text-body-md focus:outline-none focus:ring-2 focus:ring-primary/30"
-          >
-            <option value="">Todos os sistemas</option>
-            {sistemas.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <div className="w-full sm:w-56">
+            <Select
+              value={filterSistema}
+              onChange={v => { setFilterSistema(v); setPage(1) }}
+              placeholder="Todos os sistemas"
+              options={[
+                { value: '', label: 'Todos os sistemas' },
+                ...sistemas.map(s => ({ value: s, label: s })),
+              ]}
+            />
+          </div>
           <div className="flex gap-1 p-1 bg-surface-container rounded-xl w-fit">
             {([
               { value: 'todos', label: 'Todos' },
