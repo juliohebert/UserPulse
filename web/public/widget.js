@@ -1213,19 +1213,25 @@
     }
   }
 
+  // Margem mínima entre o tooltip e a borda da viewport — nunca menos que
+  // isso, pra nunca deixar o tooltip colado ou cortado na borda da tela.
+  var TOUR_TOOLTIP_MARGEM_VIEWPORT = 12;
+
   function clampPos(pos, w, h) {
     var vw = window.innerWidth;
     var vh = window.innerHeight;
+    var m = TOUR_TOOLTIP_MARGEM_VIEWPORT;
     return {
-      top: Math.min(Math.max(pos.top, 8), Math.max(8, vh - h - 8)),
-      left: Math.min(Math.max(pos.left, 8), Math.max(8, vw - w - 8)),
+      top: Math.min(Math.max(pos.top, m), Math.max(m, vh - h - m)),
+      left: Math.min(Math.max(pos.left, m), Math.max(m, vw - w - m)),
     };
   }
 
   function calcularPosicaoTooltip(rect, posicaoDesejada, tooltipW, tooltipH) {
-    var margin = 16;
+    var margin = 16; // distância do tooltip até a borda do elemento (não confundir com a margem de viewport acima)
     var vw = window.innerWidth;
     var vh = window.innerHeight;
+    var m = TOUR_TOOLTIP_MARGEM_VIEWPORT;
     var positions = {
       top: { top: rect.top - tooltipH - margin, left: rect.left + rect.width / 2 - tooltipW / 2 },
       bottom: { top: rect.bottom + margin, left: rect.left + rect.width / 2 - tooltipW / 2 },
@@ -1233,19 +1239,38 @@
       right: { top: rect.top + rect.height / 2 - tooltipH / 2, left: rect.right + margin },
     };
     function fits(pos) {
-      return pos.top >= 8 && pos.left >= 8 && pos.top + tooltipH <= vh - 8 && pos.left + tooltipW <= vw - 8;
+      return pos.top >= m && pos.left >= m && pos.top + tooltipH <= vh - m && pos.left + tooltipW <= vw - m;
     }
+    // Ordem de fallback pedida: cada posição preferida tenta primeiro seu
+    // "oposto" (mesmo eixo), depois as duas do outro eixo.
     var ordem;
     if (posicaoDesejada === 'top') ordem = ['top', 'bottom', 'right', 'left'];
     else if (posicaoDesejada === 'left') ordem = ['left', 'right', 'bottom', 'top'];
     else if (posicaoDesejada === 'right') ordem = ['right', 'left', 'bottom', 'top'];
     else if (posicaoDesejada === 'bottom') ordem = ['bottom', 'top', 'right', 'left'];
-    else ordem = ['bottom', 'top', 'right', 'left'];
+    else ordem = ['bottom', 'top', 'right', 'left']; // 'auto'
 
     for (var i = 0; i < ordem.length; i++) {
       if (fits(positions[ordem[i]])) return clampPos(positions[ordem[i]], tooltipW, tooltipH);
     }
-    return clampPos(positions[ordem[0]], tooltipW, tooltipH);
+
+    // Nenhuma das 4 posições coube sem cortar (ex.: elemento num canto da
+    // tela). Em vez de simplesmente usar a preferida (ordem[0]) e sofrer um
+    // clamp que pode empurrar o tooltip longe do elemento, escolhe entre as 4
+    // a que exige o MENOR ajuste pra caber — fica o mais próximo possível do
+    // elemento em vez de "pular" pra um canto qualquer da tela.
+    var melhor = null;
+    var menorAjuste = Infinity;
+    for (var j = 0; j < ordem.length; j++) {
+      var candidata = positions[ordem[j]];
+      var clampada = clampPos(candidata, tooltipW, tooltipH);
+      var ajuste = Math.abs(clampada.top - candidata.top) + Math.abs(clampada.left - candidata.left);
+      if (ajuste < menorAjuste) {
+        menorAjuste = ajuste;
+        melhor = clampada;
+      }
+    }
+    return melhor;
   }
 
   function renderTourNaoEncontrado() {
@@ -1256,9 +1281,10 @@
       '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
       '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Pular tour">' + icon('close') + '</button>',
       '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
-      '<p class="up-tour-title">' + escapeHtml(passo.titulo) + '</p>',
+      '<p class="up-tour-title">Elemento não encontrado</p>',
+      passo.titulo ? '<p class="up-tour-desc" style="font-weight:700;color:#0b1c30">' + escapeHtml(passo.titulo) + '</p>' : '',
       passo.descricao ? '<p class="up-tour-desc">' + escapeHtml(passo.descricao) + '</p>' : '',
-      '<div class="up-tour-warning">' + icon('close') + '<span>Não foi possível localizar este elemento na tela atual.</span></div>',
+      '<div class="up-tour-warning">' + icon('close') + '<span>Não foi possível localizar este elemento na tela atual. Você pode voltar, pular o tour ou continuar para o próximo passo.</span></div>',
       tourFooter(total, ultimo),
       '</div>',
     ].join('');
@@ -1612,6 +1638,14 @@
     var total = tourState.tour.passos.length;
     if (tourState.indice >= total - 1) return;
     var indiceProximo = tourState.indice + 1;
+
+    // Passo atual sem elemento localizado ("Elemento não encontrado") — avança
+    // direto pro próximo passo, sem clicar em nada e sem depender de
+    // acao_ao_avancar/modo_avanco_interacao (não há elemento real pra clicar
+    // ou observar). Explícito aqui em vez de confiar em tourState.elementoAtual
+    // ser null nesse estado — protege esse comportamento de mudanças futuras.
+    if (tourState.naoEncontrado) { irParaPasso(indiceProximo); return; }
+
     var passo = tourState.tour.passos[tourState.indice];
     var el = tourState.elementoAtual;
 
