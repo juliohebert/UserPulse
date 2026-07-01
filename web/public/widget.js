@@ -163,6 +163,7 @@
       '@keyframes up-rec-blink{0%,100%{opacity:1}50%{opacity:.25}}',
       '.up-rec-label{font-weight:800;white-space:nowrap}',
       '.up-rec-contador{opacity:.75;white-space:nowrap}',
+      '.up-rec-ultimo{opacity:.7;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}',
       '.up-rec-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}',
       '.up-rec-btn{border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;white-space:nowrap}',
       '.up-rec-btn:hover{background:rgba(255,255,255,.24)}',
@@ -177,6 +178,26 @@
       '.up-rec-modal-sub{font-size:12px;color:#424754;margin:0}',
       '.up-rec-textarea{flex:1;min-height:260px;border:1px solid #c2c6d6;border-radius:10px;padding:10px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:vertical;background:#f8f9ff;color:#0b1c30}',
       '.up-rec-modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}',
+      '.up-rec-modal-revisao{max-width:720px}',
+      '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-right:4px}',
+      '.up-rec-revisao-item{border:1px solid #e0e2ef;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px}',
+      '.up-rec-revisao-header{display:flex;align-items:center;justify-content:space-between;gap:8px}',
+      '.up-rec-revisao-ordem{font-weight:800;font-size:12px;color:#0058be}',
+      '.up-rec-revisao-acoes{display:flex;gap:4px;flex-wrap:wrap}',
+      '.up-rec-btn-icone{border:0;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:700;cursor:pointer;background:#eff4ff;color:#0058be;font-family:inherit}',
+      '.up-rec-btn-icone:hover{background:#dbe8ff}',
+      '.up-rec-btn-icone:disabled{opacity:.35;cursor:not-allowed}',
+      '.up-rec-btn-icone.up-rec-btn-danger{background:rgba(255,82,82,.12);color:#ba1a1a}',
+      '.up-rec-btn-icone.up-rec-btn-danger:hover{background:rgba(255,82,82,.22)}',
+      '.up-rec-revisao-label{font-size:11px;font-weight:700;color:#727785;text-transform:uppercase;letter-spacing:.03em;display:block;margin-top:4px}',
+      '.up-rec-input{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;color:#0b1c30;margin-top:2px}',
+      '.up-rec-textarea-sm{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;color:#0b1c30;resize:vertical;min-height:44px;margin-top:2px}',
+      '.up-rec-select{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;color:#0b1c30;background:#fff;margin-top:2px}',
+      '.up-rec-revisao-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}',
+      '.up-rec-revisao-codigo{display:block;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#f8f9ff;border-radius:6px;padding:4px 6px;color:#0b1c30;word-break:break-all;margin-top:2px}',
+      '.up-rec-revisao-alertas{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:3px}',
+      '.up-rec-revisao-alertas li{font-size:11px;color:#e65100;background:rgba(230,81,0,.08);border-radius:6px;padding:4px 7px}',
+      '@media (max-width:480px){.up-rec-revisao-grid{grid-template-columns:1fr}}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -1763,7 +1784,31 @@
     inputTimers: null,
     elParaIndice: null,
     urlPollTimer: null,
+    pausadoAntesRevisao: false,
   };
+
+  // Opções editáveis na revisão — mesmos valores aceitos pelo backend/admin
+  // (server/src/controllers/tours.ts), mantidos em sincronia manualmente já
+  // que o widget não importa nada do admin.
+  var RECORDER_TOOLTIP_POSICOES = [
+    { value: 'auto', label: 'Automática' },
+    { value: 'top', label: 'Acima' },
+    { value: 'bottom', label: 'Abaixo' },
+    { value: 'left', label: 'Esquerda' },
+    { value: 'right', label: 'Direita' },
+  ];
+  var RECORDER_MODOS_AVANCO = [
+    { value: 'manual', label: 'Manual (só pelo botão Próximo)' },
+    { value: 'ao_clicar', label: 'Ao clicar no elemento' },
+    { value: 'ao_alterar_valor', label: 'Ao preencher/alterar o valor' },
+    { value: 'ao_aparecer_elemento', label: 'Quando outro elemento aparecer' },
+    { value: 'ao_sumir_elemento', label: 'Quando outro elemento sumir' },
+  ];
+  var RECORDER_ACOES_AO_AVANCAR = [
+    { value: 'apenas_avancar', label: 'Apenas avançar' },
+    { value: 'clicar_elemento', label: 'Clicar no elemento destacado e avançar' },
+  ];
+  var RECORDER_MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento'];
 
   // Persistência em sessionStorage — sobrevive a reload/navegação de página
   // inteira na mesma aba (o que uma SPA sem reload já não precisa, resolvido
@@ -1905,6 +1950,15 @@
     return 'Interaja com ' + (el.tagName ? el.tagName.toLowerCase() : 'elemento');
   }
 
+  // Resumo curto do passo (só o título, truncado) — usado na barra pra
+  // mostrar "o último passo capturado" sem expor nada além do que já é
+  // texto estático da própria UI do host (nunca valor digitado).
+  function recorderResumoPasso(p) {
+    var titulo = (p.titulo || '').trim();
+    if (titulo.length > 40) titulo = titulo.slice(0, 37) + '...';
+    return titulo || '(sem título)';
+  }
+
   function recorderAtualizarBarra() {
     var bar = document.getElementById(RECORDER_BAR_ID);
     if (!bar) return;
@@ -1912,6 +1966,11 @@
     if (contador) {
       var n = recorderState.passos.length;
       contador.textContent = n + ' passo' + (n === 1 ? '' : 's');
+    }
+    var ultimoEl = bar.querySelector('[data-up-rec-ultimo]');
+    if (ultimoEl) {
+      var ultimoPasso = recorderState.passos[recorderState.passos.length - 1];
+      ultimoEl.textContent = ultimoPasso ? ('· Último: ' + recorderResumoPasso(ultimoPasso)) : '';
     }
     var botaoPausa = bar.querySelector('[data-up-rec-pause]');
     if (botaoPausa) botaoPausa.textContent = recorderState.pausado ? 'Continuar' : 'Pausar';
@@ -2035,7 +2094,7 @@
             tooltip_posicao: p.tooltip_posicao,
             acao_ao_avancar: p.acao_ao_avancar,
             modo_avanco_interacao: p.modo_avanco_interacao,
-            seletor_confirmacao: p.seletor_confirmacao,
+            seletor_confirmacao: (p.seletor_confirmacao && String(p.seletor_confirmacao).trim()) || null,
           };
         }),
       },
@@ -2052,13 +2111,19 @@
     }
   }
 
+  // Botão "Finalizar" da barra: NÃO gera o JSON de imediato — abre o painel de
+  // revisão pra editar/reordenar/remover passos antes. A gravação continua
+  // "ativa" (sessionStorage intacto) nesse meio-tempo; só é limpa de fato em
+  // recorderGerarJsonFinal(). Pausa a captura enquanto revisa (além disso,
+  // cliques/edições dentro do próprio painel já são ignorados por
+  // recorderElementoNaBarra, que também cobre o RECORDER_PAINEL_ID).
   function recorderFinalizar() {
-    recorderState.ativo = false;
-    recorderPararCaptura();
-    recorderLimparPersistencia();
+    recorderState.pausadoAntesRevisao = recorderState.pausado;
+    recorderState.pausado = true;
+    recorderPersistir();
     var bar = document.getElementById(RECORDER_BAR_ID);
     if (bar) bar.remove();
-    recorderRenderPainelFinal();
+    recorderRenderRevisao();
   }
 
   // Descarta a gravação inteira — remove a barra, limpa o sessionStorage e os
@@ -2072,6 +2137,209 @@
     recorderLimparPersistencia();
     var bar = document.getElementById(RECORDER_BAR_ID);
     if (bar) bar.remove();
+    var painel = document.getElementById(RECORDER_PAINEL_ID);
+    if (painel) painel.remove();
+  }
+
+  // ─── Painel de revisão (antes de gerar o JSON) ────────────────────────────
+
+  function recorderAlertasPasso(p) {
+    var alertas = [];
+    if (!p.titulo || !p.titulo.trim()) alertas.push('Título vazio — preencha antes de importar.');
+    if (!p.descricao || !String(p.descricao).trim()) alertas.push('Descrição vazia — opcional, mas ajuda o usuário a entender o passo.');
+    if (p.seletor_tipo === 'css') alertas.push('Seletor CSS pode ser frágil. Prefira data-cy quando possível.');
+    if (RECORDER_MODOS_AVANCO_COM_CONFIRMACAO.indexOf(p.modo_avanco_interacao) !== -1 && (!p.seletor_confirmacao || !String(p.seletor_confirmacao).trim())) {
+      alertas.push('Informe o seletor de confirmação para este modo funcionar corretamente.');
+    }
+    return alertas;
+  }
+
+  function recorderHtmlAlertas(p) {
+    var alertas = recorderAlertasPasso(p);
+    if (alertas.length === 0) return '';
+    return '<ul class="up-rec-revisao-alertas">' + alertas.map(function (a) {
+      return '<li>' + escapeHtml(a) + '</li>';
+    }).join('') + '</ul>';
+  }
+
+  // Campo "Seletor de confirmação" — só aparece quando o modo de avanço
+  // escolhido precisa dele (ao_aparecer_elemento/ao_sumir_elemento). Trocar o
+  // modo pra outro valor só oculta esse bloco (recorderRevisaoOnInput
+  // re-renderiza só esse wrapper) — nunca apaga passo.seletor_confirmacao, que
+  // continua lá se o usuário voltar a escolher um desses dois modos depois.
+  function recorderHtmlConfirmacao(p, i) {
+    if (RECORDER_MODOS_AVANCO_COM_CONFIRMACAO.indexOf(p.modo_avanco_interacao) === -1) return '';
+    return [
+      '<label class="up-rec-revisao-label">Seletor de confirmação</label>',
+      '<input type="text" class="up-rec-input" data-rev-campo="seletor_confirmacao" data-rev-index="' + i + '" value="' + escapeHtml(p.seletor_confirmacao || '') + '" placeholder="Seletor CSS — ex: .dropdown-aberto ou [data-cy=overlay]">',
+    ].join('');
+  }
+
+  function recorderSelectHtml(campo, indice, valorAtual, opcoes) {
+    var options = opcoes.map(function (o) {
+      return '<option value="' + o.value + '"' + (o.value === valorAtual ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
+    }).join('');
+    return '<select class="up-rec-select" data-rev-campo="' + campo + '" data-rev-index="' + indice + '">' + options + '</select>';
+  }
+
+  function recorderHtmlRevisaoItem(p, i, total) {
+    return [
+      '<div class="up-rec-revisao-item">',
+      '<div class="up-rec-revisao-header">',
+      '<span class="up-rec-revisao-ordem">Passo ' + (i + 1) + '</span>',
+      '<div class="up-rec-revisao-acoes">',
+      '<button type="button" class="up-rec-btn-icone" data-rev-subir data-rev-index="' + i + '"' + (i === 0 ? ' disabled' : '') + ' title="Mover para cima">&uarr;</button>',
+      '<button type="button" class="up-rec-btn-icone" data-rev-descer data-rev-index="' + i + '"' + (i === total - 1 ? ' disabled' : '') + ' title="Mover para baixo">&darr;</button>',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-danger" data-rev-remover data-rev-index="' + i + '" title="Remover passo">Remover</button>',
+      '</div>',
+      '</div>',
+      '<label class="up-rec-revisao-label">Título</label>',
+      '<input type="text" class="up-rec-input" data-rev-campo="titulo" data-rev-index="' + i + '" value="' + escapeHtml(p.titulo || '') + '">',
+      '<label class="up-rec-revisao-label">Descrição</label>',
+      '<textarea class="up-rec-textarea-sm" data-rev-campo="descricao" data-rev-index="' + i + '">' + escapeHtml(p.descricao || '') + '</textarea>',
+      '<div class="up-rec-revisao-grid">',
+      '<div>',
+      '<span class="up-rec-revisao-label">Seletor (' + escapeHtml(p.seletor_tipo) + ')</span>',
+      '<code class="up-rec-revisao-codigo">' + escapeHtml(p.seletor) + '</code>',
+      '</div>',
+      '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSelectHtml('tooltip_posicao', i, p.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
+      '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSelectHtml('modo_avanco_interacao', i, p.modo_avanco_interacao, RECORDER_MODOS_AVANCO) + '</div>',
+      '<div><span class="up-rec-revisao-label">Ação ao clicar em Próximo</span>' + recorderSelectHtml('acao_ao_avancar', i, p.acao_ao_avancar, RECORDER_ACOES_AO_AVANCAR) + '</div>',
+      '</div>',
+      '<div class="up-rec-confirmacao-wrap" data-rev-confirmacao-wrap="' + i + '">' + recorderHtmlConfirmacao(p, i) + '</div>',
+      '<div class="up-rec-alertas-wrap" data-rev-alertas="' + i + '">' + recorderHtmlAlertas(p) + '</div>',
+      '</div>',
+    ].join('');
+  }
+
+  function recorderHtmlRevisao() {
+    var passos = recorderState.passos;
+    var itens = passos.map(function (p, i) { return recorderHtmlRevisaoItem(p, i, passos.length); }).join('');
+    return [
+      '<div class="up-rec-modal up-rec-modal-revisao">',
+      '<h3 class="up-rec-modal-title">Revisar passos — ' + passos.length + ' passo' + (passos.length === 1 ? '' : 's') + '</h3>',
+      '<p class="up-rec-modal-sub">Ajuste título, descrição e comportamento de cada passo antes de gerar o JSON.</p>',
+      '<div class="up-rec-revisao-lista">',
+      (passos.length === 0 ? '<p class="up-rec-modal-sub">Nenhum passo capturado ainda.</p>' : itens),
+      '</div>',
+      '<div class="up-rec-modal-actions">',
+      '<button type="button" class="up-rec-btn" data-rev-fechar>Fechar</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-primary" data-rev-gerar>Gerar JSON</button>',
+      '</div>',
+      '</div>',
+    ].join('');
+  }
+
+  // Fecha o painel de revisão SEM finalizar — não é destrutivo: restaura o
+  // estado de pausa anterior, mantém passos/sessionStorage intactos e volta a
+  // mostrar a barra flutuante, pra não deixar o usuário "preso" caso tenha
+  // clicado em Finalizar querendo só dar uma olhada. Cancelar a gravação
+  // inteira continua sendo só o botão "Cancelar" da barra.
+  function recorderFecharRevisao() {
+    var painel = document.getElementById(RECORDER_PAINEL_ID);
+    if (painel) painel.remove();
+    recorderState.pausado = Boolean(recorderState.pausadoAntesRevisao);
+    recorderPersistir();
+    recorderRenderBarra();
+  }
+
+  // Botão "Gerar JSON" da revisão — esse sim finaliza de verdade: para a
+  // captura, limpa o sessionStorage (a sessão só é limpa aqui ou ao
+  // Cancelar) e mostra o painel com o JSON pronto pra copiar/baixar, já
+  // refletindo qualquer edição feita na revisão.
+  function recorderGerarJsonFinal() {
+    var painel = document.getElementById(RECORDER_PAINEL_ID);
+    if (painel) painel.remove();
+    recorderState.ativo = false;
+    recorderPararCaptura();
+    recorderLimparPersistencia();
+    recorderRenderPainelFinal();
+  }
+
+  function recorderRevisaoOnInput(event) {
+    var alvo = event.target;
+    if (!(alvo instanceof Element)) return;
+    var campo = alvo.getAttribute('data-rev-campo');
+    if (!campo) return;
+    var indice = Number(alvo.getAttribute('data-rev-index'));
+    var passo = recorderState.passos[indice];
+    if (!passo) return;
+    passo[campo] = alvo.value;
+    recorderPersistir();
+
+    // Mudou o modo de avanço — mostra/oculta o campo "Seletor de confirmação"
+    // (só esse wrapper é re-renderizado; passo.seletor_confirmacao em si nunca
+    // é apagado aqui, só deixa de aparecer quando o modo não precisa dele).
+    if (campo === 'modo_avanco_interacao') {
+      var wrapConf = document.querySelector('[data-rev-confirmacao-wrap="' + indice + '"]');
+      if (wrapConf) wrapConf.innerHTML = recorderHtmlConfirmacao(passo, indice);
+    }
+
+    // Título/descrição/modo/seletor de confirmação afetam os alertas exibidos
+    // — atualiza só o bloco de alertas dessa linha (sem re-renderizar campos
+    // de texto, que perderiam o foco/cursor do usuário no meio da digitação).
+    if (campo === 'titulo' || campo === 'descricao' || campo === 'modo_avanco_interacao' || campo === 'seletor_confirmacao') {
+      var wrap = document.querySelector('[data-rev-alertas="' + indice + '"]');
+      if (wrap) wrap.innerHTML = recorderHtmlAlertas(passo);
+    }
+  }
+
+  function recorderRevisaoOnClick(event) {
+    var alvo = event.target;
+    if (!(alvo instanceof Element)) return;
+
+    if (alvo.closest('[data-rev-fechar]')) { recorderFecharRevisao(); return; }
+    if (alvo.closest('[data-rev-gerar]')) { recorderGerarJsonFinal(); return; }
+
+    var btnRemover = alvo.closest('[data-rev-remover]');
+    if (btnRemover) {
+      var idxRem = Number(btnRemover.getAttribute('data-rev-index'));
+      recorderState.passos.splice(idxRem, 1);
+      recorderPersistir();
+      recorderRenderRevisao();
+      return;
+    }
+
+    var btnSubir = alvo.closest('[data-rev-subir]');
+    if (btnSubir) {
+      var idxS = Number(btnSubir.getAttribute('data-rev-index'));
+      if (idxS > 0) {
+        var tmp = recorderState.passos[idxS - 1];
+        recorderState.passos[idxS - 1] = recorderState.passos[idxS];
+        recorderState.passos[idxS] = tmp;
+        recorderPersistir();
+        recorderRenderRevisao();
+      }
+      return;
+    }
+
+    var btnDescer = alvo.closest('[data-rev-descer]');
+    if (btnDescer) {
+      var idxD = Number(btnDescer.getAttribute('data-rev-index'));
+      if (idxD < recorderState.passos.length - 1) {
+        var tmp2 = recorderState.passos[idxD + 1];
+        recorderState.passos[idxD + 1] = recorderState.passos[idxD];
+        recorderState.passos[idxD] = tmp2;
+        recorderPersistir();
+        recorderRenderRevisao();
+      }
+      return;
+    }
+  }
+
+  function recorderRenderRevisao() {
+    var existente = document.getElementById(RECORDER_PAINEL_ID);
+    if (existente) existente.remove();
+
+    var root = document.createElement('div');
+    root.id = RECORDER_PAINEL_ID;
+    root.className = 'up-rec-overlay';
+    root.innerHTML = recorderHtmlRevisao();
+    document.body.appendChild(root);
+
+    root.addEventListener('input', recorderRevisaoOnInput);
+    root.addEventListener('change', recorderRevisaoOnInput);
+    root.addEventListener('click', recorderRevisaoOnClick);
   }
 
   function recorderRenderPainelFinal() {
@@ -2149,6 +2417,7 @@
       '<span class="up-rec-dot"></span>',
       '<span class="up-rec-label">Gravando Tour</span>',
       '<span class="up-rec-contador" data-up-rec-contador>0 passos</span>',
+      '<span class="up-rec-ultimo" data-up-rec-ultimo></span>',
       '<div class="up-rec-actions">',
       '<button type="button" class="up-rec-btn" data-up-rec-pause>Pausar</button>',
       '<button type="button" class="up-rec-btn" data-up-rec-undo disabled>Desfazer último passo</button>',
