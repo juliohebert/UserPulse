@@ -200,24 +200,44 @@
       // depender de scroll (usado tanto no painel final quanto na revisão).
       // position:relative + z-index garante que fique acima da área do JSON.
       '.up-rec-modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;flex-shrink:0;width:100%;position:relative;z-index:1}',
-      '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-right:4px}',
-      '.up-rec-revisao-item{border:1px solid #e0e2ef;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px}',
-      '.up-rec-revisao-header{display:flex;align-items:center;justify-content:space-between;gap:8px}',
-      '.up-rec-revisao-ordem{font-weight:800;font-size:12px;color:#0058be}',
-      '.up-rec-revisao-acoes{display:flex;gap:4px;flex-wrap:wrap}',
+      // Cabeçalho fixo do modal de revisão (título + contador) — nunca rola
+      // junto com a lista de passos.
+      '.up-rec-revisao-topo{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}',
+      '.up-rec-revisao-contagem{font-size:11px;font-weight:800;color:#0058be;background:#eff4ff;border-radius:999px;padding:2px 10px;white-space:nowrap;flex-shrink:0}',
+      // Única área com scroll interno do modal — cabeçalho e rodapé (ações)
+      // ficam de fora, sempre visíveis (flex-shrink:0 neles).
+      '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px}',
+      '.up-rec-revisao-item{border:1px solid #edeef5;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;background:#fff}',
+      '.up-rec-revisao-header{display:flex;align-items:baseline;justify-content:space-between;gap:8px}',
+      '.up-rec-revisao-header-titulo{display:flex;align-items:baseline;gap:6px;min-width:0;overflow:hidden}',
+      '.up-rec-revisao-ordem{font-weight:800;font-size:12px;color:#0058be;flex-shrink:0}',
+      '.up-rec-revisao-resumo{font-size:11px;color:#727785;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}',
+      '.up-rec-revisao-acoes{display:flex;gap:4px;flex-wrap:wrap;flex-shrink:0}',
       '.up-rec-btn-icone{border:0;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:700;cursor:pointer;background:#eff4ff;color:#0058be;font-family:inherit}',
       '.up-rec-btn-icone:hover{background:#dbe8ff}',
       '.up-rec-btn-icone:disabled{opacity:.35;cursor:not-allowed}',
       '.up-rec-btn-icone.up-rec-btn-danger{background:rgba(255,82,82,.12);color:#ba1a1a}',
       '.up-rec-btn-icone.up-rec-btn-danger:hover{background:rgba(255,82,82,.22)}',
-      '.up-rec-revisao-label{font-size:11px;font-weight:700;color:#727785;text-transform:uppercase;letter-spacing:.03em;display:block;margin-top:4px}',
-      '.up-rec-input{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;color:#0b1c30;margin-top:2px}',
-      '.up-rec-textarea-sm{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;color:#0b1c30;resize:vertical;min-height:44px;margin-top:2px}',
-      '.up-rec-select{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;color:#0b1c30;background:#fff;margin-top:2px}',
-      '.up-rec-revisao-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px}',
-      '.up-rec-revisao-codigo{display:block;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#f8f9ff;border-radius:6px;padding:4px 6px;color:#0b1c30;word-break:break-all;margin-top:2px}',
-      '.up-rec-revisao-alertas{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:3px}',
-      '.up-rec-revisao-alertas li{font-size:11px;color:#e65100;background:rgba(230,81,0,.08);border-radius:6px;padding:4px 7px}',
+      // Título/descrição são os campos principais — rótulo normal (não
+      // maiúsculo/técnico), pra se destacar da seção de configuração abaixo.
+      '.up-rec-revisao-principal{display:flex;flex-direction:column;gap:2px}',
+      '.up-rec-revisao-label-principal{font-size:11px;font-weight:800;color:#424754;margin-top:4px}',
+      '.up-rec-revisao-label{font-size:10px;font-weight:700;color:#8a90a3;text-transform:uppercase;letter-spacing:.03em;display:block;margin-top:4px}',
+      '.up-rec-input{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;color:#0b1c30;margin-top:2px}',
+      '.up-rec-textarea-sm{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;color:#0b1c30;resize:vertical;min-height:36px;margin-top:2px}',
+      '.up-rec-select{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;color:#0b1c30;background:#fff;margin-top:2px}',
+      // Seção "Configuração do passo" — agrupada visualmente à parte (fundo
+      // discreto), separando o que é técnico (seletor/comportamento) do que é
+      // conteúdo principal (título/descrição) editado acima.
+      '.up-rec-revisao-config{background:#f8f9ff;border-radius:8px;padding:8px 10px;margin-top:2px}',
+      '.up-rec-revisao-config-titulo{font-size:10px;font-weight:800;color:#8a90a3;text-transform:uppercase;letter-spacing:.04em;margin:0 0 2px}',
+      '.up-rec-revisao-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
+      // Seletor: chip de leitura (não deve parecer um input editável).
+      '.up-rec-revisao-codigo{display:inline-flex;max-width:100%;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f8;border:1px solid #dde1ee;border-radius:6px;padding:3px 7px;color:#425066;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}',
+      // Alertas discretos — chips compactos lado a lado em vez de lista
+      // empilhada, pra ocupar menos espaço vertical no card.
+      '.up-rec-revisao-alertas{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px}',
+      '.up-rec-revisao-alertas li{font-size:10.5px;line-height:1.3;color:#e65100;background:rgba(230,81,0,.08);border-radius:6px;padding:3px 7px}',
       '@media (max-width:480px){.up-rec-revisao-grid{grid-template-columns:1fr}}',
     ].join('');
     document.head.appendChild(style);
@@ -1980,6 +2000,15 @@
     return titulo || '(sem título)';
   }
 
+  // Mesma ideia, usado no cabeçalho do card na revisão — mas sem o fallback
+  // "(sem título)": ali o alerta de "título vazio" já cobre esse caso, então
+  // aqui simplesmente não mostra nada quando não há título ("se existir").
+  function recorderResumoTituloRevisao(p) {
+    var titulo = (p.titulo || '').trim();
+    if (!titulo) return '';
+    return titulo.length > 46 ? titulo.slice(0, 43) + '...' : titulo;
+  }
+
   function recorderAtualizarBarra() {
     var bar = document.getElementById(RECORDER_BAR_ID);
     if (!bar) return;
@@ -2230,30 +2259,39 @@
   }
 
   function recorderHtmlRevisaoItem(p, i, total) {
+    var resumo = recorderResumoTituloRevisao(p);
     return [
       '<div class="up-rec-revisao-item">',
       '<div class="up-rec-revisao-header">',
+      '<div class="up-rec-revisao-header-titulo">',
       '<span class="up-rec-revisao-ordem">Passo ' + (i + 1) + '</span>',
+      '<span class="up-rec-revisao-resumo" data-rev-resumo="' + i + '">' + (resumo ? '— ' + escapeHtml(resumo) : '') + '</span>',
+      '</div>',
       '<div class="up-rec-revisao-acoes">',
       '<button type="button" class="up-rec-btn-icone" data-rev-subir data-rev-index="' + i + '"' + (i === 0 ? ' disabled' : '') + ' title="Mover para cima">&uarr;</button>',
       '<button type="button" class="up-rec-btn-icone" data-rev-descer data-rev-index="' + i + '"' + (i === total - 1 ? ' disabled' : '') + ' title="Mover para baixo">&darr;</button>',
       '<button type="button" class="up-rec-btn-icone up-rec-btn-danger" data-rev-remover data-rev-index="' + i + '" title="Remover passo">Remover</button>',
       '</div>',
       '</div>',
-      '<label class="up-rec-revisao-label">Título</label>',
+      '<div class="up-rec-revisao-principal">',
+      '<label class="up-rec-revisao-label-principal">Título</label>',
       '<input type="text" class="up-rec-input" data-rev-campo="titulo" data-rev-index="' + i + '" value="' + escapeHtml(p.titulo || '') + '">',
-      '<label class="up-rec-revisao-label">Descrição</label>',
+      '<label class="up-rec-revisao-label-principal">Descrição</label>',
       '<textarea class="up-rec-textarea-sm" data-rev-campo="descricao" data-rev-index="' + i + '">' + escapeHtml(p.descricao || '') + '</textarea>',
+      '</div>',
+      '<div class="up-rec-revisao-config">',
+      '<p class="up-rec-revisao-config-titulo">Configuração do passo</p>',
       '<div class="up-rec-revisao-grid">',
       '<div>',
-      '<span class="up-rec-revisao-label">Seletor (' + escapeHtml(p.seletor_tipo) + ')</span>',
-      '<code class="up-rec-revisao-codigo">' + escapeHtml(p.seletor) + '</code>',
+      '<span class="up-rec-revisao-label">Seletor</span>',
+      '<code class="up-rec-revisao-codigo" title="' + escapeHtml(p.seletor) + '">' + escapeHtml(p.seletor_tipo) + ': ' + escapeHtml(p.seletor) + '</code>',
       '</div>',
       '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSelectHtml('tooltip_posicao', i, p.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
       '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSelectHtml('modo_avanco_interacao', i, p.modo_avanco_interacao, RECORDER_MODOS_AVANCO) + '</div>',
       '<div><span class="up-rec-revisao-label">Ação ao clicar em Próximo</span>' + recorderSelectHtml('acao_ao_avancar', i, p.acao_ao_avancar, RECORDER_ACOES_AO_AVANCAR) + '</div>',
       '</div>',
       '<div class="up-rec-confirmacao-wrap" data-rev-confirmacao-wrap="' + i + '">' + recorderHtmlConfirmacao(p, i) + '</div>',
+      '</div>',
       '<div class="up-rec-alertas-wrap" data-rev-alertas="' + i + '">' + recorderHtmlAlertas(p) + '</div>',
       '</div>',
     ].join('');
@@ -2265,7 +2303,10 @@
     var itens = passos.map(function (p, i) { return recorderHtmlRevisaoItem(p, i, passos.length); }).join('');
     return [
       '<div class="up-rec-modal up-rec-modal-revisao">',
-      '<h3 class="up-rec-modal-title">Revisar passos — ' + passos.length + ' passo' + (passos.length === 1 ? '' : 's') + '</h3>',
+      '<div class="up-rec-revisao-topo">',
+      '<h3 class="up-rec-modal-title">Revisar passos</h3>',
+      '<span class="up-rec-revisao-contagem">' + passos.length + ' passo' + (passos.length === 1 ? '' : 's') + '</span>',
+      '</div>',
       '<p class="up-rec-modal-sub">Ajuste título, descrição e comportamento de cada passo antes de gerar o JSON.</p>',
       '<div class="up-rec-revisao-lista">',
       (vazio ? '<p class="up-rec-modal-sub">Capture pelo menos um passo para gerar o JSON.</p>' : itens),
@@ -2321,6 +2362,16 @@
     if (campo === 'modo_avanco_interacao') {
       var wrapConf = document.querySelector('[data-rev-confirmacao-wrap="' + indice + '"]');
       if (wrapConf) wrapConf.innerHTML = recorderHtmlConfirmacao(passo, indice);
+    }
+
+    // Título mudou — atualiza só o resumo no cabeçalho do card (texto, sem
+    // re-renderizar o campo de título em si).
+    if (campo === 'titulo') {
+      var resumoEl = document.querySelector('[data-rev-resumo="' + indice + '"]');
+      if (resumoEl) {
+        var resumo = recorderResumoTituloRevisao(passo);
+        resumoEl.textContent = resumo ? '— ' + resumo : '';
+      }
     }
 
     // Título/descrição/modo/seletor de confirmação afetam os alertas exibidos
