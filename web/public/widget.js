@@ -158,6 +158,25 @@
       '.up-tour-close:hover{background:#eff4ff;color:#0b1c30}',
       '.up-tour-close svg{width:16px;height:16px;fill:currentColor;display:block}',
       '@media (max-width:480px){.up-tour-tooltip{width:calc(100vw - 24px)}}',
+      '.up-rec-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483640;display:flex;align-items:center;gap:10px;background:#0b1c30;color:#fff;padding:10px 14px;border-radius:999px;box-shadow:0 18px 40px rgba(11,28,48,.35);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}',
+      '.up-rec-dot{width:9px;height:9px;border-radius:50%;background:#ff5252;flex-shrink:0;animation:up-rec-blink 1.2s ease-in-out infinite}',
+      '@keyframes up-rec-blink{0%,100%{opacity:1}50%{opacity:.25}}',
+      '.up-rec-label{font-weight:800;white-space:nowrap}',
+      '.up-rec-contador{opacity:.75;white-space:nowrap}',
+      '.up-rec-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}',
+      '.up-rec-btn{border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;white-space:nowrap}',
+      '.up-rec-btn:hover{background:rgba(255,255,255,.24)}',
+      '.up-rec-btn:disabled{opacity:.35;cursor:not-allowed}',
+      '.up-rec-btn-primary{background:#0058be}',
+      '.up-rec-btn-primary:hover{background:#0066d6}',
+      '.up-rec-btn-danger{background:rgba(255,82,82,.22)}',
+      '.up-rec-btn-danger:hover{background:rgba(255,82,82,.36)}',
+      '.up-rec-overlay{position:fixed;inset:0;z-index:2147483650;display:flex;align-items:center;justify-content:center;background:rgba(11,28,48,.55);padding:16px}',
+      '.up-rec-modal{width:100%;max-width:640px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
+      '.up-rec-modal-title{font-size:16px;font-weight:800;margin:0}',
+      '.up-rec-modal-sub{font-size:12px;color:#424754;margin:0}',
+      '.up-rec-textarea{flex:1;min-height:260px;border:1px solid #c2c6d6;border-radius:10px;padding:10px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:vertical;background:#f8f9ff;color:#0b1c30}',
+      '.up-rec-modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -810,6 +829,7 @@
       pendingContext = {};
     }
     state.config = normalized;
+    iniciarGravadorSeNecessario();
     state.campanha = null;
     state.open = false;
     state.nota = null;
@@ -1674,6 +1694,525 @@
         }
       })
       .catch(function () { /* fail silently */ });
+  }
+
+  // ─── Gravador de fluxo (MVP) ──────────────────────────────────────────────
+  // Ativado quando a URL da página tem ?userpulse_recorder=1 (aberta pelo
+  // admin em /tours/gravador). Roda inteiramente no host, sem extensão de
+  // navegador nem comunicação entre abas: captura cliques/preenchimentos em
+  // tempo real e, ao finalizar, o próprio widget mostra o JSON
+  // userpulse.tour.v1 pronto pra copiar/baixar — o usuário importa depois
+  // pelo fluxo de "Importar JSON" já existente em /tours, sem nenhuma mudança
+  // no backend/importador.
+  //
+  // Privacidade: nunca lê/guarda o valor de nenhum campo (só reage aos
+  // eventos input/change pra saber QUE houve preenchimento); ignora
+  // completamente campos que pareçam senha/CPF/e-mail/telefone/cartão; nunca
+  // tira screenshot.
+
+  var RECORDER_BAR_ID = 'userpulse-recorder-bar';
+  var RECORDER_PAINEL_ID = 'userpulse-recorder-painel';
+  var RECORDER_INPUT_DEBOUNCE_MS = 500;
+  var RECORDER_CLIQUE_DEDUPE_MS = 600;
+  var RECORDER_URL_POLL_MS = 500;
+  var RECORDER_STORAGE_KEY = 'userpulse:recorder:v1';
+
+  var recorderState = {
+    ativo: false,
+    pausado: false,
+    passos: [],
+    navegacoes: [],
+    meta: null,
+    ultimoEl: null,
+    ultimoElTimestamp: 0,
+    ultimaUrl: '',
+    inputTimers: null,
+    elParaIndice: null,
+    urlPollTimer: null,
+  };
+
+  // Persistência em sessionStorage — sobrevive a reload/navegação de página
+  // inteira na mesma aba (o que uma SPA sem reload já não precisa, resolvido
+  // à parte pelo poll de URL). Só grava o que é serializável e faz sentido
+  // atravessar um reload: ativo/pausado/meta/passos/navegações. Nunca grava
+  // referências a elementos do DOM (inputTimers/elParaIndice/ultimoEl) — não
+  // sobreviveriam a um reload de qualquer forma, então são sempre zerados de
+  // novo ao (re)iniciar a captura, na página nova.
+  function recorderPersistir() {
+    try {
+      if (!recorderState.ativo) {
+        window.sessionStorage.removeItem(RECORDER_STORAGE_KEY);
+        return;
+      }
+      var dados = {
+        ativo: true,
+        pausado: recorderState.pausado,
+        meta: recorderState.meta,
+        passos: recorderState.passos,
+        navegacoes: recorderState.navegacoes,
+      };
+      window.sessionStorage.setItem(RECORDER_STORAGE_KEY, JSON.stringify(dados));
+    } catch (_e) { /* sessionStorage indisponível (modo privado, quota etc.) — segue só em memória */ }
+  }
+
+  function recorderLimparPersistencia() {
+    try { window.sessionStorage.removeItem(RECORDER_STORAGE_KEY); } catch (_e) {}
+  }
+
+  function recorderCarregarPersistido() {
+    try {
+      var bruto = window.sessionStorage.getItem(RECORDER_STORAGE_KEY);
+      if (!bruto) return null;
+      var dados = JSON.parse(bruto);
+      if (!dados || !dados.ativo) return null;
+      return dados;
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function recorderElementoNaBarra(el) {
+    if (!el || !el.closest) return false;
+    try { return Boolean(el.closest('#' + RECORDER_BAR_ID + ', #' + RECORDER_PAINEL_ID)); } catch (_e) { return false; }
+  }
+
+  // Heurística por atributos do próprio elemento — nunca pelo valor digitado
+  // (que este gravador nunca lê). Cobre os casos citados: senha, CPF, e-mail,
+  // telefone, cartão. Propositalmente ampla — prefere ignorar demais a
+  // capturar de menos nesse tipo de campo.
+  var REGEX_CAMPO_SENSIVEL_GRAVADOR = /senha|password|cpf|cnpj|e-?mail|telefone|phone|celular|cart[aã]o|\bcvv\b|\bcvc\b|token|secret/i;
+
+  function recorderCampoSensivel(el) {
+    if (!el) return false;
+    var tipo = ((el.getAttribute && el.getAttribute('type')) || '').toLowerCase();
+    if (tipo === 'password') return true;
+    var autocomplete = ((el.getAttribute && el.getAttribute('autocomplete')) || '').toLowerCase();
+    if (autocomplete.indexOf('cc-') === 0 || autocomplete === 'current-password' || autocomplete === 'new-password') return true;
+    var pistas = [
+      el.getAttribute && el.getAttribute('data-cy'),
+      el.id,
+      el.getAttribute && el.getAttribute('name'),
+      el.getAttribute && el.getAttribute('aria-label'),
+      el.getAttribute && el.getAttribute('placeholder'),
+    ].filter(Boolean).join(' ');
+    return REGEX_CAMPO_SENSIVEL_GRAVADOR.test(pistas);
+  }
+
+  function recorderCssEscapeSimples(valor) {
+    return String(valor).replace(/([ #.:[\]"'>+~^$|=(),])/g, '\\$1');
+  }
+
+  // Fallback quando não há data-cy/id/name/aria-label: tag + primeira classe
+  // + posição entre irmãos do mesmo tipo, só o suficiente pra desambiguar —
+  // de propósito simples (não é um gerador de caminho CSS único robusto).
+  function recorderSeletorFallback(el) {
+    var tag = el.tagName ? el.tagName.toLowerCase() : 'div';
+    var classe = (el.className && typeof el.className === 'string') ? el.className.trim().split(/\s+/)[0] : '';
+    var base = classe ? tag + '.' + recorderCssEscapeSimples(classe) : tag;
+    var pai = el.parentElement;
+    if (pai) {
+      var irmaos = [];
+      for (var i = 0; i < pai.children.length; i++) {
+        if (pai.children[i].tagName === el.tagName) irmaos.push(pai.children[i]);
+      }
+      if (irmaos.length > 1) {
+        base += ':nth-of-type(' + (irmaos.indexOf(el) + 1) + ')';
+      }
+    }
+    return base;
+  }
+
+  // Ordem de preferência pedida: data-cy → id → name → aria-label → fallback CSS.
+  function recorderGerarSeletor(el) {
+    try {
+      var dataCy = el.getAttribute && el.getAttribute('data-cy');
+      if (dataCy) return { seletor_tipo: 'data_cy', seletor: dataCy };
+      if (el.id) return { seletor_tipo: 'css', seletor: '#' + recorderCssEscapeSimples(el.id) };
+      var name = el.getAttribute && el.getAttribute('name');
+      if (name) {
+        var tag = el.tagName ? el.tagName.toLowerCase() : '';
+        return { seletor_tipo: 'css', seletor: tag + '[name="' + name.replace(/"/g, '\\"') + '"]' };
+      }
+      var ariaLabel = el.getAttribute && el.getAttribute('aria-label');
+      if (ariaLabel) return { seletor_tipo: 'css', seletor: '[aria-label="' + ariaLabel.replace(/"/g, '\\"') + '"]' };
+      return { seletor_tipo: 'css', seletor: recorderSeletorFallback(el) };
+    } catch (_e) {
+      return { seletor_tipo: 'css', seletor: el.tagName ? el.tagName.toLowerCase() : '*' };
+    }
+  }
+
+  // botão/link/menu → ao_clicar; input/textarea/select e autocomplete/combobox
+  // /search/dropdown (por role ou por nome) → ao_alterar_valor.
+  function recorderInferirModo(el) {
+    var tag = el.tagName ? el.tagName.toUpperCase() : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return 'ao_alterar_valor';
+    var role = el.getAttribute && el.getAttribute('role');
+    if (role === 'combobox' || role === 'listbox') return 'ao_alterar_valor';
+    var pistas = [
+      el.getAttribute && el.getAttribute('data-cy'),
+      el.id,
+      (el.className && typeof el.className === 'string') ? el.className : '',
+    ].filter(Boolean).join(' ');
+    if (/autocomplete|combobox|search|busca|dropdown/i.test(pistas)) return 'ao_alterar_valor';
+    return 'ao_clicar';
+  }
+
+  // Só usa texto/atributos estáticos da própria UI (rótulo do botão, placeholder,
+  // name) — nunca o valor digitado pelo usuário.
+  function recorderGerarTitulo(el) {
+    var texto = (el.textContent || '').trim().replace(/\s+/g, ' ');
+    if (texto) return texto.length > 60 ? texto.slice(0, 57) + '...' : texto;
+    var ariaLabel = el.getAttribute && el.getAttribute('aria-label');
+    if (ariaLabel) return ariaLabel;
+    var placeholder = el.getAttribute && el.getAttribute('placeholder');
+    if (placeholder) return 'Preencha: ' + placeholder;
+    var name = el.getAttribute && el.getAttribute('name');
+    if (name) return 'Campo: ' + name;
+    return 'Interaja com ' + (el.tagName ? el.tagName.toLowerCase() : 'elemento');
+  }
+
+  function recorderAtualizarBarra() {
+    var bar = document.getElementById(RECORDER_BAR_ID);
+    if (!bar) return;
+    var contador = bar.querySelector('[data-up-rec-contador]');
+    if (contador) {
+      var n = recorderState.passos.length;
+      contador.textContent = n + ' passo' + (n === 1 ? '' : 's');
+    }
+    var botaoPausa = bar.querySelector('[data-up-rec-pause]');
+    if (botaoPausa) botaoPausa.textContent = recorderState.pausado ? 'Continuar' : 'Pausar';
+    var botaoDesfazer = bar.querySelector('[data-up-rec-undo]');
+    if (botaoDesfazer) botaoDesfazer.disabled = recorderState.passos.length === 0;
+  }
+
+  function recorderRegistrarPasso(el, modo) {
+    var sel = recorderGerarSeletor(el);
+    var passo = {
+      titulo: recorderGerarTitulo(el),
+      descricao: '',
+      seletor_tipo: sel.seletor_tipo,
+      seletor: sel.seletor,
+      tooltip_posicao: 'auto',
+      acao_ao_avancar: 'apenas_avancar',
+      modo_avanco_interacao: modo,
+      seletor_confirmacao: null,
+    };
+    recorderState.passos.push(passo);
+    recorderState.elParaIndice.set(el, recorderState.passos.length - 1);
+    recorderAtualizarBarra();
+    recorderPersistir();
+  }
+
+  // Cliques disparam ao_clicar; nunca chama preventDefault/stopPropagation —
+  // a interação real do usuário com o sistema acontece normalmente.
+  function recorderCapturarClique(event) {
+    if (!recorderState.ativo || recorderState.pausado) return;
+    var el = event.target;
+    if (!(el instanceof Element) || recorderElementoNaBarra(el)) return;
+    if (isEditableTarget(el) || recorderCampoSensivel(el)) return; // esses vão por input/change, não por clique
+    var agora = Date.now();
+    if (recorderState.ultimoEl === el && (agora - recorderState.ultimoElTimestamp) < RECORDER_CLIQUE_DEDUPE_MS) return; // duplo clique acidental
+    recorderState.ultimoEl = el;
+    recorderState.ultimoElTimestamp = agora;
+    recorderRegistrarPasso(el, recorderInferirModo(el));
+  }
+
+  // input/change disparam ao_alterar_valor. Nunca lê event.target.value — só
+  // usa o evento como sinal de "houve preenchimento". "input" tem debounce
+  // (não captura a cada tecla); "change" já é uma confirmação (seleção/blur),
+  // captura na hora. Ambos só geram UM passo por elemento nesta sessão de
+  // gravação (elParaIndice evita duplicar a cada nova tecla/seleção).
+  function recorderCapturarValor(event) {
+    if (!recorderState.ativo || recorderState.pausado) return;
+    var el = event.target;
+    if (!(el instanceof Element) || recorderElementoNaBarra(el)) return;
+    if (recorderCampoSensivel(el)) return;
+
+    if (event.type === 'change') {
+      if (recorderState.inputTimers.has(el)) {
+        window.clearTimeout(recorderState.inputTimers.get(el));
+        recorderState.inputTimers.delete(el);
+      }
+      if (!recorderState.elParaIndice.has(el)) recorderRegistrarPasso(el, recorderInferirModo(el));
+      return;
+    }
+
+    if (recorderState.inputTimers.has(el)) window.clearTimeout(recorderState.inputTimers.get(el));
+    var timer = window.setTimeout(function () {
+      recorderState.inputTimers.delete(el);
+      // Reconfere ativo/pausado: o timer é assíncrono e a gravação pode ter
+      // sido finalizada/cancelada/pausada enquanto o usuário ainda digitava.
+      if (!recorderState.ativo || recorderState.pausado) return;
+      if (!recorderState.elParaIndice.has(el)) recorderRegistrarPasso(el, recorderInferirModo(el));
+    }, RECORDER_INPUT_DEBOUNCE_MS);
+    recorderState.inputTimers.set(el, timer);
+  }
+
+  function recorderDesfazerUltimo() {
+    if (recorderState.passos.length === 0) return;
+    recorderState.passos.pop();
+    recorderAtualizarBarra();
+    recorderPersistir();
+  }
+
+  function recorderPausarOuContinuar() {
+    recorderState.pausado = !recorderState.pausado;
+    recorderAtualizarBarra();
+    recorderPersistir();
+  }
+
+  // Só informativo (mostrado no painel final) — trocas de URL em SPA (via
+  // pushState/replaceState/hash) não viram passo com seletor, já que não há
+  // elemento associado; o tour gerado usa url_contem da página em que a
+  // gravação começou. Não repatcha history (já é feito por bindSpaListeners
+  // pra outro fim) — poll simples evita qualquer conflito entre os dois.
+  function recorderIniciarPollUrl() {
+    recorderState.ultimaUrl = window.location.href;
+    recorderState.urlPollTimer = window.setInterval(function () {
+      if (!recorderState.ativo || recorderState.pausado) return;
+      if (window.location.href !== recorderState.ultimaUrl) {
+        recorderState.ultimaUrl = window.location.href;
+        recorderState.navegacoes.push(window.location.pathname);
+        recorderPersistir();
+      }
+    }, RECORDER_URL_POLL_MS);
+  }
+
+  function recorderMontarJson() {
+    var meta = recorderState.meta;
+    return {
+      formato: 'userpulse.tour.v1',
+      exportado_em: new Date().toISOString(),
+      tour: {
+        titulo: meta.titulo || 'Tour gravado',
+        descricao: meta.descricao || null,
+        sistema: meta.sistema || '',
+        modo_identificacao: 'url_contem',
+        tela: null,
+        data_cy: null,
+        url_contem: meta.url_contem || '',
+        prioridade: meta.prioridade || 0,
+        passos: recorderState.passos.map(function (p) {
+          return {
+            titulo: p.titulo,
+            descricao: p.descricao || null,
+            seletor_tipo: p.seletor_tipo,
+            seletor: p.seletor,
+            tooltip_posicao: p.tooltip_posicao,
+            acao_ao_avancar: p.acao_ao_avancar,
+            modo_avanco_interacao: p.modo_avanco_interacao,
+            seletor_confirmacao: p.seletor_confirmacao,
+          };
+        }),
+      },
+    };
+  }
+
+  function recorderPararCaptura() {
+    document.removeEventListener('click', recorderCapturarClique, true);
+    document.removeEventListener('input', recorderCapturarValor, true);
+    document.removeEventListener('change', recorderCapturarValor, true);
+    if (recorderState.urlPollTimer) {
+      window.clearInterval(recorderState.urlPollTimer);
+      recorderState.urlPollTimer = null;
+    }
+  }
+
+  function recorderFinalizar() {
+    recorderState.ativo = false;
+    recorderPararCaptura();
+    recorderLimparPersistencia();
+    var bar = document.getElementById(RECORDER_BAR_ID);
+    if (bar) bar.remove();
+    recorderRenderPainelFinal();
+  }
+
+  // Descarta a gravação inteira — remove a barra, limpa o sessionStorage e os
+  // passos em memória, e não gera nenhum JSON (ao contrário de Finalizar).
+  function recorderCancelar() {
+    if (!window.confirm('Cancelar a gravação e descartar os passos capturados?')) return;
+    recorderState.ativo = false;
+    recorderState.passos = [];
+    recorderState.navegacoes = [];
+    recorderPararCaptura();
+    recorderLimparPersistencia();
+    var bar = document.getElementById(RECORDER_BAR_ID);
+    if (bar) bar.remove();
+  }
+
+  function recorderRenderPainelFinal() {
+    var json = recorderMontarJson();
+    var texto = JSON.stringify(json, null, 2);
+
+    var avisoNavegacao = recorderState.navegacoes.length > 0
+      ? '<p class="up-rec-modal-sub">' + recorderState.navegacoes.length + ' navegação(ões) de URL detectada(s) durante a gravação — não viraram passo (sem elemento associado); o tour usa a URL onde a gravação começou.</p>'
+      : '';
+
+    var root = document.createElement('div');
+    root.id = RECORDER_PAINEL_ID;
+    root.className = 'up-rec-overlay';
+    root.innerHTML = [
+      '<div class="up-rec-modal">',
+      '<h3 class="up-rec-modal-title">Tour gravado — ' + json.tour.passos.length + ' passo(s)</h3>',
+      '<p class="up-rec-modal-sub">Revise os passos, copie ou baixe o JSON e importe pela tela de Tours Guiados (Importar JSON).</p>',
+      avisoNavegacao,
+      '<textarea class="up-rec-textarea" readonly data-up-rec-json>' + escapeHtml(texto) + '</textarea>',
+      '<div class="up-rec-modal-actions">',
+      '<button type="button" class="up-rec-btn" data-up-rec-copiar>Copiar JSON</button>',
+      '<button type="button" class="up-rec-btn" data-up-rec-baixar>Baixar JSON</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-primary" data-up-rec-fechar>Fechar</button>',
+      '</div>',
+      '</div>',
+    ].join('');
+    document.body.appendChild(root);
+
+    root.addEventListener('click', function (event) {
+      var alvo = event.target;
+      if (!(alvo instanceof Element)) return;
+
+      if (alvo.closest('[data-up-rec-copiar]')) {
+        try {
+          var textarea = root.querySelector('[data-up-rec-json]');
+          if (textarea && textarea.select) textarea.select();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(texto).catch(function () {});
+          } else {
+            document.execCommand('copy');
+          }
+        } catch (_e) {}
+        return;
+      }
+
+      if (alvo.closest('[data-up-rec-baixar]')) {
+        try {
+          var blob = new Blob([texto], { type: 'application/json' });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = 'tour-gravado.json';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (_e) {}
+        return;
+      }
+
+      if (alvo.closest('[data-up-rec-fechar]')) {
+        root.remove();
+        return;
+      }
+    });
+  }
+
+  function recorderRenderBarra() {
+    if (document.getElementById(RECORDER_BAR_ID)) return;
+
+    var bar = document.createElement('div');
+    bar.id = RECORDER_BAR_ID;
+    bar.className = 'up-rec-bar';
+    bar.innerHTML = [
+      '<span class="up-rec-dot"></span>',
+      '<span class="up-rec-label">Gravando Tour</span>',
+      '<span class="up-rec-contador" data-up-rec-contador>0 passos</span>',
+      '<div class="up-rec-actions">',
+      '<button type="button" class="up-rec-btn" data-up-rec-pause>Pausar</button>',
+      '<button type="button" class="up-rec-btn" data-up-rec-undo disabled>Desfazer último passo</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-danger" data-up-rec-cancel>Cancelar</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-primary" data-up-rec-finish>Finalizar</button>',
+      '</div>',
+    ].join('');
+    document.body.appendChild(bar);
+
+    bar.addEventListener('click', function (event) {
+      var alvo = event.target;
+      if (!(alvo instanceof Element)) return;
+      if (alvo.closest('[data-up-rec-pause]')) { recorderPausarOuContinuar(); return; }
+      if (alvo.closest('[data-up-rec-undo]')) { recorderDesfazerUltimo(); return; }
+      if (alvo.closest('[data-up-rec-cancel]')) { recorderCancelar(); return; }
+      if (alvo.closest('[data-up-rec-finish]')) { recorderFinalizar(); return; }
+    });
+
+    recorderAtualizarBarra();
+  }
+
+  // Liga os listeners de captura + poll de URL — compartilhado entre iniciar
+  // do zero (query param) e retomar de uma sessão persistida (reload).
+  function recorderIniciarCaptura() {
+    document.addEventListener('click', recorderCapturarClique, true);
+    document.addEventListener('input', recorderCapturarValor, true);
+    document.addEventListener('change', recorderCapturarValor, true);
+    recorderIniciarPollUrl();
+  }
+
+  // Retoma uma gravação após reload/navegação de página inteira: os passos e
+  // metadados já capturados vieram do sessionStorage (recorderPersistir), só
+  // o que é necessariamente por-elemento (inputTimers/elParaIndice/ultimoEl)
+  // reinicia zerado — os elementos da página anterior não existem mais.
+  function recorderRetomarDeSessao(dados) {
+    ensureStyles();
+    recorderState.ativo = true;
+    recorderState.pausado = Boolean(dados.pausado);
+    recorderState.passos = Array.isArray(dados.passos) ? dados.passos : [];
+    recorderState.navegacoes = Array.isArray(dados.navegacoes) ? dados.navegacoes : [];
+    recorderState.meta = dados.meta || { titulo: '', descricao: '', sistema: '', prioridade: 0, url_contem: window.location.pathname };
+    recorderState.ultimoEl = null;
+    recorderState.ultimoElTimestamp = 0;
+    recorderState.inputTimers = new WeakMap();
+    recorderState.elParaIndice = new WeakMap();
+
+    // Página nova desde a última gravação — registra como navegação, se ainda
+    // não for a última conhecida (evita duplicar se retomar mais de uma vez
+    // sem sair da mesma página, ex.: init() chamado de novo pelo host).
+    var pathAtual = window.location.pathname;
+    if (recorderState.navegacoes[recorderState.navegacoes.length - 1] !== pathAtual) {
+      recorderState.navegacoes.push(pathAtual);
+    }
+
+    recorderIniciarCaptura();
+    recorderPersistir();
+    recorderRenderBarra();
+  }
+
+  // Chamado no início de init(). Prioridade: retoma uma gravação já em
+  // andamento (sessionStorage) mesmo sem ?userpulse_recorder=1 na URL — é
+  // exatamente isso que permite sobreviver a um reload de página inteira.
+  // Sem sessão persistida, só ativa do zero se o parâmetro estiver presente.
+  // Guardado por recorderState.ativo pra não reiniciar (perdendo os passos já
+  // capturados) se o host chamar init() de novo na mesma página.
+  function iniciarGravadorSeNecessario() {
+    if (recorderState.ativo) return;
+
+    var persistido = recorderCarregarPersistido();
+    if (persistido) {
+      recorderRetomarDeSessao(persistido);
+      return;
+    }
+
+    var params;
+    try { params = new URLSearchParams(window.location.search); } catch (_e) { return; }
+    if (params.get('userpulse_recorder') !== '1') return;
+
+    ensureStyles();
+    recorderState.ativo = true;
+    recorderState.pausado = false;
+    recorderState.passos = [];
+    recorderState.navegacoes = [];
+    recorderState.ultimoEl = null;
+    recorderState.ultimoElTimestamp = 0;
+    recorderState.inputTimers = new WeakMap();
+    recorderState.elParaIndice = new WeakMap();
+    recorderState.meta = {
+      titulo: params.get('up_rec_titulo') || '',
+      descricao: params.get('up_rec_descricao') || '',
+      sistema: params.get('up_rec_sistema') || (state.config && state.config.sistema) || '',
+      prioridade: Number(params.get('up_rec_prioridade') || 0),
+      url_contem: window.location.pathname,
+    };
+
+    recorderIniciarCaptura();
+    recorderPersistir();
+    recorderRenderBarra();
   }
 
   // API pública para disparar um tour manualmente (ex.: botão "Ver tour" no host):
