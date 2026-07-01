@@ -61,7 +61,7 @@ export function TourDashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
           <nav className="flex gap-2 text-label-md text-outline mb-1">
-            <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">Tours guiados</button>
+            <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">Tours Guiados</button>
             <span>/</span>
             <span className="text-on-surface">Dashboard</span>
           </nav>

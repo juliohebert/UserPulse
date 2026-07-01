@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, type NavigateFunction } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { TourGuiado } from '../../types'
+import type { TourExportEnvelope, TourGuiado } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
+import { downloadJson } from '../../utils/tour'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
@@ -19,6 +20,8 @@ export function ToursIndex() {
   const [filterSistema, setFilterSistema] = useState('')
   const [filterAtivo, setFilterAtivo] = useState<'todos' | 'ativos' | 'inativos'>('todos')
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
+  const [exportandoId, setExportandoId] = useState<string | null>(null)
+  const [modalImportarAberto, setModalImportarAberto] = useState(false)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   const navigate = useNavigate()
   const redirectTimer = useRef<number | null>(null)
@@ -75,13 +78,33 @@ export function ToursIndex() {
     }
   }
 
+  const exportarTour = async (tour: TourGuiado) => {
+    setExportandoId(tour.id)
+    setMensagem(null)
+    try {
+      const envelope = await get<TourExportEnvelope>(`/tours/${tour.id}/exportar`)
+      downloadJson(`${tour.slug}.json`, envelope)
+    } catch (e) {
+      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível exportar o tour. Tente novamente.' })
+    } finally {
+      setExportandoId(null)
+    }
+  }
+
+  const tourImportado = (tour: TourGuiado) => {
+    setModalImportarAberto(false)
+    setMensagem({ tipo: 'sucesso', texto: 'Tour importado como rascunho.' })
+    // Mostra o feedback antes de sair da listagem, para não perdê-lo no redirecionamento.
+    redirectTimer.current = window.setTimeout(() => navigate(`/tours/${tour.id}/editar`), 900)
+  }
+
   return (
     <div>
       {/* Page action bar */}
       <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-title-lg font-bold text-on-surface leading-tight">Tours guiados</h2>
+            <h2 className="text-title-lg font-bold text-on-surface leading-tight">Tours Guiados</h2>
             <p className="text-label-md text-on-surface-variant mt-0.5">
               Crie passo a passos interativos para guiar usuários dentro da aplicação.
             </p>
@@ -92,14 +115,21 @@ export function ToursIndex() {
               className="flex items-center justify-center gap-1.5 px-4 py-2.5 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
             >
               <span className="material-symbols-outlined text-[18px]">menu_book</span>
-              Guia de uso
+              Guia de Uso
+            </button>
+            <button
+              onClick={() => setModalImportarAberto(true)}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+            >
+              <span className="material-symbols-outlined text-[18px]">upload_file</span>
+              Importar JSON
             </button>
             <button
               onClick={() => navigate('/tours/novo')}
               className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 w-full sm:w-auto"
             >
               <span className="material-symbols-outlined text-[18px]">add</span>
-              Novo tour guiado
+              Novo Tour Guiado
             </button>
           </div>
         </div>
@@ -115,15 +145,16 @@ export function ToursIndex() {
           </div>
         )}
 
-        {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        {/* Filters — busca, select e segmentado compartilham a mesma altura (h-11,
+            igual ao componente Select) para ficarem alinhados na mesma linha. */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
           <div className="relative w-full sm:flex-1 sm:max-w-sm">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline text-[18px] pointer-events-none">search</span>
             <input
               value={busca}
               onChange={e => { setBusca(e.target.value); setPage(1) }}
               placeholder="Buscar tour por título ou sistema..."
-              className="w-full pl-9 pr-3 py-2.5 bg-surface-bright border border-outline-variant rounded-xl text-body-md focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="w-full h-11 pl-9 pr-3 bg-surface-bright border border-outline-variant rounded-xl text-body-md focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
             />
           </div>
           <div className="w-full sm:w-56">
@@ -137,7 +168,7 @@ export function ToursIndex() {
               ]}
             />
           </div>
-          <div className="grid grid-cols-3 sm:flex gap-1 p-1 bg-surface-container rounded-xl w-full sm:w-fit">
+          <div className="grid grid-cols-3 sm:flex sm:items-center gap-1 p-1 h-11 bg-surface-container rounded-xl w-full sm:w-fit">
             {([
               { value: 'todos', label: 'Todos' },
               { value: 'ativos', label: 'Ativos' },
@@ -146,7 +177,7 @@ export function ToursIndex() {
               <button
                 key={opt.value}
                 onClick={() => { setFilterAtivo(opt.value); setPage(1) }}
-                className={`px-3.5 py-2 rounded-lg text-label-md font-bold text-center transition-all ${
+                className={`h-full px-3.5 rounded-lg text-label-md font-bold flex items-center justify-center transition-all ${
                   filterAtivo === opt.value ? 'bg-surface-bright text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'
                 }`}
               >
@@ -173,7 +204,7 @@ export function ToursIndex() {
                     onClick={() => navigate('/tours/novo')}
                     className="px-6 py-2.5 bg-primary text-on-primary rounded-xl font-bold text-label-md"
                   >
-                    Novo tour guiado
+                    Novo Tour Guiado
                   </button>
                 ) : undefined
               }
@@ -222,7 +253,14 @@ export function ToursIndex() {
                         <td className="px-5 py-3.5 whitespace-nowrap">
                           <div className="flex items-center justify-end gap-2">
                             <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
-                            <TourActions tour={tour} navigate={navigate} duplicandoId={duplicandoId} onDuplicar={duplicarTour} />
+                            <TourActions
+                              tour={tour}
+                              navigate={navigate}
+                              duplicandoId={duplicandoId}
+                              onDuplicar={duplicarTour}
+                              exportandoId={exportandoId}
+                              onExportar={exportarTour}
+                            />
                           </div>
                         </td>
                       </tr>
@@ -257,7 +295,15 @@ export function ToursIndex() {
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-label-sm text-outline">Atualizado {formatDateTime(tour.atualizado_em)}</span>
                       <div className="flex items-center gap-1 shrink-0">
-                        <TourActions tour={tour} navigate={navigate} duplicandoId={duplicandoId} onDuplicar={duplicarTour} size="lg" />
+                        <TourActions
+                          tour={tour}
+                          navigate={navigate}
+                          duplicandoId={duplicandoId}
+                          onDuplicar={duplicarTour}
+                          exportandoId={exportandoId}
+                          onExportar={exportarTour}
+                          size="lg"
+                        />
                       </div>
                     </div>
                   </div>
@@ -269,6 +315,10 @@ export function ToursIndex() {
           )}
         </div>
       </section>
+
+      {modalImportarAberto && (
+        <ImportarTourModal onClose={() => setModalImportarAberto(false)} onImported={tourImportado} />
+      )}
     </div>
   )
 }
@@ -283,11 +333,13 @@ function StatusBadge({ ativo }: { ativo: boolean }) {
   )
 }
 
-function TourActions({ tour, navigate, duplicandoId, onDuplicar, size = 'md' }: {
+function TourActions({ tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, size = 'md' }: {
   tour: TourGuiado
   navigate: NavigateFunction
   duplicandoId: string | null
   onDuplicar: (tour: TourGuiado) => void
+  exportandoId: string | null
+  onExportar: (tour: TourGuiado) => void
   size?: 'md' | 'lg'
 }) {
   const btnPad = size === 'lg' ? 'p-2' : 'p-1.5'
@@ -308,6 +360,109 @@ function TourActions({ tour, navigate, duplicandoId, onDuplicar, size = 'md' }: 
           {duplicandoId === tour.id ? 'progress_activity' : 'content_copy'}
         </span>
       </button>
+      <button onClick={() => onExportar(tour)} disabled={exportandoId === tour.id} title="Exportar JSON" className={`${btnCls} disabled:opacity-40`}>
+        <span className={`material-symbols-outlined text-[18px] ${exportandoId === tour.id ? 'animate-spin' : ''}`}>
+          {exportandoId === tour.id ? 'progress_activity' : 'download'}
+        </span>
+      </button>
     </>
+  )
+}
+
+function ImportarTourModal({ onClose, onImported }: {
+  onClose: () => void
+  onImported: (tour: TourGuiado) => void
+}) {
+  const [texto, setTexto] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
+
+  // Validação básica no cliente antes de gastar uma chamada de API — o
+  // backend revalida tudo de novo (mesma validarPassos usada em criar/editar).
+  const validarFormatoBasico = (json: unknown): string | null => {
+    if (!json || typeof json !== 'object') return 'JSON inválido.'
+    const obj = json as Record<string, unknown>
+    const tour = (obj.tour && typeof obj.tour === 'object') ? (obj.tour as Record<string, unknown>) : obj
+    if (!tour.titulo || typeof tour.titulo !== 'string') return 'Campo "titulo" ausente ou inválido.'
+    if (!tour.sistema || typeof tour.sistema !== 'string') return 'Campo "sistema" ausente ou inválido.'
+    if (!Array.isArray(tour.passos) || tour.passos.length === 0) return 'O tour precisa ter ao menos um passo em "passos".'
+    return null
+  }
+
+  const importar = async () => {
+    setErro(null)
+    let json: unknown
+    try {
+      json = JSON.parse(texto)
+    } catch {
+      setErro('JSON malformado. Confira se colou o conteúdo completo.')
+      return
+    }
+    const erroFormato = validarFormatoBasico(json)
+    if (erroFormato) {
+      setErro(erroFormato)
+      return
+    }
+    setEnviando(true)
+    try {
+      const tour = await post<TourGuiado>('/tours/importar', json)
+      onImported(tour)
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível importar o tour. Tente novamente.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30 shrink-0">
+          <h3 className="text-title-lg font-bold text-on-surface">Importar tour (JSON)</h3>
+          <button onClick={onClose} className="p-1 text-outline hover:text-on-surface transition-colors">
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-3 overflow-y-auto">
+          <p className="text-label-md text-on-surface-variant">
+            Cole o JSON exportado de outro tour. O tour será criado como rascunho — id, slug e status de ativação do
+            JSON são ignorados.
+          </p>
+          <textarea
+            value={texto}
+            onChange={e => setTexto(e.target.value)}
+            rows={10}
+            placeholder={'{\n  "formato": "userpulse.tour.v1",\n  "tour": { "titulo": "...", "sistema": "...", "passos": [...] }\n}'}
+            className="w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-[12px] font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+          />
+          {erro && (
+            <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-sm flex items-center gap-2">
+              <span className="material-symbols-outlined text-[16px]">error</span>
+              {erro}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-outline-variant/30 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-all"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={importar}
+            disabled={!texto.trim() || enviando}
+            className="px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all disabled:opacity-50"
+          >
+            {enviando ? 'Importando…' : 'Importar'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

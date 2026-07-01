@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get } from '../../services/api'
-import type { TourGuiado } from '../../types'
+import type { TourExportEnvelope, TourGuiado } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
-import { comandoIniciarTour, comandoTestarSeletor, testEmbedUrl } from '../../utils/tour'
+import { comandoIniciarTour, comandoTestarSeletor, downloadJson, testEmbedUrl } from '../../utils/tour'
 
 const card = 'bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden mb-5'
 const codeChip = 'bg-surface-container px-1 py-0.5 rounded text-[12px] font-mono'
@@ -15,6 +15,8 @@ export function TourPreview() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [exportando, setExportando] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const load = () => {
     if (!id) return
@@ -46,12 +48,25 @@ export function TourPreview() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const exportarJson = async () => {
+    setExportando(true)
+    setExportError(null)
+    try {
+      const envelope = await get<TourExportEnvelope>(`/tours/${tour.id}/exportar`)
+      downloadJson(`${tour.slug}.json`, envelope)
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'Não foi possível exportar o tour.')
+    } finally {
+      setExportando(false)
+    }
+  }
+
   return (
     <section className="px-4 lg:px-margin-desktop py-5 max-w-3xl">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
           <nav className="flex gap-2 text-label-md text-outline mb-1">
-            <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">Tours guiados</button>
+            <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">Tours Guiados</button>
             <span>/</span>
             <span className="text-on-surface">Testar</span>
           </nav>
@@ -63,6 +78,17 @@ export function TourPreview() {
         <div className="flex gap-2 shrink-0">
           <button
             type="button"
+            onClick={exportarJson}
+            disabled={exportando}
+            className="flex items-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all disabled:opacity-50"
+          >
+            <span className={`material-symbols-outlined text-[18px] ${exportando ? 'animate-spin' : ''}`}>
+              {exportando ? 'progress_activity' : 'download'}
+            </span>
+            Exportar JSON
+          </button>
+          <button
+            type="button"
             onClick={() => navigate(`/tours/${tour.id}/editar`)}
             className="px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all"
           >
@@ -70,6 +96,13 @@ export function TourPreview() {
           </button>
         </div>
       </div>
+
+      {exportError && (
+        <div className="mb-5 p-3 bg-error-container text-on-error-container rounded-xl text-body-md flex items-center gap-2">
+          <span className="material-symbols-outlined text-[18px]">error</span>
+          {exportError}
+        </div>
+      )}
 
       {!tour.ativo && (
         <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">

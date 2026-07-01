@@ -476,7 +476,7 @@ export function TourForm() {
           <div>
             <nav className="flex gap-2 text-label-md text-outline mb-0.5">
               <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">
-                Tours guiados
+                Tours Guiados
               </button>
               <span>/</span>
               <span className="text-on-surface">{isEdit ? 'Editar' : 'Criar Novo'}</span>
@@ -490,7 +490,7 @@ export function TourForm() {
               className="flex items-center gap-1 text-label-sm text-outline hover:text-primary transition-colors mt-0.5"
             >
               <span className="material-symbols-outlined text-[13px]">menu_book</span>
-              Guia de uso
+              Guia de Uso
             </button>
           </div>
           <div className="flex gap-2 shrink-0">

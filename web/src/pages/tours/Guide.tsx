@@ -80,7 +80,7 @@ const BOAS_PRATICAS = [
 ]
 
 const COMO_CRIAR = [
-  { titulo: 'Escolha um template ou comece em branco', desc: 'Em "Novo tour guiado", um modelo já preenche título, descrição e passos base — ou comece do zero.' },
+  { titulo: 'Escolha um template ou comece em branco', desc: 'Em "Novo Tour Guiado", um modelo já preenche título, descrição e passos base — ou comece do zero.' },
   { titulo: 'Preencha o destino', desc: 'Defina sistema e como o tour deve ser identificado: tela informada pelo sistema, data-cy ou caminho da URL.' },
   { titulo: 'Cadastre os passos', desc: 'Cada passo aponta para um elemento (seletor) com título e descrição do que destacar.' },
   { titulo: 'Teste', desc: 'Use "Testar tour" para percorrer o fluxo real e confirmar que cada passo encontra seu elemento.' },
@@ -111,7 +111,7 @@ export function TourGuide() {
           <div>
             <nav className="flex gap-2 text-label-md text-outline mb-0.5">
               <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">
-                Tours guiados
+                Tours Guiados
               </button>
               <span>/</span>
               <span className="text-on-surface">Guia</span>
@@ -123,7 +123,7 @@ export function TourGuide() {
             className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 shrink-0 w-full sm:w-auto"
           >
             <span className="material-symbols-outlined text-[18px]">add</span>
-            Criar tour guiado
+            Criar Tour Guiado
           </button>
         </div>
       </div>

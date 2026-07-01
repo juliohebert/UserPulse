@@ -294,6 +294,111 @@ export async function duplicar(req: Request, res: Response) {
   }
 }
 
+export async function exportar(req: Request, res: Response) {
+  try {
+    const id = req.params.id as string
+    const tour = await prisma.tourGuiado.findUnique({
+      where: { id },
+      include: { passos: { orderBy: { ordem: 'asc' } } },
+    })
+    if (!tour) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
+
+    // Sem id, ativo, eventos ou datas internas — só o suficiente para recriar
+    // o tour em outro lugar. slug vai só como referência (importar() ignora).
+    res.json({
+      formato: 'userpulse.tour.v1',
+      exportado_em: new Date().toISOString(),
+      tour: {
+        slug: tour.slug,
+        titulo: tour.titulo,
+        descricao: tour.descricao,
+        sistema: tour.sistema,
+        modo_identificacao: tour.modo_identificacao,
+        tela: tour.tela,
+        data_cy: tour.data_cy,
+        url_contem: tour.url_contem,
+        prioridade: tour.prioridade,
+        passos: tour.passos.map(p => ({
+          titulo: p.titulo,
+          descricao: p.descricao,
+          seletor_tipo: p.seletor_tipo,
+          seletor: p.seletor,
+          tooltip_posicao: p.tooltip_posicao,
+        })),
+      },
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao exportar tour guiado.' })
+  }
+}
+
+export async function importar(req: Request, res: Response) {
+  try {
+    // Aceita tanto o envelope completo ({ formato, tour }) quanto o objeto do
+    // tour colado direto, sem envelope.
+    const body = req.body ?? {}
+    if (body.formato !== undefined && body.formato !== 'userpulse.tour.v1') {
+      return res.status(400).json({ erro: `Formato não suportado: "${body.formato}".` })
+    }
+    const dados = (body.tour && typeof body.tour === 'object') ? body.tour : body
+
+    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, passos } = dados
+
+    if (!titulo?.trim() || !sistema?.trim()) {
+      return res.status(400).json({ erro: 'titulo e sistema são obrigatórios no JSON importado.' })
+    }
+    const modo = (modo_identificacao?.trim() || 'sistema_tela') as string
+    if (!MODOS_IDENTIFICACAO.includes(modo)) {
+      return res.status(400).json({ erro: 'modo_identificacao inválido no JSON importado.' })
+    }
+    const faltando = getCamposObrigatorios(modo).filter(c => !dados[c]?.toString().trim())
+    if (faltando.length > 0) {
+      return res.status(400).json({ erro: `Campos obrigatórios faltando no JSON importado: ${faltando.join(', ')}.` })
+    }
+
+    // Reaproveita a mesma validação de passos — sempre como rascunho, então
+    // seletor não é exigido (igual a aplicar um template). id/slug/ativo do
+    // JSON são ignorados: o tour importado nasce sempre inativo, com slug
+    // novo gerado a partir do título.
+    const { erro: erroPassos, lista: listaPassos } = validarPassos(passos, false)
+    if (erroPassos) return res.status(400).json({ erro: erroPassos })
+
+    const slug = await slugUnico(gerarSlugBase(titulo))
+
+    const tour = await prisma.tourGuiado.create({
+      data: {
+        slug,
+        titulo: titulo.trim(),
+        descricao: descricao?.trim() || null,
+        sistema: sistema.trim(),
+        modo_identificacao: modo,
+        tela: tela?.trim() || null,
+        data_cy: data_cy?.trim() || null,
+        url_contem: url_contem?.trim() || null,
+        prioridade: prioridade !== undefined ? Number(prioridade) : 0,
+        ativo: false,
+        passos: {
+          create: listaPassos.map((p, i) => ({
+            ordem: i,
+            titulo: p.titulo!.trim(),
+            descricao: p.descricao?.trim() || null,
+            seletor_tipo: p.seletor_tipo?.trim() || 'data_cy',
+            seletor: p.seletor?.trim() || '',
+            tooltip_posicao: p.tooltip_posicao?.trim() || 'auto',
+          })),
+        },
+      },
+      include: { passos: { orderBy: { ordem: 'asc' } } },
+    })
+
+    res.status(201).json(tour)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao importar tour guiado.' })
+  }
+}
+
 export async function buscarDashboard(req: Request, res: Response) {
   try {
     const id = req.params.id as string

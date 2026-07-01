@@ -138,6 +138,33 @@ export interface TourGuiado {
   _count?: { passos: number }
 }
 
+export interface TourExportPasso {
+  titulo: string
+  descricao: string | null
+  seletor_tipo: string
+  seletor: string
+  tooltip_posicao: string
+}
+
+export interface TourExportData {
+  slug: string
+  titulo: string
+  descricao: string | null
+  sistema: string
+  modo_identificacao: string
+  tela: string | null
+  data_cy: string | null
+  url_contem: string | null
+  prioridade: number
+  passos: TourExportPasso[]
+}
+
+export interface TourExportEnvelope {
+  formato: string
+  exportado_em: string
+  tour: TourExportData
+}
+
 export interface EventoTourDashboard {
   id: string
   tipo_evento: string

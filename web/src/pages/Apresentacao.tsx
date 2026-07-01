@@ -79,6 +79,7 @@ const FLUXO = [
 ]
 
 const CASOS = [
+  { icon: 'map', titulo: 'Tours Guiados', desc: 'Crie roteiros interativos para ensinar fluxos, apresentar funcionalidades e orientar usuários passo a passo dentro da aplicação.' },
   { icon: 'star_rate', titulo: 'NPS recorrente', desc: 'Colete NPS em intervalos configuráveis dos usuários mais ativos, direto na tela principal do sistema.' },
   { icon: 'new_releases', titulo: 'Nova funcionalidade', desc: 'Anuncie melhorias para quem usa a tela afetada — sem ruído para quem nunca acessou.' },
   { icon: 'verified_user', titulo: 'Comunicado obrigatório', desc: 'Exija confirmação de leitura antes de liberar o acesso. A campanha fica ativa até o usuário confirmar.' },
@@ -98,6 +99,10 @@ const RECURSOS = [
   { icon: 'analytics', label: 'Dashboard analítico' },
   { icon: 'download', label: 'Exportação CSV' },
   { icon: 'sync', label: 'updateContext para SPA' },
+  { icon: 'auto_awesome', label: 'Templates de tour' },
+  { icon: 'play_circle', label: 'Preview antes de publicar' },
+  { icon: 'monitoring', label: 'Conclusão e abandono de tours' },
+  { icon: 'sync_alt', label: 'Importação/exportação JSON' },
 ]
 
 const VALOR = [
@@ -219,7 +224,7 @@ function SuccessCard({ message }: { message: string }) {
 // ── page ──────────────────────────────────────────────────────────────────────
 
 export function ApresentacaoPage() {
-  type MockTab = 'nps' | 'melhoria' | 'feedback'
+  type MockTab = 'nps' | 'melhoria' | 'feedback' | 'tour'
   const [mockTab, setMockTab] = useState<MockTab>('nps')
 
   // NPS state
@@ -321,7 +326,7 @@ export function ApresentacaoPage() {
         <div className="relative max-w-4xl mx-auto text-center">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-[12px] font-semibold mb-6">
             <span className="material-symbols-outlined text-[14px]">bolt</span>
-            Campanhas In-app · NPS · Comunicados · Eventos
+            Campanhas In-app · Tours Guiados · NPS · Comunicados · Eventos
           </div>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white leading-tight tracking-tight mb-6">
             Campanhas no momento{' '}
@@ -330,9 +335,10 @@ export function ApresentacaoPage() {
             <span className="text-primary">certo</span>
           </h1>
           <p className="text-lg sm:text-xl text-slate-300 max-w-2xl mx-auto mb-10 leading-relaxed">
-            NPS, comunicados obrigatórios, anúncios de funcionalidade e pesquisas qualitativas —
+            NPS, comunicados obrigatórios, anúncios de funcionalidade, pesquisas qualitativas e tours guiados —
             tudo in-app, na tela certa, segmentado por cliente, perfil e unidade.
-            Sem email. Sem formulário externo.
+            O UserPulse não só coleta feedback: comunica, pesquisa e guia o usuário dentro do próprio produto,
+            acelerando a adoção de novas funcionalidades sem treinamento manual.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
@@ -422,7 +428,7 @@ export function ApresentacaoPage() {
                 <h3 className="text-[16px] font-extrabold text-emerald-700">Com UserPulse</h3>
               </div>
               <ul className="space-y-3">
-                {['Campanhas dentro do produto', 'Segmentação por cliente, unidade e perfil', 'Feedback no momento de uso', 'Dashboard e CSV para decisão'].map(item => (
+                {['Campanhas dentro do produto', 'Tours interativos dentro do produto', 'Adoção guiada de novas funcionalidades', 'Segmentação por cliente, unidade e perfil', 'Feedback no momento de uso', 'Dashboard e CSV para decisão'].map(item => (
                   <li key={item} className="flex items-start gap-2.5 text-[14px] text-emerald-900/80">
                     <span className="material-symbols-outlined text-emerald-500 text-[16px] shrink-0 mt-0.5" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
                     {item}
@@ -487,7 +493,7 @@ export function ApresentacaoPage() {
           <div className="text-center mb-12">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">Casos de uso</p>
             <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Muito além do NPS</h2>
-            <p className="text-slate-500 max-w-xl mx-auto">Do NPS ao comunicado obrigatório: configure qualquer tipo de campanha com segmentação, reexibição e encerramento automático por evento.</p>
+            <p className="text-slate-500 max-w-xl mx-auto">Do NPS ao comunicado obrigatório, do tour guiado à pesquisa por tela: configure campanhas e roteiros com segmentação, reexibição e encerramento automático por evento.</p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {CASOS.map(c => (
@@ -509,7 +515,7 @@ export function ApresentacaoPage() {
           <div className="text-center mb-12">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">Plataforma</p>
             <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Uma plataforma completa</h2>
-            <p className="text-slate-500 max-w-xl mx-auto">Segmentação, reexibição, eventos, prioridade entre campanhas, dashboard analítico e exportação — tudo pronto para SaaS B2B.</p>
+            <p className="text-slate-500 max-w-xl mx-auto">Segmentação, reexibição, eventos, tours guiados com templates e preview, dashboard analítico e importação/exportação — tudo pronto para SaaS B2B.</p>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {RECURSOS.map(r => (
@@ -527,18 +533,20 @@ export function ApresentacaoPage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-8">
             <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-2">Experiência</p>
-            <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Como o usuário vê a campanha</h2>
+            <h2 className="text-3xl font-extrabold text-slate-900 mb-4">Como aparece para o usuário</h2>
             <p className="text-slate-500 max-w-xl mx-auto">
-              A campanha aparece como um modal elegante, no contexto certo, sem redirecionar o usuário para fora do sistema.
+              A campanha aparece como um modal elegante e o tour guiado destaca o elemento certo — sempre no contexto,
+              sem redirecionar o usuário para fora do sistema.
             </p>
           </div>
 
-          {/* 3-tab selector */}
-          <div className="flex bg-slate-100 rounded-xl p-1 gap-1 max-w-xs sm:max-w-lg mx-auto mb-8">
+          {/* 4-tab selector */}
+          <div className="flex bg-slate-100 rounded-xl p-1 gap-1 max-w-sm sm:max-w-lg mx-auto mb-8">
             {([
               { key: 'nps',      icon: 'star_rate',    short: 'NPS',      label: 'Pesquisa NPS' },
               { key: 'melhoria', icon: 'new_releases', short: 'Melhoria', label: 'Nova funcionalidade' },
               { key: 'feedback', icon: 'rate_review',  short: 'Feedback', label: 'Feedback detalhado' },
+              { key: 'tour',     icon: 'map',           short: 'Tour',     label: 'Tour Guiado' },
             ] as const).map(tab => (
               <button
                 key={tab.key}
@@ -568,9 +576,12 @@ export function ApresentacaoPage() {
               </div>
             </div>
 
-            {/* App content */}
-            <div className="relative bg-slate-50 min-h-[420px] sm:min-h-[620px]">
-              {/* Fake app chrome */}
+            {/* App content — mock do tour é mais baixo: sem modal centralizado,
+                não precisa da mesma altura das abas de campanha. */}
+            <div className={`relative bg-slate-50 transition-[min-height] ${mockTab === 'tour' ? 'min-h-[300px] sm:min-h-[360px]' : 'min-h-[420px] sm:min-h-[620px]'}`}>
+              {/* Fake app chrome — mesmo cenário para todas as abas. No tour, o
+                  botão do topo vira o elemento destacado (spotlight) e o resto
+                  do conteúdo escurece, em vez do modal com fundo preto. */}
               <div className="absolute inset-0 flex">
                 <div className="w-14 bg-slate-800 flex flex-col items-center pt-3 gap-3 shrink-0">
                   {['home', 'calendar_month', 'people', 'bar_chart', 'settings'].map(ic => (
@@ -581,19 +592,54 @@ export function ApresentacaoPage() {
                 </div>
                 <div className="flex-1 p-4 overflow-hidden select-none">
                   <div className="flex items-center justify-between mb-3">
-                    <div className="h-5 w-32 bg-slate-200 rounded-lg" />
-                    <div className="h-7 w-24 bg-primary/20 rounded-lg" />
+                    <div className={`h-5 w-32 bg-slate-200 rounded-lg transition-opacity ${mockTab === 'tour' ? 'opacity-40' : ''}`} />
+                    <div className="relative">
+                      <div
+                        className={`h-7 w-24 rounded-lg flex items-center justify-center gap-1 transition-all ${
+                          mockTab === 'tour' ? 'bg-primary shadow-lg ring-4 ring-primary/30' : 'bg-primary/20'
+                        }`}
+                      >
+                        {mockTab === 'tour' && (
+                          <>
+                            <span className="material-symbols-outlined text-white text-[13px]">add</span>
+                            <span className="text-white text-[10px] font-bold">Agendar</span>
+                          </>
+                        )}
+                      </div>
+
+                      {/* ── Tooltip do tour ── */}
+                      {mockTab === 'tour' && (
+                        <div className="absolute right-0 top-full mt-3 w-60 sm:w-64 bg-white rounded-xl shadow-2xl border border-slate-200 p-4 z-20 text-left">
+                          {/* Seta apontando para o botão "Agendar" destacado */}
+                          <div className="absolute -top-[7px] right-6 w-3.5 h-3.5 bg-white border-t border-l border-slate-200 rotate-45" />
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">Passo 1 de 3</p>
+                          <p className="text-[14px] font-bold text-slate-800 mb-1 leading-snug">Crie um novo agendamento</p>
+                          <p className="text-[12px] text-slate-500 mb-3 leading-relaxed">Clique aqui para iniciar o fluxo de agendamento.</p>
+                          <div className="flex items-center gap-1 mb-3">
+                            {[0, 1, 2].map(d => (
+                              <span key={d} className={`h-1.5 rounded-full ${d === 0 ? 'w-3.5 bg-primary' : 'w-1.5 bg-slate-200'}`} />
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold text-slate-400">Pular</span>
+                            <span className="px-3 py-1.5 rounded-lg bg-primary text-white text-[11px] font-bold">Próximo</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className={`grid grid-cols-3 gap-2 mb-3 transition-opacity ${mockTab === 'tour' ? 'opacity-40' : ''}`}>
                     {[1,2,3].map(i => <div key={i} className="h-16 bg-white rounded-xl border border-slate-100" />)}
                   </div>
-                  <div className="space-y-2">
+                  <div className={`space-y-2 transition-opacity ${mockTab === 'tour' ? 'opacity-40' : ''}`}>
                     {[1,2,3,4].map(i => <div key={i} className="h-10 bg-white rounded-xl border border-slate-100" />)}
                   </div>
                 </div>
               </div>
 
-              {/* Overlay */}
+              {/* Overlay — modais de campanha. O tour não usa fundo preto: o
+                  destaque é o spotlight no elemento, não uma modal centralizada. */}
+              {mockTab !== 'tour' && (
               <div className="absolute inset-0 bg-black/30 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
 
                 {/* ── NPS modal ── */}
@@ -815,6 +861,7 @@ export function ApresentacaoPage() {
                 )}
 
               </div>
+              )}
             </div>
           </div>
 
@@ -840,12 +887,14 @@ export function ApresentacaoPage() {
             {mockTab === 'nps'      && 'Campanha NPS — selecione uma nota e simule o envio'}
             {mockTab === 'melhoria' && 'Campanha de melhoria — clique no play, "Ver novidade" ou "Depois"'}
             {mockTab === 'feedback' && 'Feedback detalhado — nota + observação opcional, simule o envio'}
+            {mockTab === 'tour'     && 'Use tours para ensinar fluxos, reduzir dúvidas e acelerar adoção sem tirar o usuário da tela.'}
           </p>
           <div className="mt-6 mx-auto max-w-2xl p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
             <p className="text-[13px] text-slate-500 leading-relaxed">
               Além de pesquisas, o UserPulse também ajuda a{' '}
-              <strong className="text-slate-700">comunicar melhorias, vídeos, tutoriais e novas funcionalidades</strong>{' '}
-              dentro do próprio sistema — para o usuário certo, na tela certa.
+              <strong className="text-slate-700">comunicar melhorias e guiar o usuário passo a passo</strong>{' '}
+              dentro do próprio sistema — reduzindo treinamento manual e acelerando a adoção de novas funcionalidades,
+              no fluxo real de uso.
             </p>
           </div>
         </div>
@@ -946,7 +995,7 @@ export function ApresentacaoPage() {
               </div>
               <h3 className="text-[17px] font-extrabold text-slate-900 mb-2">Possibilidades</h3>
               <p className="text-[14px] text-slate-600 leading-relaxed">
-                NPS, comunicados obrigatórios, anúncios de melhoria, vídeos, tutoriais, pesquisas por tela e campanhas de adoção — tudo no mesmo painel.
+                NPS, comunicados obrigatórios, anúncios de melhoria, tours guiados, pesquisas por tela e campanhas de adoção — tudo no mesmo painel.
               </p>
             </div>
             <div className="rounded-2xl p-7 bg-slate-50 border border-slate-200 hover:border-primary/30 hover:shadow-md transition-all">
