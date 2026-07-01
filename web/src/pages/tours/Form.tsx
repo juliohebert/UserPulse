@@ -199,6 +199,70 @@ function ChecklistCard({ form, passos }: { form: FormState; passos: PassoState[]
   )
 }
 
+// ─── Alertas de configuração por passo ─────────────────────────────────────
+// Heurística por nome do seletor (o admin não tem acesso ao DOM real da tela
+// integrada — só ao texto do seletor cadastrado). Só orienta, nunca bloqueia
+// o salvamento; a única validação que bloqueia continua sendo a de seletor
+// vazio em tour ativo (handleSubmit), que essas heurísticas não substituem.
+const REGEX_CAMPO_PREENCHIVEL = /input|select|autocomplete|combobox|busca|search|campo|filtro|dropdown|typeahead/i
+const REGEX_BOTAO_OU_ACAO = /bot[aã]o|button|\bbtn\b|a[cç][aã]o|link|clique|click|salvar|confirmar|enviar|cancelar|fechar|remover|excluir/i
+
+function alertasPasso(passo: PassoState): string[] {
+  const alertas: string[] = []
+  const seletor = passo.seletor.trim()
+
+  if (passo.modo_avanco_interacao === 'ao_clicar' && seletor && REGEX_CAMPO_PREENCHIVEL.test(seletor)) {
+    alertas.push(
+      "Este modo pode avançar no primeiro clique. Para campos de busca, selects ou autocompletes, prefira 'Ao alterar valor' ou 'Ao sumir elemento'."
+    )
+  }
+
+  if (passo.modo_avanco_interacao === 'ao_alterar_valor' && seletor && REGEX_BOTAO_OU_ACAO.test(seletor)) {
+    alertas.push("Este modo é indicado para campos preenchíveis. Para botões, prefira 'Ao clicar'.")
+  }
+
+  if (MODOS_AVANCO_COM_CONFIRMACAO.includes(passo.modo_avanco_interacao) && !passo.seletor_confirmacao.trim()) {
+    alertas.push('Informe o seletor de confirmação para este modo funcionar corretamente.')
+  }
+
+  if (passo.acao_ao_avancar === 'clicar_elemento' && passo.modo_avanco_interacao === 'ao_clicar') {
+    alertas.push(
+      'Este passo possui clique automático no botão Próximo e avanço automático por clique. Confirme se os dois comportamentos são necessários.'
+    )
+  }
+
+  if (passo.seletor_tipo === 'css' && seletor && !seletor.includes('data-cy')) {
+    alertas.push('Seletores CSS podem ser frágeis. Sempre que possível, prefira data-cy.')
+  }
+
+  return alertas
+}
+
+function AlertasConfiguracaoPasso({ passo }: { passo: PassoState }) {
+  const alertas = alertasPasso(passo)
+  if (alertas.length === 0) return null
+
+  return (
+    <div className="md:col-span-2 mt-1">
+      <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-[#e65100] mb-1.5">
+        <span className="material-symbols-outlined text-[14px]">warning</span>
+        Alertas de configuração
+      </p>
+      <ul className="space-y-1.5">
+        {alertas.map((texto, idx) => (
+          <li
+            key={idx}
+            className="flex items-start gap-1.5 text-[11px] leading-relaxed text-[#e65100] bg-[#fff8e1] border border-[#ffe082] rounded-lg px-2.5 py-1.5"
+          >
+            <span className="material-symbols-outlined text-[13px] shrink-0 mt-0.5">info</span>
+            <span>{texto}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 // ─── Preview do passo ───────────────────────────────────────────────────────
 // Ilustração estática do tooltip do widget, só para ajudar a visualizar o
 // cadastro — não executa o widget real nem valida nada no DOM (o elemento de
@@ -993,6 +1057,7 @@ export function TourForm() {
                         </p>
                       </div>
                     )}
+                    <AlertasConfiguracaoPasso passo={passo} />
                     <PassoPreview passo={passo} indice={i} total={passos.length} />
                   </div>
                 </div>
