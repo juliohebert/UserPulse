@@ -138,6 +138,31 @@ export interface TourGuiado {
   _count?: { passos: number }
 }
 
+export interface EventoTourDashboard {
+  id: string
+  tipo_evento: string
+  passo_ordem: number | null
+  passo_titulo: string | null
+  usuario_id: string | null
+  usuario_nome: string | null
+  usuario_email: string | null
+  cliente_id: string | null
+  cliente_nome: string | null
+  unidade_id: string | null
+  unidade_nome: string | null
+  criado_em: string
+}
+
+export interface TourDashboardData {
+  tour: TourGuiado
+  iniciados: number
+  concluidos: number
+  pulados: number
+  elementos_nao_encontrados: number
+  taxa_conclusao: number
+  eventos_recentes: EventoTourDashboard[]
+}
+
 export type CriterioStatus = 'ok' | 'bloqueado' | 'aviso' | 'nao_aplicavel'
 
 export interface Criterio {

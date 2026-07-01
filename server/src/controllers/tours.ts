@@ -223,3 +223,73 @@ export async function remover(req: Request, res: Response) {
     res.status(500).json({ erro: 'Erro ao inativar tour guiado.' })
   }
 }
+
+export async function buscarDashboard(req: Request, res: Response) {
+  try {
+    const id = req.params.id as string
+    const tour = await prisma.tourGuiado.findUnique({
+      where: { id },
+      include: { passos: { orderBy: { ordem: 'asc' } } },
+    })
+    if (!tour) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
+
+    const [iniciados, concluidos, pulados, elementos_nao_encontrados, eventosRecentes] = await Promise.all([
+      prisma.eventoTour.count({ where: { tour_id: id, tipo_evento: 'inicio' } }),
+      prisma.eventoTour.count({ where: { tour_id: id, tipo_evento: 'concluido' } }),
+      prisma.eventoTour.count({ where: { tour_id: id, tipo_evento: 'pulado' } }),
+      prisma.eventoTour.count({ where: { tour_id: id, tipo_evento: 'elemento_nao_encontrado' } }),
+      prisma.eventoTour.findMany({
+        where: { tour_id: id },
+        orderBy: { criado_em: 'desc' },
+        take: 100,
+      }),
+    ])
+
+    const taxa_conclusao = iniciados > 0
+      ? Math.round((concluidos / iniciados) * 1000) / 10
+      : 0
+
+    // passo_titulo é derivado do passo ATUAL na ordem registrada — se o tour foi
+    // editado depois do evento (passos reordenados/removidos), o título pode não
+    // corresponder mais exatamente ao que o usuário viu no momento do evento.
+    const strContexto = (v: unknown): string | null => {
+      const s = v != null ? String(v).trim() : ''
+      return s || null
+    }
+
+    const eventos_recentes = eventosRecentes.map(ev => {
+      const contexto = (ev.contexto && typeof ev.contexto === 'object' && !Array.isArray(ev.contexto))
+        ? ev.contexto as Record<string, unknown>
+        : null
+      return {
+        id: ev.id,
+        tipo_evento: ev.tipo_evento,
+        passo_ordem: ev.passo_ordem,
+        passo_titulo: ev.passo_ordem != null ? tour.passos[ev.passo_ordem]?.titulo ?? null : null,
+        usuario_id: ev.usuario_id,
+        usuario_nome: strContexto(contexto?.usuario_nome),
+        usuario_email: strContexto(contexto?.usuario_email),
+        cliente_id: strContexto(contexto?.cliente_id),
+        cliente_nome: strContexto(contexto?.cliente_nome),
+        // "unidade" e "clínica" são sinônimos usados por sistemas diferentes —
+        // já resolvidos aqui para os campos normalizados unidade_id/unidade_nome.
+        unidade_id: strContexto(contexto?.unidade_id) ?? strContexto(contexto?.clinica_id),
+        unidade_nome: strContexto(contexto?.unidade_nome) ?? strContexto(contexto?.clinica_nome),
+        criado_em: ev.criado_em,
+      }
+    })
+
+    res.json({
+      tour,
+      iniciados,
+      concluidos,
+      pulados,
+      elementos_nao_encontrados,
+      taxa_conclusao,
+      eventos_recentes,
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao buscar dashboard do tour guiado.' })
+  }
+}

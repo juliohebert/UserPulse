@@ -181,6 +181,13 @@ export function ToursIndex() {
                         <div className="flex items-center justify-end gap-3">
                           <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
                           <button
+                            onClick={() => navigate(`/tours/${tour.id}/dashboard`)}
+                            title="Dashboard"
+                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">monitoring</span>
+                          </button>
+                          <button
                             onClick={() => navigate(`/tours/${tour.id}/preview`)}
                             title="Testar tour"
                             className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"

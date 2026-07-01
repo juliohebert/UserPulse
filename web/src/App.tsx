@@ -11,6 +11,7 @@ import { ApresentacaoPage } from './pages/Apresentacao'
 import { ToursIndex } from './pages/tours/Index'
 import { TourForm } from './pages/tours/Form'
 import { TourPreview } from './pages/tours/Preview'
+import { TourDashboard } from './pages/tours/Dashboard'
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="tours/novo" element={<TourForm />} />
         <Route path="tours/:id/editar" element={<TourForm />} />
         <Route path="tours/:id/preview" element={<TourPreview />} />
+        <Route path="tours/:id/dashboard" element={<TourDashboard />} />
         <Route path="catalogo-telas" element={<CatalogoTelasIndex />} />
         <Route path="integracao" element={<IntegracaoPage />} />
       </Route>
