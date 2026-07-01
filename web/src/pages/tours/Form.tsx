@@ -60,6 +60,125 @@ const SELETOR_TIPOS = [
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
+// ─── Checklist de qualidade ─────────────────────────────────────────────────
+// Só orienta — não bloqueia nada além das validações que já existem em
+// handleSubmit (título de passo sempre obrigatório; seletor só obrigatório
+// para ativar). "critico" aqui sinaliza o que de fato impede salvar/ativar;
+// "aviso" é recomendação; "neutro" é só informativo.
+
+type ChecklistStatus = 'ok' | 'aviso' | 'critico' | 'neutro'
+
+interface ChecklistItem {
+  label: string
+  status: ChecklistStatus
+  detalhe?: string
+}
+
+function destinoConfigurado(form: FormState): boolean {
+  if (!form.sistema.trim()) return false
+  if (form.modo_identificacao === 'data_cy') return Boolean(form.data_cy.trim())
+  if (form.modo_identificacao === 'url_contem') return Boolean(form.url_contem.trim())
+  return Boolean(form.tela.trim())
+}
+
+function montarChecklist(form: FormState, passos: PassoState[]): ChecklistItem[] {
+  const temPasso = passos.length > 0
+  const todosComTitulo = passos.every(p => p.titulo.trim())
+  const todosComDescricao = passos.every(p => p.descricao.trim())
+  const todosComSeletor = passos.every(p => p.seletor.trim())
+  const faltamSeletores = passos.some(p => !p.seletor.trim())
+  const algumComCss = passos.some(p => p.seletor_tipo === 'css')
+
+  const items: ChecklistItem[] = [
+    { label: 'Título preenchido', status: form.titulo.trim() ? 'ok' : 'aviso' },
+    {
+      label: 'Destino configurado',
+      status: destinoConfigurado(form) ? 'ok' : 'aviso',
+      detalhe: destinoConfigurado(form) ? undefined : 'Informe o sistema e a tela, data-cy ou URL, conforme o modo escolhido.',
+    },
+    { label: 'Pelo menos 1 passo cadastrado', status: temPasso ? 'ok' : 'critico' },
+    { label: 'Todos os passos têm título', status: todosComTitulo ? 'ok' : 'critico' },
+    {
+      label: 'Todos os passos têm descrição',
+      status: todosComDescricao ? 'ok' : 'aviso',
+      detalhe: todosComDescricao ? undefined : 'Opcional, mas ajuda o usuário a entender o que fazer em cada passo.',
+    },
+    {
+      label: 'Todos os passos têm seletor/data-cy',
+      status: todosComSeletor ? 'ok' : (form.ativo ? 'critico' : 'aviso'),
+      detalhe: todosComSeletor ? undefined : 'Necessário para o widget localizar o elemento na tela do usuário.',
+    },
+  ]
+
+  if (algumComCss) {
+    items.push({
+      label: 'Seletor CSS em uso',
+      status: 'aviso',
+      detalhe: 'Prefira data-cy quando possível — seletores CSS quebram com mais facilidade quando o layout muda.',
+    })
+  }
+
+  items.push({
+    label: form.ativo ? 'Tour ativo exige seletores preenchidos' : 'Tour em rascunho',
+    status: form.ativo ? (faltamSeletores ? 'critico' : 'ok') : 'neutro',
+    detalhe: form.ativo
+      ? (faltamSeletores ? 'Preencha os seletores pendentes para poder ativar o tour.' : undefined)
+      : 'Seletores podem ficar em branco por enquanto — só são exigidos para ativar.',
+  })
+
+  return items
+}
+
+const CHECKLIST_STATUS: Record<ChecklistStatus, { icon: string; className: string }> = {
+  ok: { icon: 'check_circle', className: 'text-tertiary' },
+  aviso: { icon: 'warning', className: 'text-[#e65100]' },
+  critico: { icon: 'error', className: 'text-error' },
+  neutro: { icon: 'info', className: 'text-outline' },
+}
+
+function ChecklistCard({ form, passos }: { form: FormState; passos: PassoState[] }) {
+  const items = montarChecklist(form, passos)
+  const temCritico = items.some(i => i.status === 'critico')
+  const temAviso = items.some(i => i.status === 'aviso')
+
+  const resumo = temCritico
+    ? { texto: 'Pendências críticas', className: 'bg-error-container text-on-error-container' }
+    : temAviso
+    ? { texto: 'Pequenos ajustes recomendados', className: 'bg-[#fff8e1] text-[#e65100]' }
+    : { texto: 'Tudo certo', className: 'bg-tertiary/10 text-tertiary' }
+
+  return (
+    <div className={card}>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3">
+          <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">fact_check</span>
+          <div>
+            <h3 className="text-title-lg font-bold text-on-surface">Checklist do tour</h3>
+            <p className="text-label-md text-on-surface-variant">Orienta antes de testar ou ativar — não bloqueia o salvamento.</p>
+          </div>
+        </div>
+        <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase shrink-0 ${resumo.className}`}>
+          {resumo.texto}
+        </span>
+      </div>
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        {items.map((item, i) => {
+          const cfg = CHECKLIST_STATUS[item.status]
+          return (
+            <li key={i} className="flex items-start gap-2.5 p-3 rounded-xl bg-surface-container-low border border-outline-variant/50">
+              <span className={`material-symbols-outlined text-[18px] shrink-0 mt-0.5 ${cfg.className}`}>{cfg.icon}</span>
+              <div>
+                <p className="text-body-md text-on-surface leading-snug">{item.label}</p>
+                {item.detalhe && <p className="text-[12px] text-on-surface-variant mt-0.5 leading-relaxed">{item.detalhe}</p>}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 export function TourForm() {
   const { id } = useParams<{ id: string }>()
   const isEdit = Boolean(id)
@@ -652,6 +771,9 @@ export function TourForm() {
               ))}
             </div>
           </div>
+
+          {/* Checklist de qualidade — orienta, não bloqueia */}
+          <ChecklistCard form={form} passos={passos} />
         </form>
       </section>
     </div>
