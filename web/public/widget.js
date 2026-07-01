@@ -176,10 +176,17 @@
       '.up-rec-btn-danger:hover{background:rgba(255,82,82,.36)}',
       '.up-rec-overlay{position:fixed;inset:0;z-index:2147483650;display:flex;align-items:center;justify-content:center;background:rgba(11,28,48,.55);padding:16px}',
       '.up-rec-modal{width:100%;max-width:640px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
-      '.up-rec-modal-title{font-size:16px;font-weight:800;margin:0}',
-      '.up-rec-modal-sub{font-size:12px;color:#424754;margin:0}',
-      '.up-rec-textarea{flex:1;min-height:260px;border:1px solid #c2c6d6;border-radius:10px;padding:10px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:vertical;background:#f8f9ff;color:#0b1c30}',
-      '.up-rec-modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}',
+      '.up-rec-modal-title{font-size:16px;font-weight:800;margin:0;flex-shrink:0}',
+      '.up-rec-modal-sub{font-size:12px;color:#424754;margin:0;flex-shrink:0}',
+      // flex:1 + min-height:0 (em vez de min-height fixo) deixa o textarea
+      // ser o único elemento que cresce/encolhe pra caber no max-height do
+      // modal — sem isso, um JSON longo podia empurrar o rodapé de botões
+      // pra fora da área visível do modal.
+      '.up-rec-textarea{flex:1;min-height:0;border:1px solid #c2c6d6;border-radius:10px;padding:10px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:vertical;background:#f8f9ff;color:#0b1c30}',
+      // flex-shrink:0 garante que o rodapé (Copiar/Baixar/Fechar) nunca seja
+      // espremido a ponto de sumir — sempre visível no rodapé do modal, sem
+      // depender de scroll (usado tanto no painel final quanto na revisão).
+      '.up-rec-modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;flex-shrink:0}',
       '.up-rec-modal-revisao{max-width:720px}',
       '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-right:4px}',
       '.up-rec-revisao-item{border:1px solid #e0e2ef;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px}',
@@ -2377,6 +2384,11 @@
 
   var RECORDER_COPIAR_FEEDBACK_MS = 1600;
 
+  // Único lugar que renderiza o painel final "Tour gravado — N passo(s)"
+  // (chamado só por recorderGerarJsonFinal). Se um dia for necessário um
+  // segundo caminho de finalização, reaproveite esta função em vez de
+  // duplicar o footer — um footer divergente sem Copiar/Baixar já causou
+  // confusão no ambiente de testes (só "Fechar" aparecendo).
   function recorderRenderPainelFinal() {
     var json = recorderMontarJson();
     var texto = JSON.stringify(json, null, 2);
