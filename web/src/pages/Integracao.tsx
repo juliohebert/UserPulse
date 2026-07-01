@@ -37,24 +37,22 @@ function CodeBlock({ code, lang = 'javascript' }: { code: string; lang?: string 
 }
 
 function SectionCard({
-  icon, iconBg, iconColor, label, title, subtitle, children,
+  icon, iconBg, iconColor, title, subtitle, children,
 }: {
   icon: string
   iconBg: string
   iconColor: string
-  label: string
   title: string
   subtitle?: string
   children: React.ReactNode
 }) {
   return (
     <div className={card}>
-      <div className="flex items-start gap-3 mb-4">
-        <span className={`p-1.5 ${iconBg} rounded-lg ${iconColor} material-symbols-outlined text-[20px] shrink-0 mt-0.5`}>
+      <div className="flex items-center gap-3 mb-4">
+        <span className={`p-1.5 ${iconBg} rounded-lg ${iconColor} material-symbols-outlined text-[20px] shrink-0`}>
           {icon}
         </span>
         <div>
-          <p className="text-[11px] font-semibold text-outline uppercase tracking-wider mb-0.5">{label}</p>
           <h3 className="text-title-lg font-bold text-on-surface leading-tight">{title}</h3>
           {subtitle && <p className="text-label-md text-on-surface-variant mt-0.5">{subtitle}</p>}
         </div>
@@ -235,7 +233,6 @@ export function IntegracaoPage() {
 
         {/* A — Instalação */}
         <SectionCard
-          label="A"
           icon="code"
           iconBg="bg-tertiary-fixed"
           iconColor="text-tertiary"
@@ -253,7 +250,6 @@ export function IntegracaoPage() {
 
         {/* B — Inicialização */}
         <SectionCard
-          label="B"
           icon="login"
           iconBg="bg-primary-fixed"
           iconColor="text-primary"
@@ -285,7 +281,6 @@ export function IntegracaoPage() {
 
         {/* C — updateContext */}
         <SectionCard
-          label="C"
           icon="sync"
           iconBg="bg-secondary-fixed"
           iconColor="text-secondary"
@@ -303,7 +298,6 @@ export function IntegracaoPage() {
 
         {/* D — track */}
         <SectionCard
-          label="D"
           icon="bolt"
           iconBg="bg-[#fef3c7]"
           iconColor="text-[#b45309]"
@@ -327,7 +321,6 @@ export function IntegracaoPage() {
 
         {/* E — Segmentação */}
         <SectionCard
-          label="E"
           icon="filter_alt"
           iconBg="bg-primary-fixed"
           iconColor="text-primary"
@@ -370,7 +363,6 @@ export function IntegracaoPage() {
 
         {/* F — Políticas de reexibição */}
         <SectionCard
-          label="F"
           icon="policy"
           iconBg="bg-secondary-fixed"
           iconColor="text-secondary"
@@ -395,7 +387,6 @@ export function IntegracaoPage() {
 
         {/* G — Exemplo completo */}
         <SectionCard
-          label="G"
           icon="integration_instructions"
           iconBg="bg-tertiary-fixed"
           iconColor="text-tertiary"
@@ -407,7 +398,6 @@ export function IntegracaoPage() {
 
         {/* H — Boas práticas */}
         <SectionCard
-          label="H"
           icon="tips_and_updates"
           iconBg="bg-[#fef3c7]"
           iconColor="text-[#b45309]"

@@ -251,6 +251,14 @@ export function TourForm() {
             <h2 className="text-title-lg font-bold text-on-surface leading-tight">
               {isEdit ? 'Editar Tour Guiado' : 'Novo Tour Guiado'}
             </h2>
+            <button
+              type="button"
+              onClick={() => navigate('/tours/guia')}
+              className="flex items-center gap-1 text-label-sm text-outline hover:text-primary transition-colors mt-0.5"
+            >
+              <span className="material-symbols-outlined text-[13px]">menu_book</span>
+              Guia de uso
+            </button>
           </div>
           <div className="flex gap-2 shrink-0">
             <button

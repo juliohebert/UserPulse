@@ -86,13 +86,22 @@ export function ToursIndex() {
               Crie passo a passos interativos para guiar usuários dentro da aplicação.
             </p>
           </div>
-          <button
-            onClick={() => navigate('/tours/novo')}
-            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 shrink-0 w-full sm:w-auto"
-          >
-            <span className="material-symbols-outlined text-[18px]">add</span>
-            Novo tour guiado
-          </button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
+            <button
+              onClick={() => navigate('/tours/guia')}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+            >
+              <span className="material-symbols-outlined text-[18px]">menu_book</span>
+              Guia de uso
+            </button>
+            <button
+              onClick={() => navigate('/tours/novo')}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 w-full sm:w-auto"
+            >
+              <span className="material-symbols-outlined text-[18px]">add</span>
+              Novo tour guiado
+            </button>
+          </div>
         </div>
       </div>
 
