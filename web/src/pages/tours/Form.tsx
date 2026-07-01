@@ -180,6 +180,96 @@ function ChecklistCard({ form, passos }: { form: FormState; passos: PassoState[]
   )
 }
 
+// ─── Preview do passo ───────────────────────────────────────────────────────
+// Ilustração estática do tooltip do widget, só para ajudar a visualizar o
+// cadastro — não executa o widget real nem valida nada no DOM (o elemento de
+// verdade só existe na aplicação integrada). Posição do "elemento" mockado
+// segue a mesma relação usada pelo widget: o tooltip fica do lado oposto à
+// posição escolhida (ex.: "Acima" → tooltip acima do elemento).
+function PassoPreview({ passo, indice, total }: { passo: PassoState; indice: number; total: number }) {
+  const [aberto, setAberto] = useState(false)
+  const semTitulo = !passo.titulo.trim()
+  const semDescricao = !passo.descricao.trim()
+  const titulo = passo.titulo.trim() || 'Título do passo'
+  const descricao = passo.descricao.trim() || 'Descrição do passo (opcional)'
+  const ultimo = indice === total - 1
+
+  const elemento = (
+    <div
+      key="elemento"
+      className="w-20 h-12 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 flex items-center justify-center shrink-0"
+    >
+      <span className="text-[9px] font-bold uppercase tracking-wider text-primary/50">elemento</span>
+    </div>
+  )
+
+  const tooltip = (
+    <div key="tooltip" className="w-full max-w-[260px] bg-surface-bright border border-outline-variant rounded-xl shadow-md p-3.5 shrink-0">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">
+        Passo {indice + 1} de {total}
+      </p>
+      <p className={`text-[13px] font-bold leading-snug mb-1 ${semTitulo ? 'text-outline italic' : 'text-on-surface'}`}>
+        {titulo}
+      </p>
+      <p className={`text-[12px] leading-snug mb-3 ${semDescricao ? 'text-outline italic' : 'text-on-surface-variant'}`}>
+        {descricao}
+      </p>
+      <div className="flex items-center gap-1 mb-3">
+        {Array.from({ length: total }, (_, d) => (
+          <span key={d} className={`h-1.5 rounded-full ${d === indice ? 'w-3.5 bg-primary' : 'w-1.5 bg-outline-variant'}`} />
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] font-bold text-outline">Pular</span>
+        <div className="flex gap-1.5">
+          <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${indice === 0 ? 'bg-outline-variant/20 text-outline/50' : 'bg-primary-fixed text-primary'}`}>
+            Voltar
+          </span>
+          <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-primary text-on-primary">
+            {ultimo ? 'Concluir' : 'Próximo'}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+
+  // "auto"/"bottom" → tooltip abaixo do elemento; "top" → acima; "left"/"right"
+  // → tooltip do lado oposto ao escolhido, na horizontal.
+  const horizontal = passo.tooltip_posicao === 'left' || passo.tooltip_posicao === 'right'
+  const ordem =
+    passo.tooltip_posicao === 'top' ? [tooltip, elemento] :
+    passo.tooltip_posicao === 'left' ? [tooltip, elemento] :
+    passo.tooltip_posicao === 'right' ? [elemento, tooltip] :
+    [elemento, tooltip] // bottom | auto
+
+  return (
+    <div className="md:col-span-2 mt-1 pt-3 border-t border-outline-variant/40">
+      <button
+        type="button"
+        onClick={() => setAberto(v => !v)}
+        className="flex flex-wrap items-center gap-1.5 text-label-sm font-semibold text-on-surface-variant hover:text-primary transition-colors"
+      >
+        <span className="material-symbols-outlined text-[14px]">visibility</span>
+        Preview do passo
+        <span className="text-[11px] font-bold text-primary">{aberto ? 'Ocultar preview' : 'Ver preview'}</span>
+        <span className={`material-symbols-outlined text-[16px] transition-transform ${aberto ? 'rotate-180' : ''}`}>
+          expand_more
+        </span>
+      </button>
+      {aberto && (
+        <div className="mt-2">
+          <p className="text-[10px] text-outline mb-2">Apenas ilustrativo — não executa o widget nem valida o DOM real.</p>
+          <div className="rounded-xl border border-dashed border-outline-variant/60 bg-surface-container-low/50 p-4 overflow-x-auto">
+            <div className={`flex ${horizontal ? 'flex-row items-center' : 'flex-col items-start'} gap-3 w-max max-w-full`}>
+              {ordem}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function TourForm() {
   const { id } = useParams<{ id: string }>()
   const isEdit = Boolean(id)
@@ -822,6 +912,7 @@ export function TourForm() {
                         size="sm"
                       />
                     </div>
+                    <PassoPreview passo={passo} indice={i} total={passos.length} />
                   </div>
                 </div>
               ))}
