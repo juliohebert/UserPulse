@@ -406,12 +406,46 @@ function ImportarTourModal({ onClose, onImported, avisoColar = false }: {
   const [texto, setTexto] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  const [colarAviso, setColarAviso] = useState<string | null>(null)
+  const [colarStatus, setColarStatus] = useState<'idle' | 'colado'>('idle')
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const colarTimer = useRef<number | null>(null)
 
   useEffect(() => {
     if (avisoColar) textareaRef.current?.focus()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => () => {
+    if (colarTimer.current) window.clearTimeout(colarTimer.current)
+  }, [])
+
+  // "Colar JSON": só lê a área de transferência e preenche o textarea — nunca
+  // importa sozinho (o botão "Importar" continua exigindo clique manual, com
+  // a mesma validação de sempre). Nada é salvo em localStorage/sessionStorage
+  // nem enviado a lugar nenhum além do próprio campo de texto local.
+  const colarJson = async () => {
+    setColarAviso(null)
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      setColarAviso('Não foi possível acessar a área de transferência. Use Ctrl+V para colar manualmente.')
+      return
+    }
+    try {
+      const conteudo = await navigator.clipboard.readText()
+      if (!conteudo.trim()) {
+        setColarAviso('A área de transferência está vazia.')
+        return
+      }
+      setTexto(conteudo)
+      setErro(null)
+      textareaRef.current?.focus()
+      setColarStatus('colado')
+      if (colarTimer.current) window.clearTimeout(colarTimer.current)
+      colarTimer.current = window.setTimeout(() => setColarStatus('idle'), 1600)
+    } catch {
+      setColarAviso('Não foi possível acessar a área de transferência. Use Ctrl+V para colar manualmente.')
+    }
+  }
 
   // Validação básica no cliente antes de gastar uma chamada de API — o
   // backend revalida tudo de novo (mesma validarPassos usada em criar/editar).
@@ -464,9 +498,25 @@ function ImportarTourModal({ onClose, onImported, avisoColar = false }: {
         </div>
         <div className="px-5 py-4 space-y-3 overflow-y-auto">
           {avisoColar && (
-            <div className="p-2.5 bg-tertiary/10 text-tertiary rounded-lg text-label-sm flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px]">content_paste</span>
-              JSON copiado. Cole o conteúdo abaixo para importar o tour gravado.
+            <div className="p-2.5 bg-tertiary/10 text-tertiary rounded-lg text-label-sm flex items-center justify-between gap-2 flex-wrap">
+              <span className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[16px]">content_paste</span>
+                JSON copiado. Cole o conteúdo abaixo para importar o tour gravado.
+              </span>
+              <button
+                type="button"
+                onClick={colarJson}
+                className="shrink-0 flex items-center gap-1 px-3 py-1.5 bg-surface-bright border border-tertiary/30 text-tertiary rounded-lg text-label-sm font-bold hover:bg-tertiary/10 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[15px]">{colarStatus === 'colado' ? 'check' : 'content_paste_go'}</span>
+                {colarStatus === 'colado' ? 'Colado!' : 'Colar JSON'}
+              </button>
+            </div>
+          )}
+          {colarAviso && (
+            <div className="p-2.5 bg-surface-container-low text-on-surface-variant rounded-lg text-label-sm flex items-center gap-2">
+              <span className="material-symbols-outlined text-[16px]">info</span>
+              {colarAviso}
             </div>
           )}
           <p className="text-label-md text-on-surface-variant">
