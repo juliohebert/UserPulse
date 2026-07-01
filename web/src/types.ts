@@ -116,6 +116,7 @@ export interface TourPasso {
   seletor_tipo: string
   seletor: string
   tooltip_posicao: string
+  acao_ao_avancar: string
   criado_em: string
   atualizado_em: string
 }
@@ -144,6 +145,7 @@ export interface TourExportPasso {
   seletor_tipo: string
   seletor: string
   tooltip_posicao: string
+  acao_ao_avancar: string
 }
 
 export interface TourExportData {

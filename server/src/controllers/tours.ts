@@ -4,6 +4,7 @@ import prisma from '../lib/prisma'
 const MODOS_IDENTIFICACAO = ['sistema_tela', 'data_cy', 'url_contem']
 const SELETOR_TIPOS = ['data_cy', 'css']
 const TOOLTIP_POSICOES = ['auto', 'top', 'bottom', 'left', 'right']
+const ACOES_AO_AVANCAR = ['apenas_avancar', 'clicar_elemento']
 
 interface PassoInput {
   titulo?: string
@@ -11,6 +12,7 @@ interface PassoInput {
   seletor_tipo?: string
   seletor?: string
   tooltip_posicao?: string
+  acao_ao_avancar?: string
 }
 
 function gerarSlugBase(titulo: string): string {
@@ -60,6 +62,9 @@ function validarPassos(passos: unknown, exigirSeletor: boolean): { erro: string 
     }
     if (p.tooltip_posicao && !TOOLTIP_POSICOES.includes(p.tooltip_posicao)) {
       return { erro: `Passo ${i + 1}: posição de tooltip inválida.`, lista: [] }
+    }
+    if (p.acao_ao_avancar && !ACOES_AO_AVANCAR.includes(p.acao_ao_avancar)) {
+      return { erro: `Passo ${i + 1}: ação ao avançar inválida.`, lista: [] }
     }
   }
   return { erro: null, lista: passos as PassoInput[] }
@@ -137,6 +142,7 @@ export async function criar(req: Request, res: Response) {
             seletor_tipo: p.seletor_tipo?.trim() || 'data_cy',
             seletor: p.seletor!.trim(),
             tooltip_posicao: p.tooltip_posicao?.trim() || 'auto',
+            acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
           })),
         },
       },
@@ -217,6 +223,7 @@ export async function atualizar(req: Request, res: Response) {
                 seletor_tipo: p.seletor_tipo?.trim() || 'data_cy',
                 seletor: p.seletor!.trim(),
                 tooltip_posicao: p.tooltip_posicao?.trim() || 'auto',
+                acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
               })),
             },
           }),
@@ -281,6 +288,7 @@ export async function duplicar(req: Request, res: Response) {
             seletor_tipo: p.seletor_tipo,
             seletor: p.seletor,
             tooltip_posicao: p.tooltip_posicao,
+            acao_ao_avancar: p.acao_ao_avancar,
           })),
         },
       },
@@ -324,6 +332,7 @@ export async function exportar(req: Request, res: Response) {
           seletor_tipo: p.seletor_tipo,
           seletor: p.seletor,
           tooltip_posicao: p.tooltip_posicao,
+          acao_ao_avancar: p.acao_ao_avancar,
         })),
       },
     })
@@ -386,6 +395,7 @@ export async function importar(req: Request, res: Response) {
             seletor_tipo: p.seletor_tipo?.trim() || 'data_cy',
             seletor: p.seletor?.trim() || '',
             tooltip_posicao: p.tooltip_posicao?.trim() || 'auto',
+            acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
           })),
         },
       },

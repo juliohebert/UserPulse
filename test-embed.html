@@ -226,6 +226,13 @@
       <button onclick="window.UserPulse.iniciarTour('teste-elemento-ausente')" style="background:#fff;color:#6b38d4;border:1px solid #c9b6f5;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;">
         Iniciar tour: elemento ausente (1º passo deve falhar)
       </button>
+      <span style="color:#5b3d99;">
+        Para testar "Ação ao clicar em Próximo" (admin → passo do tour): aponte um passo para
+        <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">botao-abrir-painel-lento</code>
+        com "Clicar no elemento destacado e avançar", e o passo seguinte para
+        <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">campo-painel-lento</code>
+        (painel abaixo, aparece ~1.5s depois — o widget deve mostrar "Aguardando próximo elemento..." nesse intervalo).
+      </span>
     </div>
 
     <!-- chrome do sistema simulado -->
@@ -346,6 +353,27 @@
             <button class="btn btn-secondary" style="padding:6px 12px">3</button>
             <button class="btn btn-secondary" style="padding:6px 12px">›</button>
           </div>
+        </div>
+      </div>
+
+      <!-- painel de abertura lenta — só para testar o estado "Aguardando próximo
+           elemento..." do tour guiado (acao_ao_avancar = clicar_elemento). O
+           painel some/aparece com atraso proposital, simulando um elemento que
+           leva um tempo real para renderizar (ex.: dado carregado via API). -->
+      <div class="card" style="margin-top:16px;padding:18px 20px;">
+        <h2 style="font-size:15px;margin-bottom:4px;">Teste: aguardar próximo elemento</h2>
+        <p style="font-size:12px;color:#667085;margin-bottom:12px;">
+          O painel abaixo demora ~1.5s para aparecer depois do clique — use com "Clicar no elemento destacado e avançar".
+        </p>
+        <button class="btn btn-primary" data-cy="botao-abrir-painel-lento" onclick="document.getElementById('painel-lento').style.display='none';window.setTimeout(function(){document.getElementById('painel-lento').style.display='block'},1500)">
+          Abrir painel (aparece com atraso)
+        </button>
+        <button class="btn btn-secondary" style="margin-left:8px" onclick="document.getElementById('painel-lento').style.display='none'">
+          Resetar (esconder de novo)
+        </button>
+        <div id="painel-lento" style="display:none;margin-top:14px;">
+          <label style="display:block;font-size:12px;font-weight:600;color:#667085;margin-bottom:6px;">Resultado carregado</label>
+          <input type="text" class="search-input" style="width:280px;" placeholder="Apareceu depois do atraso" data-cy="campo-painel-lento" />
         </div>
       </div>
     </main>

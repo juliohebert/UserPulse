@@ -14,6 +14,7 @@ interface PassoState {
   seletor_tipo: string
   seletor: string
   tooltip_posicao: string
+  acao_ao_avancar: string
 }
 
 interface FormState {
@@ -36,7 +37,7 @@ const EMPTY: FormState = {
 }
 
 const PASSO_VAZIO: PassoState = {
-  titulo: '', descricao: '', seletor_tipo: 'data_cy', seletor: '', tooltip_posicao: 'auto',
+  titulo: '', descricao: '', seletor_tipo: 'data_cy', seletor: '', tooltip_posicao: 'auto', acao_ao_avancar: 'apenas_avancar',
 }
 
 const MODOS = [
@@ -56,6 +57,11 @@ const TOOLTIP_POSICOES = [
 const SELETOR_TIPOS = [
   { value: 'data_cy', label: 'data-cy' },
   { value: 'css', label: 'CSS' },
+]
+
+const ACOES_AO_AVANCAR = [
+  { value: 'apenas_avancar', label: 'Apenas avançar' },
+  { value: 'clicar_elemento', label: 'Clicar no elemento destacado e avançar' },
 ]
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
@@ -230,6 +236,12 @@ function PassoPreview({ passo, indice, total }: { passo: PassoState; indice: num
           </span>
         </div>
       </div>
+      {!ultimo && passo.acao_ao_avancar === 'clicar_elemento' && (
+        <p className="text-[10px] text-primary font-semibold mt-2 flex items-center gap-1">
+          <span className="material-symbols-outlined text-[12px]">ads_click</span>
+          "Próximo" também clica no elemento destacado antes de avançar
+        </p>
+      )}
     </div>
   )
 
@@ -321,6 +333,7 @@ export function TourForm() {
                 seletor_tipo: p.seletor_tipo,
                 seletor: p.seletor,
                 tooltip_posicao: p.tooltip_posicao,
+                acao_ao_avancar: p.acao_ao_avancar || 'apenas_avancar',
               }))
             : [{ ...PASSO_VAZIO }]
         )
@@ -347,6 +360,7 @@ export function TourForm() {
       seletor_tipo: 'data_cy',
       seletor: '',
       tooltip_posicao: p.tooltip_posicao,
+      acao_ao_avancar: 'apenas_avancar',
     })))
     setTemplateAplicadoId(tpl.id)
   }
@@ -374,6 +388,7 @@ export function TourForm() {
         seletor_tipo: original.seletor_tipo,
         seletor: original.seletor,
         tooltip_posicao: original.tooltip_posicao,
+        acao_ao_avancar: original.acao_ao_avancar,
       }
       const next = [...prev]
       next.splice(index + 1, 0, copia)
@@ -444,6 +459,7 @@ export function TourForm() {
           seletor_tipo: p.seletor_tipo,
           seletor: p.seletor.trim(),
           tooltip_posicao: p.tooltip_posicao,
+          acao_ao_avancar: p.acao_ao_avancar,
         })),
       }
       const saved = isEdit
@@ -903,12 +919,21 @@ export function TourForm() {
                         </div>
                       </div>
                     </div>
-                    <div className="md:col-span-2 max-w-xs">
+                    <div className="max-w-xs">
                       <label className="block text-label-sm text-on-surface-variant mb-1">Posição do tooltip</label>
                       <Select
                         value={passo.tooltip_posicao}
                         onChange={v => setPasso(i, 'tooltip_posicao', v)}
                         options={TOOLTIP_POSICOES}
+                        size="sm"
+                      />
+                    </div>
+                    <div className="max-w-xs">
+                      <label className="block text-label-sm text-on-surface-variant mb-1">Ação ao clicar em Próximo</label>
+                      <Select
+                        value={passo.acao_ao_avancar}
+                        onChange={v => setPasso(i, 'acao_ao_avancar', v)}
+                        options={ACOES_AO_AVANCAR}
                         size="sm"
                       />
                     </div>

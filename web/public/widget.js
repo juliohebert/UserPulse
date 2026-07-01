@@ -139,6 +139,9 @@
       '.up-tour-desc{font-size:13px;line-height:19px;color:#424754;margin:0}',
       '.up-tour-warning{font-size:12px;line-height:17px;color:#ba1a1a;margin-top:10px;display:flex;gap:6px;align-items:flex-start;background:rgba(186,26,26,.08);border-radius:8px;padding:8px 10px}',
       '.up-tour-warning svg{width:15px;height:15px;flex-shrink:0;margin-top:1px;fill:currentColor}',
+      '.up-tour-loading{font-size:12px;line-height:17px;color:#727785;margin-top:10px;display:flex;gap:8px;align-items:center;background:rgba(114,119,133,.08);border-radius:8px;padding:8px 10px}',
+      '.up-tour-spinner{width:13px;height:13px;flex-shrink:0;border-radius:50%;border:2px solid rgba(114,119,133,.25);border-top-color:#727785;animation:up-tour-spin .7s linear infinite}',
+      '@keyframes up-tour-spin{to{transform:rotate(360deg)}}',
       '.up-tour-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:8px}',
       '.up-tour-dots{display:flex;gap:4px;align-items:center}',
       '.up-tour-dot{width:6px;height:6px;border-radius:999px;background:#d8dbe6;flex-shrink:0}',
@@ -1079,6 +1082,7 @@
     ativo: false,
     elementClickHandler: null,
     elementClickTimer: null,
+    nextClickTimer: null,
   };
 
   function fetchTour(slug) {
@@ -1171,6 +1175,12 @@
     var el = selecionarElementoPasso(passo);
     if (el) { cb(el); return; }
     if (tentativa >= TOUR_RETRY_MAX) { cb(null); return; }
+    // Primeira tentativa falhou — troca o tooltip do passo anterior (que ainda
+    // estaria na tela) pelo estado discreto "Aguardando", em vez de deixá-lo
+    // parado ali até a busca resolver. Só dispara uma vez por passo (tentativa
+    // 0): no caso comum em que o elemento já existe, cb(el) acima resolve
+    // antes de chegar aqui e esse estado nunca aparece.
+    if (tentativa === 0) renderTour();
     tourState.buscaTimer = window.setTimeout(function () {
       localizarComRetry(passo, tentativa + 1, cb);
     }, TOUR_RETRY_INTERVAL_MS);
@@ -1234,6 +1244,26 @@
     ].join('');
   }
 
+  // Estado discreto exibido enquanto localizarComRetry ainda está tentando achar
+  // o elemento do passo atual (não é erro ainda — só decorre até TOUR_RETRY_MAX
+  // tentativas). Mantém título/descrição do passo e o footer completo (Pular/
+  // Voltar/Concluir-Próximo) para não travar o usuário durante a espera.
+  function renderTourAguardando() {
+    var passo = tourState.tour.passos[tourState.indice];
+    var total = tourState.tour.passos.length;
+    var ultimo = tourState.indice === total - 1;
+    return [
+      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
+      '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Pular tour">' + icon('close') + '</button>',
+      '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
+      '<p class="up-tour-title">' + escapeHtml(passo.titulo) + '</p>',
+      passo.descricao ? '<p class="up-tour-desc">' + escapeHtml(passo.descricao) + '</p>' : '',
+      '<div class="up-tour-loading"><span class="up-tour-spinner"></span><span>Aguardando próximo elemento...</span></div>',
+      tourFooter(total, ultimo),
+      '</div>',
+    ].join('');
+  }
+
   function tourFooter(total, ultimo) {
     return [
       '<div class="up-tour-footer">',
@@ -1259,8 +1289,15 @@
     root.className = 'up-tour-overlay';
     tourState.root = root;
 
-    if (tourState.naoEncontrado || !tourState.elementoAtual) {
+    if (tourState.naoEncontrado) {
       root.innerHTML = renderTourNaoEncontrado();
+      document.body.appendChild(root);
+      bindTourEvents();
+      return;
+    }
+
+    if (!tourState.elementoAtual) {
+      root.innerHTML = renderTourAguardando();
       document.body.appendChild(root);
       bindTourEvents();
       return;
@@ -1383,6 +1420,20 @@
     limparElementClickTimer();
   }
 
+  // Avanço agendado pelo botão Próximo quando o passo usa acao_ao_avancar =
+  // "clicar_elemento" (ver tourProximo). Mesmo motivo de limpeza do timer
+  // acima: sem cancelar ao trocar de passo/encerrar o tour, um "Próximo"
+  // clicado logo antes de Voltar/Pular/Concluir podia disparar o avanço
+  // agendado depois, no passo errado.
+  var TOUR_NEXT_CLICK_DELAY_MS = 250;
+
+  function limparNextClickTimer() {
+    if (tourState.nextClickTimer) {
+      window.clearTimeout(tourState.nextClickTimer);
+      tourState.nextClickTimer = null;
+    }
+  }
+
   function bindElementClick(el) {
     var handler = function (event) {
       if (isEditableTarget(event.target)) return; // não autoavança em campos editáveis
@@ -1403,6 +1454,7 @@
   function irParaPasso(indice) {
     limparBuscaTimer();
     unbindElementClick();
+    limparNextClickTimer();
     tourState.indice = indice;
     tourState.naoEncontrado = false;
     tourState.elementoAtual = null;
@@ -1426,8 +1478,38 @@
     });
   }
 
+  // Botão "Próximo": por padrão só avança (acao_ao_avancar = "apenas_avancar").
+  // Se o passo estiver configurado com "clicar_elemento", primeiro dispara um
+  // clique real no elemento destacado (sem preventDefault/stopPropagation —
+  // o clique se comporta como se o próprio usuário tivesse clicado) e só
+  // avança depois de um pequeno delay, dando tempo do host reagir ao clique
+  // (abrir painel, navegar, etc.) antes do próximo passo tentar localizar seu
+  // elemento. Não clica em campos editáveis, e um clique agendado pendente
+  // bloqueia novos cliques em "Próximo" (evita duplo clique disparando dois
+  // cliques no elemento).
   function tourProximo() {
-    if (tourState.indice < tourState.tour.passos.length - 1) irParaPasso(tourState.indice + 1);
+    if (tourState.nextClickTimer) return;
+    var total = tourState.tour.passos.length;
+    if (tourState.indice >= total - 1) return;
+    var indiceProximo = tourState.indice + 1;
+    var passo = tourState.tour.passos[tourState.indice];
+    var el = tourState.elementoAtual;
+
+    if (passo && passo.acao_ao_avancar === 'clicar_elemento' && el && !isEditableTarget(el)) {
+      // O próprio elemento já tem o listener de "clicar avança" (bindElementClick);
+      // remove-o antes do clique sintético para não agendar um segundo avanço
+      // concorrente a partir do mesmo clique.
+      unbindElementClick();
+      try { el.click(); } catch (_e) {}
+      tourState.nextClickTimer = window.setTimeout(function () {
+        tourState.nextClickTimer = null;
+        if (!tourState.ativo) return;
+        irParaPasso(indiceProximo);
+      }, TOUR_NEXT_CLICK_DELAY_MS);
+      return;
+    }
+
+    irParaPasso(indiceProximo);
   }
 
   function tourVoltar() {
@@ -1449,6 +1531,7 @@
   function finalizarTour() {
     limparBuscaTimer();
     unbindElementClick();
+    limparNextClickTimer();
     unbindTourReposHandlers();
     document.removeEventListener('keydown', tourKeydown);
     var oldRoot = document.getElementById(TOUR_WIDGET_ID);
