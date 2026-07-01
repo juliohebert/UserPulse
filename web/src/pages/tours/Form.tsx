@@ -116,6 +116,24 @@ export function TourForm() {
 
   const addPasso = () => setPassos(prev => [...prev, { ...PASSO_VAZIO }])
 
+  // Cópia sem o id do original — é um passo novo, ainda não salvo. A ordem é
+  // recalculada automaticamente no submit (payload envia os passos na ordem do
+  // array, e o backend atribui `ordem` pela posição recebida).
+  const duplicarPasso = (index: number) =>
+    setPassos(prev => {
+      const original = prev[index]
+      const copia: PassoState = {
+        titulo: original.titulo,
+        descricao: original.descricao,
+        seletor_tipo: original.seletor_tipo,
+        seletor: original.seletor,
+        tooltip_posicao: original.tooltip_posicao,
+      }
+      const next = [...prev]
+      next.splice(index + 1, 0, copia)
+      return next
+    })
+
   const removePasso = (index: number) =>
     setPassos(prev => prev.filter((_, i) => i !== index))
 
@@ -423,6 +441,14 @@ export function TourForm() {
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => duplicarPasso(i)}
+                        title="Duplicar passo"
+                        className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">content_copy</span>
                       </button>
                       <button
                         type="button"

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { get, put } from '../../services/api'
+import { get, post, put } from '../../services/api'
 import type { TourGuiado } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
@@ -18,7 +18,14 @@ export function ToursIndex() {
   const [busca, setBusca] = useState('')
   const [filterSistema, setFilterSistema] = useState('')
   const [filterAtivo, setFilterAtivo] = useState<'todos' | 'ativos' | 'inativos'>('todos')
+  const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
+  const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   const navigate = useNavigate()
+  const redirectTimer = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (redirectTimer.current) window.clearTimeout(redirectTimer.current)
+  }, [])
 
   const load = () => {
     setLoading(true)
@@ -53,6 +60,21 @@ export function ToursIndex() {
     }
   }
 
+  const duplicarTour = async (tour: TourGuiado) => {
+    setDuplicandoId(tour.id)
+    setMensagem(null)
+    try {
+      const copia = await post<TourGuiado>(`/tours/${tour.id}/duplicar`, {})
+      setMensagem({ tipo: 'sucesso', texto: `Tour duplicado com sucesso: "${copia.titulo}".` })
+      // Mostra o feedback antes de sair da listagem, para não perdê-lo no redirecionamento.
+      redirectTimer.current = window.setTimeout(() => navigate(`/tours/${copia.id}/editar`), 900)
+    } catch (e) {
+      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível duplicar o tour. Tente novamente.' })
+    } finally {
+      setDuplicandoId(null)
+    }
+  }
+
   return (
     <div>
       {/* Page action bar */}
@@ -75,6 +97,15 @@ export function ToursIndex() {
       </div>
 
       <section className="px-4 lg:px-margin-desktop py-5">
+        {mensagem && (
+          <div className={`mb-4 p-3 rounded-xl text-body-md flex items-center gap-2 ${
+            mensagem.tipo === 'sucesso' ? 'bg-tertiary/10 text-tertiary' : 'bg-error-container text-on-error-container'
+          }`}>
+            <span className="material-symbols-outlined text-[18px]">{mensagem.tipo === 'sucesso' ? 'check_circle' : 'error'}</span>
+            {mensagem.texto}
+          </div>
+        )}
+
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
           <div className="relative flex-1 max-w-sm">
@@ -200,6 +231,16 @@ export function ToursIndex() {
                             className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                           >
                             <span className="material-symbols-outlined text-[18px]">edit</span>
+                          </button>
+                          <button
+                            onClick={() => duplicarTour(tour)}
+                            disabled={duplicandoId === tour.id}
+                            title="Duplicar"
+                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-40"
+                          >
+                            <span className={`material-symbols-outlined text-[18px] ${duplicandoId === tour.id ? 'animate-spin' : ''}`}>
+                              {duplicandoId === tour.id ? 'progress_activity' : 'content_copy'}
+                            </span>
                           </button>
                         </div>
                       </td>

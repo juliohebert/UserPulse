@@ -224,6 +224,54 @@ export async function remover(req: Request, res: Response) {
   }
 }
 
+export async function duplicar(req: Request, res: Response) {
+  try {
+    const id = req.params.id as string
+    const original = await prisma.tourGuiado.findUnique({
+      where: { id },
+      include: { passos: { orderBy: { ordem: 'asc' } } },
+    })
+    if (!original) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
+
+    const tituloCopia = `Cópia de ${original.titulo}`
+    const slug = await slugUnico(gerarSlugBase(tituloCopia))
+
+    // Copia sistema/destino e passos do original. Fica inativo (rascunho) para
+    // não publicar automaticamente, e não herda os EventoTour do original —
+    // é um cadastro novo, sem histórico de exibição.
+    const copia = await prisma.tourGuiado.create({
+      data: {
+        slug,
+        titulo: tituloCopia,
+        descricao: original.descricao,
+        sistema: original.sistema,
+        modo_identificacao: original.modo_identificacao,
+        tela: original.tela,
+        data_cy: original.data_cy,
+        url_contem: original.url_contem,
+        prioridade: original.prioridade,
+        ativo: false,
+        passos: {
+          create: original.passos.map(p => ({
+            ordem: p.ordem,
+            titulo: p.titulo,
+            descricao: p.descricao,
+            seletor_tipo: p.seletor_tipo,
+            seletor: p.seletor,
+            tooltip_posicao: p.tooltip_posicao,
+          })),
+        },
+      },
+      include: { passos: { orderBy: { ordem: 'asc' } } },
+    })
+
+    res.status(201).json(copia)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao duplicar tour guiado.' })
+  }
+}
+
 export async function buscarDashboard(req: Request, res: Response) {
   try {
     const id = req.params.id as string
