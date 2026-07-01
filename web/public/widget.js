@@ -164,6 +164,8 @@
       '.up-rec-label{font-weight:800;white-space:nowrap}',
       '.up-rec-contador{opacity:.75;white-space:nowrap}',
       '.up-rec-ultimo{opacity:.7;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}',
+      '.up-rec-aviso{display:none;width:100%;flex-basis:100%;text-align:center;color:#ffd54f;font-weight:700;font-size:11px;margin-top:2px}',
+      '.up-rec-aviso.up-rec-aviso-visivel{display:block}',
       '.up-rec-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}',
       '.up-rec-btn{border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;white-space:nowrap}',
       '.up-rec-btn:hover{background:rgba(255,255,255,.24)}',
@@ -1978,6 +1980,28 @@
     if (botaoDesfazer) botaoDesfazer.disabled = recorderState.passos.length === 0;
   }
 
+  // Aviso discreto e temporário na própria barra flutuante (ex.: tentar
+  // finalizar sem nenhum passo capturado) — some sozinho depois de alguns
+  // segundos. Cancela qualquer aviso anterior ainda visível antes de mostrar
+  // um novo, pra não sobrepor mensagens.
+  var RECORDER_AVISO_BARRA_MS = 4000;
+  var recorderAvisoBarraTimer = null;
+
+  function recorderMostrarAvisoBarra(texto) {
+    var bar = document.getElementById(RECORDER_BAR_ID);
+    if (!bar) return;
+    var aviso = bar.querySelector('[data-up-rec-aviso]');
+    if (!aviso) return;
+    if (recorderAvisoBarraTimer) window.clearTimeout(recorderAvisoBarraTimer);
+    aviso.textContent = texto;
+    aviso.classList.add('up-rec-aviso-visivel');
+    recorderAvisoBarraTimer = window.setTimeout(function () {
+      recorderAvisoBarraTimer = null;
+      aviso.classList.remove('up-rec-aviso-visivel');
+      aviso.textContent = '';
+    }, RECORDER_AVISO_BARRA_MS);
+  }
+
   function recorderRegistrarPasso(el, modo) {
     var sel = recorderGerarSeletor(el);
     var passo = {
@@ -2118,6 +2142,10 @@
   // cliques/edições dentro do próprio painel já são ignorados por
   // recorderElementoNaBarra, que também cobre o RECORDER_PAINEL_ID).
   function recorderFinalizar() {
+    if (recorderState.passos.length === 0) {
+      recorderMostrarAvisoBarra('Nenhum passo foi capturado ainda. Interaja com a tela antes de finalizar a gravação.');
+      return;
+    }
     recorderState.pausadoAntesRevisao = recorderState.pausado;
     recorderState.pausado = true;
     recorderPersistir();
@@ -2214,17 +2242,18 @@
 
   function recorderHtmlRevisao() {
     var passos = recorderState.passos;
+    var vazio = passos.length === 0;
     var itens = passos.map(function (p, i) { return recorderHtmlRevisaoItem(p, i, passos.length); }).join('');
     return [
       '<div class="up-rec-modal up-rec-modal-revisao">',
       '<h3 class="up-rec-modal-title">Revisar passos — ' + passos.length + ' passo' + (passos.length === 1 ? '' : 's') + '</h3>',
       '<p class="up-rec-modal-sub">Ajuste título, descrição e comportamento de cada passo antes de gerar o JSON.</p>',
       '<div class="up-rec-revisao-lista">',
-      (passos.length === 0 ? '<p class="up-rec-modal-sub">Nenhum passo capturado ainda.</p>' : itens),
+      (vazio ? '<p class="up-rec-modal-sub">Capture pelo menos um passo para gerar o JSON.</p>' : itens),
       '</div>',
       '<div class="up-rec-modal-actions">',
       '<button type="button" class="up-rec-btn" data-rev-fechar>Fechar</button>',
-      '<button type="button" class="up-rec-btn up-rec-btn-primary" data-rev-gerar>Gerar JSON</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-primary" data-rev-gerar' + (vazio ? ' disabled title="Capture pelo menos um passo para gerar o JSON."' : '') + '>Gerar JSON</button>',
       '</div>',
       '</div>',
     ].join('');
@@ -2289,7 +2318,11 @@
     if (!(alvo instanceof Element)) return;
 
     if (alvo.closest('[data-rev-fechar]')) { recorderFecharRevisao(); return; }
-    if (alvo.closest('[data-rev-gerar]')) { recorderGerarJsonFinal(); return; }
+    if (alvo.closest('[data-rev-gerar]')) {
+      if (recorderState.passos.length === 0) return; // defesa extra — o botão já vem "disabled" nesse caso
+      recorderGerarJsonFinal();
+      return;
+    }
 
     var btnRemover = alvo.closest('[data-rev-remover]');
     if (btnRemover) {
@@ -2342,9 +2375,12 @@
     root.addEventListener('click', recorderRevisaoOnClick);
   }
 
+  var RECORDER_COPIAR_FEEDBACK_MS = 1600;
+
   function recorderRenderPainelFinal() {
     var json = recorderMontarJson();
     var texto = JSON.stringify(json, null, 2);
+    var copiarTimer = null;
 
     var avisoNavegacao = recorderState.navegacoes.length > 0
       ? '<p class="up-rec-modal-sub">' + recorderState.navegacoes.length + ' navegação(ões) de URL detectada(s) durante a gravação — não viraram passo (sem elemento associado); o tour usa a URL onde a gravação começou.</p>'
@@ -2372,14 +2408,26 @@
       var alvo = event.target;
       if (!(alvo instanceof Element)) return;
 
-      if (alvo.closest('[data-up-rec-copiar]')) {
+      var botaoCopiar = alvo.closest('[data-up-rec-copiar]');
+      if (botaoCopiar) {
+        // Feedback só aparece se a cópia de fato aconteceu: espera a Promise
+        // do clipboard.writeText resolver, ou confere o retorno de
+        // execCommand no fallback — nunca mostra "Copiado!" otimisticamente.
+        var mostrarFeedback = function () {
+          if (copiarTimer) window.clearTimeout(copiarTimer);
+          botaoCopiar.textContent = 'Copiado!';
+          copiarTimer = window.setTimeout(function () {
+            copiarTimer = null;
+            botaoCopiar.textContent = 'Copiar JSON';
+          }, RECORDER_COPIAR_FEEDBACK_MS);
+        };
         try {
           var textarea = root.querySelector('[data-up-rec-json]');
           if (textarea && textarea.select) textarea.select();
           if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(texto).catch(function () {});
-          } else {
-            document.execCommand('copy');
+            navigator.clipboard.writeText(texto).then(mostrarFeedback).catch(function () {});
+          } else if (document.execCommand('copy')) {
+            mostrarFeedback();
           }
         } catch (_e) {}
         return;
@@ -2424,6 +2472,7 @@
       '<button type="button" class="up-rec-btn up-rec-btn-danger" data-up-rec-cancel>Cancelar</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-primary" data-up-rec-finish>Finalizar</button>',
       '</div>',
+      '<span class="up-rec-aviso" data-up-rec-aviso></span>',
     ].join('');
     document.body.appendChild(bar);
 
