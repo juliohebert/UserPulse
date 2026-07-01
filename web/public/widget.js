@@ -1077,6 +1077,7 @@
     buscaTimer: null,
     reposTimer: null,
     ativo: false,
+    elementClickHandler: null,
   };
 
   function fetchTour(slug) {
@@ -1339,8 +1340,55 @@
     });
   }
 
+  // Clicar no próprio elemento destacado também avança o tour (além dos botões
+  // Próximo/Voltar). O listener nunca chama preventDefault/stopPropagation —
+  // o clique original da aplicação acontece normalmente, e só depois de um
+  // pequeno delay o tour avança (ou conclui, no último passo).
+  var TOUR_ELEMENT_CLICK_DELAY_MS = 250;
+
+  function isEditableTarget(el) {
+    if (!el) return false;
+    var tag = el.tagName ? el.tagName.toUpperCase() : '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    if (el.isContentEditable) return true;
+    if (el.closest) {
+      try {
+        return Boolean(el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'));
+      } catch (_e) {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  function unbindElementClick() {
+    if (tourState.elementoAtual && tourState.elementClickHandler) {
+      tourState.elementoAtual.removeEventListener('click', tourState.elementClickHandler);
+    }
+    tourState.elementClickHandler = null;
+  }
+
+  function bindElementClick(el) {
+    var disparado = false;
+    var handler = function (event) {
+      if (disparado) return;
+      if (isEditableTarget(event.target)) return; // não autoavança em campos editáveis
+      disparado = true;
+      window.setTimeout(function () {
+        // Confere se o passo ainda é o mesmo — evita avanço duplicado/atrasado
+        // caso o usuário tenha clicado mais de uma vez, ou o tour já tenha mudado.
+        if (!tourState.ativo || tourState.elementoAtual !== el) return;
+        var ultimo = tourState.indice === tourState.tour.passos.length - 1;
+        if (ultimo) tourConcluir(); else tourProximo();
+      }, TOUR_ELEMENT_CLICK_DELAY_MS);
+    };
+    el.addEventListener('click', handler);
+    tourState.elementClickHandler = handler;
+  }
+
   function irParaPasso(indice) {
     limparBuscaTimer();
+    unbindElementClick();
     tourState.indice = indice;
     tourState.naoEncontrado = false;
     tourState.elementoAtual = null;
@@ -1357,6 +1405,7 @@
         return;
       }
       tourState.elementoAtual = el;
+      bindElementClick(el);
       registrarEventoTour('passo_visualizado', indice);
       try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_e) {}
       window.setTimeout(renderTour, 320);
@@ -1385,6 +1434,7 @@
 
   function finalizarTour() {
     limparBuscaTimer();
+    unbindElementClick();
     unbindTourReposHandlers();
     document.removeEventListener('keydown', tourKeydown);
     var oldRoot = document.getElementById(TOUR_WIDGET_ID);
