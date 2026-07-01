@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, type NavigateFunction } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
 import type { TourGuiado } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
@@ -17,7 +17,7 @@ export function ToursIndex() {
   const [page, setPage] = useState(1)
   const [busca, setBusca] = useState('')
   const [filterSistema, setFilterSistema] = useState('')
-  const [filterAtivo, setFilterAtivo] = useState<'todos' | 'ativos' | 'inativos'>('todos')
+  const [filterAtivo, setFilterAtivo] = useState<'todos' | 'ativos' | 'inativos'>('ativos')
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   const navigate = useNavigate()
@@ -88,7 +88,7 @@ export function ToursIndex() {
           </div>
           <button
             onClick={() => navigate('/tours/novo')}
-            className="flex items-center gap-1.5 px-4 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 shrink-0"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 shrink-0 w-full sm:w-auto"
           >
             <span className="material-symbols-outlined text-[18px]">add</span>
             Novo tour guiado
@@ -108,7 +108,7 @@ export function ToursIndex() {
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-3 mb-4">
-          <div className="relative flex-1 max-w-sm">
+          <div className="relative w-full sm:flex-1 sm:max-w-sm">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline text-[18px] pointer-events-none">search</span>
             <input
               value={busca}
@@ -128,7 +128,7 @@ export function ToursIndex() {
               ]}
             />
           </div>
-          <div className="flex gap-1 p-1 bg-surface-container rounded-xl w-fit">
+          <div className="grid grid-cols-3 sm:flex gap-1 p-1 bg-surface-container rounded-xl w-full sm:w-fit">
             {([
               { value: 'todos', label: 'Todos' },
               { value: 'ativos', label: 'Ativos' },
@@ -137,7 +137,7 @@ export function ToursIndex() {
               <button
                 key={opt.value}
                 onClick={() => { setFilterAtivo(opt.value); setPage(1) }}
-                className={`px-3.5 py-2 rounded-lg text-label-md font-bold transition-all ${
+                className={`px-3.5 py-2 rounded-lg text-label-md font-bold text-center transition-all ${
                   filterAtivo === opt.value ? 'bg-surface-bright text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'
                 }`}
               >
@@ -171,88 +171,134 @@ export function ToursIndex() {
             />
           ) : (
             <>
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-outline-variant bg-surface-container-low/50 text-left">
-                    <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant">Título</th>
-                    <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant">Sistema</th>
-                    <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant">Status</th>
-                    <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant">Passos</th>
-                    <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant">Atualizado em</th>
-                    <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginated.map(tour => (
-                    <tr key={tour.id} className="border-b border-outline-variant/50 last:border-0 hover:bg-surface-container-low/30 transition-colors">
-                      <td className="px-5 py-3.5">
-                        <button
-                          onClick={() => navigate(`/tours/${tour.id}/editar`)}
-                          className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left"
-                        >
-                          {tour.titulo}
-                        </button>
-                        {tour.descricao && (
-                          <p className="text-label-sm text-on-surface-variant truncate max-w-xs">{tour.descricao}</p>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5 text-body-md text-on-surface-variant">{tour.sistema}</td>
-                      <td className="px-5 py-3.5">
-                        <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase ${
-                          tour.ativo ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'
-                        }`}>
-                          {tour.ativo ? 'Ativo' : 'Inativo'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-body-md text-on-surface-variant">
-                        {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
-                      </td>
-                      <td className="px-5 py-3.5 text-body-md text-on-surface-variant">{formatDateTime(tour.atualizado_em)}</td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center justify-end gap-3">
-                          <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
-                          <button
-                            onClick={() => navigate(`/tours/${tour.id}/dashboard`)}
-                            title="Dashboard"
-                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">monitoring</span>
-                          </button>
-                          <button
-                            onClick={() => navigate(`/tours/${tour.id}/preview`)}
-                            title="Testar tour"
-                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">play_circle</span>
-                          </button>
+              {/* Desktop (>= xl): tabela. Com a sidebar aberta (248px), lg (1024px) só
+                  sobra ~776px de conteúdo — estreito demais para 6 colunas + ações,
+                  cortando a coluna de Ações. xl (1280px) garante ~1032px de conteúdo,
+                  e overflow-x-auto é a rede de segurança para telas ainda mais
+                  apertadas (não deixa as ações serem cortadas, rola em vez disso). */}
+              <div className="overflow-x-auto hidden xl:block">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-outline-variant bg-surface-container-low/50 text-left">
+                      <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant">Título</th>
+                      <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant whitespace-nowrap">Sistema</th>
+                      <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant whitespace-nowrap">Status</th>
+                      <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant whitespace-nowrap">Passos</th>
+                      <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant whitespace-nowrap">Atualizado em</th>
+                      <th className="px-5 py-3 text-label-md font-bold text-on-surface-variant text-right whitespace-nowrap">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginated.map(tour => (
+                      <tr key={tour.id} className="border-b border-outline-variant/50 last:border-0 hover:bg-surface-container-low/30 transition-colors">
+                        <td className="px-5 py-3.5">
                           <button
                             onClick={() => navigate(`/tours/${tour.id}/editar`)}
-                            title="Editar"
-                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                            className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left"
                           >
-                            <span className="material-symbols-outlined text-[18px]">edit</span>
+                            {tour.titulo}
                           </button>
-                          <button
-                            onClick={() => duplicarTour(tour)}
-                            disabled={duplicandoId === tour.id}
-                            title="Duplicar"
-                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-40"
-                          >
-                            <span className={`material-symbols-outlined text-[18px] ${duplicandoId === tour.id ? 'animate-spin' : ''}`}>
-                              {duplicandoId === tour.id ? 'progress_activity' : 'content_copy'}
-                            </span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                          {tour.descricao && (
+                            <p className="text-label-sm text-on-surface-variant truncate max-w-xs">{tour.descricao}</p>
+                          )}
+                        </td>
+                        <td className="px-5 py-3.5 text-body-md text-on-surface-variant whitespace-nowrap">{tour.sistema}</td>
+                        <td className="px-5 py-3.5 whitespace-nowrap">
+                          <StatusBadge ativo={tour.ativo} />
+                        </td>
+                        <td className="px-5 py-3.5 text-body-md text-on-surface-variant whitespace-nowrap">
+                          {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
+                        </td>
+                        <td className="px-5 py-3.5 text-body-md text-on-surface-variant whitespace-nowrap">{formatDateTime(tour.atualizado_em)}</td>
+                        <td className="px-5 py-3.5 whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-2">
+                            <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
+                            <TourActions tour={tour} navigate={navigate} duplicandoId={duplicandoId} onDuplicar={duplicarTour} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Abaixo de xl (mobile, tablet e telas menores com sidebar aberta): cards */}
+              <div className="xl:hidden divide-y divide-outline-variant/50">
+                {paginated.map(tour => (
+                  <div key={tour.id} className="p-4">
+                    <div className="flex items-start justify-between gap-3 mb-1.5">
+                      <button
+                        onClick={() => navigate(`/tours/${tour.id}/editar`)}
+                        className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left min-w-0 truncate"
+                      >
+                        {tour.titulo}
+                      </button>
+                      <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
+                    </div>
+                    {tour.descricao && (
+                      <p className="text-label-sm text-on-surface-variant truncate mb-2">{tour.descricao}</p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2 mb-3">
+                      <StatusBadge ativo={tour.ativo} />
+                      <span className="text-label-sm text-on-surface-variant">{tour.sistema}</span>
+                      <span className="text-label-sm text-on-surface-variant">
+                        · {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-label-sm text-outline">Atualizado {formatDateTime(tour.atualizado_em)}</span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <TourActions tour={tour} navigate={navigate} duplicandoId={duplicandoId} onDuplicar={duplicarTour} size="lg" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               <Pagination page={page} total={filtered.length} perPage={PER_PAGE} onChange={setPage} />
             </>
           )}
         </div>
       </section>
     </div>
+  )
+}
+
+function StatusBadge({ ativo }: { ativo: boolean }) {
+  return (
+    <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase whitespace-nowrap ${
+      ativo ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'
+    }`}>
+      {ativo ? 'Ativo' : 'Inativo'}
+    </span>
+  )
+}
+
+function TourActions({ tour, navigate, duplicandoId, onDuplicar, size = 'md' }: {
+  tour: TourGuiado
+  navigate: NavigateFunction
+  duplicandoId: string | null
+  onDuplicar: (tour: TourGuiado) => void
+  size?: 'md' | 'lg'
+}) {
+  const btnPad = size === 'lg' ? 'p-2' : 'p-1.5'
+  const btnCls = `${btnPad} rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors`
+  return (
+    <>
+      <button onClick={() => navigate(`/tours/${tour.id}/dashboard`)} title="Dashboard" className={btnCls}>
+        <span className="material-symbols-outlined text-[18px]">monitoring</span>
+      </button>
+      <button onClick={() => navigate(`/tours/${tour.id}/preview`)} title="Testar tour" className={btnCls}>
+        <span className="material-symbols-outlined text-[18px]">play_circle</span>
+      </button>
+      <button onClick={() => navigate(`/tours/${tour.id}/editar`)} title="Editar" className={btnCls}>
+        <span className="material-symbols-outlined text-[18px]">edit</span>
+      </button>
+      <button onClick={() => onDuplicar(tour)} disabled={duplicandoId === tour.id} title="Duplicar" className={`${btnCls} disabled:opacity-40`}>
+        <span className={`material-symbols-outlined text-[18px] ${duplicandoId === tour.id ? 'animate-spin' : ''}`}>
+          {duplicandoId === tour.id ? 'progress_activity' : 'content_copy'}
+        </span>
+      </button>
+    </>
   )
 }
