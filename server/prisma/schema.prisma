@@ -177,6 +177,8 @@ model TourPasso {
   seletor           String
   tooltip_posicao   String     @default("auto")
   acao_ao_avancar   String     @default("apenas_avancar")
+  modo_avanco_interacao String @default("manual")
+  seletor_confirmacao   String?
   criado_em         DateTime   @default(now())
   atualizado_em     DateTime   @updatedAt
 

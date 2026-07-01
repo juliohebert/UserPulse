@@ -15,6 +15,8 @@ interface PassoState {
   seletor: string
   tooltip_posicao: string
   acao_ao_avancar: string
+  modo_avanco_interacao: string
+  seletor_confirmacao: string
 }
 
 interface FormState {
@@ -38,6 +40,7 @@ const EMPTY: FormState = {
 
 const PASSO_VAZIO: PassoState = {
   titulo: '', descricao: '', seletor_tipo: 'data_cy', seletor: '', tooltip_posicao: 'auto', acao_ao_avancar: 'apenas_avancar',
+  modo_avanco_interacao: 'manual', seletor_confirmacao: '',
 }
 
 const MODOS = [
@@ -63,6 +66,16 @@ const ACOES_AO_AVANCAR = [
   { value: 'apenas_avancar', label: 'Apenas avançar' },
   { value: 'clicar_elemento', label: 'Clicar no elemento destacado e avançar' },
 ]
+
+const MODOS_AVANCO_INTERACAO = [
+  { value: 'manual', label: 'Manual (só pelo botão Próximo)' },
+  { value: 'ao_clicar', label: 'Ao clicar no elemento destacado' },
+  { value: 'ao_alterar_valor', label: 'Ao preencher/alterar o valor' },
+  { value: 'ao_aparecer_elemento', label: 'Quando outro elemento aparecer' },
+  { value: 'ao_sumir_elemento', label: 'Quando outro elemento sumir' },
+]
+
+const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
@@ -334,6 +347,8 @@ export function TourForm() {
                 seletor: p.seletor,
                 tooltip_posicao: p.tooltip_posicao,
                 acao_ao_avancar: p.acao_ao_avancar || 'apenas_avancar',
+                modo_avanco_interacao: p.modo_avanco_interacao || 'manual',
+                seletor_confirmacao: p.seletor_confirmacao ?? '',
               }))
             : [{ ...PASSO_VAZIO }]
         )
@@ -361,6 +376,8 @@ export function TourForm() {
       seletor: '',
       tooltip_posicao: p.tooltip_posicao,
       acao_ao_avancar: 'apenas_avancar',
+      modo_avanco_interacao: 'manual',
+      seletor_confirmacao: '',
     })))
     setTemplateAplicadoId(tpl.id)
   }
@@ -389,6 +406,8 @@ export function TourForm() {
         seletor: original.seletor,
         tooltip_posicao: original.tooltip_posicao,
         acao_ao_avancar: original.acao_ao_avancar,
+        modo_avanco_interacao: original.modo_avanco_interacao,
+        seletor_confirmacao: original.seletor_confirmacao,
       }
       const next = [...prev]
       next.splice(index + 1, 0, copia)
@@ -442,6 +461,10 @@ export function TourForm() {
       setError('Para ativar o tour, todos os passos precisam ter um seletor/data-cy informado.')
       return
     }
+    if (form.ativo && passos.some(p => MODOS_AVANCO_COM_CONFIRMACAO.includes(p.modo_avanco_interacao) && !p.seletor_confirmacao.trim())) {
+      setError('Para ativar o tour, os passos com avanço "quando outro elemento aparecer/sumir" precisam do seletor de confirmação.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     setSuccess(false)
@@ -460,6 +483,8 @@ export function TourForm() {
           seletor: p.seletor.trim(),
           tooltip_posicao: p.tooltip_posicao,
           acao_ao_avancar: p.acao_ao_avancar,
+          modo_avanco_interacao: p.modo_avanco_interacao,
+          seletor_confirmacao: p.seletor_confirmacao.trim() || null,
         })),
       }
       const saved = isEdit
@@ -936,7 +961,38 @@ export function TourForm() {
                         options={ACOES_AO_AVANCAR}
                         size="sm"
                       />
+                      <p className="text-[11px] text-on-surface-variant mt-1">
+                        Define se o botão Próximo apenas avança o tour ou também executa um clique no elemento destacado.
+                      </p>
                     </div>
+                    <div className="max-w-xs">
+                      <label className="block text-label-sm text-on-surface-variant mb-1">Como avançar este passo?</label>
+                      <Select
+                        value={passo.modo_avanco_interacao}
+                        onChange={v => setPasso(i, 'modo_avanco_interacao', v)}
+                        options={MODOS_AVANCO_INTERACAO}
+                        size="sm"
+                      />
+                      <p className="text-[11px] text-on-surface-variant mt-1">
+                        Define se o passo pode avançar automaticamente após uma interação do usuário, como clicar, preencher ou aguardar um elemento aparecer/sumir.
+                      </p>
+                    </div>
+                    {MODOS_AVANCO_COM_CONFIRMACAO.includes(passo.modo_avanco_interacao) && (
+                      <div className="md:col-span-2">
+                        <label className="block text-label-sm text-on-surface-variant mb-1">
+                          Seletor de confirmação <span className="text-error">*</span>
+                        </label>
+                        <input
+                          value={passo.seletor_confirmacao}
+                          onChange={e => setPasso(i, 'seletor_confirmacao', e.target.value)}
+                          placeholder='Seletor CSS completo — ex: [data-cy="overlay-autocomplete"] ou .dropdown-aberto'
+                          className={`${field} text-[13px] py-2 font-mono`}
+                        />
+                        <p className="text-[11px] text-on-surface-variant mt-1">
+                          Use para aguardar um modal, lista ou elemento aparecer/sumir antes de avançar.
+                        </p>
+                      </div>
+                    )}
                     <PassoPreview passo={passo} indice={i} total={passos.length} />
                   </div>
                 </div>

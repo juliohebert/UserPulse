@@ -5,6 +5,8 @@ const MODOS_IDENTIFICACAO = ['sistema_tela', 'data_cy', 'url_contem']
 const SELETOR_TIPOS = ['data_cy', 'css']
 const TOOLTIP_POSICOES = ['auto', 'top', 'bottom', 'left', 'right']
 const ACOES_AO_AVANCAR = ['apenas_avancar', 'clicar_elemento']
+const MODOS_AVANCO_INTERACAO = ['manual', 'ao_clicar', 'ao_alterar_valor', 'ao_aparecer_elemento', 'ao_sumir_elemento']
+const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
 
 interface PassoInput {
   titulo?: string
@@ -13,6 +15,8 @@ interface PassoInput {
   seletor?: string
   tooltip_posicao?: string
   acao_ao_avancar?: string
+  modo_avanco_interacao?: string
+  seletor_confirmacao?: string
 }
 
 function gerarSlugBase(titulo: string): string {
@@ -65,6 +69,13 @@ function validarPassos(passos: unknown, exigirSeletor: boolean): { erro: string 
     }
     if (p.acao_ao_avancar && !ACOES_AO_AVANCAR.includes(p.acao_ao_avancar)) {
       return { erro: `Passo ${i + 1}: ação ao avançar inválida.`, lista: [] }
+    }
+    if (p.modo_avanco_interacao && !MODOS_AVANCO_INTERACAO.includes(p.modo_avanco_interacao)) {
+      return { erro: `Passo ${i + 1}: modo de avanço por interação inválido.`, lista: [] }
+    }
+    const modoAvanco = p.modo_avanco_interacao || 'manual'
+    if (exigirSeletor && MODOS_AVANCO_COM_CONFIRMACAO.includes(modoAvanco) && !p.seletor_confirmacao?.trim()) {
+      return { erro: `Passo ${i + 1}: informe o seletor de confirmação para o modo de avanço escolhido.`, lista: [] }
     }
   }
   return { erro: null, lista: passos as PassoInput[] }
@@ -143,6 +154,8 @@ export async function criar(req: Request, res: Response) {
             seletor: p.seletor!.trim(),
             tooltip_posicao: p.tooltip_posicao?.trim() || 'auto',
             acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
+            modo_avanco_interacao: p.modo_avanco_interacao?.trim() || 'manual',
+            seletor_confirmacao: p.seletor_confirmacao?.trim() || null,
           })),
         },
       },
@@ -224,6 +237,8 @@ export async function atualizar(req: Request, res: Response) {
                 seletor: p.seletor!.trim(),
                 tooltip_posicao: p.tooltip_posicao?.trim() || 'auto',
                 acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
+                modo_avanco_interacao: p.modo_avanco_interacao?.trim() || 'manual',
+                seletor_confirmacao: p.seletor_confirmacao?.trim() || null,
               })),
             },
           }),
@@ -289,6 +304,8 @@ export async function duplicar(req: Request, res: Response) {
             seletor: p.seletor,
             tooltip_posicao: p.tooltip_posicao,
             acao_ao_avancar: p.acao_ao_avancar,
+            modo_avanco_interacao: p.modo_avanco_interacao,
+            seletor_confirmacao: p.seletor_confirmacao,
           })),
         },
       },
@@ -333,6 +350,8 @@ export async function exportar(req: Request, res: Response) {
           seletor: p.seletor,
           tooltip_posicao: p.tooltip_posicao,
           acao_ao_avancar: p.acao_ao_avancar,
+          modo_avanco_interacao: p.modo_avanco_interacao,
+          seletor_confirmacao: p.seletor_confirmacao,
         })),
       },
     })
@@ -396,6 +415,8 @@ export async function importar(req: Request, res: Response) {
             seletor: p.seletor?.trim() || '',
             tooltip_posicao: p.tooltip_posicao?.trim() || 'auto',
             acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
+            modo_avanco_interacao: p.modo_avanco_interacao?.trim() || 'manual',
+            seletor_confirmacao: p.seletor_confirmacao?.trim() || null,
           })),
         },
       },

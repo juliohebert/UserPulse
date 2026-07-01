@@ -1080,8 +1080,8 @@
     buscaTimer: null,
     reposTimer: null,
     ativo: false,
-    elementClickHandler: null,
-    elementClickTimer: null,
+    interacaoCleanup: null,
+    interacaoTimer: null,
     nextClickTimer: null,
   };
 
@@ -1378,11 +1378,13 @@
     });
   }
 
-  // Clicar no próprio elemento destacado também avança o tour (além dos botões
-  // Próximo/Voltar). O listener nunca chama preventDefault/stopPropagation —
-  // o clique original da aplicação acontece normalmente, e só depois de um
-  // pequeno delay o tour avança (ou conclui, no último passo).
-  var TOUR_ELEMENT_CLICK_DELAY_MS = 250;
+  // Avanço automático por interação com o próprio elemento destacado (além dos
+  // botões Próximo/Voltar) — controlado por passo.modo_avanco_interacao.
+  // "manual" (default) não liga listener nenhum: só o botão Próximo avança.
+  // Os listeners nunca chamam preventDefault/stopPropagation — a interação
+  // original da aplicação acontece normalmente, e só depois de um pequeno
+  // delay o tour avança (ou conclui, no último passo).
+  var TOUR_INTERACAO_DELAY_MS = 250;
 
   function isEditableTarget(el) {
     if (!el) return false;
@@ -1399,25 +1401,38 @@
     return false;
   }
 
-  // Cancela qualquer avanço agendado por clique no elemento. Chamado sempre que
-  // o passo muda (irParaPasso, inclusive via Voltar) ou o tour termina — sem
-  // isso, um clique em Voltar logo após um clique-avanço podia deixar o timeout
-  // "zumbi" vivo e, se o usuário voltasse a passar pelo mesmo elemento físico
-  // (mesmo nó do DOM) antes dele disparar, o avanço atrasado acontecia de novo
-  // sem pedido, fazendo o tour parecer "perder" o Voltar.
-  function limparElementClickTimer() {
-    if (tourState.elementClickTimer) {
-      window.clearTimeout(tourState.elementClickTimer);
-      tourState.elementClickTimer = null;
-    }
+  // Combobox/listbox (autocompletes custom) — clicar neles normalmente só abre
+  // a lista; não deve contar como "clicou para avançar" no modo ao_clicar.
+  function isComboboxTarget(el) {
+    if (!el) return false;
+    try {
+      var role = el.getAttribute && el.getAttribute('role');
+      if (role === 'combobox' || role === 'listbox') return true;
+      if (el.closest) return Boolean(el.closest('[role="combobox"],[role="listbox"]'));
+    } catch (_e) {}
+    return false;
   }
 
-  function unbindElementClick() {
-    if (tourState.elementoAtual && tourState.elementClickHandler) {
-      tourState.elementoAtual.removeEventListener('click', tourState.elementClickHandler);
+  function valorPreenchido(el) {
+    if (!el) return false;
+    if (el.value !== undefined) return String(el.value).trim() !== '';
+    var texto = el.textContent;
+    return Boolean(texto && texto.trim());
+  }
+
+  // Cancela o listener/observador de interação do passo atual e qualquer
+  // avanço já agendado por ele. Chamado sempre que o passo muda (irParaPasso,
+  // inclusive via Voltar) ou o tour termina — sem isso, um listener/timer
+  // "zumbi" do passo anterior podia disparar um avanço fora de hora.
+  function limparInteracao() {
+    if (tourState.interacaoCleanup) {
+      tourState.interacaoCleanup();
+      tourState.interacaoCleanup = null;
     }
-    tourState.elementClickHandler = null;
-    limparElementClickTimer();
+    if (tourState.interacaoTimer) {
+      window.clearTimeout(tourState.interacaoTimer);
+      tourState.interacaoTimer = null;
+    }
   }
 
   // Avanço agendado pelo botão Próximo quando o passo usa acao_ao_avancar =
@@ -1434,26 +1449,111 @@
     }
   }
 
-  function bindElementClick(el) {
-    var handler = function (event) {
-      if (isEditableTarget(event.target)) return; // não autoavança em campos editáveis
-      if (tourState.elementClickTimer) return; // já há um avanço agendado — não empilha outro
-      tourState.elementClickTimer = window.setTimeout(function () {
-        tourState.elementClickTimer = null;
-        // Confere se o passo/elemento ainda é o mesmo — segunda camada de
-        // proteção, além do cancelamento em unbindElementClick/limparElementClickTimer.
-        if (!tourState.ativo || tourState.elementoAtual !== el) return;
-        var ultimo = tourState.indice === tourState.tour.passos.length - 1;
-        if (ultimo) tourConcluir(); else tourProximo();
-      }, TOUR_ELEMENT_CLICK_DELAY_MS);
-    };
-    el.addEventListener('click', handler);
-    tourState.elementClickHandler = handler;
+  // Agenda o avanço do passo atual — usado por todos os modos de
+  // modo_avanco_interacao. Vai direto para irParaPasso/tourConcluir (não passa
+  // por tourProximo) porque o usuário já completou a interação real com o
+  // elemento; se passasse por tourProximo, um passo com acao_ao_avancar =
+  // "clicar_elemento" acabaria disparando um SEGUNDO clique sintético
+  // desnecessário em cima da interação que o próprio usuário acabou de fazer.
+  // reagendar=true reinicia a contagem a cada chamada (debounce de verdade) —
+  // usado por "input" em ao_alterar_valor, pra não avançar no meio da digitação.
+  // Sem reagendar (default), só a primeira chamada agenda; chamadas seguintes
+  // enquanto já há um avanço pendente são ignoradas (clique/change/poll disparam
+  // uma vez só, não precisam reiniciar a contagem).
+  function agendarAvancoInteracao(el, reagendar) {
+    if (tourState.interacaoTimer) {
+      if (!reagendar) return;
+      window.clearTimeout(tourState.interacaoTimer);
+    }
+    tourState.interacaoTimer = window.setTimeout(function () {
+      tourState.interacaoTimer = null;
+      if (!tourState.ativo || tourState.elementoAtual !== el) return;
+      var ultimo = tourState.indice === tourState.tour.passos.length - 1;
+      if (ultimo) tourConcluir(); else irParaPasso(tourState.indice + 1);
+    }, TOUR_INTERACAO_DELAY_MS);
+  }
+
+  // Liga o listener/observador correspondente a passo.modo_avanco_interacao no
+  // elemento do passo atual. Guarda em tourState.interacaoCleanup a função que
+  // desfaz o que foi ligado — limparInteracao() chama isso ao trocar de passo.
+  function bindInteracao(el, passo) {
+    var modo = passo.modo_avanco_interacao || 'manual';
+
+    if (modo === 'ao_clicar') {
+      if (isEditableTarget(el) || isComboboxTarget(el)) return; // não faz sentido nesses elementos — ver ao_alterar_valor
+      var handlerClique = function (event) {
+        if (isEditableTarget(event.target) || isComboboxTarget(event.target)) return;
+        agendarAvancoInteracao(el);
+      };
+      el.addEventListener('click', handlerClique);
+      tourState.interacaoCleanup = function () {
+        el.removeEventListener('click', handlerClique);
+      };
+      return;
+    }
+
+    if (modo === 'ao_alterar_valor') {
+      // "change" (seleção confirmada/blur) sempre avança; "input" só avança
+      // quando já há valor preenchido, para não disparar a cada tecla digitada
+      // antes do usuário terminar.
+      var handlerValor = function (event) {
+        if (event.type === 'change') { agendarAvancoInteracao(el); return; }
+        // "input" dispara a cada tecla — reagenda (debounce) pra só avançar
+        // quando o usuário parar de digitar com o campo preenchido. Se o campo
+        // voltar a ficar vazio (ex.: apagou tudo), cancela o avanço pendente.
+        if (valorPreenchido(event.target)) {
+          agendarAvancoInteracao(el, true);
+        } else if (tourState.interacaoTimer) {
+          window.clearTimeout(tourState.interacaoTimer);
+          tourState.interacaoTimer = null;
+        }
+      };
+      el.addEventListener('input', handlerValor);
+      el.addEventListener('change', handlerValor);
+      tourState.interacaoCleanup = function () {
+        el.removeEventListener('input', handlerValor);
+        el.removeEventListener('change', handlerValor);
+      };
+      return;
+    }
+
+    if (modo === 'ao_aparecer_elemento') {
+      var seletorAparecer = passo.seletor_confirmacao;
+      if (!seletorAparecer) return; // sem seletor configurado — só o botão Próximo avança
+      var pollAparecer = window.setInterval(function () {
+        var encontrado;
+        try { encontrado = document.querySelector(seletorAparecer); } catch (_e) { encontrado = null; }
+        if (encontrado) agendarAvancoInteracao(el);
+      }, TOUR_RETRY_INTERVAL_MS);
+      tourState.interacaoCleanup = function () {
+        window.clearInterval(pollAparecer);
+      };
+      return;
+    }
+
+    if (modo === 'ao_sumir_elemento') {
+      var seletorSumir = passo.seletor_confirmacao;
+      if (!seletorSumir) return; // sem seletor configurado — só o botão Próximo avança
+      var jaViuElemento = false;
+      var pollSumir = window.setInterval(function () {
+        var existe;
+        try { existe = Boolean(document.querySelector(seletorSumir)); } catch (_e) { existe = false; }
+        if (existe) { jaViuElemento = true; return; }
+        if (jaViuElemento) agendarAvancoInteracao(el);
+      }, TOUR_RETRY_INTERVAL_MS);
+      tourState.interacaoCleanup = function () {
+        window.clearInterval(pollSumir);
+      };
+      return;
+    }
+
+    // modo === 'manual' (ou desconhecido/legado) — nenhum listener; só o botão
+    // Próximo avança este passo.
   }
 
   function irParaPasso(indice) {
     limparBuscaTimer();
-    unbindElementClick();
+    limparInteracao();
     limparNextClickTimer();
     tourState.indice = indice;
     tourState.naoEncontrado = false;
@@ -1471,7 +1571,7 @@
         return;
       }
       tourState.elementoAtual = el;
-      bindElementClick(el);
+      bindInteracao(el, passo);
       registrarEventoTour('passo_visualizado', indice);
       try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_e) {}
       window.setTimeout(renderTour, 320);
@@ -1496,10 +1596,10 @@
     var el = tourState.elementoAtual;
 
     if (passo && passo.acao_ao_avancar === 'clicar_elemento' && el && !isEditableTarget(el)) {
-      // O próprio elemento já tem o listener de "clicar avança" (bindElementClick);
-      // remove-o antes do clique sintético para não agendar um segundo avanço
-      // concorrente a partir do mesmo clique.
-      unbindElementClick();
+      // O elemento pode ter listener/observador de modo_avanco_interacao ligado
+      // (ex.: ao_clicar); remove antes do clique sintético para não agendar um
+      // segundo avanço concorrente a partir do mesmo clique.
+      limparInteracao();
       try { el.click(); } catch (_e) {}
       tourState.nextClickTimer = window.setTimeout(function () {
         tourState.nextClickTimer = null;
@@ -1530,7 +1630,7 @@
 
   function finalizarTour() {
     limparBuscaTimer();
-    unbindElementClick();
+    limparInteracao();
     limparNextClickTimer();
     unbindTourReposHandlers();
     document.removeEventListener('keydown', tourKeydown);
