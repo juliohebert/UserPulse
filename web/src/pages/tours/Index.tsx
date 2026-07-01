@@ -22,12 +22,26 @@ export function ToursIndex() {
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [exportandoId, setExportandoId] = useState<string | null>(null)
   const [modalImportarAberto, setModalImportarAberto] = useState(false)
+  const [importarViaGravador, setImportarViaGravador] = useState(false)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   const navigate = useNavigate()
   const redirectTimer = useRef<number | null>(null)
 
   useEffect(() => () => {
     if (redirectTimer.current) window.clearTimeout(redirectTimer.current)
+  }, [])
+
+  // Vindo do Gravador de Fluxo ("Copiar e abrir importação" no widget): o JSON
+  // já foi copiado pra área de transferência lá — aqui só abre o modal
+  // sozinho, pra o usuário colar. O parâmetro nunca carrega o JSON em si (só
+  // um sinal de "abra o modal"), e é removido da URL logo em seguida via
+  // replaceState pra não reabrir o modal num refresh ou ao voltar a página.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('importarJson') !== '1') return
+    setModalImportarAberto(true)
+    setImportarViaGravador(true)
+    window.history.replaceState({}, '', window.location.pathname)
   }, [])
 
   const load = () => {
@@ -93,6 +107,7 @@ export function ToursIndex() {
 
   const tourImportado = (tour: TourGuiado) => {
     setModalImportarAberto(false)
+    setImportarViaGravador(false)
     setMensagem({ tipo: 'sucesso', texto: 'Tour importado como rascunho.' })
     // Mostra o feedback antes de sair da listagem, para não perdê-lo no redirecionamento.
     redirectTimer.current = window.setTimeout(() => navigate(`/tours/${tour.id}/editar`), 900)
@@ -118,7 +133,7 @@ export function ToursIndex() {
               Guia de Uso
             </button>
             <button
-              onClick={() => setModalImportarAberto(true)}
+              onClick={() => { setImportarViaGravador(false); setModalImportarAberto(true) }}
               className="flex items-center justify-center gap-1.5 px-4 py-2.5 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
             >
               <span className="material-symbols-outlined text-[18px]">upload_file</span>
@@ -324,7 +339,11 @@ export function ToursIndex() {
       </section>
 
       {modalImportarAberto && (
-        <ImportarTourModal onClose={() => setModalImportarAberto(false)} onImported={tourImportado} />
+        <ImportarTourModal
+          onClose={() => { setModalImportarAberto(false); setImportarViaGravador(false) }}
+          onImported={tourImportado}
+          avisoColar={importarViaGravador}
+        />
       )}
     </div>
   )
@@ -376,13 +395,23 @@ function TourActions({ tour, navigate, duplicandoId, onDuplicar, exportandoId, o
   )
 }
 
-function ImportarTourModal({ onClose, onImported }: {
+function ImportarTourModal({ onClose, onImported, avisoColar = false }: {
   onClose: () => void
   onImported: (tour: TourGuiado) => void
+  // true quando aberto via /tours?importarJson=1 (botão "Copiar e abrir
+  // importação" do Gravador de Fluxo) — o JSON já foi copiado lá, então só
+  // orienta o usuário a colar e foca o campo de texto pra facilitar.
+  avisoColar?: boolean
 }) {
   const [texto, setTexto] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    if (avisoColar) textareaRef.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Validação básica no cliente antes de gastar uma chamada de API — o
   // backend revalida tudo de novo (mesma validarPassos usada em criar/editar).
@@ -434,11 +463,18 @@ function ImportarTourModal({ onClose, onImported }: {
           </button>
         </div>
         <div className="px-5 py-4 space-y-3 overflow-y-auto">
+          {avisoColar && (
+            <div className="p-2.5 bg-tertiary/10 text-tertiary rounded-lg text-label-sm flex items-center gap-2">
+              <span className="material-symbols-outlined text-[16px]">content_paste</span>
+              JSON copiado. Cole o conteúdo abaixo para importar o tour gravado.
+            </div>
+          )}
           <p className="text-label-md text-on-surface-variant">
             Cole o JSON exportado de outro tour. O tour será criado como rascunho — id, slug e status de ativação do
             JSON são ignorados.
           </p>
           <textarea
+            ref={textareaRef}
             value={texto}
             onChange={e => setTexto(e.target.value)}
             rows={10}

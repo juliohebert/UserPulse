@@ -2527,9 +2527,11 @@
 
       // "Copiar e abrir importação": nunca chama o endpoint de importação
       // direto nem manda token nenhum — só copia o JSON (mesmo mecanismo do
-      // botão Copiar) e abre a tela /tours do admin (mesma origem que serve
-      // este widget.js, via scriptOrigin) numa aba nova, onde o próprio
-      // usuário autenticado cola o conteúdo em "Importar JSON" manualmente.
+      // botão Copiar) e abre /tours?importarJson=1 do admin (mesma origem que
+      // serve este widget.js, via scriptOrigin) numa aba nova. O parâmetro
+      // importarJson=1 só é um sinal pra tela abrir o modal "Importar JSON"
+      // sozinha — o JSON em si NUNCA viaja pela URL, o usuário ainda cola o
+      // conteúdo (já copiado) manualmente no campo de texto do modal.
       // Ver análise completa no resumo entregue — postMessage/endpoint direto
       // foram avaliados e descartados por exigirem confiar em mensagens
       // cross-origin vindas do site do cliente ou expor a importação sem
@@ -2553,7 +2555,7 @@
             mostrarFeedbackImportar();
           }
         } catch (_e) {}
-        try { window.open(scriptOrigin + '/tours', '_blank', 'noopener'); } catch (_e) {}
+        try { window.open(scriptOrigin + '/tours?importarJson=1', '_blank', 'noopener'); } catch (_e) {}
         return;
       }
 
