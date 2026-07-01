@@ -13,6 +13,7 @@ import { TourForm } from './pages/tours/Form'
 import { TourPreview } from './pages/tours/Preview'
 import { TourDashboard } from './pages/tours/Dashboard'
 import { TourGuide } from './pages/tours/Guide'
+import { TourGravador } from './pages/tours/Gravador'
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="campanhas/:id/preview" element={<CampanhaPreview />} />
         <Route path="tours" element={<ToursIndex />} />
         <Route path="tours/guia" element={<TourGuide />} />
+        <Route path="tours/gravador" element={<TourGravador />} />
         <Route path="tours/novo" element={<TourForm />} />
         <Route path="tours/:id/editar" element={<TourForm />} />
         <Route path="tours/:id/preview" element={<TourPreview />} />

@@ -37,6 +37,30 @@ export function comandoTestarSeletor(seletorTipo: string, seletor: string): stri
   return `document.querySelector('[data-cy="${seletor}"]')`
 }
 
+// ─── Gravador de fluxo (MVP) ────────────────────────────────────────────────
+// Monta a URL que o admin abre numa nova aba para iniciar a gravação: a URL
+// informada + parâmetros que o widget.js lê no init() (ver iniciarGravadorSeNecessario
+// em widget.js) pra saber que deve entrar em modo de gravação e já ter o
+// título/descrição/sistema/prioridade prontos pro JSON final. Lança se
+// urlInicial não for uma URL absoluta válida — quem chama decide como avisar.
+export interface GravadorParams {
+  urlInicial: string
+  titulo: string
+  descricao: string
+  sistema: string
+  prioridade: number
+}
+
+export function buildGravadorUrl(params: GravadorParams): string {
+  const url = new URL(params.urlInicial)
+  url.searchParams.set('userpulse_recorder', '1')
+  if (params.titulo.trim()) url.searchParams.set('up_rec_titulo', params.titulo.trim())
+  if (params.descricao.trim()) url.searchParams.set('up_rec_descricao', params.descricao.trim())
+  if (params.sistema.trim()) url.searchParams.set('up_rec_sistema', params.sistema.trim())
+  if (params.prioridade) url.searchParams.set('up_rec_prioridade', String(params.prioridade))
+  return url.toString()
+}
+
 // Baixa um objeto como arquivo .json — mesmo padrão de download client-side
 // (Blob + link temporário) usado para exportar CSV em CampanhaDashboard.tsx.
 export function downloadJson(filename: string, data: unknown): void {
