@@ -167,27 +167,39 @@
       '.up-rec-aviso{display:none;width:100%;flex-basis:100%;text-align:center;color:#ffd54f;font-weight:700;font-size:11px;margin-top:2px}',
       '.up-rec-aviso.up-rec-aviso-visivel{display:block}',
       '.up-rec-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}',
-      '.up-rec-btn{border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;white-space:nowrap}',
+      // Base pensada pro fundo ESCURO da barra flutuante (texto branco sobre
+      // branco-translúcido). Nunca usar sozinha (só .up-rec-btn) em botões
+      // dentro de modais de fundo BRANCO (.up-rec-modal) — fica texto branco
+      // sobre fundo quase branco, efetivamente invisível. Modais claros devem
+      // sempre combinar com .up-rec-btn-primary, .up-rec-btn-secondary ou
+      // .up-rec-btn-danger.
+      '.up-rec-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;white-space:nowrap;opacity:1;visibility:visible}',
       '.up-rec-btn:hover{background:rgba(255,255,255,.24)}',
       '.up-rec-btn:disabled{opacity:.35;cursor:not-allowed}',
-      '.up-rec-btn-primary{background:#0058be}',
+      '.up-rec-btn-primary{background:#0058be;color:#fff}',
       '.up-rec-btn-primary:hover{background:#0066d6}',
-      '.up-rec-btn-danger{background:rgba(255,82,82,.22)}',
+      // Variante pra uso em modal de fundo branco (Copiar/Baixar/Fechar) —
+      // mesmo esquema de cor já usado em .up-rec-btn-icone, legível sobre #fff.
+      '.up-rec-btn-secondary{background:#eff4ff;color:#0058be}',
+      '.up-rec-btn-secondary:hover{background:#dbe8ff}',
+      '.up-rec-btn-danger{background:rgba(255,82,82,.22);color:#fff}',
       '.up-rec-btn-danger:hover{background:rgba(255,82,82,.36)}',
       '.up-rec-overlay{position:fixed;inset:0;z-index:2147483650;display:flex;align-items:center;justify-content:center;background:rgba(11,28,48,.55);padding:16px}',
-      '.up-rec-modal{width:100%;max-width:640px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
+      '.up-rec-modal{width:100%;max-width:720px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
       '.up-rec-modal-title{font-size:16px;font-weight:800;margin:0;flex-shrink:0}',
       '.up-rec-modal-sub{font-size:12px;color:#424754;margin:0;flex-shrink:0}',
-      // flex:1 + min-height:0 (em vez de min-height fixo) deixa o textarea
-      // ser o único elemento que cresce/encolhe pra caber no max-height do
-      // modal — sem isso, um JSON longo podia empurrar o rodapé de botões
-      // pra fora da área visível do modal.
-      '.up-rec-textarea{flex:1;min-height:0;border:1px solid #c2c6d6;border-radius:10px;padding:10px;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:vertical;background:#f8f9ff;color:#0b1c30}',
+      // flex:1 (com flex-basis generoso) + min-height:0 deixa o textarea ser
+      // o único elemento que cresce/encolhe pra caber no max-height do modal
+      // — sem isso, um JSON longo empurrava o rodapé de botões pra fora da
+      // área visível. resize:none (em vez de vertical) evita que o usuário
+      // arraste o textarea além dos limites do modal e quebre o layout —
+      // mesma convenção do campo "Importar JSON" no admin (resize-none).
+      '.up-rec-textarea{flex:1 1 380px;min-height:0;border:1px solid #c2c6d6;border-radius:10px;padding:12px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:none;background:#f8f9ff;color:#0b1c30;overflow:auto}',
       // flex-shrink:0 garante que o rodapé (Copiar/Baixar/Fechar) nunca seja
       // espremido a ponto de sumir — sempre visível no rodapé do modal, sem
       // depender de scroll (usado tanto no painel final quanto na revisão).
-      '.up-rec-modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;flex-shrink:0}',
-      '.up-rec-modal-revisao{max-width:720px}',
+      // position:relative + z-index garante que fique acima da área do JSON.
+      '.up-rec-modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;flex-shrink:0;width:100%;position:relative;z-index:1}',
       '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding-right:4px}',
       '.up-rec-revisao-item{border:1px solid #e0e2ef;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:6px}',
       '.up-rec-revisao-header{display:flex;align-items:center;justify-content:space-between;gap:8px}',
@@ -2259,7 +2271,7 @@
       (vazio ? '<p class="up-rec-modal-sub">Capture pelo menos um passo para gerar o JSON.</p>' : itens),
       '</div>',
       '<div class="up-rec-modal-actions">',
-      '<button type="button" class="up-rec-btn" data-rev-fechar>Fechar</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-rev-fechar>Fechar</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-primary" data-rev-gerar' + (vazio ? ' disabled title="Capture pelo menos um passo para gerar o JSON."' : '') + '>Gerar JSON</button>',
       '</div>',
       '</div>',
@@ -2408,8 +2420,8 @@
       avisoNavegacao,
       '<textarea class="up-rec-textarea" readonly data-up-rec-json>' + escapeHtml(texto) + '</textarea>',
       '<div class="up-rec-modal-actions">',
-      '<button type="button" class="up-rec-btn" data-up-rec-copiar>Copiar JSON</button>',
-      '<button type="button" class="up-rec-btn" data-up-rec-baixar>Baixar JSON</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-up-rec-copiar>Copiar JSON</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-up-rec-baixar>Baixar JSON</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-primary" data-up-rec-fechar>Fechar</button>',
       '</div>',
       '</div>',
