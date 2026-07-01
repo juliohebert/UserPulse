@@ -2456,6 +2456,7 @@
     var json = recorderMontarJson();
     var texto = JSON.stringify(json, null, 2);
     var copiarTimer = null;
+    var importarTimer = null;
 
     var avisoNavegacao = recorderState.navegacoes.length > 0
       ? '<p class="up-rec-modal-sub">' + recorderState.navegacoes.length + ' navegação(ões) de URL detectada(s) durante a gravação — não viraram passo (sem elemento associado); o tour usa a URL onde a gravação começou.</p>'
@@ -2473,6 +2474,7 @@
       '<div class="up-rec-modal-actions">',
       '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-up-rec-copiar>Copiar JSON</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-up-rec-baixar>Baixar JSON</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-up-rec-importar>Copiar e abrir importação</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-primary" data-up-rec-fechar>Fechar</button>',
       '</div>',
       '</div>',
@@ -2520,6 +2522,38 @@
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
         } catch (_e) {}
+        return;
+      }
+
+      // "Copiar e abrir importação": nunca chama o endpoint de importação
+      // direto nem manda token nenhum — só copia o JSON (mesmo mecanismo do
+      // botão Copiar) e abre a tela /tours do admin (mesma origem que serve
+      // este widget.js, via scriptOrigin) numa aba nova, onde o próprio
+      // usuário autenticado cola o conteúdo em "Importar JSON" manualmente.
+      // Ver análise completa no resumo entregue — postMessage/endpoint direto
+      // foram avaliados e descartados por exigirem confiar em mensagens
+      // cross-origin vindas do site do cliente ou expor a importação sem
+      // autenticação.
+      var botaoImportar = alvo.closest('[data-up-rec-importar]');
+      if (botaoImportar) {
+        var mostrarFeedbackImportar = function () {
+          if (importarTimer) window.clearTimeout(importarTimer);
+          botaoImportar.textContent = 'Copiado! Abrindo…';
+          importarTimer = window.setTimeout(function () {
+            importarTimer = null;
+            botaoImportar.textContent = 'Copiar e abrir importação';
+          }, RECORDER_COPIAR_FEEDBACK_MS);
+        };
+        try {
+          var textareaImp = root.querySelector('[data-up-rec-json]');
+          if (textareaImp && textareaImp.select) textareaImp.select();
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(texto).then(mostrarFeedbackImportar).catch(function () {});
+          } else if (document.execCommand('copy')) {
+            mostrarFeedbackImportar();
+          }
+        } catch (_e) {}
+        try { window.open(scriptOrigin + '/tours', '_blank', 'noopener'); } catch (_e) {}
         return;
       }
 
