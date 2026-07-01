@@ -17,7 +17,7 @@ export function ToursIndex() {
   const [page, setPage] = useState(1)
   const [busca, setBusca] = useState('')
   const [filterSistema, setFilterSistema] = useState('')
-  const [filterAtivo, setFilterAtivo] = useState<'todos' | 'ativos' | 'inativos'>('ativos')
+  const [filterAtivo, setFilterAtivo] = useState<'todos' | 'ativos' | 'inativos'>('todos')
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   const navigate = useNavigate()

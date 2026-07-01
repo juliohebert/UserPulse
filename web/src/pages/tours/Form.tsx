@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
 import type { TourGuiado } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
+import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
 
 interface PassoState {
   id?: string
@@ -26,9 +27,11 @@ interface FormState {
   ativo: boolean
 }
 
+// Um tour novo começa como rascunho (inativo) — precisa ser testado antes de
+// ser ativado para os usuários. Ver aviso no topo do formulário de criação.
 const EMPTY: FormState = {
   titulo: '', descricao: '', sistema: '', modo_identificacao: 'sistema_tela',
-  tela: '', data_cy: '', url_contem: '', prioridade: '0', ativo: true,
+  tela: '', data_cy: '', url_contem: '', prioridade: '0', ativo: false,
 }
 
 const PASSO_VAZIO: PassoState = {
@@ -61,6 +64,7 @@ export function TourForm() {
   const { id } = useParams<{ id: string }>()
   const isEdit = Boolean(id)
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [passos, setPassos] = useState<PassoState[]>([{ ...PASSO_VAZIO }])
@@ -68,13 +72,19 @@ export function TourForm() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const successTimer = useRef<number | null>(null)
-  const redirectTimer = useRef<number | null>(null)
+  const [templateAplicadoId, setTemplateAplicadoId] = useState<string | null>(null)
 
-  useEffect(() => () => {
-    if (successTimer.current) window.clearTimeout(successTimer.current)
-    if (redirectTimer.current) window.clearTimeout(redirectTimer.current)
-  }, [])
+  // Feedback de "salvo com sucesso" sobrevive ao redirecionamento pós-criação
+  // (de /tours/novo para /tours/:id/editar) via router state, em vez de um
+  // timer artificial. Consome e limpa o state para não reaparecer em
+  // navegações futuras (voltar, atualizar a página).
+  useEffect(() => {
+    if (isEdit && (location.state as { justSaved?: boolean } | null)?.justSaved) {
+      setSuccess(true)
+      navigate(location.pathname, { replace: true, state: null })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, location.state])
 
   useEffect(() => {
     if (!id) return
@@ -110,6 +120,31 @@ export function TourForm() {
 
   const set = (key: keyof FormState, value: string | boolean) =>
     setForm(prev => ({ ...prev, [key]: value }))
+
+  // Só disponível na criação (isEdit é sempre false aqui, ver render abaixo).
+  // Preenche apenas título, descrição e passos base — sistema, modo de
+  // identificação etc. não são tocados, e seletor/tipo de seletor ficam em
+  // branco (dependem da tela real do sistema hospedeiro). Tudo continua
+  // editável normalmente depois de aplicado. ativo é forçado para false: como
+  // os seletores vêm vazios, o tour não pode ser ativado até serem
+  // preenchidos (ver validação em handleSubmit).
+  const aplicarTemplate = (tpl: TourTemplate) => {
+    setForm(prev => ({ ...prev, titulo: tpl.titulo_sugerido, descricao: tpl.descricao_sugerida, ativo: false }))
+    setPassos(tpl.passos.map(p => ({
+      titulo: p.titulo,
+      descricao: p.descricao,
+      seletor_tipo: 'data_cy',
+      seletor: '',
+      tooltip_posicao: p.tooltip_posicao,
+    })))
+    setTemplateAplicadoId(tpl.id)
+  }
+
+  const limparTemplate = () => {
+    setForm(prev => ({ ...prev, titulo: '', descricao: '' }))
+    setPassos([{ ...PASSO_VAZIO }])
+    setTemplateAplicadoId(null)
+  }
 
   const setPasso = (index: number, key: keyof PassoState, value: string) =>
     setPassos(prev => prev.map((p, i) => (i === index ? { ...p, [key]: value } : p)))
@@ -149,8 +184,14 @@ export function TourForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (passos.length === 0 || passos.some(p => !p.titulo.trim() || !p.seletor.trim())) {
-      setError('Todo passo precisa de título e seletor preenchidos.')
+    if (passos.length === 0 || passos.some(p => !p.titulo.trim())) {
+      setError('Todo passo precisa de título preenchido.')
+      return
+    }
+    // Seletor só é exigido para ativar — um rascunho pode ficar com
+    // seletores vazios (ex.: logo depois de aplicar um template).
+    if (form.ativo && passos.some(p => !p.seletor.trim())) {
+      setError('Para ativar o tour, todos os passos precisam ter um seletor/data-cy informado.')
       return
     }
     setSubmitting(true)
@@ -176,11 +217,15 @@ export function TourForm() {
         ? await put<TourGuiado>(`/tours/${id}`, payload)
         : await post<TourGuiado>('/tours', payload)
 
-      // Mostra o feedback de sucesso antes de redirecionar, para não perdê-lo
-      // no caso de criação (que troca de rota de /tours/novo para /tours/:id/editar).
-      setSuccess(true)
-      successTimer.current = window.setTimeout(() => setSuccess(false), 3000)
-      redirectTimer.current = window.setTimeout(() => navigate(`/tours/${saved.id}/editar`), 900)
+      if (isEdit) {
+        // Já estamos na rota final (/tours/:id/editar) — mostra as ações direto.
+        setSuccess(true)
+      } else {
+        // Troca /tours/novo por /tours/:id/editar (necessário para que um novo
+        // "Salvar" vire PUT em vez de criar outro tour) e leva o aviso de
+        // sucesso via router state, para não perdê-lo no redirecionamento.
+        navigate(`/tours/${saved.id}/editar`, { state: { justSaved: true } })
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Não foi possível salvar o tour guiado. Tente novamente.')
     } finally {
@@ -237,10 +282,44 @@ export function TourForm() {
       </div>
 
       <section className="px-4 lg:px-margin-desktop py-5 max-w-4xl">
+        {!isEdit && !form.ativo && (
+          <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px]">info</span>
+            Este tour começa como rascunho. Teste antes de ativar para os usuários.
+          </div>
+        )}
         {success && (
-          <div className="mb-5 p-3 bg-tertiary/10 text-tertiary rounded-xl text-body-md flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px]">check_circle</span>
-            Tour salvo com sucesso.
+          <div className="mb-5 p-4 bg-tertiary/10 rounded-xl">
+            <p className="text-body-md text-tertiary font-semibold flex items-center gap-2 mb-3">
+              <span className="material-symbols-outlined text-[18px]">check_circle</span>
+              Tour salvo com sucesso.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => navigate(`/tours/${id}/preview`)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-surface-bright border border-outline-variant rounded-lg text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-colors"
+              >
+                <span className="material-symbols-outlined text-[16px]">play_circle</span>
+                Testar tour
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/tours/${id}/dashboard`)}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-surface-bright border border-outline-variant rounded-lg text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-colors"
+              >
+                <span className="material-symbols-outlined text-[16px]">monitoring</span>
+                Ver dashboard
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/tours')}
+                className="flex items-center gap-1.5 px-3.5 py-2 bg-surface-bright border border-outline-variant rounded-lg text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-colors"
+              >
+                <span className="material-symbols-outlined text-[16px]">arrow_back</span>
+                Voltar para listagem
+              </button>
+            </div>
           </div>
         )}
         {error && (
@@ -251,6 +330,51 @@ export function TourForm() {
         )}
 
         <form id="tour-form" onSubmit={handleSubmit} className="space-y-4">
+          {/* Templates — só na criação, nunca aplicado automaticamente na edição */}
+          {!isEdit && (
+            <div className={card}>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="p-1.5 bg-tertiary/10 rounded-lg text-tertiary material-symbols-outlined text-[20px]">auto_awesome</span>
+                <div>
+                  <h3 className="text-title-lg font-bold text-on-surface">Começar com um modelo</h3>
+                  <p className="text-label-md text-on-surface-variant">Escolha um ponto de partida — título, descrição e passos base. Você edita tudo livremente depois.</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {TOUR_TEMPLATES.map(tpl => {
+                  const ativo = templateAplicadoId === tpl.id
+                  return (
+                    <button
+                      key={tpl.id}
+                      type="button"
+                      onClick={() => aplicarTemplate(tpl)}
+                      className={`text-left p-3.5 rounded-xl border transition-all ${
+                        ativo ? 'border-primary bg-primary-fixed' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'
+                      }`}
+                    >
+                      <span className={`material-symbols-outlined text-[20px] mb-1.5 block ${ativo ? 'text-primary' : 'text-on-surface-variant'}`}>
+                        {tpl.icon}
+                      </span>
+                      <p className={`text-body-md font-semibold ${ativo ? 'text-primary' : 'text-on-surface'}`}>{tpl.nome}</p>
+                      <p className="text-[11px] text-on-surface-variant mt-0.5">{tpl.descricao}</p>
+                    </button>
+                  )
+                })}
+              </div>
+              {templateAplicadoId && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 bg-tertiary/10 rounded-xl">
+                  <p className="text-label-md text-tertiary flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                    Modelo aplicado — título, descrição e passos preenchidos abaixo. Seletores ficam em branco para você informar.
+                  </p>
+                  <button type="button" onClick={limparTemplate} className="text-label-md text-tertiary font-bold hover:underline shrink-0">
+                    Começar em branco
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Parâmetros gerais */}
           <div className={card}>
             <div className="flex items-center gap-3 mb-4">

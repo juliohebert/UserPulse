@@ -42,13 +42,19 @@ function getCamposObrigatorios(modo: string): string[] {
   return ['tela']
 }
 
-function validarPassos(passos: unknown): { erro: string | null; lista: PassoInput[] } {
+// Seletor só é obrigatório quando o tour vai ficar ativo — um rascunho (ex.:
+// recém-criado a partir de um template) pode ser salvo com seletores vazios,
+// mas não pode ser publicado (ativo: true) sem eles, já que o widget depende
+// do seletor para localizar o elemento na tela.
+function validarPassos(passos: unknown, exigirSeletor: boolean): { erro: string | null; lista: PassoInput[] } {
   if (!Array.isArray(passos) || passos.length === 0) {
     return { erro: 'O tour precisa ter ao menos um passo.', lista: [] }
   }
   for (const [i, p] of (passos as PassoInput[]).entries()) {
     if (!p.titulo?.trim()) return { erro: `Passo ${i + 1}: título é obrigatório.`, lista: [] }
-    if (!p.seletor?.trim()) return { erro: `Passo ${i + 1}: seletor é obrigatório.`, lista: [] }
+    if (exigirSeletor && !p.seletor?.trim()) {
+      return { erro: 'Para ativar o tour, todos os passos precisam ter um seletor/data-cy informado.', lista: [] }
+    }
     if (p.seletor_tipo && !SELETOR_TIPOS.includes(p.seletor_tipo)) {
       return { erro: `Passo ${i + 1}: tipo de seletor inválido.`, lista: [] }
     }
@@ -102,7 +108,11 @@ export async function criar(req: Request, res: Response) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
     }
 
-    const { erro: erroPassos, lista: listaPassos } = validarPassos(passos)
+    // Rascunho por padrão: um tour novo só fica ativo se o pedido pedir isso
+    // explicitamente (o formulário admin já envia ativo: false por padrão).
+    const ativoBool = ativo !== undefined ? Boolean(ativo) : false
+
+    const { erro: erroPassos, lista: listaPassos } = validarPassos(passos, ativoBool)
     if (erroPassos) return res.status(400).json({ erro: erroPassos })
 
     const slug = await slugUnico(gerarSlugBase(titulo))
@@ -118,7 +128,7 @@ export async function criar(req: Request, res: Response) {
         data_cy: data_cy?.trim() || null,
         url_contem: url_contem?.trim() || null,
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
-        ativo: ativo !== undefined ? Boolean(ativo) : true,
+        ativo: ativoBool,
         passos: {
           create: listaPassos.map((p, i) => ({
             ordem: i,
@@ -143,7 +153,10 @@ export async function criar(req: Request, res: Response) {
 export async function atualizar(req: Request, res: Response) {
   try {
     const id = req.params.id as string
-    const existente = await prisma.tourGuiado.findUnique({ where: { id } })
+    const existente = await prisma.tourGuiado.findUnique({
+      where: { id },
+      include: { passos: true },
+    })
     if (!existente) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
 
     const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos } = req.body
@@ -158,11 +171,20 @@ export async function atualizar(req: Request, res: Response) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
     }
 
+    const ativoEfetivo = ativo !== undefined ? Boolean(ativo) : existente.ativo
+
     let listaPassos: PassoInput[] | null = null
     if (passos !== undefined) {
-      const { erro: erroPassos, lista } = validarPassos(passos)
+      const { erro: erroPassos, lista } = validarPassos(passos, ativoEfetivo)
       if (erroPassos) return res.status(400).json({ erro: erroPassos })
       listaPassos = lista
+    } else if (ativoEfetivo) {
+      // Ativando sem reenviar os passos (ex.: toggle rápido na listagem) —
+      // valida os passos já salvos, que são os que o widget vai usar.
+      const semSeletor = existente.passos.some(p => !p.seletor?.trim())
+      if (semSeletor) {
+        return res.status(400).json({ erro: 'Para ativar o tour, todos os passos precisam ter um seletor/data-cy informado.' })
+      }
     }
 
     let slug = existente.slug
