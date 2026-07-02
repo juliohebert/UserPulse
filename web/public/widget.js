@@ -158,12 +158,17 @@
       '.up-tour-close:hover{background:#eff4ff;color:#0b1c30}',
       '.up-tour-close svg{width:16px;height:16px;fill:currentColor;display:block}',
       '@media (max-width:480px){.up-tour-tooltip{width:calc(100vw - 24px)}}',
-      '.up-rec-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483640;display:flex;align-items:center;gap:10px;background:#0b1c30;color:#fff;padding:10px 14px;border-radius:999px;box-shadow:0 18px 40px rgba(11,28,48,.35);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}',
-      '.up-rec-dot{width:9px;height:9px;border-radius:50%;background:#ff5252;flex-shrink:0;animation:up-rec-blink 1.2s ease-in-out infinite}',
+      // Barra flutuante — fundo sempre escuro de propósito (independente do
+      // tema claro/escuro da página host), pra garantir contraste e leitura
+      // em qualquer sistema onde o widget for embedado.
+      '.up-rec-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483640;display:flex;align-items:center;gap:8px;background:#0b1c30;color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 18px 40px rgba(11,28,48,.35);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}',
+      '.up-rec-dot{width:8px;height:8px;border-radius:50%;background:#ff5252;flex-shrink:0;animation:up-rec-blink 1.2s ease-in-out infinite}',
       '@keyframes up-rec-blink{0%,100%{opacity:1}50%{opacity:.25}}',
-      '.up-rec-label{font-weight:800;white-space:nowrap}',
-      '.up-rec-contador{opacity:.75;white-space:nowrap}',
-      '.up-rec-ultimo{opacity:.7;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}',
+      '.up-rec-label{font-weight:800;white-space:nowrap;letter-spacing:.01em}',
+      // Contador como selo (fundo translúcido) — se destaca do "label" e do
+      // "último passo" em vez de ser só mais um texto solto na mesma linha.
+      '.up-rec-contador{white-space:nowrap;background:rgba(255,255,255,.14);border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700}',
+      '.up-rec-ultimo{opacity:.65;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;font-size:12px}',
       '.up-rec-aviso{display:none;width:100%;flex-basis:100%;text-align:center;color:#ffd54f;font-weight:700;font-size:11px;margin-top:2px}',
       '.up-rec-aviso.up-rec-aviso-visivel{display:block}',
       '.up-rec-troca-info{flex-basis:100%;text-align:center;opacity:.85;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}',
@@ -176,11 +181,15 @@
       // sobre fundo quase branco, efetivamente invisível. Modais claros devem
       // sempre combinar com .up-rec-btn-primary, .up-rec-btn-secondary ou
       // .up-rec-btn-danger.
-      '.up-rec-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;white-space:nowrap;opacity:1;visibility:visible}',
+      '.up-rec-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.14);color:#fff;font-family:inherit;white-space:nowrap;opacity:1;visibility:visible;transition:background .15s ease,opacity .15s ease,transform .1s ease}',
       '.up-rec-btn:hover{background:rgba(255,255,255,.24)}',
-      '.up-rec-btn:disabled{opacity:.35;cursor:not-allowed}',
+      '.up-rec-btn:active{transform:scale(.97)}',
+      '.up-rec-btn:disabled{opacity:.35;cursor:not-allowed;transform:none}',
+      // Ação principal (Gerar JSON, Copiar JSON, Copiar e abrir importação) —
+      // mesmo azul primário e mesmo hover:opacity (não escurecer) usado nos
+      // botões primários do admin (ex.: "Iniciar gravação"/"Adicionar passo").
       '.up-rec-btn-primary{background:#0058be;color:#fff}',
-      '.up-rec-btn-primary:hover{background:#0066d6}',
+      '.up-rec-btn-primary:hover{background:#0058be;opacity:.9}',
       // Variante pra uso em modal de fundo branco (Copiar/Baixar/Fechar) —
       // mesmo esquema de cor já usado em .up-rec-btn-icone, legível sobre #fff.
       '.up-rec-btn-secondary{background:#eff4ff;color:#0058be}',
@@ -189,6 +198,7 @@
       '.up-rec-btn-danger:hover{background:rgba(255,82,82,.36)}',
       '.up-rec-overlay{position:fixed;inset:0;z-index:2147483650;display:flex;align-items:center;justify-content:center;background:rgba(11,28,48,.55);padding:16px}',
       '.up-rec-modal{width:100%;max-width:720px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
+      '@media (max-width:480px){.up-rec-overlay{padding:8px}.up-rec-modal{max-height:calc(100vh - 16px);border-radius:12px;padding:14px;gap:8px}}',
       '.up-rec-modal-title{font-size:16px;font-weight:800;margin:0;flex-shrink:0}',
       '.up-rec-modal-sub{font-size:12px;color:#424754;margin:0;flex-shrink:0}',
       // flex:1 (com flex-basis generoso) + min-height:0 deixa o textarea ser
@@ -197,7 +207,8 @@
       // área visível. resize:none (em vez de vertical) evita que o usuário
       // arraste o textarea além dos limites do modal e quebre o layout —
       // mesma convenção do campo "Importar JSON" no admin (resize-none).
-      '.up-rec-textarea{flex:1 1 380px;min-height:0;border:1px solid #c2c6d6;border-radius:10px;padding:12px;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:none;background:#f8f9ff;color:#0b1c30;overflow:auto}',
+      '.up-rec-textarea{flex:1 1 380px;min-height:0;border:1px solid #c2c6d6;border-radius:10px;padding:12px;font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;resize:none;background:#f8f9ff;color:#0b1c30;overflow:auto;outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
+      '.up-rec-textarea:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16);background:#fff}',
       // flex-shrink:0 garante que o rodapé (Copiar/Baixar/Fechar) nunca seja
       // espremido a ponto de sumir — sempre visível no rodapé do modal, sem
       // depender de scroll (usado tanto no painel final quanto na revisão).
@@ -209,58 +220,94 @@
       '.up-rec-revisao-contagem{font-size:11px;font-weight:800;color:#0058be;background:#eff4ff;border-radius:999px;padding:2px 10px;white-space:nowrap;flex-shrink:0}',
       // Única área com scroll interno do modal — cabeçalho e rodapé (ações)
       // ficam de fora, sempre visíveis (flex-shrink:0 neles).
-      '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px}',
-      '.up-rec-revisao-item{border:1px solid #edeef5;border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;background:#fff}',
-      '.up-rec-revisao-header{display:flex;align-items:baseline;justify-content:space-between;gap:8px}',
-      '.up-rec-revisao-header-titulo{display:flex;align-items:baseline;gap:6px;min-width:0;overflow:hidden}',
-      '.up-rec-revisao-ordem{font-weight:800;font-size:12px;color:#0058be;flex-shrink:0}',
+      '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding-right:4px}',
+      // Mesmo tratamento de card de passo do admin (Tours > Editar):
+      // borda outline-variant + fundo levemente tingido de surface-container-low.
+      '.up-rec-revisao-item{border:1px solid #c2c6d6;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;background:rgba(239,244,255,.4)}',
+      '.up-rec-revisao-header{display:flex;align-items:center;justify-content:space-between;gap:8px}',
+      '.up-rec-revisao-header-titulo{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}',
+      // Círculo numerado — mesmo padrão visual do admin (bg-primary-fixed
+      // text-primary) pra identificar a ordem do passo de forma mais clara
+      // que só um número em texto.
+      '.up-rec-revisao-numero{width:20px;height:20px;flex-shrink:0;border-radius:999px;background:#d8e2ff;color:#0058be;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800}',
+      '.up-rec-revisao-ordem{font-weight:800;font-size:12px;color:#0b1c30;flex-shrink:0;white-space:nowrap}',
       '.up-rec-revisao-resumo{font-size:11px;color:#727785;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}',
       '.up-rec-revisao-acoes{display:flex;gap:4px;flex-wrap:wrap;flex-shrink:0}',
-      '.up-rec-btn-icone{border:0;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:700;cursor:pointer;background:#eff4ff;color:#0058be;font-family:inherit}',
-      '.up-rec-btn-icone:hover{background:#dbe8ff}',
+      // Neutro por padrão (mover/duplicar) — mesmo esquema do admin
+      // (text-on-surface-variant hover:bg-surface-container-high): discreto em
+      // repouso, só ganha fundo no hover.
+      '.up-rec-btn-icone{border:0;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:#424754;font-family:inherit;transition:background .15s ease,color .15s ease}',
+      '.up-rec-btn-icone:hover{background:#dce9ff;color:#0b1c30}',
       '.up-rec-btn-icone:disabled{opacity:.35;cursor:not-allowed}',
-      '.up-rec-btn-icone.up-rec-btn-danger{background:rgba(255,82,82,.12);color:#ba1a1a}',
-      '.up-rec-btn-icone.up-rec-btn-danger:hover{background:rgba(255,82,82,.22)}',
+      // Destaque (Trocar elemento, ações rápidas de sugestão, Analisar
+      // passos) — mesmo tom primário usado nas ações "copiar seletor"/"copiar
+      // comando" do admin (hover:text-primary), só que já colorido em repouso
+      // pra convidar o clique, já que aqui é a ação principal do botão.
+      '.up-rec-btn-icone-acento{background:transparent;color:#0058be}',
+      '.up-rec-btn-icone-acento:hover{background:#eff4ff}',
+      // Remover — mesmo esquema do botão "Remover passo" do admin
+      // (text-error hover:bg-error-container): discreto mas identificável
+      // pela cor, sem fundo chamativo em repouso.
+      '.up-rec-btn-icone.up-rec-btn-danger{background:transparent;color:#ba1a1a}',
+      '.up-rec-btn-icone.up-rec-btn-danger:hover{background:#ffdad6}',
       // Título/descrição são os campos principais — rótulo normal (não
       // maiúsculo/técnico), pra se destacar da seção de configuração abaixo.
-      '.up-rec-revisao-principal{display:flex;flex-direction:column;gap:2px}',
-      '.up-rec-revisao-label-principal{font-size:11px;font-weight:800;color:#424754;margin-top:4px}',
+      '.up-rec-revisao-principal{display:flex;flex-direction:column;gap:3px}',
+      '.up-rec-revisao-label-principal{font-size:11px;font-weight:800;color:#424754;margin-top:6px}',
       '.up-rec-revisao-label{font-size:10px;font-weight:700;color:#8a90a3;text-transform:uppercase;letter-spacing:.03em;display:block;margin-top:4px}',
-      '.up-rec-input{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;color:#0b1c30;margin-top:2px}',
-      '.up-rec-textarea-sm{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:6px 8px;font-size:13px;font-family:inherit;color:#0b1c30;resize:vertical;min-height:36px;margin-top:2px}',
-      '.up-rec-select{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;color:#0b1c30;background:#fff;margin-top:2px}',
+      // Mesmo esquema de borda/foco dos inputs do admin (border-outline-variant,
+      // focus:ring-primary) — só compacto o bastante pra caber vários campos
+      // por card sem esticar o modal.
+      '.up-rec-input{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;color:#0b1c30;background:#f8f9ff;margin-top:3px;outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
+      '.up-rec-input:hover{border-color:#a8adbd}',
+      '.up-rec-input:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16);background:#fff}',
+      '.up-rec-textarea-sm{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;color:#0b1c30;background:#f8f9ff;resize:vertical;min-height:44px;margin-top:3px;outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
+      '.up-rec-textarea-sm:hover{border-color:#a8adbd}',
+      '.up-rec-textarea-sm:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16);background:#fff}',
+      '.up-rec-select{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;color:#0b1c30;background:#fff;margin-top:3px;outline:none;cursor:pointer;transition:border-color .15s ease,box-shadow .15s ease}',
+      '.up-rec-select:hover{border-color:#a8adbd}',
+      '.up-rec-select:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
       // Seção "Configuração do passo" — agrupada visualmente à parte (fundo
       // discreto), separando o que é técnico (seletor/comportamento) do que é
       // conteúdo principal (título/descrição) editado acima.
-      '.up-rec-revisao-config{background:#f8f9ff;border-radius:8px;padding:8px 10px;margin-top:2px}',
+      '.up-rec-revisao-config{background:#fff;border:1px solid rgba(194,198,214,.5);border-radius:8px;padding:9px 11px;margin-top:6px}',
       '.up-rec-revisao-config-titulo{font-size:10px;font-weight:800;color:#8a90a3;text-transform:uppercase;letter-spacing:.04em;margin:0 0 2px}',
       '.up-rec-revisao-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
       // Seletor: chip de leitura (não deve parecer um input editável).
       '.up-rec-revisao-codigo{display:inline-flex;max-width:100%;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f8;border:1px solid #dde1ee;border-radius:6px;padding:3px 7px;color:#425066;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}',
-      // Alertas discretos — chips compactos lado a lado em vez de lista
-      // empilhada, pra ocupar menos espaço vertical no card.
-      '.up-rec-revisao-alertas{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px}',
-      '.up-rec-revisao-alertas li{font-size:10.5px;line-height:1.3;color:#e65100;background:rgba(230,81,0,.08);border-radius:6px;padding:3px 7px}',
+      // Alertas discretos (obrigatórios pro importador) — chips compactos lado
+      // a lado em vez de lista empilhada, pra ocupar menos espaço vertical no
+      // card. Marcador "▲" reforça que é algo a corrigir, não só uma dica.
+      '.up-rec-revisao-alertas{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px}',
+      '.up-rec-revisao-alertas li{font-size:10.5px;line-height:1.3;color:#e65100;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:3px 7px}',
+      '.up-rec-revisao-alertas li::before{content:"\\25B2";font-size:7px;margin-right:4px;vertical-align:middle}',
       '.up-rec-troca-btn{display:inline-flex;margin-top:4px}',
       '@media (max-width:480px){.up-rec-revisao-grid{grid-template-columns:1fr}}',
       // Botão "Analisar passos" (topo do painel de revisão) e as sugestões
       // discretas por passo — visualmente distintas dos alertas (tom azul,
-      // não âmbar), já que são opcionais/informativas, nunca bloqueiam nada.
+      // marcador redondo em vez de triângulo), já que são opcionais/
+      // informativas (qualidade/duplicidade), nunca bloqueiam gerar JSON.
       '.up-rec-analisar-btn{align-self:flex-start}',
       '.up-rec-sugestoes{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}',
       '.up-rec-sugestao-item{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10.5px;line-height:1.3;color:#0058be;background:#eff4ff;border-radius:6px;padding:4px 8px}',
       '.up-rec-sugestao-texto{flex:1}',
+      '.up-rec-sugestao-texto::before{content:"\\25CF";font-size:7px;margin-right:5px;vertical-align:middle;opacity:.7}',
       // Mini painel "Escolha o seletor deste passo" (troca de elemento).
       '.up-rec-modal-escolha{max-width:520px}',
       '.up-rec-escolha-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px}',
-      '.up-rec-escolha-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e0e2ef;border-radius:10px;background:#fff;cursor:pointer;text-align:left;width:100%;font-family:inherit}',
+      '.up-rec-escolha-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e0e2ef;border-left-width:3px;border-radius:10px;background:#fff;cursor:pointer;text-align:left;width:100%;font-family:inherit;transition:border-color .15s ease,background .15s ease}',
       '.up-rec-escolha-item:hover{border-color:#0058be;background:#f6f9ff}',
+      // Borda esquerda mais grossa reforça a qualidade por cor mesmo antes de
+      // ler o texto do badge — mesmos tons usados no badge ao lado.
+      '.up-rec-escolha-item-recomendado{border-left-color:#006947}',
+      '.up-rec-escolha-item-bom{border-left-color:#0058be}',
+      '.up-rec-escolha-item-fragil{border-left-color:#e65100}',
       '.up-rec-escolha-tipo{font-size:11px;font-weight:800;color:#424754;flex-shrink:0;min-width:64px}',
       '.up-rec-escolha-codigo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f8;border:1px solid #dde1ee;border-radius:6px;padding:3px 7px;color:#425066}',
       '.up-rec-escolha-qtd{font-size:10px;color:#7c8595;white-space:nowrap;flex-shrink:0}',
       '.up-rec-escolha-qualidade{font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0}',
-      '.up-rec-qualidade-recomendado{background:#e3f6ea;color:#0f7b3d}',
-      '.up-rec-qualidade-bom{background:#eff4ff;color:#0058be}',
+      '.up-rec-qualidade-recomendado{background:rgba(0,105,71,.1);color:#006947}',
+      '.up-rec-qualidade-bom{background:rgba(0,88,190,.1);color:#0058be}',
       '.up-rec-qualidade-fragil{background:rgba(230,81,0,.12);color:#e65100}',
     ].join('');
     document.head.appendChild(style);
@@ -2516,7 +2563,7 @@
       return [
         '<li class="up-rec-sugestao-item">',
         '<span class="up-rec-sugestao-texto">' + escapeHtml(s.texto) + '</span>',
-        (s.acao ? '<button type="button" class="up-rec-btn-icone" data-rev-acao-rapida="' + s.acao + '" data-rev-index="' + indice + '">' + escapeHtml(s.acaoRotulo) + '</button>' : ''),
+        (s.acao ? '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-rev-acao-rapida="' + s.acao + '" data-rev-index="' + indice + '">' + escapeHtml(s.acaoRotulo) + '</button>' : ''),
         '</li>',
       ].join('');
     }).join('') + '</ul>';
@@ -2574,6 +2621,7 @@
       '<div class="up-rec-revisao-item">',
       '<div class="up-rec-revisao-header">',
       '<div class="up-rec-revisao-header-titulo">',
+      '<span class="up-rec-revisao-numero">' + (i + 1) + '</span>',
       '<span class="up-rec-revisao-ordem">Passo ' + (i + 1) + '</span>',
       '<span class="up-rec-revisao-resumo" data-rev-resumo="' + i + '">' + (resumo ? '— ' + escapeHtml(resumo) : '') + '</span>',
       '</div>',
@@ -2595,7 +2643,7 @@
       '<div>',
       '<span class="up-rec-revisao-label">Seletor</span>',
       '<code class="up-rec-revisao-codigo" title="' + escapeHtml(p.seletor) + '">' + escapeHtml(p.seletor_tipo) + ': ' + escapeHtml(p.seletor) + '</code>',
-      '<button type="button" class="up-rec-btn-icone up-rec-troca-btn" data-rev-trocar data-rev-index="' + i + '" title="Clicar novamente no elemento na tela real">Trocar elemento</button>',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento up-rec-troca-btn" data-rev-trocar data-rev-index="' + i + '" title="Clicar novamente no elemento na tela real">Trocar elemento</button>',
       '</div>',
       '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSelectHtml('tooltip_posicao', i, p.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
       '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSelectHtml('modo_avanco_interacao', i, p.modo_avanco_interacao, RECORDER_MODOS_AVANCO) + '</div>',
@@ -2620,7 +2668,7 @@
       '<span class="up-rec-revisao-contagem">' + passos.length + ' passo' + (passos.length === 1 ? '' : 's') + '</span>',
       '</div>',
       '<p class="up-rec-modal-sub">Ajuste título, descrição e comportamento de cada passo antes de gerar o JSON.</p>',
-      (vazio ? '' : '<button type="button" class="up-rec-btn-icone up-rec-analisar-btn" data-rev-analisar>' + (recorderState.analiseAtiva ? 'Ocultar análise' : 'Analisar passos') + '</button>'),
+      (vazio ? '' : '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento up-rec-analisar-btn" data-rev-analisar>' + (recorderState.analiseAtiva ? 'Ocultar análise' : 'Analisar passos') + '</button>'),
       '<div class="up-rec-revisao-lista">',
       (vazio ? '<p class="up-rec-modal-sub">Capture pelo menos um passo para gerar o JSON.</p>' : itens),
       '</div>',
@@ -2993,7 +3041,7 @@
         ? (c.quantidade === 1 ? '1 elemento encontrado' : c.quantidade + ' elementos encontrados')
         : '';
       return [
-        '<button type="button" class="up-rec-escolha-item" data-esc-escolher data-esc-index="' + i + '">',
+        '<button type="button" class="up-rec-escolha-item up-rec-escolha-item-' + c.qualidade + '" data-esc-escolher data-esc-index="' + i + '">',
         '<span class="up-rec-escolha-tipo">' + escapeHtml(c.rotulo) + '</span>',
         '<code class="up-rec-escolha-codigo" title="' + escapeHtml(c.seletor) + '">' + escapeHtml(c.seletor) + '</code>',
         (qtdTexto ? '<span class="up-rec-escolha-qtd">' + escapeHtml(qtdTexto) + '</span>' : ''),
