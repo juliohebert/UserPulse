@@ -79,11 +79,20 @@ export function TourGravador() {
 
       <section className="px-4 lg:px-margin-desktop py-5 max-w-2xl space-y-4">
         <div className={card}>
-          <div className="flex items-center gap-3 mb-4">
-            <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">radio_button_checked</span>
-            <div>
-              <h3 className="text-title-lg font-bold text-on-surface">Como funciona</h3>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-3">
+              <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">radio_button_checked</span>
+              <div>
+                <h3 className="text-title-lg font-bold text-on-surface">Como funciona</h3>
+              </div>
             </div>
+            <button
+              onClick={() => navigate('/tours/guia')}
+              className="flex items-center gap-1 text-label-sm font-semibold text-primary hover:underline shrink-0"
+            >
+              Ver guia completo
+              <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+            </button>
           </div>
           <ol className="space-y-2 text-body-md text-on-surface-variant list-decimal list-inside">
             <li>Preencha os dados abaixo e clique em "Iniciar gravação" — abre a URL informada numa nova aba, já em modo de gravação.</li>

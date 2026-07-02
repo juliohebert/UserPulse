@@ -87,6 +87,28 @@ const COMO_CRIAR = [
   { titulo: 'Ative', desc: 'Só é possível ativar quando todos os passos têm seletor preenchido — é a garantia de que o tour não vai quebrar em produção.' },
 ]
 
+const GRAVADOR_PASSO_A_PASSO = [
+  { titulo: 'Iniciar gravação', desc: 'Em "Gravador de fluxo", preencha título, descrição, sistema e a URL inicial e clique em "Iniciar gravação" — abre a página real numa nova aba, já em modo de gravação.' },
+  { titulo: 'Navegar pelo sistema', desc: 'Use o sistema normalmente: clique em botões/links, preencha campos, selecione opções. Cada interação vira um passo automaticamente, sem nenhuma configuração manual.' },
+  { titulo: 'Finalizar', desc: 'Clique em "Finalizar" na barra flutuante quando terminar o fluxo — a gravação continua ativa (nada é descartado), só abre o painel de revisão com todos os passos capturados.' },
+  { titulo: 'Revisar passos', desc: 'Ajuste título, descrição, posição do tooltip, como avançar e ação ao clicar em Próximo de cada passo — tudo isso antes de gerar o JSON.' },
+  { titulo: 'Analisar passos', desc: 'Clique em "Analisar passos" para ver sugestões automáticas por passo: seletor CSS frágil, título genérico, descrição vazia, passo duplicado ou modo de avanço inadequado pro tipo de elemento.' },
+  { titulo: 'Trocar elemento, se necessário', desc: 'Se um seletor veio errado ou frágil, clique em "Trocar elemento" no passo e clique de novo no elemento certo na tela real — ou escolha entre os seletores candidatos sugeridos, sem precisar clicar em nada.' },
+  { titulo: 'Gerar JSON', desc: 'Com os passos revisados, clique em "Gerar JSON" — o gravador monta o tour completo no formato userpulse.tour.v1 e encerra a gravação.' },
+  { titulo: 'Copiar e abrir importação', desc: 'Use "Copiar e abrir importação" pra copiar o JSON e já abrir a tela de Tours Guiados com o modal de importação pronto — nada é enviado automaticamente.' },
+  { titulo: 'Importar como rascunho', desc: 'Cole o JSON (ou use "Colar JSON" no próprio modal) e clique em "Importar" — o tour é criado como rascunho, inativo. Revise título, descrição e seletores antes de ativar.' },
+]
+
+const GRAVADOR_BOAS_PRATICAS = [
+  { icon: 'code', text: 'Prefira telas com data-cy. É o seletor mais estável — sobrevive a mudanças de estilo/layout que quebrariam um seletor CSS.' },
+  { icon: 'edit_note', text: 'Revise títulos e descrições. O gravador extrai um rótulo automático do próprio elemento — nem sempre é a melhor explicação pro usuário final.' },
+  { icon: 'content_copy', text: 'Evite passos duplicados. Cliques acidentais ou dois passos apontando pro mesmo elemento poluem o tour — "Analisar passos" sinaliza esses casos.' },
+  { icon: 'text_fields', text: 'Use "Ao alterar valor" para campos e autocomplete. Passos em inputs/selects avançam melhor quando o usuário preenche, não quando clica.' },
+  { icon: 'ads_click', text: 'Use "Ao clicar" para botões. É o comportamento natural pra ações — o tour avança assim que o usuário confirma a ação.' },
+  { icon: 'warning', text: 'Confira seletores frágeis. "Analisar passos" e o próprio chip do seletor já sinalizam quando ele pode quebrar com uma mudança de layout.' },
+  { icon: 'play_circle', text: 'Teste o tour antes de ativar. Depois de importar, use "Testar tour" pra percorrer o fluxo real e confirmar que cada passo encontra seu elemento.' },
+]
+
 const COMO_TESTAR = [
   { icon: 'play_circle', titulo: 'Botão "Testar tour"', desc: 'Disponível na listagem, no formulário e na tela de preview — abre o tour em modo teste, sem depender do sistema hospedeiro.' },
   { icon: 'science', titulo: 'test-embed.html', desc: 'Página de simulação do widget para desenvolvimento local. Aponte para o servidor local com ?local=1 na URL.' },
@@ -185,6 +207,53 @@ export function TourGuide() {
               </li>
             ))}
           </ol>
+        </SectionCard>
+
+        {/* C2 — Gravador de Fluxo */}
+        <SectionCard
+          icon="radio_button_checked"
+          iconBg="bg-primary-fixed"
+          iconColor="text-primary"
+          title="Gravador de Fluxo"
+          subtitle="Grave o fluxo navegando pelo sistema real e gere um rascunho de tour automaticamente."
+        >
+          <p className="text-body-md text-on-surface-variant leading-relaxed">
+            O Gravador de Fluxo é uma alternativa a criar os passos manualmente: em vez de preencher seletor por
+            seletor, você navega pelo sistema real numa aba separada e cada clique/preenchimento vira um passo do tour
+            sozinho. Use quando o fluxo tem muitas etapas, quando não quer levantar seletores um a um, ou pra ter um
+            rascunho inicial rápido pra depois refinar.
+          </p>
+          <ol className="space-y-3">
+            {GRAVADOR_PASSO_A_PASSO.map((passo, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <span className="w-6 h-6 rounded-full bg-primary-fixed text-primary flex items-center justify-center text-[12px] font-bold shrink-0 mt-0.5">
+                  {i + 1}
+                </span>
+                <div>
+                  <p className="text-body-md font-semibold text-on-surface">{passo.titulo}</p>
+                  <p className="text-[12px] text-on-surface-variant mt-0.5 leading-relaxed">{passo.desc}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div>
+            <p className="text-label-md font-bold text-on-surface mb-2">Boas práticas do gravador</p>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {GRAVADOR_BOAS_PRATICAS.map((bp, i) => (
+                <li key={i} className="flex items-start gap-3 p-3 rounded-xl bg-surface-container-low border border-outline-variant/50">
+                  <span className="material-symbols-outlined text-[20px] text-primary shrink-0 mt-0.5">{bp.icon}</span>
+                  <p className="text-body-md text-on-surface leading-snug">{bp.text}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <button
+            onClick={() => navigate('/tours/gravador')}
+            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 w-full sm:w-auto"
+          >
+            <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
+            Abrir Gravador de Fluxo
+          </button>
         </SectionCard>
 
         {/* D — Como testar */}
