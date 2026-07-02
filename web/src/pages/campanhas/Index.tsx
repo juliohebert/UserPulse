@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { get, del, put } from '../../services/api'
-import type { Campanha } from '../../types'
+import type { Campanha, StatusCampanha } from '../../types'
 import { getStatus, formatDateTime, gerarEmbed } from '../../utils/campanha'
-import { StatusBadge } from '../../components/ui/StatusBadge'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
@@ -15,6 +14,36 @@ const TIPOS = ['comunicado', 'melhoria', 'pesquisa']
 const STATUS_OPTIONS = ['ativa', 'inativa', 'agendada', 'encerrada']
 const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
 
+// Versão discreta do StatusBadge — ponto + texto em vez de pill preenchida,
+// pra não competir visualmente com o ToggleSwitch (mesma info, apresentação mais leve).
+const STATUS_DOT: Record<StatusCampanha, { label: string; dot: string; text: string }> = {
+  ativa:     { label: 'Ativa',     dot: 'bg-tertiary', text: 'text-tertiary' },
+  inativa:   { label: 'Inativa',   dot: 'bg-outline',  text: 'text-outline' },
+  agendada:  { label: 'Agendada',  dot: 'bg-primary',  text: 'text-primary' },
+  encerrada: { label: 'Encerrada', dot: 'bg-outline',  text: 'text-outline' },
+}
+
+function KpiCard({
+  label, icon, iconBg, iconColor, value,
+}: {
+  label: string
+  icon: string
+  iconBg: string
+  iconColor: string
+  value: string | number
+}) {
+  return (
+    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md transition-shadow p-5 flex items-center gap-4">
+      <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
+        <span className="material-symbols-outlined text-[22px]">{icon}</span>
+      </span>
+      <div className="min-w-0">
+        <p className="text-headline-md font-bold text-on-surface leading-none">{value}</p>
+        <p className="text-label-md font-semibold text-on-surface-variant mt-1.5 truncate">{label}</p>
+      </div>
+    </div>
+  )
+}
 
 export function CampanhasIndex() {
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
@@ -37,6 +66,7 @@ export function CampanhasIndex() {
   const [filterStatus, setFilterStatus] = useState('')
   const [filterCategoria, setFilterCategoria] = useState('')
   const [filterAtivo, setFilterAtivo] = useState<'todas' | 'ativas' | 'inativas'>('ativas')
+  const [showAvancados, setShowAvancados] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [quickView, setQuickView] = useState<Campanha | null>(null)
 
@@ -92,6 +122,7 @@ export function CampanhasIndex() {
   }
 
   const hasFilters = Boolean(filterBusca || filterTipo || filterSistema || filterStatus || filterCategoria || filterAtivo !== 'ativas')
+  const qtdFiltrosAvancados = [filterTipo, filterCategoria, filterSistema, filterStatus].filter(Boolean).length
 
   const handleToggle = async (c: Campanha) => {
     try {
@@ -134,6 +165,12 @@ export function CampanhasIndex() {
   const ativas = campanhas.filter(c => getStatus(c) === 'ativa').length
   const inativas = campanhas.filter(c => !c.ativo).length
 
+  const STATUS_TABS = [
+    { key: 'todas' as const, label: 'Todas', icon: 'apps', count: campanhas.length },
+    { key: 'ativas' as const, label: 'Ativas', icon: 'play_circle', count: campanhas.filter(c => c.ativo).length },
+    { key: 'inativas' as const, label: 'Inativas', icon: 'pause_circle', count: inativas },
+  ]
+
   return (
     <section className="px-4 lg:px-margin-desktop py-5">
       {/* Header */}
@@ -160,34 +197,18 @@ export function CampanhasIndex() {
         </button>
       </div>
 
-      {/* Status tabs */}
-      <div className="flex items-center gap-1 bg-surface-container p-1 rounded-xl w-fit mb-4">
-        {([
-          { key: 'todas', label: 'Todas', count: campanhas.length },
-          { key: 'ativas', label: 'Ativas', count: campanhas.filter(c => c.ativo).length },
-          { key: 'inativas', label: 'Inativas', count: inativas },
-        ] as const).map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => { setFilterAtivo(tab.key); setPage(1) }}
-            className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-label-md font-bold transition-colors ${
-              filterAtivo === tab.key
-                ? 'bg-surface-bright text-on-surface shadow-sm'
-                : 'text-on-surface-variant hover:text-on-surface'
-            }`}
-          >
-            {tab.label}
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-              filterAtivo === tab.key ? 'bg-primary/10 text-primary' : 'bg-surface-container-high text-on-surface-variant'
-            }`}>
-              {tab.count}
-            </span>
-          </button>
-        ))}
-      </div>
+      {/* KPIs */}
+      {!loading && !error && campanhas.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+          <KpiCard label="Total de Campanhas" icon="list_alt" iconBg="bg-primary/10" iconColor="text-primary" value={campanhas.length} />
+          <KpiCard label="Campanhas Ativas" icon="play_circle" iconBg="bg-tertiary/10" iconColor="text-tertiary" value={ativas} />
+          <KpiCard label="Campanhas Inativas" icon="pause_circle" iconBg="bg-outline-variant/40" iconColor="text-on-surface-variant" value={inativas} />
+          <KpiCard label="Total de Feedbacks" icon="forum" iconBg="bg-secondary/10" iconColor="text-secondary" value={totalFeedbacks.toLocaleString('pt-BR')} />
+        </div>
+      )}
 
       {/* Filters */}
-      <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant mb-5 shadow-sm space-y-3">
+      <div className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant mb-5 shadow-sm space-y-2.5">
         {/* Search */}
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline text-[20px] pointer-events-none">
@@ -198,7 +219,7 @@ export function CampanhasIndex() {
             value={filterBusca}
             onChange={e => { setFilterBusca(e.target.value); setPage(1) }}
             placeholder="Buscar por título, slug, sistema, tela, categoria, tipo ou status…"
-            className="w-full rounded-xl border border-outline-variant py-2.5 pl-10 pr-4 text-body-md bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-xl border border-outline-variant py-2 pl-10 pr-4 text-body-md bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary"
           />
           {filterBusca && (
             <button
@@ -210,54 +231,106 @@ export function CampanhasIndex() {
           )}
         </div>
 
-        {/* Row filters */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-          <FilterSelect
-            label="Todos os tipos"
-            value={filterTipo}
-            options={[
-              { value: '', label: 'Todos os tipos' },
-              ...TIPOS.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
-            ]}
-            onChange={v => { setFilterTipo(v); setPage(1) }}
-          />
-          <FilterSelect
-            label="Todas as categorias"
-            value={filterCategoria}
-            options={[
-              { value: '', label: 'Todas as categorias' },
-              ...CATEGORIAS.map(c => ({ value: c, label: c })),
-            ]}
-            onChange={v => { setFilterCategoria(v); setPage(1) }}
-          />
-          <FilterSelect
-            label="Todos os sistemas"
-            value={filterSistema}
-            options={[
-              { value: '', label: 'Todos os sistemas' },
-              ...sistemas.map(s => ({ value: s, label: s })),
-            ]}
-            onChange={v => { setFilterSistema(v); setPage(1) }}
-          />
-          <FilterSelect
-            label="Todos os status"
-            value={filterStatus}
-            options={[
-              { value: '', label: 'Todos os status' },
-              ...STATUS_OPTIONS.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) })),
-            ]}
-            onChange={v => { setFilterStatus(v); setPage(1) }}
-          />
-          <div className="flex items-end">
+        {/* Quick status filters + advanced toggle + clear */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 bg-surface-container p-1 rounded-xl">
+            {STATUS_TABS.map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => { setFilterAtivo(tab.key); setPage(1) }}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-label-md font-bold transition-all ${
+                  filterAtivo === tab.key
+                    ? 'bg-surface-bright text-on-surface shadow-sm'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                <span className={`material-symbols-outlined text-[16px] ${
+                  filterAtivo === tab.key
+                    ? tab.key === 'ativas' ? 'text-tertiary' : tab.key === 'inativas' ? 'text-outline' : 'text-primary'
+                    : ''
+                }`}>
+                  {tab.icon}
+                </span>
+                {tab.label}
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  filterAtivo === tab.key ? 'bg-primary/10 text-primary' : 'bg-surface-container-high text-on-surface-variant'
+                }`}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setShowAvancados(v => !v)}
+            className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-all ${
+              qtdFiltrosAvancados > 0
+                ? 'bg-secondary/10 text-secondary border-secondary/30'
+                : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary/50 hover:text-primary'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[14px]">tune</span>
+            Filtros avançados
+            {qtdFiltrosAvancados > 0 && (
+              <span className="ml-0.5 w-4 h-4 rounded-full bg-secondary text-on-secondary text-[10px] flex items-center justify-center">
+                {qtdFiltrosAvancados}
+              </span>
+            )}
+            <span className="material-symbols-outlined text-[14px]">{showAvancados ? 'expand_less' : 'expand_more'}</span>
+          </button>
+
+          {hasFilters && (
             <button
               onClick={clearFilters}
-              disabled={!hasFilters}
-              className="w-full py-2.5 border border-primary text-primary font-bold rounded-xl hover:bg-surface-container-high transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1 ml-auto text-label-md text-on-surface-variant hover:text-error transition-colors"
             >
-              Limpar Filtros
+              <span className="material-symbols-outlined text-[16px]">filter_list_off</span>
+              Limpar filtros
             </button>
-          </div>
+          )}
         </div>
+
+        {/* Advanced filters — colapsável */}
+        {showAvancados && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 border-t border-outline-variant/30">
+            <FilterSelect
+              label="Todos os tipos"
+              value={filterTipo}
+              options={[
+                { value: '', label: 'Todos os tipos' },
+                ...TIPOS.map(t => ({ value: t, label: t.charAt(0).toUpperCase() + t.slice(1) })),
+              ]}
+              onChange={v => { setFilterTipo(v); setPage(1) }}
+            />
+            <FilterSelect
+              label="Todas as categorias"
+              value={filterCategoria}
+              options={[
+                { value: '', label: 'Todas as categorias' },
+                ...CATEGORIAS.map(c => ({ value: c, label: c })),
+              ]}
+              onChange={v => { setFilterCategoria(v); setPage(1) }}
+            />
+            <FilterSelect
+              label="Todos os sistemas"
+              value={filterSistema}
+              options={[
+                { value: '', label: 'Todos os sistemas' },
+                ...sistemas.map(s => ({ value: s, label: s })),
+              ]}
+              onChange={v => { setFilterSistema(v); setPage(1) }}
+            />
+            <FilterSelect
+              label="Todos os status"
+              value={filterStatus}
+              options={[
+                { value: '', label: 'Todos os status' },
+                ...STATUS_OPTIONS.map(s => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) })),
+              ]}
+              onChange={v => { setFilterStatus(v); setPage(1) }}
+            />
+          </div>
+        )}
 
         {/* Active filter chips */}
         {hasFilters && (
@@ -288,7 +361,16 @@ export function CampanhasIndex() {
       </div>
 
       {/* Table */}
-      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+      <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-outline-variant/30">
+          <h3 className="text-title-lg font-bold text-on-surface">Campanhas</h3>
+          <p className="text-label-md text-on-surface-variant mt-0.5">
+            {loading
+              ? 'Carregando campanhas…'
+              : `Mostrando ${filtered.length} ${filtered.length === 1 ? 'campanha' : 'campanhas'} conforme os filtros aplicados`}
+          </p>
+        </div>
+
         {loading && <LoadingSpinner />}
         {error && <ErrorState message={error} onRetry={load} />}
 
@@ -296,18 +378,18 @@ export function CampanhasIndex() {
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-surface-container-low border-b border-outline-variant">
-                  <tr>
+                <thead>
+                  <tr className="border-b border-outline-variant/40">
                     {(['Campanha', 'Tipo', 'Sistema / Tela', 'Status', 'Respostas', 'Ações'] as const).map(h => (
-                      <th key={h} className={`px-5 py-4 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap${
-                        h === 'Ações' ? ' text-right' : h === 'Respostas' ? ' text-center' : ''
-                      }`}>
+                      <th key={h} className={`px-4 py-3 text-label-md text-on-surface-variant font-semibold whitespace-nowrap${
+                        h === 'Ações' ? ' text-right' : h === 'Respostas' ? ' text-center hidden sm:table-cell' : ''
+                      }${h === 'Tipo' ? ' hidden md:table-cell' : ''}${h === 'Sistema / Tela' ? ' hidden lg:table-cell' : ''}`}>
                         {h}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-outline-variant/30">
+                <tbody className="divide-y divide-outline-variant/20">
                   {paginated.length === 0 ? (
                     <tr>
                       <td colSpan={6}>
@@ -335,147 +417,149 @@ export function CampanhasIndex() {
                       </td>
                     </tr>
                   ) : (
-                    paginated.map(c => (
-                      <tr
-                        key={c.id}
-                        onClick={() => setQuickView(c)}
-                        className={`cursor-pointer transition-colors ${!c.ativo ? 'opacity-60' : ''} ${
-                          quickView?.id === c.id
-                            ? 'bg-primary-fixed/60'
-                            : 'hover:bg-surface-container-low/60'
-                        }`}
-                      >
-                        {/* Campanha */}
-                        <td className="px-5 py-4 max-w-[280px]">
-                          <div className="flex items-center gap-2">
+                    paginated.map(c => {
+                      const status = getStatus(c)
+                      const st = STATUS_DOT[status]
+                      return (
+                        <tr
+                          key={c.id}
+                          onClick={() => setQuickView(c)}
+                          className={`group cursor-pointer transition-colors ${!c.ativo ? 'opacity-60' : ''} ${
+                            quickView?.id === c.id
+                              ? 'bg-primary-fixed/60'
+                              : 'hover:bg-surface-container-low/60'
+                          }`}
+                        >
+                          {/* Campanha */}
+                          <td className="px-4 py-3.5 align-middle max-w-[320px]">
                             <p className="text-body-md font-bold text-on-surface truncate">{c.titulo}</p>
-                            {!c.ativo && (
-                              <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-error/10 text-error border border-error/20">
-                                Inativa
-                              </span>
+                            {c.subtitulo && (
+                              <p className="text-[12px] text-on-surface-variant truncate mt-0.5">{c.subtitulo}</p>
                             )}
-                          </div>
-                          {c.subtitulo && (
-                            <p className="text-[12px] text-primary truncate mt-0.5">{c.subtitulo}</p>
-                          )}
-                          <div className="flex items-center gap-2 mt-1">
-                            {c.categoria && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-secondary/10 text-secondary">
-                                {c.categoria}
-                              </span>
-                            )}
-                            {(c.prioridade ?? 0) > 0 && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary" title="Prioridade">
-                                <span className="material-symbols-outlined text-[10px]">arrow_upward</span>
-                                {c.prioridade}
-                              </span>
-                            )}
-                            {(c.segmentar_cliente_ids?.length > 0 || c.segmentar_unidade_ids?.length > 0 ||
-                              c.segmentar_perfis?.length > 0 || c.segmentar_usuario_tipos?.length > 0 ||
-                              c.segmentar_estados?.length > 0) && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-secondary/10 text-secondary" title="Segmentação ativa">
-                                <span className="material-symbols-outlined text-[10px]">target</span>
-                                Segmentada
-                              </span>
-                            )}
-                            {(c.politica_reexibicao || 'uma_vez_apos_visualizacao') === 'ate_responder_ou_confirmar' && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary" title="Até responder/confirmar">
-                                <span className="material-symbols-outlined text-[10px]">repeat</span>
-                                Até responder
-                              </span>
-                            )}
-                            {(c.politica_reexibicao || 'uma_vez_apos_visualizacao') === 'reexibir_apos_dias' && (
-                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-tertiary/10 text-tertiary" title={`Reexibe após ${c.reexibir_apos_dias ?? '?'} dias`}>
-                                <span className="material-symbols-outlined text-[10px]">schedule</span>
-                                Reexibe em {c.reexibir_apos_dias ?? '?'}d
-                              </span>
-                            )}
-                            <span className="text-[11px] text-on-surface-variant">Criada em: {formatDateTime(c.criado_em)}</span>
-                          </div>
-                        </td>
-
-                        {/* Tipo */}
-                        <td className="px-5 py-4 whitespace-nowrap">
-                          <TypeBadge tipo={c.tipo} />
-                        </td>
-
-                        {/* Sistema / Tela */}
-                        <td className="px-5 py-4">
-                          <p className="text-body-md text-on-surface">{c.sistema}</p>
-                          <p className="text-[12px] text-on-surface-variant">{c.tela}</p>
-                        </td>
-
-                        {/* Status */}
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-2">
-                            <div onClick={e => e.stopPropagation()}>
-                              <ToggleSwitch checked={c.ativo} onChange={() => handleToggle(c)} />
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                              {c.categoria && (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-secondary/10 text-secondary">
+                                  {c.categoria}
+                                </span>
+                              )}
+                              {(c.prioridade ?? 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary" title="Prioridade">
+                                  <span className="material-symbols-outlined text-[10px]">arrow_upward</span>
+                                  {c.prioridade}
+                                </span>
+                              )}
+                              {(c.segmentar_cliente_ids?.length > 0 || c.segmentar_unidade_ids?.length > 0 ||
+                                c.segmentar_perfis?.length > 0 || c.segmentar_usuario_tipos?.length > 0 ||
+                                c.segmentar_estados?.length > 0) && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-secondary/10 text-secondary" title="Segmentação ativa">
+                                  <span className="material-symbols-outlined text-[10px]">target</span>
+                                  Segmentada
+                                </span>
+                              )}
+                              {(c.politica_reexibicao || 'uma_vez_apos_visualizacao') === 'ate_responder_ou_confirmar' && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary" title="Até responder/confirmar">
+                                  <span className="material-symbols-outlined text-[10px]">repeat</span>
+                                  Até responder
+                                </span>
+                              )}
+                              {(c.politica_reexibicao || 'uma_vez_apos_visualizacao') === 'reexibir_apos_dias' && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-tertiary/10 text-tertiary" title={`Reexibe após ${c.reexibir_apos_dias ?? '?'} dias`}>
+                                  <span className="material-symbols-outlined text-[10px]">schedule</span>
+                                  Reexibe em {c.reexibir_apos_dias ?? '?'}d
+                                </span>
+                              )}
+                              <span className="text-[11px] text-outline">Criada em {formatDateTime(c.criado_em)}</span>
                             </div>
-                            <StatusBadge status={getStatus(c)} />
-                          </div>
-                        </td>
+                          </td>
 
-                        {/* Respostas */}
-                        <td className="px-5 py-4 text-body-md font-bold text-center">
-                          {(c._count?.feedbacks ?? 0).toLocaleString('pt-BR')}
-                        </td>
+                          {/* Tipo */}
+                          <td className="px-4 py-3.5 align-middle whitespace-nowrap hidden md:table-cell">
+                            <TypeBadge tipo={c.tipo} />
+                          </td>
 
-                        {/* Ações */}
-                        <td className="px-5 py-4 text-right" onClick={e => e.stopPropagation()}>
-                          <button
-                            onClick={() => navigate(`/campanhas/${c.id}/preview`)}
-                            title="Preview"
-                            className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded-lg transition-all"
-                          >
-                            <span className="material-symbols-outlined text-[20px]">visibility</span>
-                          </button>
-                          <button
-                            onClick={() => handleCopyEmbed(c)}
-                            title="Copiar embed"
-                            className={`p-2 rounded-lg transition-all ${
-                              copiedId === c.id
-                                ? 'text-tertiary bg-tertiary/10'
-                                : 'text-on-surface-variant hover:text-primary hover:bg-surface-container-high'
-                            }`}
-                          >
-                            <span className="material-symbols-outlined text-[20px]">
-                              {copiedId === c.id ? 'check' : 'integration_instructions'}
-                            </span>
-                          </button>
-                          <button
-                            onClick={() => navigate(`/campanhas/${c.id}/editar`)}
-                            title="Editar"
-                            className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-all"
-                          >
-                            <span className="material-symbols-outlined text-[20px]">edit</span>
-                          </button>
-                          <button
-                            onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
-                            title="Ver Dashboard"
-                            className="p-2 text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed rounded-lg transition-all"
-                          >
-                            <span className="material-symbols-outlined text-[20px]">query_stats</span>
-                          </button>
-                          {c.ativo ? (
-                            <button
-                              onClick={() => handleInativar(c.id)}
-                              title="Inativar"
-                              className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-all"
-                            >
-                              <span className="material-symbols-outlined text-[20px]">block</span>
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleReativar(c.id)}
-                              title="Reativar"
-                              className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-lg transition-all"
-                            >
-                              <span className="material-symbols-outlined text-[20px]">check_circle</span>
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                          {/* Sistema / Tela */}
+                          <td className="px-4 py-3.5 align-middle hidden lg:table-cell">
+                            <p className="text-body-md text-on-surface">{c.sistema}</p>
+                            <p className="text-[12px] text-on-surface-variant">{c.tela}</p>
+                          </td>
+
+                          {/* Status */}
+                          <td className="px-4 py-3.5 align-middle">
+                            <div className="flex items-center gap-2.5">
+                              <div onClick={e => e.stopPropagation()}>
+                                <ToggleSwitch checked={c.ativo} onChange={() => handleToggle(c)} />
+                              </div>
+                              <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold ${st.text}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                                {st.label}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Respostas */}
+                          <td className="px-4 py-3.5 align-middle text-body-md font-bold text-center hidden sm:table-cell">
+                            {(c._count?.feedbacks ?? 0).toLocaleString('pt-BR')}
+                          </td>
+
+                          {/* Ações */}
+                          <td className="px-4 py-3.5 align-middle text-right" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => navigate(`/campanhas/${c.id}/preview`)}
+                                title="Preview"
+                                className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded-lg transition-all"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">visibility</span>
+                              </button>
+                              <button
+                                onClick={() => handleCopyEmbed(c)}
+                                title="Copiar embed"
+                                className={`p-2 rounded-lg transition-all ${
+                                  copiedId === c.id
+                                    ? 'text-tertiary bg-tertiary/10'
+                                    : 'text-on-surface-variant hover:text-primary hover:bg-surface-container-high'
+                                }`}
+                              >
+                                <span className="material-symbols-outlined text-[18px]">
+                                  {copiedId === c.id ? 'check' : 'integration_instructions'}
+                                </span>
+                              </button>
+                              <button
+                                onClick={() => navigate(`/campanhas/${c.id}/editar`)}
+                                title="Editar"
+                                className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-all"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">edit</span>
+                              </button>
+                              <button
+                                onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
+                                title="Ver Dashboard"
+                                className="p-2 text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed rounded-lg transition-all"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">query_stats</span>
+                              </button>
+                              {c.ativo ? (
+                                <button
+                                  onClick={() => handleInativar(c.id)}
+                                  title="Inativar"
+                                  className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-all"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">block</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleReativar(c.id)}
+                                  title="Reativar"
+                                  className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-lg transition-all"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
                   )}
                 </tbody>
               </table>
@@ -484,31 +568,6 @@ export function CampanhasIndex() {
           </>
         )}
       </div>
-
-      {/* Quick Stats */}
-      {!loading && !error && campanhas.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-5">
-          {[
-            { icon: 'trending_up', color: 'primary', label: 'Total de Campanhas', value: `${campanhas.length}` },
-            { icon: 'star', color: 'secondary', label: 'Campanhas Ativas', value: `${ativas}` },
-            { icon: 'block', color: 'error', label: 'Campanhas Inativas', value: `${inativas}` },
-            { icon: 'forum', color: 'tertiary', label: 'Total de Feedbacks', value: totalFeedbacks.toLocaleString('pt-BR') },
-          ].map(item => (
-            <div
-              key={item.label}
-              className={`bg-surface-container p-5 rounded-xl border border-outline-variant flex items-center gap-4 group hover:border-${item.color} transition-colors shadow-sm`}
-            >
-              <div className={`w-12 h-12 rounded-xl bg-${item.color}/10 flex items-center justify-center text-${item.color} group-hover:scale-110 transition-transform`}>
-                <span className="material-symbols-outlined text-[28px] ms-fill">{item.icon}</span>
-              </div>
-              <div>
-                <p className="text-label-md text-on-surface-variant">{item.label}</p>
-                <p className="text-headline-md font-bold text-on-surface">{item.value}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Quick View Drawer */}
       {quickView && (
@@ -556,7 +615,7 @@ function FilterSelect({
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="w-full h-11 rounded-xl border border-outline-variant bg-surface-bright px-4 text-body-md flex justify-between items-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors hover:border-outline"
+        className="w-full h-10 rounded-xl border border-outline-variant bg-surface-bright px-4 text-body-md flex justify-between items-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-colors hover:border-outline"
       >
         <span className={selected?.value ? 'text-on-surface' : 'text-on-surface-variant'}>
           {selected?.label ?? label}
