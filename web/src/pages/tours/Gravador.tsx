@@ -77,7 +77,7 @@ export function TourGravador() {
         </p>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-none space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
         <div className={card}>
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">
@@ -120,7 +120,7 @@ export function TourGravador() {
             <span className="p-1.5 bg-secondary-fixed rounded-lg text-secondary material-symbols-outlined text-[20px]">tune</span>
             <h3 className="text-title-lg font-bold text-on-surface">Dados do tour</h3>
           </div>
-          <div className="space-y-4">
+          <div className="space-y-4 max-w-2xl">
             <div>
               <label className="block text-label-md text-on-surface-variant mb-1.5">
                 Título do Tour <span className="text-error">*</span>

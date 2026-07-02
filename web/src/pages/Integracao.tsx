@@ -14,7 +14,7 @@ function CodeBlock({ code, lang = 'javascript' }: { code: string; lang?: string 
   }
 
   return (
-    <div className="rounded-xl overflow-hidden border border-[#313244]">
+    <div className="w-full max-w-4xl rounded-xl overflow-hidden border border-[#313244]">
       <div className="flex items-center justify-between bg-[#1e1e2e] px-4 py-2 border-b border-[#313244]">
         <span className="text-[11px] text-[#6c7086] font-mono uppercase tracking-wider select-none">
           {lang}
@@ -229,7 +229,7 @@ export function IntegracaoPage() {
       </div>
 
       {/* ── Content ── */}
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-none space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
 
         {/* A — Instalação */}
         <SectionCard

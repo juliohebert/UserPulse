@@ -627,7 +627,7 @@ export function TourForm() {
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-none">
+      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px]">
         {!isEdit && !form.ativo && (
           <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]">info</span>
@@ -727,7 +727,7 @@ export function TourForm() {
               <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">map</span>
               <h3 className="text-title-lg font-bold text-on-surface">Parâmetros Gerais</h3>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
               <div className="md:col-span-2">
                 <label className="block text-label-md text-on-surface-variant mb-1.5">
                   Título do Tour <span className="text-error">*</span>
@@ -932,7 +932,7 @@ export function TourForm() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-4xl">
                     <div className="md:col-span-2">
                       <label className="block text-label-sm text-on-surface-variant mb-1">
                         Título do passo <span className="text-error">*</span>
