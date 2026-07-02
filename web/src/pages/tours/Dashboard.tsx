@@ -60,6 +60,13 @@ function qtdFiltrosAvancados(filtros: FiltrosDashboard): number {
     .filter(([chave]) => filtros[chave as keyof typeof FILTROS_AVANCADOS_INICIAIS] !== '').length
 }
 
+// Segunda camada de proteção contra NaN na paginação, além do backend já
+// sempre enviar page/per_page/total válidos — se a resposta vier incompleta
+// (ex.: versão antiga da API em cache), a paginação nunca deve quebrar.
+function paginaSegura(n: number | undefined, minimo: number): number {
+  return Number.isFinite(n) ? Math.max(minimo, Math.trunc(n as number)) : minimo
+}
+
 function ehAtalhoPeriodo(filtros: FiltrosDashboard, diasAtras: number): boolean {
   if (!filtros.data_inicio || !filtros.data_fim) return false
   const hoje = new Date()
@@ -127,6 +134,9 @@ export function TourDashboard() {
   if (!data) return null
 
   const { tour } = data
+  const totalEventos = paginaSegura(data.total, 0)
+  const perPageEventos = paginaSegura(data.per_page, PER_PAGE)
+  const paginaEventos = paginaSegura(data.page, 1)
   const temFiltro = temFiltroAtivo(filtrosCarregados)
   const opcoesPasso = [
     { value: '', label: 'Todos' },
@@ -205,7 +215,7 @@ export function TourDashboard() {
               <div>
                 <h3 className="text-title-lg font-bold text-on-surface">Eventos do tour</h3>
                 <p className="text-label-md text-outline mt-0.5">
-                  {data.total} evento{data.total === 1 ? '' : 's'}{temFiltro ? ' com os filtros aplicados' : ' registrados'}
+                  {totalEventos} evento{totalEventos === 1 ? '' : 's'}{temFiltro ? ' com os filtros aplicados' : ' registrados'}
                 </p>
               </div>
             </div>
@@ -377,7 +387,7 @@ export function TourDashboard() {
                   </tbody>
                 </table>
               </div>
-              <Pagination page={data.page} total={data.total} perPage={data.per_page} onChange={mudarPagina} />
+              <Pagination page={paginaEventos} total={totalEventos} perPage={perPageEventos} onChange={mudarPagina} />
             </>
           )}
         </div>

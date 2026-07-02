@@ -150,7 +150,7 @@ export function TourGuide() {
         </div>
       </div>
 
-      <section className="px-4 lg:px-margin-desktop py-5 max-w-4xl space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-6xl space-y-4">
         {/* A — O que é / quando usar */}
         <SectionCard
           icon="map"

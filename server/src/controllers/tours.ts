@@ -641,6 +641,10 @@ export async function buscarDashboard(req: Request, res: Response) {
       elementos_nao_encontrados,
       taxa_conclusao,
       eventos_recentes,
+      page: pageNum,
+      per_page: perPageNum,
+      total: totalEventos,
+      total_pages,
     })
   } catch (err) {
     console.error(err)
