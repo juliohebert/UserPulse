@@ -5,19 +5,60 @@ import type { EventoTourDashboard, TourDashboardData } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Pagination } from '../../components/ui/Pagination'
+import { Select } from '../../components/ui/Select'
 
 const PER_PAGE = 10
 const NI = 'Não informado'
 
-type FiltroTipoEvento = 'todos' | 'inicio' | 'concluido' | 'pulado' | 'elemento_nao_encontrado'
+const campo = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-primary'
+const atalho = 'px-3 py-2 rounded-lg text-label-sm font-semibold border border-outline-variant text-on-surface-variant hover:border-primary/50 hover:text-primary transition-colors whitespace-nowrap'
 
-const FILTROS_TIPO_EVENTO: { value: FiltroTipoEvento; label: string }[] = [
-  { value: 'todos', label: 'Todos' },
+const TIPOS_EVENTO_OPCOES = [
+  { value: '', label: 'Todos' },
   { value: 'inicio', label: 'Início' },
-  { value: 'concluido', label: 'Concluído' },
-  { value: 'pulado', label: 'Pulado' },
+  { value: 'passo_visualizado', label: 'Passo visualizado' },
   { value: 'elemento_nao_encontrado', label: 'Elemento não encontrado' },
+  { value: 'pulado', label: 'Pulado' },
+  { value: 'concluido', label: 'Concluído' },
 ]
+
+interface FiltrosDashboard {
+  data_inicio: string
+  data_fim: string
+  tipo_evento: string
+  passo_ordem: string
+  cliente: string
+  usuario: string
+  unidade: string
+}
+
+const FILTROS_INICIAIS: FiltrosDashboard = {
+  data_inicio: '', data_fim: '', tipo_evento: '', passo_ordem: '', cliente: '', usuario: '', unidade: '',
+}
+
+function formatarDataInput(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+// Sem nenhum filtro preenchido isso vira uma query string vazia — o
+// dashboard chama exatamente a mesma URL de antes, preservando o
+// comportamento atual quando nenhum filtro é aplicado.
+function montarQuery(filtros: FiltrosDashboard): string {
+  const params = new URLSearchParams()
+  if (filtros.data_inicio) params.set('data_inicio', filtros.data_inicio)
+  if (filtros.data_fim) params.set('data_fim', filtros.data_fim)
+  if (filtros.tipo_evento) params.set('tipo_evento', filtros.tipo_evento)
+  if (filtros.passo_ordem) params.set('passo_ordem', filtros.passo_ordem)
+  if (filtros.cliente.trim()) params.set('cliente', filtros.cliente.trim())
+  if (filtros.usuario.trim()) params.set('usuario', filtros.usuario.trim())
+  if (filtros.unidade.trim()) params.set('unidade', filtros.unidade.trim())
+  const qs = params.toString()
+  return qs ? `?${qs}` : ''
+}
+
+function temFiltroAtivo(filtros: FiltrosDashboard): boolean {
+  return Object.values(filtros).some(v => v !== '')
+}
 
 export function TourDashboard() {
   const { id } = useParams<{ id: string }>()
@@ -26,35 +67,47 @@ export function TourDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
-  const [filtroTipo, setFiltroTipo] = useState<FiltroTipoEvento>('todos')
+  const [filtros, setFiltros] = useState<FiltrosDashboard>(FILTROS_INICIAIS)
+  const [filtrosCarregados, setFiltrosCarregados] = useState<FiltrosDashboard>(FILTROS_INICIAIS)
 
-  const load = () => {
+  const load = (filtrosParaCarregar: FiltrosDashboard) => {
     if (!id) return
     setLoading(true)
     setError(null)
-    get<TourDashboardData>(`/tours/${id}/dashboard`)
-      .then(setData)
+    get<TourDashboardData>(`/tours/${id}/dashboard${montarQuery(filtrosParaCarregar)}`)
+      .then(d => { setData(d); setFiltrosCarregados(filtrosParaCarregar) })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }
 
-  useEffect(load, [id])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => load(FILTROS_INICIAIS), [id])
+
+  const aplicarFiltros = () => { setPage(1); load(filtros) }
+  const limparFiltros = () => { setFiltros(FILTROS_INICIAIS); setPage(1); load(FILTROS_INICIAIS) }
+  const definirAtalhoPeriodo = (diasAtras: number) => {
+    const hoje = new Date()
+    const inicio = new Date(hoje)
+    inicio.setDate(inicio.getDate() - diasAtras)
+    setFiltros(f => ({ ...f, data_inicio: formatarDataInput(inicio), data_fim: formatarDataInput(hoje) }))
+  }
 
   if (loading) return <div className="px-4 lg:px-margin-desktop py-5"><LoadingSpinner /></div>
   if (error || !data) {
     return (
       <div className="px-4 lg:px-margin-desktop py-5">
-        <ErrorState message={error ?? 'Tour guiado não encontrado.'} onRetry={load} />
+        <ErrorState message={error ?? 'Tour guiado não encontrado.'} onRetry={() => load(filtrosCarregados)} />
       </div>
     )
   }
 
   const { tour, eventos_recentes } = data
-  const eventosFiltrados = filtroTipo === 'todos'
-    ? eventos_recentes
-    : eventos_recentes.filter(e => e.tipo_evento === filtroTipo)
-  const paginados = eventosFiltrados.slice((page - 1) * PER_PAGE, page * PER_PAGE)
-  const temFiltro = filtroTipo !== 'todos'
+  const paginados = eventos_recentes.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+  const temFiltro = temFiltroAtivo(filtrosCarregados)
+  const opcoesPasso = [
+    { value: '', label: 'Todos' },
+    ...(tour.passos ?? []).map(p => ({ value: String(p.ordem), label: `Passo ${p.ordem + 1}${p.titulo ? ' — ' + p.titulo : ''}` })),
+  ]
 
   return (
     <section className="px-4 lg:px-margin-desktop py-5">
@@ -108,48 +161,133 @@ export function TourDashboard() {
           sub={`${data.concluidos} de ${data.iniciados}`} />
       </div>
 
+      {/* Filtros */}
+      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm p-4 mb-6">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h3 className="text-label-lg font-bold text-on-surface flex items-center gap-1.5">
+            <span className="material-symbols-outlined text-[18px] text-on-surface-variant">tune</span>
+            Filtros
+          </h3>
+          {temFiltroAtivo(filtros) && (
+            <button
+              onClick={limparFiltros}
+              className="flex items-center gap-1 text-label-md text-on-surface-variant hover:text-error transition-colors"
+            >
+              <span className="material-symbols-outlined text-[16px]">filter_list_off</span>
+              Limpar filtros
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-label-sm text-on-surface-variant mb-1">Data inicial</label>
+            <input
+              type="date"
+              value={filtros.data_inicio}
+              onChange={e => setFiltros(f => ({ ...f, data_inicio: e.target.value }))}
+              className={campo}
+            />
+          </div>
+          <div>
+            <label className="block text-label-sm text-on-surface-variant mb-1">Data final</label>
+            <input
+              type="date"
+              value={filtros.data_fim}
+              onChange={e => setFiltros(f => ({ ...f, data_fim: e.target.value }))}
+              className={campo}
+            />
+          </div>
+          <div className="flex items-end gap-1.5">
+            <button onClick={() => definirAtalhoPeriodo(0)} className={atalho}>Hoje</button>
+            <button onClick={() => definirAtalhoPeriodo(6)} className={atalho}>Últimos 7 dias</button>
+            <button onClick={() => definirAtalhoPeriodo(29)} className={atalho}>Últimos 30 dias</button>
+          </div>
+
+          <div>
+            <label className="block text-label-sm text-on-surface-variant mb-1">Tipo de evento</label>
+            <Select
+              value={filtros.tipo_evento}
+              onChange={v => setFiltros(f => ({ ...f, tipo_evento: v }))}
+              options={TIPOS_EVENTO_OPCOES}
+              size="sm"
+            />
+          </div>
+          <div>
+            <label className="block text-label-sm text-on-surface-variant mb-1">Passo do tour</label>
+            <Select
+              value={filtros.passo_ordem}
+              onChange={v => setFiltros(f => ({ ...f, passo_ordem: v }))}
+              options={opcoesPasso}
+              size="sm"
+            />
+          </div>
+          <div className="hidden lg:block" />
+
+          <div>
+            <label className="block text-label-sm text-on-surface-variant mb-1">Cliente</label>
+            <input
+              type="text"
+              value={filtros.cliente}
+              onChange={e => setFiltros(f => ({ ...f, cliente: e.target.value }))}
+              placeholder="Nome ou ID do cliente"
+              className={campo}
+            />
+          </div>
+          <div>
+            <label className="block text-label-sm text-on-surface-variant mb-1">Usuário</label>
+            <input
+              type="text"
+              value={filtros.usuario}
+              onChange={e => setFiltros(f => ({ ...f, usuario: e.target.value }))}
+              placeholder="Nome, e-mail ou ID"
+              className={campo}
+            />
+          </div>
+          <div>
+            <label className="block text-label-sm text-on-surface-variant mb-1">Unidade/Clínica</label>
+            <input
+              type="text"
+              value={filtros.unidade}
+              onChange={e => setFiltros(f => ({ ...f, unidade: e.target.value }))}
+              placeholder="Nome ou ID"
+              className={campo}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-3">
+          <button
+            onClick={aplicarFiltros}
+            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95"
+          >
+            <span className="material-symbols-outlined text-[18px]">filter_alt</span>
+            Aplicar filtros
+          </button>
+        </div>
+      </div>
+
       {/* Eventos recentes */}
       <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-outline-variant/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-on-surface-variant">history</span>
-            <div>
-              <h3 className="text-title-lg font-bold text-on-surface">Eventos recentes</h3>
-              <p className="text-label-md text-outline mt-0.5">
-                {temFiltro
-                  ? `${eventosFiltrados.length} de ${eventos_recentes.length} eventos`
-                  : `Últimos ${eventos_recentes.length} eventos registrados para este tour.`}
-              </p>
-            </div>
+        <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3">
+          <span className="material-symbols-outlined text-on-surface-variant">history</span>
+          <div>
+            <h3 className="text-title-lg font-bold text-on-surface">Eventos recentes</h3>
+            <p className="text-label-md text-outline mt-0.5">
+              {temFiltro
+                ? `${eventos_recentes.length} evento${eventos_recentes.length === 1 ? '' : 's'} encontrado${eventos_recentes.length === 1 ? '' : 's'} com os filtros aplicados`
+                : `Últimos ${eventos_recentes.length} eventos registrados para este tour.`}
+            </p>
           </div>
-          {eventos_recentes.length > 0 && (
-            <div className="flex gap-1 p-1 bg-surface-container rounded-xl w-fit flex-wrap">
-              {FILTROS_TIPO_EVENTO.map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => { setFiltroTipo(opt.value); setPage(1) }}
-                  className={`px-3.5 py-2 rounded-lg text-label-md font-bold transition-all whitespace-nowrap ${
-                    filtroTipo === opt.value ? 'bg-surface-bright text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
         {eventos_recentes.length === 0 ? (
           <EmptyState
-            icon="history"
-            title="Nenhum evento registrado ainda"
-            description="Os eventos aparecem aqui assim que o tour for exibido para os usuários."
-          />
-        ) : eventosFiltrados.length === 0 ? (
-          <EmptyState
-            icon="filter_alt_off"
-            title="Nenhum evento encontrado"
-            description="Nenhum evento corresponde ao filtro selecionado. Tente escolher outro tipo."
+            icon={temFiltro ? 'filter_alt_off' : 'history'}
+            title={temFiltro ? 'Nenhum evento encontrado' : 'Nenhum evento registrado ainda'}
+            description={temFiltro
+              ? 'Nenhum evento corresponde aos filtros aplicados. Tente ajustar o período ou limpar os filtros.'
+              : 'Os eventos aparecem aqui assim que o tour for exibido para os usuários.'}
           />
         ) : (
           <>
@@ -167,7 +305,7 @@ export function TourDashboard() {
                 </tbody>
               </table>
             </div>
-            <Pagination page={page} total={eventosFiltrados.length} perPage={PER_PAGE} onChange={setPage} />
+            <Pagination page={page} total={eventos_recentes.length} perPage={PER_PAGE} onChange={setPage} />
           </>
         )}
       </div>

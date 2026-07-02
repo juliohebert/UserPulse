@@ -1,4 +1,5 @@
 import { Request, Response } from 'express'
+import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 
 const MODOS_IDENTIFICACAO = ['sistema_tela', 'data_cy', 'url_contem']
@@ -7,6 +8,7 @@ const TOOLTIP_POSICOES = ['auto', 'top', 'bottom', 'left', 'right']
 const ACOES_AO_AVANCAR = ['apenas_avancar', 'clicar_elemento']
 const MODOS_AVANCO_INTERACAO = ['manual', 'ao_clicar', 'ao_alterar_valor', 'ao_aparecer_elemento', 'ao_sumir_elemento']
 const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
+const TIPOS_EVENTO_TOUR = ['inicio', 'passo_visualizado', 'elemento_nao_encontrado', 'pulado', 'concluido']
 
 interface PassoInput {
   titulo?: string
@@ -439,13 +441,104 @@ export async function buscarDashboard(req: Request, res: Response) {
     })
     if (!tour) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
 
+    const {
+      data_inicio, data_fim, tipo_evento, passo_id, passo_ordem, cliente, usuario, unidade,
+    } = req.query as Record<string, string | undefined>
+
+    // Filtros comuns aos 4 cards E à lista de eventos: período, passo,
+    // cliente, usuário, unidade. tipo_evento é aplicado só na lista de
+    // eventos — os cards já são, cada um, uma contagem por tipo específico
+    // (filtrar eles também por tipo_evento zeraria os outros 3 sem ganho).
+    // Sem nenhum filtro informado, whereComum fica igual a { tour_id: id },
+    // preservando o comportamento atual.
+    const whereComum: Prisma.EventoTourWhereInput = { tour_id: id }
+
+    if (data_inicio?.trim() || data_fim?.trim()) {
+      const criadoEm: Prisma.DateTimeFilter = {}
+      if (data_inicio?.trim()) {
+        const inicio = new Date(data_inicio)
+        if (!isNaN(inicio.getTime())) criadoEm.gte = inicio
+      }
+      if (data_fim?.trim()) {
+        const fim = new Date(data_fim)
+        if (!isNaN(fim.getTime())) {
+          fim.setHours(23, 59, 59, 999) // inclui o dia inteiro informado em data_fim
+          criadoEm.lte = fim
+        }
+      }
+      if (Object.keys(criadoEm).length > 0) whereComum.criado_em = criadoEm
+    }
+
+    // passo_ordem tem prioridade — é o campo que o evento realmente grava.
+    // passo_id (id de TourPasso) é aceito como alias mais amigável pro
+    // frontend e é traduzido pra ordem via os passos já carregados do tour.
+    let passoOrdemFiltro: number | null = null
+    if (passo_ordem?.trim()) {
+      const n = Number(passo_ordem)
+      if (!isNaN(n)) passoOrdemFiltro = n
+    } else if (passo_id?.trim()) {
+      const passo = tour.passos.find(p => p.id === passo_id)
+      if (passo) passoOrdemFiltro = passo.ordem
+    }
+    if (passoOrdemFiltro != null) whereComum.passo_ordem = passoOrdemFiltro
+
+    // cliente/usuario/unidade não são colunas próprias — vivem dentro do JSON
+    // "contexto" (mesmo enviado por UserPulse.updateContext/contextProvider),
+    // com usuario_id também replicado como coluna própria. Cada filtro vira
+    // um grupo OR (id exato OU nome/e-mail contendo o termo), combinados
+    // com AND entre si.
+    // "mode: insensitive" não é suportado pelo filtro de caminho JSON desta
+    // versão do Prisma (só em colunas de texto normais, como usuario_id) —
+    // a busca por nome/e-mail dentro de contexto (JSON) fica case-sensitive.
+    const andExtra: Prisma.EventoTourWhereInput[] = []
+
+    if (cliente?.trim()) {
+      const termo = cliente.trim()
+      andExtra.push({
+        OR: [
+          { contexto: { path: ['cliente_id'], equals: termo } },
+          { contexto: { path: ['cliente_nome'], string_contains: termo } },
+        ],
+      })
+    }
+
+    if (usuario?.trim()) {
+      const termo = usuario.trim()
+      andExtra.push({
+        OR: [
+          { usuario_id: { contains: termo, mode: 'insensitive' } },
+          { contexto: { path: ['usuario_nome'], string_contains: termo } },
+          { contexto: { path: ['usuario_email'], string_contains: termo } },
+        ],
+      })
+    }
+
+    if (unidade?.trim()) {
+      const termo = unidade.trim()
+      andExtra.push({
+        OR: [
+          { contexto: { path: ['unidade_id'], equals: termo } },
+          { contexto: { path: ['unidade_nome'], string_contains: termo } },
+          { contexto: { path: ['clinica_id'], equals: termo } },
+          { contexto: { path: ['clinica_nome'], string_contains: termo } },
+        ],
+      })
+    }
+
+    if (andExtra.length > 0) whereComum.AND = andExtra
+
+    const whereEventos: Prisma.EventoTourWhereInput = { ...whereComum }
+    if (tipo_evento?.trim() && tipo_evento !== 'todos' && TIPOS_EVENTO_TOUR.includes(tipo_evento)) {
+      whereEventos.tipo_evento = tipo_evento
+    }
+
     const [iniciados, concluidos, pulados, elementos_nao_encontrados, eventosRecentes] = await Promise.all([
-      prisma.eventoTour.count({ where: { tour_id: id, tipo_evento: 'inicio' } }),
-      prisma.eventoTour.count({ where: { tour_id: id, tipo_evento: 'concluido' } }),
-      prisma.eventoTour.count({ where: { tour_id: id, tipo_evento: 'pulado' } }),
-      prisma.eventoTour.count({ where: { tour_id: id, tipo_evento: 'elemento_nao_encontrado' } }),
+      prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'inicio' } }),
+      prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'concluido' } }),
+      prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'pulado' } }),
+      prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'elemento_nao_encontrado' } }),
       prisma.eventoTour.findMany({
-        where: { tour_id: id },
+        where: whereEventos,
         orderBy: { criado_em: 'desc' },
         take: 100,
       }),
