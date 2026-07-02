@@ -243,6 +243,13 @@
       '.up-rec-revisao-alertas li{font-size:10.5px;line-height:1.3;color:#e65100;background:rgba(230,81,0,.08);border-radius:6px;padding:3px 7px}',
       '.up-rec-troca-btn{display:inline-flex;margin-top:4px}',
       '@media (max-width:480px){.up-rec-revisao-grid{grid-template-columns:1fr}}',
+      // Botão "Analisar passos" (topo do painel de revisão) e as sugestões
+      // discretas por passo — visualmente distintas dos alertas (tom azul,
+      // não âmbar), já que são opcionais/informativas, nunca bloqueiam nada.
+      '.up-rec-analisar-btn{align-self:flex-start}',
+      '.up-rec-sugestoes{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}',
+      '.up-rec-sugestao-item{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10.5px;line-height:1.3;color:#0058be;background:#eff4ff;border-radius:6px;padding:4px 8px}',
+      '.up-rec-sugestao-texto{flex:1}',
       // Mini painel "Escolha o seletor deste passo" (troca de elemento).
       '.up-rec-modal-escolha{max-width:520px}',
       '.up-rec-escolha-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px}',
@@ -1848,6 +1855,9 @@
     // não um dado do tour (se a página recarregar no meio, a troca é
     // simplesmente abandonada sem alterar o passo).
     trocaIndice: null,
+    // Liga/desliga a exibição das sugestões do "Analisar passos" — também
+    // efêmero (não persistido), só controla se o bloco de sugestões aparece.
+    analiseAtiva: false,
   };
 
   // Opções editáveis na revisão — mesmos valores aceitos pelo backend/admin
@@ -2414,6 +2424,130 @@
     }).join('') + '</ul>';
   }
 
+  // ─── "Analisar passos" — assistente de limpeza opcional na revisão ────────
+  // Diferente dos alertas (sempre visíveis, focados em campos obrigatórios
+  // pro importador), essas sugestões só aparecem quando o usuário pede
+  // ("Analisar passos") e cobrem qualidade/duplicação/coerência de modo de
+  // avanço — nunca bloqueiam gerar JSON, só orientam.
+
+  // Título vazio OU um dos textos que o próprio gravador gera automaticamente
+  // quando não achou nada melhor (recorderGerarTitulo) — sinal de que o
+  // usuário provavelmente não revisou esse título ainda.
+  function recorderTituloGenerico(titulo) {
+    if (!titulo || !titulo.trim()) return true;
+    return /^(Interaja com |Preencha: |Campo: )/.test(titulo.trim());
+  }
+
+  // Heurísticas por texto (seletor + título do PASSO já salvo) — não dependem
+  // do elemento estar presente na tela agora (ao contrário de recorderInferirModo,
+  // que só roda no momento da captura, com o elemento real em mãos).
+  var REGEX_SUGESTAO_PARECE_CAMPO = /^(?:input|textarea|select)\b|\binput\b|\bcampo\b|autocomplete|combobox|search|busca|dropdown/i;
+  var REGEX_SUGESTAO_PARECE_BOTAO = /^(?:button|a)\b|\bbotao\b|\bbutton\b|\blink\b|\bsalvar\b|\bconfirmar\b|\benviar\b|\bsubmit\b|\back(?:a|ã)o\b/i;
+
+  function recorderSugestaoPareceCampo(passo) {
+    var alvo = (passo.seletor || '') + ' ' + (passo.titulo || '');
+    return REGEX_SUGESTAO_PARECE_CAMPO.test(alvo);
+  }
+
+  function recorderSugestaoPareceBotao(passo) {
+    var alvo = (passo.seletor || '') + ' ' + (passo.titulo || '');
+    return REGEX_SUGESTAO_PARECE_BOTAO.test(alvo);
+  }
+
+  // Cada sugestão: { texto, acao (opcional — chave de recorderAplicarAcaoRapida),
+  // acaoRotulo (texto do botão de ação rápida) }.
+  function recorderSugestoesPasso(passos, indice) {
+    var passo = passos[indice];
+    var sugestoes = [];
+    if (!passo) return sugestoes;
+
+    if (passo.seletor_tipo === 'css') {
+      sugestoes.push({
+        texto: 'Este passo usa seletor CSS. Prefira data-cy quando possível.',
+        acao: 'trocar_elemento', acaoRotulo: 'Trocar elemento',
+      });
+    }
+
+    if (recorderTituloGenerico(passo.titulo)) {
+      sugestoes.push({ texto: 'Revise o título deste passo.' });
+    }
+
+    if (!passo.descricao || !String(passo.descricao).trim()) {
+      sugestoes.push({ texto: 'Adicione uma descrição para orientar o usuário.' });
+    }
+
+    var anterior = indice > 0 ? passos[indice - 1] : null;
+    if (anterior && passo.seletor && anterior.seletor === passo.seletor && anterior.seletor_tipo === passo.seletor_tipo) {
+      sugestoes.push({
+        texto: 'Este passo parece duplicado do anterior.',
+        acao: 'remover', acaoRotulo: 'Remover este passo',
+      });
+    }
+
+    if (passo.modo_avanco_interacao === 'ao_clicar' && recorderSugestaoPareceCampo(passo)) {
+      sugestoes.push({
+        texto: 'Este elemento parece um campo. Prefira avanço ao alterar valor.',
+        acao: 'ao_alterar_valor', acaoRotulo: 'Usar ao alterar valor',
+      });
+    }
+
+    if (passo.modo_avanco_interacao === 'manual' && recorderSugestaoPareceBotao(passo)) {
+      sugestoes.push({
+        texto: 'Este passo pode avançar automaticamente ao clicar.',
+        acao: 'ao_clicar', acaoRotulo: 'Usar ao clicar',
+      });
+    }
+
+    if (passo.acao_ao_avancar === 'clicar_elemento' && passo.modo_avanco_interacao === 'ao_clicar') {
+      sugestoes.push({
+        texto: 'Este passo possui dois comportamentos de clique. Confirme se ambos são necessários.',
+        acao: 'manual', acaoRotulo: 'Usar manual',
+      });
+    }
+
+    return sugestoes;
+  }
+
+  function recorderHtmlSugestoes(passos, indice) {
+    if (!recorderState.analiseAtiva) return '';
+    var sugestoes = recorderSugestoesPasso(passos, indice);
+    if (sugestoes.length === 0) return '';
+    return '<ul class="up-rec-sugestoes">' + sugestoes.map(function (s) {
+      return [
+        '<li class="up-rec-sugestao-item">',
+        '<span class="up-rec-sugestao-texto">' + escapeHtml(s.texto) + '</span>',
+        (s.acao ? '<button type="button" class="up-rec-btn-icone" data-rev-acao-rapida="' + s.acao + '" data-rev-index="' + indice + '">' + escapeHtml(s.acaoRotulo) + '</button>' : ''),
+        '</li>',
+      ].join('');
+    }).join('') + '</ul>';
+  }
+
+  // Aplica uma ação rápida de uma sugestão. "trocar_elemento" reaproveita o
+  // fluxo já existente de Trocar elemento; as demais mexem só no passo e
+  // re-renderizam a revisão inteira (o que já recalcula alertas/sugestões).
+  function recorderAplicarAcaoRapida(acao, indice) {
+    if (acao === 'trocar_elemento') {
+      recorderIniciarTrocaElemento(indice);
+      return;
+    }
+    var passo = recorderState.passos[indice];
+    if (!passo) return;
+
+    if (acao === 'remover') {
+      recorderState.passos.splice(indice, 1);
+      recorderPersistir();
+      recorderRenderRevisao();
+      return;
+    }
+
+    if (acao === 'ao_clicar' || acao === 'ao_alterar_valor' || acao === 'manual') {
+      passo.modo_avanco_interacao = acao;
+      recorderPersistir();
+      recorderRenderRevisao();
+      return;
+    }
+  }
+
   // Campo "Seletor de confirmação" — só aparece quando o modo de avanço
   // escolhido precisa dele (ao_aparecer_elemento/ao_sumir_elemento). Trocar o
   // modo pra outro valor só oculta esse bloco (recorderRevisaoOnInput
@@ -2434,7 +2568,7 @@
     return '<select class="up-rec-select" data-rev-campo="' + campo + '" data-rev-index="' + indice + '">' + options + '</select>';
   }
 
-  function recorderHtmlRevisaoItem(p, i, total) {
+  function recorderHtmlRevisaoItem(p, i, total, passos) {
     var resumo = recorderResumoTituloRevisao(p);
     return [
       '<div class="up-rec-revisao-item">',
@@ -2470,6 +2604,7 @@
       '<div class="up-rec-confirmacao-wrap" data-rev-confirmacao-wrap="' + i + '">' + recorderHtmlConfirmacao(p, i) + '</div>',
       '</div>',
       '<div class="up-rec-alertas-wrap" data-rev-alertas="' + i + '">' + recorderHtmlAlertas(p) + '</div>',
+      '<div class="up-rec-sugestoes-wrap" data-rev-sugestoes="' + i + '">' + recorderHtmlSugestoes(passos, i) + '</div>',
       '</div>',
     ].join('');
   }
@@ -2477,7 +2612,7 @@
   function recorderHtmlRevisao() {
     var passos = recorderState.passos;
     var vazio = passos.length === 0;
-    var itens = passos.map(function (p, i) { return recorderHtmlRevisaoItem(p, i, passos.length); }).join('');
+    var itens = passos.map(function (p, i) { return recorderHtmlRevisaoItem(p, i, passos.length, passos); }).join('');
     return [
       '<div class="up-rec-modal up-rec-modal-revisao">',
       '<div class="up-rec-revisao-topo">',
@@ -2485,6 +2620,7 @@
       '<span class="up-rec-revisao-contagem">' + passos.length + ' passo' + (passos.length === 1 ? '' : 's') + '</span>',
       '</div>',
       '<p class="up-rec-modal-sub">Ajuste título, descrição e comportamento de cada passo antes de gerar o JSON.</p>',
+      (vazio ? '' : '<button type="button" class="up-rec-btn-icone up-rec-analisar-btn" data-rev-analisar>' + (recorderState.analiseAtiva ? 'Ocultar análise' : 'Analisar passos') + '</button>'),
       '<div class="up-rec-revisao-lista">',
       (vazio ? '<p class="up-rec-modal-sub">Capture pelo menos um passo para gerar o JSON.</p>' : itens),
       '</div>',
@@ -2558,6 +2694,15 @@
       var wrap = document.querySelector('[data-rev-alertas="' + indice + '"]');
       if (wrap) wrap.innerHTML = recorderHtmlAlertas(passo);
     }
+
+    // Mesma ideia pras sugestões do "Analisar passos" — o conjunto de campos
+    // que influencia é um pouco diferente (inclui acao_ao_avancar, não inclui
+    // seletor_confirmacao). Só recalcula o texto se a análise estiver ativa;
+    // recorderHtmlSugestoes já retorna vazio quando não está.
+    if (campo === 'titulo' || campo === 'descricao' || campo === 'modo_avanco_interacao' || campo === 'acao_ao_avancar') {
+      var wrapSug = document.querySelector('[data-rev-sugestoes="' + indice + '"]');
+      if (wrapSug) wrapSug.innerHTML = recorderHtmlSugestoes(recorderState.passos, indice);
+    }
   }
 
   function recorderRevisaoOnClick(event) {
@@ -2568,6 +2713,19 @@
     if (alvo.closest('[data-rev-gerar]')) {
       if (recorderState.passos.length === 0) return; // defesa extra — o botão já vem "disabled" nesse caso
       recorderGerarJsonFinal();
+      return;
+    }
+    if (alvo.closest('[data-rev-analisar]')) {
+      recorderState.analiseAtiva = !recorderState.analiseAtiva;
+      recorderRenderRevisao();
+      return;
+    }
+
+    var btnAcaoRapida = alvo.closest('[data-rev-acao-rapida]');
+    if (btnAcaoRapida) {
+      var acao = btnAcaoRapida.getAttribute('data-rev-acao-rapida');
+      var idxAcao = Number(btnAcaoRapida.getAttribute('data-rev-index'));
+      recorderAplicarAcaoRapida(acao, idxAcao);
       return;
     }
 
