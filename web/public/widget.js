@@ -250,6 +250,7 @@
       '.up-rec-escolha-item:hover{border-color:#0058be;background:#f6f9ff}',
       '.up-rec-escolha-tipo{font-size:11px;font-weight:800;color:#424754;flex-shrink:0;min-width:64px}',
       '.up-rec-escolha-codigo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f8;border:1px solid #dde1ee;border-radius:6px;padding:3px 7px;color:#425066}',
+      '.up-rec-escolha-qtd{font-size:10px;color:#7c8595;white-space:nowrap;flex-shrink:0}',
       '.up-rec-escolha-qualidade{font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0}',
       '.up-rec-qualidade-recomendado{background:#e3f6ea;color:#0f7b3d}',
       '.up-rec-qualidade-bom{background:#eff4ff;color:#0058be}',
@@ -1993,10 +1994,10 @@
 
   // Lista de candidatos pra "Trocar elemento" na revisão — mesma ordem de
   // preferência de recorderGerarSeletor, mas retorna TODAS as opções
-  // disponíveis (não só a melhor) pra o usuário escolher. "role + texto" só
-  // entra quando o texto é curto (texto estático do próprio elemento — nunca
-  // valor digitado, já que inputs não têm textContent). O fallback CSS
-  // simples está sempre disponível, marcado como frágil.
+  // disponíveis (não só a melhor) pra o usuário escolher, cada uma validada
+  // de verdade contra a página (document.querySelectorAll) — a qualidade não
+  // é mais um rótulo fixo por tipo de atributo, e sim o resultado real da
+  // busca: 1 match = bom, mais de 1 = frágil, seletor inválido = descartado.
   //
   // Compatibilidade: só existem dois seletor_tipo válidos no runtime/formato
   // do tour — 'data_cy' (valor bruto, sem montar CSS) e 'css' (qualquer outro
@@ -2013,45 +2014,126 @@
     return String(valor).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   }
 
+  // Quantos elementos um seletor CSS bate na página agora — usado tanto pra
+  // decidir a qualidade (1=bom, >1=frágil) quanto pra descartar seletor
+  // inválido (querySelectorAll lança exceção pra sintaxe malformada).
+  // Retorna -1 nesse caso, nunca deixa a exceção escapar pra quem chamou.
+  function recorderValidarSeletorCss(seletor) {
+    try {
+      return document.querySelectorAll(seletor).length;
+    } catch (_e) {
+      return -1;
+    }
+  }
+
+  // Sobe no máximo 5 níveis a partir do pai do elemento clicado procurando um
+  // ancestral "estável" (data-cy > id > role > aria-label, nessa ordem de
+  // prioridade) pra qualificar seletores ambíguos — nunca usa <html>/<body>
+  // como âncora, mesmo que estejam dentro do limite de níveis.
+  function recorderAncoraAncestral(el) {
+    var atual = el.parentElement;
+    var niveis = 0;
+    while (atual && niveis < 5) {
+      var ehRaiz = atual === document.body || atual === document.documentElement;
+      if (!ehRaiz) {
+        var dataCy = atual.getAttribute && atual.getAttribute('data-cy');
+        if (dataCy) return '[data-cy="' + recorderCssEscapeAtributo(dataCy) + '"]';
+        if (atual.id) return '#' + recorderCssEscapeSimples(atual.id);
+        var role = atual.getAttribute && atual.getAttribute('role');
+        if (role) return '[role="' + recorderCssEscapeAtributo(role) + '"]';
+        var ariaLabel = atual.getAttribute && atual.getAttribute('aria-label');
+        if (ariaLabel) return '[aria-label="' + recorderCssEscapeAtributo(ariaLabel) + '"]';
+      }
+      atual = atual.parentElement;
+      niveis++;
+    }
+    return null;
+  }
+
+  // Fragmentos de seletor CSS baseados só nos atributos do próprio elemento
+  // clicado (sem ancestral ainda) — cada um validado individualmente depois.
+  // Bare (ex.: [name="x"]) e qualificado por tag (ex.: input[name="x"]) são
+  // gerados como candidatos separados: a validação real decide qual é único.
+  function recorderFragmentosLocais(el) {
+    var tag = el.tagName ? el.tagName.toLowerCase() : '';
+    var fragmentos = [];
+
+    if (el.id) fragmentos.push({ rotulo: 'id', seletor: '#' + recorderCssEscapeSimples(el.id) });
+
+    var name = el.getAttribute && el.getAttribute('name');
+    if (name) {
+      fragmentos.push({ rotulo: 'name', seletor: '[name="' + recorderCssEscapeAtributo(name) + '"]' });
+      fragmentos.push({ rotulo: 'tag+name', seletor: tag + '[name="' + recorderCssEscapeAtributo(name) + '"]' });
+    }
+
+    var ariaLabel = el.getAttribute && el.getAttribute('aria-label');
+    if (ariaLabel) {
+      fragmentos.push({ rotulo: 'aria-label', seletor: '[aria-label="' + recorderCssEscapeAtributo(ariaLabel) + '"]' });
+      fragmentos.push({ rotulo: 'tag+aria-label', seletor: tag + '[aria-label="' + recorderCssEscapeAtributo(ariaLabel) + '"]' });
+    }
+
+    var title = el.getAttribute && el.getAttribute('title');
+    if (title) {
+      fragmentos.push({ rotulo: 'title', seletor: '[title="' + recorderCssEscapeAtributo(title) + '"]' });
+      fragmentos.push({ rotulo: 'tag+title', seletor: tag + '[title="' + recorderCssEscapeAtributo(title) + '"]' });
+    }
+
+    var role = el.getAttribute && el.getAttribute('role');
+    if (role) {
+      fragmentos.push({ rotulo: 'role', seletor: '[role="' + recorderCssEscapeAtributo(role) + '"]' });
+      fragmentos.push({ rotulo: 'tag+role', seletor: tag + '[role="' + recorderCssEscapeAtributo(role) + '"]' });
+    }
+
+    var tipo = el.getAttribute && el.getAttribute('type');
+    if (tipo) fragmentos.push({ rotulo: 'tag+type', seletor: tag + '[type="' + recorderCssEscapeAtributo(tipo) + '"]' });
+
+    return fragmentos;
+  }
+
   function recorderGerarCandidatosSeletor(el) {
     var candidatos = [];
     try {
       var dataCy = el.getAttribute && el.getAttribute('data-cy');
-      if (dataCy) candidatos.push({ rotulo: 'data-cy', seletor_tipo: 'data_cy', seletor: dataCy, qualidade: 'recomendado' });
+      if (dataCy) {
+        // data-cy é prioridade máxima — não precisa de alternativas CSS.
+        candidatos.push({ rotulo: 'data-cy', seletor_tipo: 'data_cy', seletor: dataCy, qualidade: 'recomendado', quantidade: null });
+      } else {
+        var ancora = recorderAncoraAncestral(el);
+        var fragmentos = recorderFragmentosLocais(el);
 
-      if (el.id) {
-        candidatos.push({ rotulo: 'id', seletor_tipo: 'css', seletor: '#' + recorderCssEscapeSimples(el.id), qualidade: 'bom' });
+        fragmentos.forEach(function (frag) {
+          var qtd = recorderValidarSeletorCss(frag.seletor);
+          if (qtd <= 0) return; // invalido (-1) ou não bate nem no próprio elemento (0) — descarta
+
+          if (qtd === 1) {
+            candidatos.push({ rotulo: frag.rotulo, seletor_tipo: 'css', seletor: frag.seletor, qualidade: 'bom', quantidade: qtd });
+            return;
+          }
+
+          // Ambíguo isolado (qtd > 1) — só recorre ao ancestral quando ele
+          // realmente resolve a ambiguidade (fica único com ele).
+          if (ancora) {
+            var seletorAncorado = ancora + ' ' + frag.seletor;
+            var qtdAncorado = recorderValidarSeletorCss(seletorAncorado);
+            if (qtdAncorado === 1) {
+              candidatos.push({ rotulo: 'ancestral + ' + frag.rotulo, seletor_tipo: 'css', seletor: seletorAncorado, qualidade: 'bom', quantidade: qtdAncorado });
+              return;
+            }
+          }
+
+          candidatos.push({ rotulo: frag.rotulo, seletor_tipo: 'css', seletor: frag.seletor, qualidade: 'fragil', quantidade: qtd });
+        });
+
+        var fallback = recorderSeletorFallback(el);
+        var qtdFallback = recorderValidarSeletorCss(fallback);
+        candidatos.push({ rotulo: 'CSS (fallback)', seletor_tipo: 'css', seletor: fallback, qualidade: 'fragil', quantidade: qtdFallback > 0 ? qtdFallback : null });
       }
-
-      var name = el.getAttribute && el.getAttribute('name');
-      if (name) {
-        candidatos.push({ rotulo: 'name', seletor_tipo: 'css', seletor: '[name="' + recorderCssEscapeAtributo(name) + '"]', qualidade: 'bom' });
-      }
-
-      var ariaLabel = el.getAttribute && el.getAttribute('aria-label');
-      if (ariaLabel) {
-        candidatos.push({ rotulo: 'aria-label', seletor_tipo: 'css', seletor: '[aria-label="' + recorderCssEscapeAtributo(ariaLabel) + '"]', qualidade: 'bom' });
-      }
-
-      var title = el.getAttribute && el.getAttribute('title');
-      if (title) {
-        candidatos.push({ rotulo: 'title', seletor_tipo: 'css', seletor: '[title="' + recorderCssEscapeAtributo(title) + '"]', qualidade: 'bom' });
-      }
-
-      // role sozinho raramente é único na página — o texto só ajuda o usuário
-      // a reconhecer visualmente qual elemento é (rótulo), nunca entra no
-      // seletor CSS salvo (document.querySelector não seleciona por texto).
-      // Por isso o seletor real é só [role="..."], marcado como frágil.
-      var role = el.getAttribute && el.getAttribute('role');
-      var texto = (el.textContent || '').trim().replace(/\s+/g, ' ');
-      if (role && texto && texto.length <= 40) {
-        candidatos.push({ rotulo: 'role + texto ("' + texto + '")', seletor_tipo: 'css', seletor: '[role="' + recorderCssEscapeAtributo(role) + '"]', qualidade: 'fragil' });
-      }
-
-      candidatos.push({ rotulo: 'CSS (fallback)', seletor_tipo: 'css', seletor: recorderSeletorFallback(el), qualidade: 'fragil' });
     } catch (_e) {
-      candidatos.push({ rotulo: 'CSS (fallback)', seletor_tipo: 'css', seletor: el.tagName ? el.tagName.toLowerCase() : '*', qualidade: 'fragil' });
+      candidatos.push({ rotulo: 'CSS (fallback)', seletor_tipo: 'css', seletor: el.tagName ? el.tagName.toLowerCase() : '*', qualidade: 'fragil', quantidade: null });
     }
+
+    var ORDEM_QUALIDADE = { recomendado: 0, bom: 1, fragil: 2 };
+    candidatos.sort(function (a, b) { return ORDEM_QUALIDADE[a.qualidade] - ORDEM_QUALIDADE[b.qualidade]; });
     return candidatos;
   }
 
@@ -2749,10 +2831,14 @@
 
   function recorderHtmlEscolhaSeletor(candidatos) {
     var itens = candidatos.map(function (c, i) {
+      var qtdTexto = typeof c.quantidade === 'number' && c.quantidade > 0
+        ? (c.quantidade === 1 ? '1 elemento encontrado' : c.quantidade + ' elementos encontrados')
+        : '';
       return [
         '<button type="button" class="up-rec-escolha-item" data-esc-escolher data-esc-index="' + i + '">',
         '<span class="up-rec-escolha-tipo">' + escapeHtml(c.rotulo) + '</span>',
         '<code class="up-rec-escolha-codigo" title="' + escapeHtml(c.seletor) + '">' + escapeHtml(c.seletor) + '</code>',
+        (qtdTexto ? '<span class="up-rec-escolha-qtd">' + escapeHtml(qtdTexto) + '</span>' : ''),
         '<span class="up-rec-escolha-qualidade up-rec-qualidade-' + c.qualidade + '">' + recorderQualidadeLabel(c.qualidade) + '</span>',
         '</button>',
       ].join('');
