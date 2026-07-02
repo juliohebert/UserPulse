@@ -166,6 +166,9 @@
       '.up-rec-ultimo{opacity:.7;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis}',
       '.up-rec-aviso{display:none;width:100%;flex-basis:100%;text-align:center;color:#ffd54f;font-weight:700;font-size:11px;margin-top:2px}',
       '.up-rec-aviso.up-rec-aviso-visivel{display:block}',
+      '.up-rec-troca-info{flex-basis:100%;text-align:center;opacity:.85;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}',
+      '.up-rec-troca-status{flex-basis:100%;text-align:center;color:#ffd54f;font-weight:700;font-size:11px}',
+      '.up-rec-destaque{position:fixed;z-index:2147483630;border-radius:10px;box-shadow:0 0 0 9999px rgba(11,28,48,.35),0 0 0 3px #0058be,0 0 0 5px rgba(0,88,190,.25);pointer-events:none;transition:top .15s ease,left .15s ease,width .15s ease,height .15s ease}',
       '.up-rec-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}',
       // Base pensada pro fundo ESCURO da barra flutuante (texto branco sobre
       // branco-translúcido). Nunca usar sozinha (só .up-rec-btn) em botões
@@ -2551,28 +2554,110 @@
   // mesma posição.
 
   var recorderTrocaAvisoTimer = null;
+  // Texto de status "atual" da barra de troca (achou/não achou o elemento
+  // anterior) — guardado pra recorderAvisarNaBarraTroca conseguir restaurar
+  // depois de um aviso temporário (ex.: campo sensível), sem recalcular nada.
+  var recorderTrocaStatusOriginal = '';
+
+  // ─── Destaque do elemento ATUAL do passo, enquanto o usuário decide o novo ──
+  // Independente do spotlight do tour real (tourState) — é só um retângulo
+  // visual temporário, sem nenhum efeito no runtime do tour.
+  var RECORDER_DESTAQUE_ID = 'userpulse-recorder-destaque';
+  var recorderDestaqueElemento = null;
+  var recorderDestaqueHandlersBound = false;
+
+  function recorderPosicionarDestaque() {
+    if (!recorderDestaqueElemento) return;
+    var div = document.getElementById(RECORDER_DESTAQUE_ID);
+    if (!div) return;
+    var rect = recorderDestaqueElemento.getBoundingClientRect();
+    div.style.top = (rect.top - 4) + 'px';
+    div.style.left = (rect.left - 4) + 'px';
+    div.style.width = (rect.width + 8) + 'px';
+    div.style.height = (rect.height + 8) + 'px';
+  }
+
+  function recorderMostrarDestaque(el) {
+    recorderRemoverDestaque();
+    recorderDestaqueElemento = el;
+    var div = document.createElement('div');
+    div.id = RECORDER_DESTAQUE_ID;
+    div.className = 'up-rec-destaque';
+    document.body.appendChild(div);
+    recorderPosicionarDestaque();
+  }
+
+  function recorderRemoverDestaque() {
+    recorderDestaqueElemento = null;
+    var div = document.getElementById(RECORDER_DESTAQUE_ID);
+    if (div) div.remove();
+  }
+
+  function recorderBindDestaqueReposicao() {
+    if (recorderDestaqueHandlersBound) return;
+    recorderDestaqueHandlersBound = true;
+    window.addEventListener('scroll', recorderPosicionarDestaque, true);
+    window.addEventListener('resize', recorderPosicionarDestaque);
+  }
+
+  function recorderUnbindDestaqueReposicao() {
+    if (!recorderDestaqueHandlersBound) return;
+    recorderDestaqueHandlersBound = false;
+    window.removeEventListener('scroll', recorderPosicionarDestaque, true);
+    window.removeEventListener('resize', recorderPosicionarDestaque);
+  }
+
+  // "data-cy=\"valor\"" pra seletor_tipo=data_cy, ou o próprio CSS pra seletor_tipo=css.
+  function recorderFormatarSeletorAtual(passo) {
+    if (!passo || !passo.seletor) return '(nenhum seletor definido)';
+    if (passo.seletor_tipo === 'data_cy') return 'data-cy="' + passo.seletor + '"';
+    return passo.seletor;
+  }
 
   // Some com o painel de revisão (senão o overlay dele bloquearia cliques na
-  // página real) e mostra uma barra pequena — igual à barra principal — que
-  // NÃO cobre a tela, deixando o usuário clicar livremente no elemento certo.
+  // página real), tenta localizar o elemento ATUAL do passo (mesma lógica do
+  // runtime do tour — selecionarElementoPasso) pra dar contexto ao usuário
+  // antes dele clicar em outro, e mostra a barra flutuante com esse contexto.
   function recorderIniciarTrocaElemento(indice) {
-    if (!recorderState.passos[indice]) return;
+    var passo = recorderState.passos[indice];
+    if (!passo) return;
     recorderState.trocaIndice = indice;
     var painel = document.getElementById(RECORDER_PAINEL_ID);
     if (painel) painel.remove();
-    recorderRenderTrocaBarra(indice);
+
+    var elementoAtual = null;
+    try { elementoAtual = selecionarElementoPasso(passo); } catch (_e) { elementoAtual = null; }
+
+    recorderRenderTrocaBarra(indice, passo, Boolean(elementoAtual));
+
+    if (elementoAtual) {
+      recorderMostrarDestaque(elementoAtual);
+      try { elementoAtual.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_e) {}
+      recorderBindDestaqueReposicao();
+    }
+
     document.addEventListener('click', recorderCapturarTrocaElemento, true);
   }
 
-  function recorderRenderTrocaBarra(indice) {
+  function recorderRenderTrocaBarra(indice, passo, elementoEncontrado) {
     if (document.getElementById(RECORDER_TROCA_BAR_ID)) return;
+
+    recorderTrocaStatusOriginal = elementoEncontrado
+      ? 'Elemento atual destacado. Clique em outro elemento para substituir.'
+      : 'Elemento atual não encontrado nesta tela. Clique no novo elemento desejado.';
+
+    var tituloParte = passo && passo.titulo && passo.titulo.trim() ? ' — ' + escapeHtml(passo.titulo.trim()) : '';
+
     var bar = document.createElement('div');
     bar.id = RECORDER_TROCA_BAR_ID;
     bar.className = 'up-rec-bar';
     bar.innerHTML = [
       '<span class="up-rec-dot"></span>',
-      '<span class="up-rec-label" data-troca-aviso>Clique no novo elemento para o Passo ' + (indice + 1) + '</span>',
+      '<span class="up-rec-label">Trocando elemento do Passo ' + (indice + 1) + tituloParte + '</span>',
+      '<span class="up-rec-troca-info">Elemento atual: ' + escapeHtml(recorderFormatarSeletorAtual(passo)) + '</span>',
+      '<span class="up-rec-troca-status" data-troca-aviso>' + escapeHtml(recorderTrocaStatusOriginal) + '</span>',
       '<div class="up-rec-actions">',
+      (elementoEncontrado ? '<button type="button" class="up-rec-btn" data-troca-ver-atual>Ver seletores do elemento atual</button>' : ''),
       '<button type="button" class="up-rec-btn up-rec-btn-danger" data-troca-cancelar>Cancelar seleção</button>',
       '</div>',
     ].join('');
@@ -2582,24 +2667,37 @@
       var alvo = event.target;
       if (!(alvo instanceof Element)) return;
       if (alvo.closest('[data-troca-cancelar]')) { recorderCancelarTroca(); return; }
+      if (alvo.closest('[data-troca-ver-atual]')) { recorderVerSeletoresElementoAtual(); return; }
     });
   }
 
   // Mensagem temporária na barra de troca (ex.: elemento sensível clicado) —
-  // volta ao texto original depois de alguns segundos, sem encerrar o modo de
-  // seleção (o usuário continua podendo clicar em outro elemento).
+  // volta ao texto de status original depois de alguns segundos, sem encerrar
+  // o modo de seleção (o usuário continua podendo clicar em outro elemento).
   function recorderAvisarNaBarraTroca(texto) {
     var bar = document.getElementById(RECORDER_TROCA_BAR_ID);
     if (!bar) return;
     var span = bar.querySelector('[data-troca-aviso]');
     if (!span) return;
-    var original = 'Clique no novo elemento para o Passo ' + (recorderState.trocaIndice + 1);
     if (recorderTrocaAvisoTimer) window.clearTimeout(recorderTrocaAvisoTimer);
     span.textContent = texto;
     recorderTrocaAvisoTimer = window.setTimeout(function () {
       recorderTrocaAvisoTimer = null;
-      span.textContent = original;
+      span.textContent = recorderTrocaStatusOriginal;
     }, 3200);
+  }
+
+  // Mostra os candidatos de seletor do elemento ATUAL (o mesmo já destacado),
+  // sem precisar que o usuário clique em outro elemento — reaproveita o mesmo
+  // mini painel "Escolha o seletor deste passo" usado pra um elemento novo.
+  function recorderVerSeletoresElementoAtual() {
+    var passo = recorderState.passos[recorderState.trocaIndice];
+    if (!passo) return;
+    var elementoAtual = null;
+    try { elementoAtual = selecionarElementoPasso(passo); } catch (_e) { elementoAtual = null; }
+    if (!elementoAtual) return; // botão só aparece quando encontrado; confere de novo por segurança
+    recorderPararEscutaTroca();
+    recorderMostrarEscolhaSeletor(elementoAtual);
   }
 
   function recorderPararEscutaTroca() {
@@ -2608,6 +2706,8 @@
       window.clearTimeout(recorderTrocaAvisoTimer);
       recorderTrocaAvisoTimer = null;
     }
+    recorderRemoverDestaque();
+    recorderUnbindDestaqueReposicao();
     var bar = document.getElementById(RECORDER_TROCA_BAR_ID);
     if (bar) bar.remove();
   }
