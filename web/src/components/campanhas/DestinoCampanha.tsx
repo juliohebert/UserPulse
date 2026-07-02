@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Campanha, TelaCatalogo } from '../../types'
+import { CardHeader } from '../ui/CardHeader'
 import { ScreenCatalogModal, identifier } from './ScreenCatalogModal'
 
 type ManualKey = 'sistema' | 'modo_identificacao' | 'tela' | 'data_cy' | 'url_contem'
 
 interface Props {
+  numero?: number
   catalogoTelas: TelaCatalogo[]
   sistemasSugeridas: string[]
   telasSugeridas: string[]
@@ -23,11 +25,6 @@ interface Props {
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 
-const tabBtnClass = (active: boolean) =>
-  `flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-label-md font-bold transition-all ${
-    active ? 'bg-surface-bright text-primary shadow-sm' : 'text-on-surface-variant hover:text-on-surface'
-  }`
-
 const MODOS = [
   { value: 'sistema_tela', label: 'Tela informada pelo sistema', desc: 'Use quando o sistema hospedeiro envia o nome da tela.' },
   { value: 'data_cy', label: 'Elemento da tela', desc: 'Use quando a tela possui um data-cy estável.' },
@@ -35,6 +32,7 @@ const MODOS = [
 ]
 
 export function DestinoCampanha({
+  numero,
   catalogoTelas,
   sistemasSugeridas,
   telasSugeridas,
@@ -98,22 +96,41 @@ export function DestinoCampanha({
 
   return (
     <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm">
-      <div className="flex items-center gap-3 mb-4">
-        <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">explore</span>
-        <div>
-          <h3 className="text-title-lg font-bold text-on-surface">Destino da campanha</h3>
-          <p className="text-label-md text-on-surface-variant">Defina em qual tela esta campanha deve aparecer.</p>
-        </div>
-      </div>
+      <CardHeader
+        number={numero}
+        icon="explore"
+        iconBg="bg-primary-fixed"
+        iconColor="text-primary"
+        title="Destino da campanha"
+        description="Defina em qual tela esta campanha deve aparecer."
+      />
 
-      <div className="flex gap-1 p-1 bg-surface-container rounded-xl mb-4 w-fit">
-        <button type="button" onClick={() => setTab('catalogo')} className={tabBtnClass(tab === 'catalogo')}>
-          <span className="material-symbols-outlined text-[16px]">grid_view</span>
-          Escolher do catálogo
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+        <button
+          type="button"
+          onClick={() => setTab('catalogo')}
+          className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${
+            tab === 'catalogo' ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'
+          }`}
+        >
+          <span className={`material-symbols-outlined text-[20px] mt-0.5 shrink-0 ${tab === 'catalogo' ? 'text-primary' : 'text-on-surface-variant'}`}>grid_view</span>
+          <div>
+            <p className={`text-body-md font-semibold ${tab === 'catalogo' ? 'text-primary' : 'text-on-surface'}`}>Escolher do catálogo</p>
+            <p className="text-[11px] text-on-surface-variant mt-0.5">Selecione uma tela já mapeada no sistema.</p>
+          </div>
         </button>
-        <button type="button" onClick={() => setTab('manual')} className={tabBtnClass(tab === 'manual')}>
-          <span className="material-symbols-outlined text-[16px]">tune</span>
-          Configurar manualmente
+        <button
+          type="button"
+          onClick={() => setTab('manual')}
+          className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${
+            tab === 'manual' ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'
+          }`}
+        >
+          <span className={`material-symbols-outlined text-[20px] mt-0.5 shrink-0 ${tab === 'manual' ? 'text-primary' : 'text-on-surface-variant'}`}>tune</span>
+          <div>
+            <p className={`text-body-md font-semibold ${tab === 'manual' ? 'text-primary' : 'text-on-surface'}`}>Configurar manualmente</p>
+            <p className="text-[11px] text-on-surface-variant mt-0.5">Informe sistema, tela ou URL você mesmo.</p>
+          </div>
         </button>
       </div>
 
@@ -330,12 +347,14 @@ export function DestinoCampanha({
         </div>
       )}
 
-      <div className="mt-4 p-3 bg-primary-fixed/50 rounded-xl border border-primary/20">
-        <p className="text-label-md font-bold text-primary mb-1.5 flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-[16px]">summarize</span>
-          Resumo da configuração
-        </p>
-        <p className="text-body-md text-on-surface leading-snug">{resumo}</p>
+      <div className="mt-4 p-3.5 rounded-xl border border-outline-variant bg-surface-container-low flex items-start gap-2.5">
+        <span className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+          <span className="material-symbols-outlined text-[16px]">insights</span>
+        </span>
+        <div className="min-w-0">
+          <p className="text-label-md font-bold text-on-surface mb-0.5">Como isso vai funcionar</p>
+          <p className="text-body-md text-on-surface-variant leading-snug">{resumo}</p>
+        </div>
       </div>
 
       {modalAberto && (

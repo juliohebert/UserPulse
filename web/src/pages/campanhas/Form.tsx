@@ -5,11 +5,26 @@ import type { Campanha, TelaCatalogo } from '../../types'
 import { gerarSlug, toInputDate } from '../../utils/campanha'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
+import { CardHeader } from '../../components/ui/CardHeader'
 import { TEMPLATES } from '../../utils/templates'
 import { DestinoCampanha } from '../../components/campanhas/DestinoCampanha'
 
 const TIPOS = ['comunicado', 'melhoria', 'pesquisa']
 const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
+
+const POLITICA_REEXIBICAO_LABEL: Record<string, string> = {
+  uma_vez_apos_visualizacao: 'Uma vez após visualização',
+  ate_responder_ou_confirmar: 'Até responder/confirmar',
+}
+
+// Deriva se o destino já está configurado o bastante pra campanha funcionar —
+// mesma checagem usada no submit, só que aqui é leitura (Resumo da campanha).
+function destinoConfigurado(f: { sistema: string; modo_identificacao: string; data_cy: string; url_contem: string; tela: string }): boolean {
+  if (!f.sistema.trim()) return false
+  if (f.modo_identificacao === 'data_cy') return Boolean(f.data_cy.trim())
+  if (f.modo_identificacao === 'url_contem') return Boolean(f.url_contem.trim())
+  return Boolean(f.tela.trim())
+}
 
 interface FormState {
   titulo: string
@@ -323,6 +338,19 @@ export function CampanhaForm() {
     form.segmentar_estados.length > 0
   )
 
+  // ── Resumo da campanha — só leitura, derivado do form atual ──
+  const destinoOk = destinoConfigurado(form)
+  const tipoLabel = form.tipo.charAt(0).toUpperCase() + form.tipo.slice(1)
+  const templateAplicadoObj = appliedTemplate ? TEMPLATES.find(t => t.id === appliedTemplate) : null
+  const reexibicaoLabel = form.politica_reexibicao === 'reexibir_apos_dias' && form.reexibir_apos_dias
+    ? `A cada ${form.reexibir_apos_dias} dia${form.reexibir_apos_dias === '1' ? '' : 's'}`
+    : POLITICA_REEXIBICAO_LABEL[form.politica_reexibicao] ?? form.politica_reexibicao
+
+  // Numeração das seções — dinâmica porque o card de Modelo só existe na
+  // criação (some na edição), sem furar a sequência.
+  let stepCounter = 0
+  const nextStep = () => ++stepCounter
+
   return (
     <div className="relative">
       {/* ── Page action bar ── */}
@@ -336,9 +364,21 @@ export function CampanhaForm() {
               <span>/</span>
               <span className="text-on-surface">{isEdit ? 'Editar' : 'Criar Nova'}</span>
             </nav>
-            <h2 className="text-title-lg font-bold text-on-surface leading-tight">
-              {isEdit ? 'Editar Campanha' : 'Nova Campanha'}
-            </h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-headline-md font-bold text-on-surface leading-tight">
+                {isEdit ? 'Editar Campanha' : 'Nova Campanha'}
+              </h2>
+              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${
+                !isEdit ? 'bg-outline-variant/30 text-outline' : form.ativo ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'
+              }`}>
+                {!isEdit ? 'Rascunho' : form.ativo ? 'Ativa' : 'Inativa'}
+              </span>
+            </div>
+            <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
+              {isEdit
+                ? 'Ajuste onde, quando e como esta campanha é exibida aos usuários.'
+                : 'Configure onde, quando e como sua campanha será exibida aos usuários.'}
+            </p>
           </div>
           <div className="flex gap-2 shrink-0">
             {id && (
@@ -384,16 +424,17 @@ export function CampanhaForm() {
             {/* ── Left column (7/12) ── */}
             <div className="col-span-12 lg:col-span-7 space-y-4">
 
-              {/* Template da Campanha */}
+              {/* Modelo */}
               {!isEdit && (
                 <div className={card}>
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className="p-1.5 bg-tertiary-fixed rounded-lg text-tertiary material-symbols-outlined text-[20px]">auto_awesome</span>
-                    <div>
-                      <h3 className="text-title-lg font-bold text-on-surface leading-tight">Template da Campanha</h3>
-                      <p className="text-label-md text-on-surface-variant">Escolha um ponto de partida e edite à vontade</p>
-                    </div>
-                  </div>
+                  <CardHeader
+                    number={nextStep()}
+                    icon="auto_awesome"
+                    iconBg="bg-tertiary-fixed"
+                    iconColor="text-tertiary"
+                    title="Modelo"
+                    description="Comece por um modelo pronto ou construa do zero — dá pra editar tudo depois."
+                  />
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
                     {TEMPLATES.map(tpl => {
                       const active = appliedTemplate === tpl.id
@@ -435,10 +476,14 @@ export function CampanhaForm() {
 
               {/* Parâmetros Gerais */}
               <div className={card}>
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">tune</span>
-                  <h3 className="text-title-lg font-bold text-on-surface">Parâmetros Gerais</h3>
-                </div>
+                <CardHeader
+                  number={nextStep()}
+                  icon="tune"
+                  iconBg="bg-primary-fixed"
+                  iconColor="text-primary"
+                  title="Parâmetros gerais"
+                  description="Nome, tipo, categoria e vigência da campanha."
+                />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
                     <label className="block text-label-md text-on-surface-variant mb-1.5">
@@ -520,6 +565,7 @@ export function CampanhaForm() {
 
               {/* Destino da campanha */}
               <DestinoCampanha
+                numero={nextStep()}
                 catalogoTelas={catalogoTelas}
                 sistemasSugeridas={sistemas}
                 telasSugeridas={telas}
@@ -538,10 +584,14 @@ export function CampanhaForm() {
 
               {/* Conteúdo da Campanha */}
               <div className={card}>
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="p-1.5 bg-secondary-fixed rounded-lg text-secondary material-symbols-outlined text-[20px]">edit_note</span>
-                  <h3 className="text-title-lg font-bold text-on-surface">Conteúdo da Campanha</h3>
-                </div>
+                <CardHeader
+                  number={nextStep()}
+                  icon="edit_note"
+                  iconBg="bg-secondary-fixed"
+                  iconColor="text-secondary"
+                  title="Conteúdo da campanha"
+                  description="Escreva a mensagem, mídia e call-to-action que o usuário verá."
+                />
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
                     <label className="block text-label-md text-on-surface-variant mb-1.5">Subtítulo</label>
@@ -586,34 +636,25 @@ export function CampanhaForm() {
                 </div>
               </div>
 
-              {/* Feature cards */}
-              <div className="grid grid-cols-1 gap-4">
-                {[
-                  { icon: 'auto_awesome', color: 'text-primary', bg: 'psychology', label: 'Ajudante de IA', desc: 'Deixe nossa IA otimizar sua pergunta para melhores conversões.' },
-                ].map(c => (
-                  <div key={c.label} className="bg-surface-container-low p-5 rounded-xl border border-outline-variant/50 relative overflow-hidden min-h-28 cursor-not-allowed opacity-70">
-                    <div className="relative z-10">
-                      <span className={`material-symbols-outlined ${c.color} mb-2`}>{c.icon}</span>
-                      <h4 className="text-body-lg font-bold mb-1">{c.label}</h4>
-                      <p className="text-body-md text-on-surface-variant">{c.desc}</p>
-                    </div>
-                    <div className="absolute -right-4 -bottom-4 opacity-10">
-                      <span className="material-symbols-outlined text-[96px]">{c.bg}</span>
-                    </div>
-                    <span className="absolute top-3 right-3 text-[10px] font-bold text-outline bg-surface-container px-2 py-0.5 rounded-full uppercase tracking-wider">Em breve</span>
-                  </div>
-                ))}
+              {/* Ajudante de IA — faixa discreta, recurso ainda não disponível */}
+              <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-outline-variant/40 bg-surface-container-low/60 cursor-not-allowed opacity-70">
+                <span className="material-symbols-outlined text-primary text-[20px] shrink-0">auto_awesome</span>
+                <p className="text-label-md text-on-surface-variant flex-1 min-w-0">
+                  <span className="font-bold text-on-surface">Ajudante de IA</span> — otimize sua pergunta automaticamente para melhores conversões.
+                </p>
+                <span className="text-[10px] font-bold text-outline bg-surface-container px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">Em breve</span>
               </div>
 
-              {/* Segmentação */}
+              {/* Público e segmentação */}
               <div className={card}>
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="p-1.5 bg-secondary-fixed rounded-lg text-secondary material-symbols-outlined text-[20px]">target</span>
-                  <div>
-                    <h3 className="text-title-lg font-bold text-on-surface">Segmentação</h3>
-                    <p className="text-label-md text-on-surface-variant">Deixe em branco para exibir para todos.</p>
-                  </div>
-                </div>
+                <CardHeader
+                  number={nextStep()}
+                  icon="target"
+                  iconBg="bg-secondary-fixed"
+                  iconColor="text-secondary"
+                  title="Público e segmentação"
+                  description="Opcional — deixe em branco para exibir a campanha para todos os usuários."
+                />
                 <div className="space-y-3">
                   {[
                     { key: 'segmentar_cliente_ids' as const, label: 'Cliente IDs', hint: 'cliente_id no init()' },
@@ -641,18 +682,21 @@ export function CampanhaForm() {
               </div>
             </div>
 
-            {/* ── Right column (5/12) sticky ── */}
-            <div className="col-span-12 lg:col-span-5 space-y-4 lg:sticky lg:top-[136px] lg:self-start">
+            {/* ── Right column (5/12) — fluxo normal, sem sticky ── */}
+            <div className="col-span-12 lg:col-span-5 space-y-4">
 
-              {/* Lógica de Feedback */}
+              {/* Lógica de exibição */}
               <div className={card}>
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="p-1.5 bg-secondary-fixed rounded-lg text-secondary material-symbols-outlined text-[20px]">quiz</span>
-                  <h3 className="text-title-lg font-bold text-on-surface">Lógica de Feedback</h3>
-                </div>
+                <CardHeader
+                  number={nextStep()}
+                  icon="quiz"
+                  iconBg="bg-secondary-fixed"
+                  iconColor="text-secondary"
+                  title="Lógica de exibição"
+                />
                 <div className="space-y-4">
                   {/* Exibição */}
-                  <div className="p-3 bg-surface-container rounded-xl space-y-2">
+                  <div className="p-3 rounded-xl border border-outline-variant/60 space-y-2">
                     <p className="text-label-md font-bold text-on-surface uppercase tracking-wider mb-1">Exibição</p>
                     {[
                       { value: 'modal_automatica', label: 'Modal automática', disabled: false },
@@ -668,45 +712,8 @@ export function CampanhaForm() {
                     ))}
                   </div>
 
-                  {/* Gatilho */}
-                  <div className="p-3 bg-surface-container rounded-xl space-y-3">
-                    <p className="text-label-md font-bold text-on-surface uppercase tracking-wider">Quando exibir a campanha?</p>
-                    <div className="space-y-2">
-                      {[
-                        { value: 'ao_abrir_tela', label: 'Assim que a tela abrir', desc: 'A campanha aparece automaticamente quando a tela for identificada.' },
-                        { value: 'apos_evento', label: 'Depois de uma ação do usuário', desc: 'A campanha aparece somente quando o sistema disparar um evento.' },
-                      ].map(opt => {
-                        const active = form.gatilho === opt.value
-                        return (
-                          <label key={opt.value} className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${active ? 'border-primary bg-primary-fixed' : 'border-outline-variant bg-surface-bright hover:border-primary/50'}`}>
-                            <input type="radio" name="gatilho" value={opt.value} checked={active} onChange={e => set('gatilho', e.target.value)} className="mt-0.5 text-primary focus:ring-primary shrink-0" />
-                            <div>
-                              <p className={`text-body-md font-semibold ${active ? 'text-primary' : 'text-on-surface'}`}>{opt.label}</p>
-                              <p className="text-[11px] text-on-surface-variant mt-0.5">{opt.desc}</p>
-                            </div>
-                          </label>
-                        )
-                      })}
-                    </div>
-                    {form.gatilho === 'apos_evento' && (
-                      <div>
-                        <label className="block text-label-md text-on-surface-variant mb-1.5">
-                          Nome da ação/evento <span className="text-error">*</span>
-                        </label>
-                        <input
-                          required
-                          value={form.evento}
-                          onChange={e => set('evento', e.target.value)}
-                          placeholder="Ex: paciente_agendado"
-                          className={field}
-                        />
-                        <p className="mt-1 text-[11px] text-outline">Exemplo: paciente_agendado, consulta_finalizada, fila_reordenada.</p>
-                      </div>
-                    )}
-                  </div>
-
                   {/* Config */}
-                  <div className="p-3 bg-surface-container rounded-xl space-y-3">
+                  <div className="p-3 rounded-xl border border-outline-variant/60 space-y-3">
                     <p className="text-label-md font-bold text-on-surface uppercase tracking-wider">Configurações</p>
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">Atraso para abrir (ms)</label>
@@ -728,7 +735,7 @@ export function CampanhaForm() {
                   </div>
 
                   {/* Feedback */}
-                  <div className="p-3 bg-surface-container rounded-xl space-y-3">
+                  <div className="p-3 rounded-xl border border-outline-variant/60 space-y-3">
                     <label className="flex items-center gap-3 text-body-md text-on-surface cursor-pointer">
                       <input id="feedback-enabled" type="checkbox" checked={form.feedback_habilitado} onChange={e => set('feedback_habilitado', e.target.checked)} className="w-4 h-4 rounded border-outline-variant text-primary focus:ring-primary" />
                       Feedback habilitado
@@ -759,6 +766,43 @@ export function CampanhaForm() {
                     </label>
                   </div>
 
+                  {/* Gatilho */}
+                  <div className="p-3 rounded-xl border border-outline-variant/60 space-y-3">
+                    <p className="text-label-md font-bold text-on-surface uppercase tracking-wider">Quando exibir a campanha?</p>
+                    <div className="space-y-2">
+                      {[
+                        { value: 'ao_abrir_tela', label: 'Assim que a tela abrir', desc: 'A campanha aparece automaticamente quando a tela for identificada.' },
+                        { value: 'apos_evento', label: 'Depois de uma ação do usuário', desc: 'A campanha aparece somente quando o sistema disparar um evento.' },
+                      ].map(opt => {
+                        const active = form.gatilho === opt.value
+                        return (
+                          <label key={opt.value} className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${active ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-bright hover:border-primary/50'}`}>
+                            <input type="radio" name="gatilho" value={opt.value} checked={active} onChange={e => set('gatilho', e.target.value)} className="mt-0.5 text-primary focus:ring-primary shrink-0" />
+                            <div>
+                              <p className={`text-body-md font-semibold ${active ? 'text-primary' : 'text-on-surface'}`}>{opt.label}</p>
+                              <p className="text-[11px] text-on-surface-variant mt-0.5">{opt.desc}</p>
+                            </div>
+                          </label>
+                        )
+                      })}
+                    </div>
+                    {form.gatilho === 'apos_evento' && (
+                      <div>
+                        <label className="block text-label-md text-on-surface-variant mb-1.5">
+                          Nome da ação/evento <span className="text-error">*</span>
+                        </label>
+                        <input
+                          required
+                          value={form.evento}
+                          onChange={e => set('evento', e.target.value)}
+                          placeholder="Ex: paciente_agendado"
+                          className={field}
+                        />
+                        <p className="mt-1 text-[11px] text-outline">Exemplo: paciente_agendado, consulta_finalizada, fila_reordenada.</p>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Slug */}
                   {isEdit && (
                     <div className="pt-3 border-t border-outline-variant">
@@ -782,13 +826,14 @@ export function CampanhaForm() {
 
               {/* Reexibição */}
               <div className={card}>
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="p-1.5 bg-tertiary-fixed rounded-lg text-tertiary material-symbols-outlined text-[20px]">repeat</span>
-                  <div>
-                    <h3 className="text-title-lg font-bold text-on-surface">Reexibição</h3>
-                    <p className="text-label-md text-on-surface-variant">Defina quando esta campanha poderá aparecer novamente para o mesmo usuário.</p>
-                  </div>
-                </div>
+                <CardHeader
+                  number={nextStep()}
+                  icon="repeat"
+                  iconBg="bg-tertiary-fixed"
+                  iconColor="text-tertiary"
+                  title="Reexibição"
+                  description="Defina quando esta campanha poderá aparecer novamente para o mesmo usuário."
+                />
                 <div className="space-y-2">
                   {([
                     {
@@ -816,7 +861,7 @@ export function CampanhaForm() {
                           incompativel
                             ? 'border-error/40 bg-error-container/30'
                             : active
-                            ? 'border-primary bg-primary-fixed'
+                            ? 'border-primary bg-primary/5'
                             : 'border-outline-variant bg-surface-bright hover:border-primary/50'
                         }`}
                       >
@@ -986,6 +1031,56 @@ export function CampanhaForm() {
                         </button>
                       </div>
                     )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Resumo da campanha */}
+              <div className={card}>
+                <CardHeader
+                  number={nextStep()}
+                  icon="summarize"
+                  iconBg="bg-primary-fixed"
+                  iconColor="text-primary"
+                  title="Resumo da campanha"
+                  description="Status das principais configurações."
+                />
+                <div className="divide-y divide-outline-variant/30">
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    <span className="flex items-center gap-2 text-label-md text-on-surface-variant">
+                      <span className="material-symbols-outlined text-[16px]">category</span>
+                      Modelo / Tipo
+                    </span>
+                    <span className="text-label-md font-semibold text-right truncate max-w-[60%] text-tertiary">
+                      {templateAplicadoObj ? `${templateAplicadoObj.label} · ${tipoLabel}` : tipoLabel}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    <span className="flex items-center gap-2 text-label-md text-on-surface-variant">
+                      <span className="material-symbols-outlined text-[16px]">explore</span>
+                      Destino
+                    </span>
+                    <span className={`text-label-md font-semibold text-right ${destinoOk ? 'text-tertiary' : 'text-outline'}`}>
+                      {destinoOk ? 'Definido' : 'Pendente'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    <span className="flex items-center gap-2 text-label-md text-on-surface-variant">
+                      <span className="material-symbols-outlined text-[16px]">forum</span>
+                      Feedback
+                    </span>
+                    <span className={`text-label-md font-semibold text-right ${form.feedback_habilitado ? 'text-tertiary' : 'text-outline'}`}>
+                      {form.feedback_habilitado ? 'Habilitado' : 'Desabilitado'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    <span className="flex items-center gap-2 text-label-md text-on-surface-variant">
+                      <span className="material-symbols-outlined text-[16px]">repeat</span>
+                      Reexibição
+                    </span>
+                    <span className="text-label-md font-semibold text-right text-tertiary">
+                      {reexibicaoLabel}
+                    </span>
                   </div>
                 </div>
               </div>
