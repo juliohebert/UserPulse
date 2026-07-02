@@ -194,6 +194,11 @@
       // mesmo esquema de cor já usado em .up-rec-btn-icone, legível sobre #fff.
       '.up-rec-btn-secondary{background:#eff4ff;color:#0058be}',
       '.up-rec-btn-secondary:hover{background:#dbe8ff}',
+      // Estado "ligado" de um botão secundário com toggle (ex.: Analisar
+      // passos enquanto a análise está visível) — mesmo tom do primário, pra
+      // deixar claro que a ação já foi ativada.
+      '.up-rec-btn-secondary-ativo{background:#0058be;color:#fff}',
+      '.up-rec-btn-secondary-ativo:hover{background:#0058be;opacity:.9}',
       '.up-rec-btn-danger{background:rgba(255,82,82,.22);color:#fff}',
       '.up-rec-btn-danger:hover{background:rgba(255,82,82,.36)}',
       '.up-rec-overlay{position:fixed;inset:0;z-index:2147483650;display:flex;align-items:center;justify-content:center;background:rgba(11,28,48,.55);padding:16px}',
@@ -238,13 +243,21 @@
       // repouso, só ganha fundo no hover.
       '.up-rec-btn-icone{border:0;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:#424754;font-family:inherit;transition:background .15s ease,color .15s ease}',
       '.up-rec-btn-icone:hover{background:#dce9ff;color:#0b1c30}',
-      '.up-rec-btn-icone:disabled{opacity:.35;cursor:not-allowed}',
+      '.up-rec-btn-icone:disabled{opacity:.3;cursor:not-allowed}',
       // Destaque (Trocar elemento, ações rápidas de sugestão, Analisar
       // passos) — mesmo tom primário usado nas ações "copiar seletor"/"copiar
       // comando" do admin (hover:text-primary), só que já colorido em repouso
       // pra convidar o clique, já que aqui é a ação principal do botão.
-      '.up-rec-btn-icone-acento{background:transparent;color:#0058be}',
-      '.up-rec-btn-icone-acento:hover{background:#eff4ff}',
+      // Fundo sempre visível (não só no hover) — precisa ler como botão de
+      // verdade, não como link textual, já que aqui é a ação principal do
+      // botão (Trocar elemento, ações rápidas de sugestão).
+      '.up-rec-btn-icone-acento{background:#eff4ff;color:#0058be}',
+      '.up-rec-btn-icone-acento:hover{background:#dbe8ff}',
+      // Quadrado, só ícone (mover para cima/baixo) — mesmo tamanho fixo nos
+      // dois estados, hover visível, mais apagado quando desabilitado (mesmo
+      // opacity:30% usado nos botões equivalentes do admin).
+      '.up-rec-btn-icone-quadrado{width:26px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}',
+      '.up-rec-btn-icone-quadrado:disabled{opacity:.3}',
       // Remover — mesmo esquema do botão "Remover passo" do admin
       // (text-error hover:bg-error-container): discreto mas identificável
       // pela cor, sem fundo chamativo em repouso.
@@ -264,9 +277,28 @@
       '.up-rec-textarea-sm{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;color:#0b1c30;background:#f8f9ff;resize:vertical;min-height:44px;margin-top:3px;outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
       '.up-rec-textarea-sm:hover{border-color:#a8adbd}',
       '.up-rec-textarea-sm:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16);background:#fff}',
-      '.up-rec-select{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;color:#0b1c30;background:#fff;margin-top:3px;outline:none;cursor:pointer;transition:border-color .15s ease,box-shadow .15s ease}',
-      '.up-rec-select:hover{border-color:#a8adbd}',
-      '.up-rec-select:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
+      // Select customizado — o <select> de verdade fica só como ponte de
+      // dados/eventos (nunca visível/clicável); botão+dropdown abaixo são o
+      // que o usuário realmente vê e usa, com a mesma aparência dos campos
+      // do sistema (borda outline-variant, foco azul primário).
+      '.up-rec-customselect{position:relative;width:100%;margin-top:3px}',
+      '.up-rec-select-nativo{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;opacity:0;pointer-events:none}',
+      '.up-rec-cs-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:6px;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;color:#0b1c30;background:#fff;cursor:pointer;outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
+      '.up-rec-cs-trigger:hover{border-color:#a8adbd}',
+      '.up-rec-cs-trigger[aria-expanded="true"]{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
+      '.up-rec-cs-valor{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}',
+      '.up-rec-cs-seta{flex-shrink:0;font-size:10px;color:#727785;transition:transform .15s ease}',
+      '.up-rec-cs-trigger[aria-expanded="true"] .up-rec-cs-seta{transform:rotate(180deg)}',
+      // Dropdown próprio — fundo branco, borda e sombra (não é o menu nativo
+      // do navegador). max-height+overflow evita que uma lista de opções
+      // muito longa estoure o modal.
+      '.up-rec-cs-dropdown{position:absolute;z-index:20;top:calc(100% + 4px);left:0;width:100%;max-height:200px;overflow-y:auto;background:#fff;border:1px solid #c2c6d6;border-radius:10px;box-shadow:0 12px 28px rgba(11,28,48,.18);padding:4px}',
+      '.up-rec-cs-opcao{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;border:0;background:transparent;border-radius:6px;padding:6px 8px;font-size:12.5px;font-family:inherit;color:#0b1c30;text-align:left;cursor:pointer}',
+      '.up-rec-cs-opcao:hover{background:#eff4ff}',
+      '.up-rec-cs-opcao-selecionada{background:rgba(0,88,190,.1);color:#0058be;font-weight:700}',
+      '.up-rec-cs-opcao-label{overflow:hidden;text-overflow:ellipsis}',
+      '.up-rec-cs-check{visibility:hidden;flex-shrink:0;color:#0058be;font-size:12px}',
+      '.up-rec-cs-opcao-selecionada .up-rec-cs-check{visibility:visible}',
       // Seção "Configuração do passo" — agrupada visualmente à parte (fundo
       // discreto), separando o que é técnico (seletor/comportamento) do que é
       // conteúdo principal (título/descrição) editado acima.
@@ -287,6 +319,9 @@
       // discretas por passo — visualmente distintas dos alertas (tom azul,
       // marcador redondo em vez de triângulo), já que são opcionais/
       // informativas (qualidade/duplicidade), nunca bloqueiam gerar JSON.
+      // Estado reforçado por cor (secundário quando desligado, preenchido de
+      // azul quando ligado — .up-rec-btn-secondary-ativo) e pelo texto do
+      // botão, que já alterna entre "Analisar passos"/"Ocultar análise".
       '.up-rec-analisar-btn{align-self:flex-start}',
       '.up-rec-sugestoes{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}',
       '.up-rec-sugestao-item{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10.5px;line-height:1.3;color:#0058be;background:#eff4ff;border-radius:6px;padding:4px 8px}',
@@ -2608,11 +2643,42 @@
     ].join('');
   }
 
+  // Select customizado (aparência igual aos campos do sistema, sem o menu
+  // nativo do navegador) — mantém um <select> de verdade escondido
+  // (.up-rec-select-nativo) com os MESMOS data-rev-campo/data-rev-index de
+  // antes, só pra continuar disparando 'change' e passar pelo
+  // recorderRevisaoOnInput sem duplicar nenhuma lógica de atualização/
+  // persistência/JSON. O usuário só vê e interage com o botão+dropdown.
   function recorderSelectHtml(campo, indice, valorAtual, opcoes) {
+    var opcaoAtual = null;
+    for (var i = 0; i < opcoes.length; i++) {
+      if (opcoes[i].value === valorAtual) { opcaoAtual = opcoes[i]; break; }
+    }
+
     var options = opcoes.map(function (o) {
       return '<option value="' + o.value + '"' + (o.value === valorAtual ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
     }).join('');
-    return '<select class="up-rec-select" data-rev-campo="' + campo + '" data-rev-index="' + indice + '">' + options + '</select>';
+
+    var itensDropdown = opcoes.map(function (o) {
+      var selecionado = o.value === valorAtual;
+      return [
+        '<button type="button" class="up-rec-cs-opcao' + (selecionado ? ' up-rec-cs-opcao-selecionada' : '') + '" data-cs-opcao data-value="' + escapeHtml(o.value) + '" role="option" aria-selected="' + selecionado + '">',
+        '<span class="up-rec-cs-opcao-label">' + escapeHtml(o.label) + '</span>',
+        '<span class="up-rec-cs-check" aria-hidden="true">&#10003;</span>',
+        '</button>',
+      ].join('');
+    }).join('');
+
+    return [
+      '<div class="up-rec-customselect" data-cs-wrap>',
+      '<select class="up-rec-select-nativo" data-rev-campo="' + campo + '" data-rev-index="' + indice + '" tabindex="-1" aria-hidden="true">' + options + '</select>',
+      '<button type="button" class="up-rec-cs-trigger" data-cs-trigger aria-haspopup="listbox" aria-expanded="false">',
+      '<span class="up-rec-cs-valor">' + escapeHtml(opcaoAtual ? opcaoAtual.label : '') + '</span>',
+      '<span class="up-rec-cs-seta" aria-hidden="true">&#9662;</span>',
+      '</button>',
+      '<div class="up-rec-cs-dropdown" data-cs-dropdown role="listbox" hidden>' + itensDropdown + '</div>',
+      '</div>',
+    ].join('');
   }
 
   function recorderHtmlRevisaoItem(p, i, total, passos) {
@@ -2626,8 +2692,8 @@
       '<span class="up-rec-revisao-resumo" data-rev-resumo="' + i + '">' + (resumo ? '— ' + escapeHtml(resumo) : '') + '</span>',
       '</div>',
       '<div class="up-rec-revisao-acoes">',
-      '<button type="button" class="up-rec-btn-icone" data-rev-subir data-rev-index="' + i + '"' + (i === 0 ? ' disabled' : '') + ' title="Mover para cima">&uarr;</button>',
-      '<button type="button" class="up-rec-btn-icone" data-rev-descer data-rev-index="' + i + '"' + (i === total - 1 ? ' disabled' : '') + ' title="Mover para baixo">&darr;</button>',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-quadrado" data-rev-subir data-rev-index="' + i + '"' + (i === 0 ? ' disabled' : '') + ' title="Mover para cima">&uarr;</button>',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-quadrado" data-rev-descer data-rev-index="' + i + '"' + (i === total - 1 ? ' disabled' : '') + ' title="Mover para baixo">&darr;</button>',
       '<button type="button" class="up-rec-btn-icone up-rec-btn-danger" data-rev-remover data-rev-index="' + i + '" title="Remover passo">Remover</button>',
       '</div>',
       '</div>',
@@ -2668,7 +2734,7 @@
       '<span class="up-rec-revisao-contagem">' + passos.length + ' passo' + (passos.length === 1 ? '' : 's') + '</span>',
       '</div>',
       '<p class="up-rec-modal-sub">Ajuste título, descrição e comportamento de cada passo antes de gerar o JSON.</p>',
-      (vazio ? '' : '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento up-rec-analisar-btn" data-rev-analisar>' + (recorderState.analiseAtiva ? 'Ocultar análise' : 'Analisar passos') + '</button>'),
+      (vazio ? '' : '<button type="button" class="up-rec-btn up-rec-btn-secondary up-rec-analisar-btn' + (recorderState.analiseAtiva ? ' up-rec-btn-secondary-ativo' : '') + '" data-rev-analisar>' + (recorderState.analiseAtiva ? 'Ocultar análise' : 'Analisar passos') + '</button>'),
       '<div class="up-rec-revisao-lista">',
       (vazio ? '<p class="up-rec-modal-sub">Capture pelo menos um passo para gerar o JSON.</p>' : itens),
       '</div>',
@@ -2753,9 +2819,71 @@
     }
   }
 
+  // Fecha qualquer dropdown de select customizado aberto no painel de
+  // revisão — usado tanto pelo "clique fora" quanto antes de abrir um outro
+  // (só um aberto por vez).
+  function recorderFecharTodosDropdownsSelect() {
+    var root = document.getElementById(RECORDER_PAINEL_ID);
+    if (!root) return;
+    var dropdowns = root.querySelectorAll('[data-cs-dropdown]');
+    for (var i = 0; i < dropdowns.length; i++) {
+      var dd = dropdowns[i];
+      if (dd.hidden) continue;
+      dd.hidden = true;
+      var wrap = dd.closest('[data-cs-wrap]');
+      var trigger = wrap && wrap.querySelector('[data-cs-trigger]');
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    }
+  }
+
   function recorderRevisaoOnClick(event) {
     var alvo = event.target;
     if (!(alvo instanceof Element)) return;
+
+    // Clique fora de qualquer select customizado fecha o(s) que estiverem
+    // abertos — inclui clique no restante do modal e no backdrop (o próprio
+    // elemento raiz do overlay). Cliques dentro de um select (aberto ou não)
+    // seguem pros handlers específicos de trigger/opção logo abaixo.
+    if (!alvo.closest('[data-cs-wrap]')) {
+      recorderFecharTodosDropdownsSelect();
+    } else {
+      var trigger = alvo.closest('[data-cs-trigger]');
+      if (trigger) {
+        var wrapTrigger = trigger.closest('[data-cs-wrap]');
+        var dropdown = wrapTrigger.querySelector('[data-cs-dropdown]');
+        var estavaAberto = !dropdown.hidden;
+        recorderFecharTodosDropdownsSelect();
+        dropdown.hidden = estavaAberto;
+        trigger.setAttribute('aria-expanded', String(!dropdown.hidden));
+        return;
+      }
+
+      var opcao = alvo.closest('[data-cs-opcao]');
+      if (opcao) {
+        var wrapOpcao = opcao.closest('[data-cs-wrap]');
+        var select = wrapOpcao.querySelector('select');
+        var novoValor = opcao.getAttribute('data-value');
+        if (select.value !== novoValor) {
+          select.value = novoValor;
+          // Dispara o MESMO evento/elemento que o select nativo antigo
+          // disparava — recorderRevisaoOnInput cuida de atualizar o passo,
+          // persistir e recalcular alertas/sugestões/confirmação, sem
+          // nenhuma duplicação de lógica aqui.
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        var rotulo = opcao.querySelector('.up-rec-cs-opcao-label');
+        var valorExibido = wrapOpcao.querySelector('.up-rec-cs-valor');
+        if (rotulo && valorExibido) valorExibido.textContent = rotulo.textContent;
+        var opcoesDoWrap = wrapOpcao.querySelectorAll('[data-cs-opcao]');
+        for (var j = 0; j < opcoesDoWrap.length; j++) {
+          var selecionada = opcoesDoWrap[j] === opcao;
+          opcoesDoWrap[j].classList.toggle('up-rec-cs-opcao-selecionada', selecionada);
+          opcoesDoWrap[j].setAttribute('aria-selected', String(selecionada));
+        }
+        recorderFecharTodosDropdownsSelect();
+        return;
+      }
+    }
 
     if (alvo.closest('[data-rev-fechar]')) { recorderFecharRevisao(); return; }
     if (alvo.closest('[data-rev-gerar]')) {
@@ -2833,6 +2961,11 @@
     root.addEventListener('input', recorderRevisaoOnInput);
     root.addEventListener('change', recorderRevisaoOnInput);
     root.addEventListener('click', recorderRevisaoOnClick);
+    // ESC fecha o dropdown de select customizado aberto (só isso — não fecha
+    // o painel de revisão inteiro).
+    root.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' || event.key === 'Esc') recorderFecharTodosDropdownsSelect();
+    });
   }
 
   // ─── Trocar elemento de um passo (dentro da revisão) ─────────────────────
