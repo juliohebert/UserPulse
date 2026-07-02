@@ -219,10 +219,21 @@
       // depender de scroll (usado tanto no painel final quanto na revisão).
       // position:relative + z-index garante que fique acima da área do JSON.
       '.up-rec-modal-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;flex-shrink:0;width:100%;position:relative;z-index:1}',
-      // Cabeçalho fixo do modal de revisão (título + contador) — nunca rola
-      // junto com a lista de passos.
+      // Rodapé de modal (Fechar/Gerar JSON, Cancelar, Copiar/Baixar) — mais
+      // próximo do padrão de modal do sistema: retângulo com radius menor
+      // (não pill) e um pouco mais de respiro, em vez do botão compacto/pill
+      // usado na barra flutuante escura.
+      '.up-rec-modal-actions .up-rec-btn{border-radius:10px;padding:8px 16px;font-size:13px}',
+      // Cabeçalho do modal de revisão (título + subtítulo) — separado da
+      // barra de ações e da lista rolável por uma borda sutil, igual ao
+      // cabeçalho de modal do sistema (ex.: Catálogo de Telas).
+      '.up-rec-revisao-cabecalho{display:flex;flex-direction:column;gap:4px;padding-bottom:10px;border-bottom:1px solid rgba(194,198,214,.5);flex-shrink:0}',
+      '.up-rec-modal-revisao .up-rec-modal-title{font-size:15px;font-weight:700}',
       '.up-rec-revisao-topo{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}',
       '.up-rec-revisao-contagem{font-size:11px;font-weight:800;color:#0058be;background:#eff4ff;border-radius:999px;padding:2px 10px;white-space:nowrap;flex-shrink:0}',
+      // Pequena barra de ações acima da lista de passos — "Analisar passos"
+      // vive aqui, não solto entre o subtítulo e a lista.
+      '.up-rec-revisao-toolbar{display:flex;align-items:center;padding-bottom:8px;border-bottom:1px solid rgba(194,198,214,.4);flex-shrink:0}',
       // Única área com scroll interno do modal — cabeçalho e rodapé (ações)
       // ficam de fora, sempre visíveis (flex-shrink:0 neles).
       '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding-right:4px}',
@@ -253,16 +264,18 @@
       // botão (Trocar elemento, ações rápidas de sugestão).
       '.up-rec-btn-icone-acento{background:#eff4ff;color:#0058be}',
       '.up-rec-btn-icone-acento:hover{background:#dbe8ff}',
-      // Quadrado, só ícone (mover para cima/baixo) — mesmo tamanho fixo nos
-      // dois estados, hover visível, mais apagado quando desabilitado (mesmo
-      // opacity:30% usado nos botões equivalentes do admin).
-      '.up-rec-btn-icone-quadrado{width:26px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}',
-      '.up-rec-btn-icone-quadrado:disabled{opacity:.3}',
-      // Remover — mesmo esquema do botão "Remover passo" do admin
-      // (text-error hover:bg-error-container): discreto mas identificável
-      // pela cor, sem fundo chamativo em repouso.
-      '.up-rec-btn-icone.up-rec-btn-danger{background:transparent;color:#ba1a1a}',
-      '.up-rec-btn-icone.up-rec-btn-danger:hover{background:#ffdad6}',
+      // Quadrado, só ícone (mover para cima/baixo) — borda sutil sempre
+      // visível (pra ler como botão de ação, não só um caractere solto),
+      // hover mais escuro, opacity:30% quando desabilitado (mesmo padrão dos
+      // botões equivalentes do admin).
+      '.up-rec-btn-icone-quadrado{width:26px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0;box-sizing:border-box;border:1px solid #dde1ee}',
+      '.up-rec-btn-icone-quadrado:hover{border-color:#a8adbd}',
+      '.up-rec-btn-icone-quadrado:disabled{opacity:.3;border-color:#edeef5}',
+      // Remover — fundo vermelho bem claro + borda discreta sempre visíveis
+      // (pra ler como ação de perigo de verdade, não como link), mais forte
+      // no hover.
+      '.up-rec-btn-icone.up-rec-btn-danger{background:rgba(186,26,26,.06);border:1px solid rgba(186,26,26,.25);color:#ba1a1a;box-sizing:border-box}',
+      '.up-rec-btn-icone.up-rec-btn-danger:hover{background:#ffdad6;border-color:#ba1a1a}',
       // Título/descrição são os campos principais — rótulo normal (não
       // maiúsculo/técnico), pra se destacar da seção de configuração abaixo.
       '.up-rec-revisao-principal{display:flex;flex-direction:column;gap:3px}',
@@ -322,7 +335,6 @@
       // Estado reforçado por cor (secundário quando desligado, preenchido de
       // azul quando ligado — .up-rec-btn-secondary-ativo) e pelo texto do
       // botão, que já alterna entre "Analisar passos"/"Ocultar análise".
-      '.up-rec-analisar-btn{align-self:flex-start}',
       '.up-rec-sugestoes{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}',
       '.up-rec-sugestao-item{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10.5px;line-height:1.3;color:#0058be;background:#eff4ff;border-radius:6px;padding:4px 8px}',
       '.up-rec-sugestao-texto{flex:1}',
@@ -2729,12 +2741,18 @@
     var itens = passos.map(function (p, i) { return recorderHtmlRevisaoItem(p, i, passos.length, passos); }).join('');
     return [
       '<div class="up-rec-modal up-rec-modal-revisao">',
+      '<div class="up-rec-revisao-cabecalho">',
       '<div class="up-rec-revisao-topo">',
       '<h3 class="up-rec-modal-title">Revisar passos</h3>',
       '<span class="up-rec-revisao-contagem">' + passos.length + ' passo' + (passos.length === 1 ? '' : 's') + '</span>',
       '</div>',
       '<p class="up-rec-modal-sub">Ajuste título, descrição e comportamento de cada passo antes de gerar o JSON.</p>',
-      (vazio ? '' : '<button type="button" class="up-rec-btn up-rec-btn-secondary up-rec-analisar-btn' + (recorderState.analiseAtiva ? ' up-rec-btn-secondary-ativo' : '') + '" data-rev-analisar>' + (recorderState.analiseAtiva ? 'Ocultar análise' : 'Analisar passos') + '</button>'),
+      '</div>',
+      (vazio ? '' : [
+        '<div class="up-rec-revisao-toolbar">',
+        '<button type="button" class="up-rec-btn up-rec-btn-secondary up-rec-analisar-btn' + (recorderState.analiseAtiva ? ' up-rec-btn-secondary-ativo' : '') + '" data-rev-analisar>' + (recorderState.analiseAtiva ? 'Ocultar análise' : 'Analisar passos') + '</button>',
+        '</div>',
+      ].join('')),
       '<div class="up-rec-revisao-lista">',
       (vazio ? '<p class="up-rec-modal-sub">Capture pelo menos um passo para gerar o JSON.</p>' : itens),
       '</div>',
