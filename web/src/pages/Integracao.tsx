@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 
-const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
 function CodeBlock({ code, lang = 'javascript' }: { code: string; lang?: string }) {
   const [copied, setCopied] = useState(false)
@@ -229,7 +229,7 @@ export function IntegracaoPage() {
       </div>
 
       {/* ── Content ── */}
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-6xl space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-none space-y-4">
 
         {/* A — Instalação */}
         <SectionCard
@@ -287,7 +287,7 @@ export function IntegracaoPage() {
           title="Atualização de contexto em SPA"
           subtitle="Em sistemas Single-Page Application, chame updateContext() sempre que o cliente ou unidade ativa mudar."
         >
-          <p className="text-body-md text-on-surface-variant">
+          <p className="text-body-md text-on-surface-variant max-w-3xl">
             Sem isso, campanhas segmentadas por <span className="font-mono text-[12px]">cliente_id</span> ou <span className="font-mono text-[12px]">unidade_id</span> podem exibir conteúdo incorreto após a troca.
           </p>
           <CodeBlock code={CODE_UPDATE_CONTEXT} />

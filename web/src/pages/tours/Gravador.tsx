@@ -15,7 +15,7 @@ const EMPTY: GravadorForm = {
 }
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
-const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
 // ─── Gravador de fluxo (MVP) ────────────────────────────────────────────────
 // Esta tela só monta a URL de gravação e abre numa nova aba — toda a gravação
@@ -77,7 +77,7 @@ export function TourGravador() {
         </p>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-6xl space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-none space-y-4">
         <div className={card}>
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">

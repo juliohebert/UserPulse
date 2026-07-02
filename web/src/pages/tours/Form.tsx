@@ -78,7 +78,7 @@ const MODOS_AVANCO_INTERACAO = [
 const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
-const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
 // ─── Checklist de qualidade ─────────────────────────────────────────────────
 // Só orienta — não bloqueia nada além das validações que já existem em
@@ -627,7 +627,7 @@ export function TourForm() {
         </div>
       </div>
 
-      <section className="px-4 lg:px-margin-desktop py-5 max-w-4xl">
+      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-none">
         {!isEdit && !form.ativo && (
           <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]">info</span>
@@ -686,7 +686,7 @@ export function TourForm() {
                   <p className="text-label-md text-on-surface-variant">Escolha um ponto de partida — título, descrição e passos base. Você edita tudo livremente depois.</p>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                 {TOUR_TEMPLATES.map(tpl => {
                   const ativo = templateAplicadoId === tpl.id
                   return (

@@ -5,7 +5,7 @@ import type { TourExportEnvelope, TourGuiado } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { comandoIniciarTour, comandoTestarSeletor, downloadJson, testEmbedUrl } from '../../utils/tour'
 
-const card = 'bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden mb-5'
+const card = 'w-full bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden mb-5'
 const codeChip = 'bg-surface-container px-1 py-0.5 rounded text-[12px] font-mono'
 
 export function TourPreview() {
@@ -30,10 +30,10 @@ export function TourPreview() {
 
   useEffect(load, [id])
 
-  if (loading) return <div className="w-full px-4 lg:px-margin-desktop py-5 max-w-6xl"><LoadingSpinner /></div>
+  if (loading) return <div className="w-full px-4 lg:px-margin-desktop py-5 max-w-none"><LoadingSpinner /></div>
   if (error || !tour) {
     return (
-      <div className="w-full px-4 lg:px-margin-desktop py-5 max-w-6xl">
+      <div className="w-full px-4 lg:px-margin-desktop py-5 max-w-none">
         <ErrorState message={error ?? 'Tour guiado não encontrado.'} onRetry={load} />
       </div>
     )
@@ -62,7 +62,7 @@ export function TourPreview() {
   }
 
   return (
-    <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-6xl">
+    <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-none">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
           <nav className="flex gap-2 text-label-md text-outline mb-1">

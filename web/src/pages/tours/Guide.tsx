@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
 function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false)
@@ -150,7 +150,7 @@ export function TourGuide() {
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-6xl space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-none space-y-4">
         {/* A — O que é / quando usar */}
         <SectionCard
           icon="map"
@@ -158,12 +158,12 @@ export function TourGuide() {
           iconColor="text-primary"
           title="O que é e quando usar"
         >
-          <p className="text-body-md text-on-surface-variant leading-relaxed">
+          <p className="text-body-md text-on-surface-variant leading-relaxed max-w-3xl">
             Um tour guiado é uma sequência de passos que destaca elementos reais da tela, um de cada vez, com um tooltip
             explicando o que fazer. Diferente de uma campanha (modal isolado), ele guia o usuário{' '}
             <span className="font-semibold text-on-surface">dentro do próprio fluxo</span> do sistema.
           </p>
-          <p className="text-body-md text-on-surface-variant leading-relaxed">
+          <p className="text-body-md text-on-surface-variant leading-relaxed max-w-3xl">
             Use quando o objetivo é ensinar um caminho — apresentar uma funcionalidade nova, orientar o primeiro acesso,
             explicar um fluxo operacional com várias etapas ou mostrar uma tela de configuração pela primeira vez.
           </p>
@@ -176,7 +176,7 @@ export function TourGuide() {
           iconColor="text-[#b45309]"
           title="Boas práticas"
         >
-          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {BOAS_PRATICAS.map((bp, i) => (
               <li key={i} className="flex items-start gap-3 p-3 rounded-xl bg-surface-container-low border border-outline-variant/50">
                 <span className="material-symbols-outlined text-[20px] text-primary shrink-0 mt-0.5">{bp.icon}</span>
@@ -217,7 +217,7 @@ export function TourGuide() {
           title="Gravador de Fluxo"
           subtitle="Grave o fluxo navegando pelo sistema real e gere um rascunho de tour automaticamente."
         >
-          <p className="text-body-md text-on-surface-variant leading-relaxed">
+          <p className="text-body-md text-on-surface-variant leading-relaxed max-w-3xl">
             O Gravador de Fluxo é uma alternativa a criar os passos manualmente: em vez de preencher seletor por
             seletor, você navega pelo sistema real numa aba separada e cada clique/preenchimento vira um passo do tour
             sozinho. Use quando o fluxo tem muitas etapas, quando não quer levantar seletores um a um, ou pra ter um
@@ -238,7 +238,7 @@ export function TourGuide() {
           </ol>
           <div>
             <p className="text-label-md font-bold text-on-surface mb-2">Boas práticas do gravador</p>
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {GRAVADOR_BOAS_PRATICAS.map((bp, i) => (
                 <li key={i} className="flex items-start gap-3 p-3 rounded-xl bg-surface-container-low border border-outline-variant/50">
                   <span className="material-symbols-outlined text-[20px] text-primary shrink-0 mt-0.5">{bp.icon}</span>
