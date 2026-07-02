@@ -4,6 +4,7 @@ import { get, post, put } from '../../services/api'
 import type { TourGuiado } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
+import { CardHeader } from '../../components/ui/CardHeader'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
 import { comandoTestarSeletor } from '../../utils/tour'
 
@@ -156,7 +157,7 @@ const CHECKLIST_STATUS: Record<ChecklistStatus, { icon: string; className: strin
   neutro: { icon: 'info', className: 'text-outline' },
 }
 
-function ChecklistCard({ form, passos }: { form: FormState; passos: PassoState[] }) {
+function ChecklistCard({ form, passos, numero }: { form: FormState; passos: PassoState[]; numero?: number }) {
   const items = montarChecklist(form, passos)
   const temCritico = items.some(i => i.status === 'critico')
   const temAviso = items.some(i => i.status === 'aviso')
@@ -169,18 +170,19 @@ function ChecklistCard({ form, passos }: { form: FormState; passos: PassoState[]
 
   return (
     <div className={card}>
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3">
-          <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">fact_check</span>
-          <div>
-            <h3 className="text-title-lg font-bold text-on-surface">Checklist do tour</h3>
-            <p className="text-label-md text-on-surface-variant">Orienta antes de testar ou ativar — não bloqueia o salvamento.</p>
-          </div>
-        </div>
-        <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase shrink-0 ${resumo.className}`}>
-          {resumo.texto}
-        </span>
-      </div>
+      <CardHeader
+        number={numero}
+        icon="fact_check"
+        iconBg="bg-primary-fixed"
+        iconColor="text-primary"
+        title="Resumo do tour"
+        description="Orienta antes de testar ou ativar — não bloqueia o salvamento."
+        action={
+          <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase whitespace-nowrap ${resumo.className}`}>
+            {resumo.texto}
+          </span>
+        }
+      />
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {items.map((item, i) => {
           const cfg = CHECKLIST_STATUS[item.status]
@@ -573,6 +575,13 @@ export function TourForm() {
 
   if (loadingTour) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
 
+  // Numeração das seções — dinâmica porque o card de modelo só existe na
+  // criação (some na edição), sem furar a sequência.
+  let stepCounter = 0
+  const nextStep = () => ++stepCounter
+
+  const primeiroPassoVazio = passos.length === 1 && !passos[0].titulo.trim() && !passos[0].seletor.trim()
+
   return (
     <div className="relative">
       {/* Page action bar */}
@@ -586,13 +595,18 @@ export function TourForm() {
               <span>/</span>
               <span className="text-on-surface">{isEdit ? 'Editar' : 'Criar Novo'}</span>
             </nav>
-            <h2 className="text-title-lg font-bold text-on-surface leading-tight">
+            <h2 className="text-headline-md font-bold text-on-surface leading-tight">
               {isEdit ? 'Editar Tour Guiado' : 'Novo Tour Guiado'}
             </h2>
+            <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
+              {isEdit
+                ? 'Ajuste os passos e o destino deste tour guiado.'
+                : 'Monte um passo a passo para guiar usuários dentro do produto.'}
+            </p>
             <button
               type="button"
               onClick={() => navigate('/tours/guia')}
-              className="flex items-center gap-1 text-label-sm text-outline hover:text-primary transition-colors mt-0.5"
+              className="flex items-center gap-1 text-label-sm text-outline hover:text-primary transition-colors mt-1"
             >
               <span className="material-symbols-outlined text-[13px]">menu_book</span>
               Guia de Uso
@@ -679,13 +693,14 @@ export function TourForm() {
           {/* Templates — só na criação, nunca aplicado automaticamente na edição */}
           {!isEdit && (
             <div className={card}>
-              <div className="flex items-center gap-3 mb-4">
-                <span className="p-1.5 bg-tertiary/10 rounded-lg text-tertiary material-symbols-outlined text-[20px]">auto_awesome</span>
-                <div>
-                  <h3 className="text-title-lg font-bold text-on-surface">Começar com um modelo</h3>
-                  <p className="text-label-md text-on-surface-variant">Escolha um ponto de partida — título, descrição e passos base. Você edita tudo livremente depois.</p>
-                </div>
-              </div>
+              <CardHeader
+                number={nextStep()}
+                icon="auto_awesome"
+                iconBg="bg-tertiary/10"
+                iconColor="text-tertiary"
+                title="Começar com um modelo"
+                description="Escolha um ponto de partida — título, descrição e passos base. Você edita tudo livremente depois."
+              />
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                 {TOUR_TEMPLATES.map(tpl => {
                   const ativo = templateAplicadoId === tpl.id
@@ -721,14 +736,18 @@ export function TourForm() {
             </div>
           )}
 
-          {/* Parâmetros gerais */}
+          {/* Informações gerais */}
           <div className={card}>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">map</span>
-              <h3 className="text-title-lg font-bold text-on-surface">Parâmetros Gerais</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
-              <div className="md:col-span-2">
+            <CardHeader
+              number={nextStep()}
+              icon="info"
+              iconBg="bg-primary-fixed"
+              iconColor="text-primary"
+              title="Informações gerais"
+              description="Nome e descrição deste tour guiado."
+            />
+            <div className="grid grid-cols-1 gap-4 max-w-4xl">
+              <div>
                 <label className="block text-label-md text-on-surface-variant mb-1.5">
                   Título do Tour <span className="text-error">*</span>
                 </label>
@@ -741,7 +760,7 @@ export function TourForm() {
                 />
               </div>
 
-              <div className="md:col-span-2">
+              <div>
                 <label className="block text-label-md text-on-surface-variant mb-1.5">Descrição</label>
                 <textarea
                   rows={2}
@@ -751,8 +770,21 @@ export function TourForm() {
                   className={`${field} resize-none`}
                 />
               </div>
+            </div>
+          </div>
 
-              <div>
+          {/* Destino do tour */}
+          <div className={card}>
+            <CardHeader
+              number={nextStep()}
+              icon="map"
+              iconBg="bg-secondary-fixed"
+              iconColor="text-secondary"
+              title="Destino do tour"
+              description="Defina o sistema e a tela onde o tour deve ser executado."
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
+              <div className="md:col-span-2">
                 <label className="block text-label-md text-on-surface-variant mb-1.5">
                   Sistema <span className="text-error">*</span>
                 </label>
@@ -761,18 +793,6 @@ export function TourForm() {
                   value={form.sistema}
                   onChange={e => set('sistema', e.target.value)}
                   placeholder="Ex: portal, crm, mobile"
-                  className={field}
-                />
-              </div>
-
-              <div>
-                <label className="block text-label-md text-on-surface-variant mb-1.5">Prioridade</label>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={form.prioridade}
-                  onChange={e => set('prioridade', e.target.value)}
                   className={field}
                 />
               </div>
@@ -848,42 +868,38 @@ export function TourForm() {
                   />
                 </div>
               )}
-
-              <div className="md:col-span-2">
-                <label className="block text-label-md text-on-surface-variant mb-1.5">Status</label>
-                <label className="relative inline-flex items-center cursor-pointer mt-1">
-                  <input
-                    type="checkbox"
-                    checked={form.ativo}
-                    onChange={e => set('ativo', e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-outline-variant rounded-full peer peer-checked:bg-primary peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative" />
-                  <span className="ml-3 text-body-md text-on-surface">{form.ativo ? 'Ativo' : 'Inativo'}</span>
-                </label>
-              </div>
             </div>
           </div>
 
           {/* Passos do tour */}
           <div className={card}>
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div className="flex items-center gap-3">
-                <span className="p-1.5 bg-secondary-fixed rounded-lg text-secondary material-symbols-outlined text-[20px]">checklist</span>
-                <div>
-                  <h3 className="text-title-lg font-bold text-on-surface">Passos do tour</h3>
-                  <p className="text-label-md text-on-surface-variant">Defina a sequência de elementos destacados.</p>
-                </div>
+            <CardHeader
+              number={nextStep()}
+              icon="checklist"
+              iconBg="bg-secondary-fixed"
+              iconColor="text-secondary"
+              title="Passos do tour"
+              description="Defina a sequência de elementos destacados."
+              action={
+                <button
+                  type="button"
+                  onClick={addPasso}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-on-primary rounded-lg text-label-sm font-bold hover:opacity-90 transition-all active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[16px]">add</span>
+                  Adicionar passo
+                </button>
+              }
+            />
+
+            {primeiroPassoVazio && (
+              <div className="mb-3 flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-dashed border-outline-variant bg-surface-container-low/60 text-label-md text-on-surface-variant">
+                <span className="material-symbols-outlined text-[16px] text-outline shrink-0">info</span>
+                {isEdit
+                  ? 'Nenhum passo preenchido ainda — comece pelo primeiro abaixo.'
+                  : 'Nenhum passo preenchido ainda — comece pelo primeiro abaixo ou escolha um modelo acima.'}
               </div>
-              <button
-                type="button"
-                onClick={addPasso}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-on-primary rounded-lg text-label-sm font-bold hover:opacity-90 transition-all active:scale-95 shrink-0"
-              >
-                <span className="material-symbols-outlined text-[16px]">add</span>
-                Adicionar passo
-              </button>
-            </div>
+            )}
 
             <div className="space-y-3">
               {passos.map((passo, i) => (
@@ -1063,10 +1079,58 @@ export function TourForm() {
                 </div>
               ))}
             </div>
+
+            <button
+              type="button"
+              onClick={addPasso}
+              className="mt-3 w-full flex items-center justify-center gap-1.5 py-2.5 border border-dashed border-outline-variant rounded-xl text-label-md font-bold text-on-surface-variant hover:border-primary/50 hover:text-primary transition-all"
+            >
+              <span className="material-symbols-outlined text-[18px]">add</span>
+              Adicionar passo
+            </button>
           </div>
 
-          {/* Checklist de qualidade — orienta, não bloqueia */}
-          <ChecklistCard form={form} passos={passos} />
+          {/* Configurações de exibição */}
+          <div className={card}>
+            <CardHeader
+              number={nextStep()}
+              icon="tune"
+              iconBg="bg-tertiary-fixed"
+              iconColor="text-tertiary"
+              title="Configurações de exibição"
+              description="Prioridade entre tours elegíveis e status de publicação."
+            />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
+              <div>
+                <label className="block text-label-md text-on-surface-variant mb-1.5">Prioridade</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={form.prioridade}
+                  onChange={e => set('prioridade', e.target.value)}
+                  className={field}
+                />
+              </div>
+
+              <div>
+                <label className="block text-label-md text-on-surface-variant mb-1.5">Status</label>
+                <label className="relative inline-flex items-center cursor-pointer mt-1">
+                  <input
+                    type="checkbox"
+                    checked={form.ativo}
+                    onChange={e => set('ativo', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-outline-variant rounded-full peer peer-checked:bg-primary peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative" />
+                  <span className="ml-3 text-body-md text-on-surface">{form.ativo ? 'Ativo' : 'Inativo'}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {/* Resumo do tour — orienta, não bloqueia */}
+          <ChecklistCard form={form} passos={passos} numero={nextStep()} />
         </form>
       </section>
     </div>

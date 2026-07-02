@@ -356,25 +356,25 @@ export function ToursIndex() {
                         </td>
                         <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{tour.sistema}</td>
                         <td className="px-5 py-3.5 align-middle whitespace-nowrap">
-                          <StatusBadge ativo={tour.ativo} />
+                          <div className="flex items-center gap-2.5">
+                            <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
+                            <StatusBadge ativo={tour.ativo} />
+                          </div>
                         </td>
                         <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">
                           {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
                         </td>
                         <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{formatDateTime(tour.atualizado_em)}</td>
                         <td className="px-5 py-3.5 align-middle whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-2">
-                            <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
-                            <div className="flex items-center opacity-70 group-hover:opacity-100 transition-opacity">
-                              <TourActions
-                                tour={tour}
-                                navigate={navigate}
-                                duplicandoId={duplicandoId}
-                                onDuplicar={duplicarTour}
-                                exportandoId={exportandoId}
-                                onExportar={exportarTour}
-                              />
-                            </div>
+                          <div className="flex items-center justify-end opacity-70 group-hover:opacity-100 transition-opacity">
+                            <TourActions
+                              tour={tour}
+                              navigate={navigate}
+                              duplicandoId={duplicandoId}
+                              onDuplicar={duplicarTour}
+                              exportandoId={exportandoId}
+                              onExportar={exportarTour}
+                            />
                           </div>
                         </td>
                       </tr>
@@ -394,13 +394,15 @@ export function ToursIndex() {
                       >
                         {tour.titulo}
                       </button>
-                      <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
                     </div>
                     {tour.descricao && (
                       <p className="text-label-sm text-on-surface-variant truncate mb-2">{tour.descricao}</p>
                     )}
                     <div className="flex flex-wrap items-center gap-2 mb-3">
-                      <StatusBadge ativo={tour.ativo} />
+                      <div className="flex items-center gap-2">
+                        <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
+                        <StatusBadge ativo={tour.ativo} />
+                      </div>
                       <span className="text-label-sm text-on-surface-variant">{tour.sistema}</span>
                       <span className="text-label-sm text-on-surface-variant">
                         · {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
