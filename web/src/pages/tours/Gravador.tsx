@@ -77,7 +77,7 @@ export function TourGravador() {
         </p>
       </div>
 
-      <section className="px-4 lg:px-margin-desktop py-5 max-w-2xl space-y-4">
+      <section className="px-4 lg:px-margin-desktop py-5 max-w-4xl space-y-4">
         <div className={card}>
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">

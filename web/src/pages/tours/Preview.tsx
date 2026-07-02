@@ -30,10 +30,10 @@ export function TourPreview() {
 
   useEffect(load, [id])
 
-  if (loading) return <div className="px-4 lg:px-margin-desktop py-5"><LoadingSpinner /></div>
+  if (loading) return <div className="px-4 lg:px-margin-desktop py-5 max-w-4xl"><LoadingSpinner /></div>
   if (error || !tour) {
     return (
-      <div className="px-4 lg:px-margin-desktop py-5">
+      <div className="px-4 lg:px-margin-desktop py-5 max-w-4xl">
         <ErrorState message={error ?? 'Tour guiado não encontrado.'} onRetry={load} />
       </div>
     )
@@ -62,7 +62,7 @@ export function TourPreview() {
   }
 
   return (
-    <section className="px-4 lg:px-margin-desktop py-5 max-w-3xl">
+    <section className="px-4 lg:px-margin-desktop py-5 max-w-4xl">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
           <nav className="flex gap-2 text-label-md text-outline mb-1">
