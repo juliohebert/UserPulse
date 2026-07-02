@@ -11,16 +11,6 @@ const PER_PAGE = 10
 const NI = 'Não informado'
 
 const campo = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-primary'
-const atalho = 'px-3 py-2 rounded-lg text-label-sm font-semibold border border-outline-variant text-on-surface-variant hover:border-primary/50 hover:text-primary transition-colors whitespace-nowrap'
-
-const TIPOS_EVENTO_OPCOES = [
-  { value: '', label: 'Todos' },
-  { value: 'inicio', label: 'Início' },
-  { value: 'passo_visualizado', label: 'Passo visualizado' },
-  { value: 'elemento_nao_encontrado', label: 'Elemento não encontrado' },
-  { value: 'pulado', label: 'Pulado' },
-  { value: 'concluido', label: 'Concluído' },
-]
 
 interface FiltrosDashboard {
   data_inicio: string
@@ -30,20 +20,23 @@ interface FiltrosDashboard {
   cliente: string
   usuario: string
   unidade: string
+  busca: string
 }
 
-const FILTROS_INICIAIS: FiltrosDashboard = {
-  data_inicio: '', data_fim: '', tipo_evento: '', passo_ordem: '', cliente: '', usuario: '', unidade: '',
+const FILTROS_AVANCADOS_INICIAIS = {
+  data_inicio: '', data_fim: '', passo_ordem: '', cliente: '', usuario: '', unidade: '',
 }
+
+const FILTROS_INICIAIS: FiltrosDashboard = { ...FILTROS_AVANCADOS_INICIAIS, tipo_evento: '', busca: '' }
 
 function formatarDataInput(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-// Sem nenhum filtro preenchido isso vira uma query string vazia — o
-// dashboard chama exatamente a mesma URL de antes, preservando o
+// Sem nenhum filtro preenchido isso vira uma query string com só page/per_page
+// — o dashboard chama a mesma consulta de sempre, preservando o
 // comportamento atual quando nenhum filtro é aplicado.
-function montarQuery(filtros: FiltrosDashboard): string {
+function montarQuery(filtros: FiltrosDashboard, pagina: number): string {
   const params = new URLSearchParams()
   if (filtros.data_inicio) params.set('data_inicio', filtros.data_inicio)
   if (filtros.data_fim) params.set('data_fim', filtros.data_fim)
@@ -52,12 +45,27 @@ function montarQuery(filtros: FiltrosDashboard): string {
   if (filtros.cliente.trim()) params.set('cliente', filtros.cliente.trim())
   if (filtros.usuario.trim()) params.set('usuario', filtros.usuario.trim())
   if (filtros.unidade.trim()) params.set('unidade', filtros.unidade.trim())
-  const qs = params.toString()
-  return qs ? `?${qs}` : ''
+  if (filtros.busca.trim()) params.set('busca', filtros.busca.trim())
+  params.set('page', String(pagina))
+  params.set('per_page', String(PER_PAGE))
+  return `?${params.toString()}`
 }
 
 function temFiltroAtivo(filtros: FiltrosDashboard): boolean {
   return Object.values(filtros).some(v => v !== '')
+}
+
+function qtdFiltrosAvancados(filtros: FiltrosDashboard): number {
+  return Object.entries(FILTROS_AVANCADOS_INICIAIS)
+    .filter(([chave]) => filtros[chave as keyof typeof FILTROS_AVANCADOS_INICIAIS] !== '').length
+}
+
+function ehAtalhoPeriodo(filtros: FiltrosDashboard, diasAtras: number): boolean {
+  if (!filtros.data_inicio || !filtros.data_fim) return false
+  const hoje = new Date()
+  const inicio = new Date(hoje)
+  inicio.setDate(inicio.getDate() - diasAtras)
+  return filtros.data_fim === formatarDataInput(hoje) && filtros.data_inicio === formatarDataInput(inicio)
 }
 
 export function TourDashboard() {
@@ -66,48 +74,69 @@ export function TourDashboard() {
   const [data, setData] = useState<TourDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [page, setPage] = useState(1)
   const [filtros, setFiltros] = useState<FiltrosDashboard>(FILTROS_INICIAIS)
   const [filtrosCarregados, setFiltrosCarregados] = useState<FiltrosDashboard>(FILTROS_INICIAIS)
+  const [showAvancados, setShowAvancados] = useState(false)
 
-  const load = (filtrosParaCarregar: FiltrosDashboard) => {
+  const load = (filtrosParaCarregar: FiltrosDashboard, pagina: number) => {
     if (!id) return
     setLoading(true)
     setError(null)
-    get<TourDashboardData>(`/tours/${id}/dashboard${montarQuery(filtrosParaCarregar)}`)
+    get<TourDashboardData>(`/tours/${id}/dashboard${montarQuery(filtrosParaCarregar, pagina)}`)
       .then(d => { setData(d); setFiltrosCarregados(filtrosParaCarregar) })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => load(FILTROS_INICIAIS), [id])
+  useEffect(() => load(FILTROS_INICIAIS, 1), [id])
 
-  const aplicarFiltros = () => { setPage(1); load(filtros) }
-  const limparFiltros = () => { setFiltros(FILTROS_INICIAIS); setPage(1); load(FILTROS_INICIAIS) }
+  const aplicarFiltro = (novosFiltros: FiltrosDashboard) => load(novosFiltros, 1)
+  const limparFiltros = () => { setFiltros(FILTROS_INICIAIS); aplicarFiltro(FILTROS_INICIAIS) }
+  const limparFiltrosAvancados = () => {
+    const novo = { ...filtros, ...FILTROS_AVANCADOS_INICIAIS }
+    setFiltros(novo)
+    aplicarFiltro(novo)
+  }
+
+  const alternarTipoEvento = (valor: string) => {
+    const novo = { ...filtros, tipo_evento: filtros.tipo_evento === valor ? '' : valor }
+    setFiltros(novo)
+    aplicarFiltro(novo)
+  }
+
   const definirAtalhoPeriodo = (diasAtras: number) => {
     const hoje = new Date()
     const inicio = new Date(hoje)
     inicio.setDate(inicio.getDate() - diasAtras)
-    setFiltros(f => ({ ...f, data_inicio: formatarDataInput(inicio), data_fim: formatarDataInput(hoje) }))
+    const novo = { ...filtros, data_inicio: formatarDataInput(inicio), data_fim: formatarDataInput(hoje) }
+    setFiltros(novo)
+    aplicarFiltro(novo)
   }
 
-  if (loading) return <div className="px-4 lg:px-margin-desktop py-5"><LoadingSpinner /></div>
-  if (error || !data) {
+  const mudarPagina = (pagina: number) => load(filtrosCarregados, pagina)
+
+  if (loading && !data) return <div className="px-4 lg:px-margin-desktop py-5"><LoadingSpinner /></div>
+  if (error && !data) {
     return (
       <div className="px-4 lg:px-margin-desktop py-5">
-        <ErrorState message={error ?? 'Tour guiado não encontrado.'} onRetry={() => load(filtrosCarregados)} />
+        <ErrorState message={error} onRetry={() => load(filtrosCarregados, 1)} />
       </div>
     )
   }
+  if (!data) return null
 
-  const { tour, eventos_recentes } = data
-  const paginados = eventos_recentes.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+  const { tour } = data
   const temFiltro = temFiltroAtivo(filtrosCarregados)
   const opcoesPasso = [
     { value: '', label: 'Todos' },
     ...(tour.passos ?? []).map(p => ({ value: String(p.ordem), label: `Passo ${p.ordem + 1}${p.titulo ? ' — ' + p.titulo : ''}` })),
   ]
+
+  const resumo = `Este tour teve ${data.iniciados} início${data.iniciados === 1 ? '' : 's'}, `
+    + `${data.concluidos} conclus${data.concluidos === 1 ? 'ão' : 'ões'}, ${data.pulados} pulo${data.pulados === 1 ? '' : 's'} `
+    + `e ${data.elementos_nao_encontrados} falha${data.elementos_nao_encontrados === 1 ? '' : 's'} de elemento `
+    + `${filtrosCarregados.data_inicio || filtrosCarregados.data_fim ? 'no período selecionado' : 'até agora'}.`
 
   return (
     <section className="px-4 lg:px-margin-desktop py-5">
@@ -147,7 +176,7 @@ export function TourDashboard() {
       </div>
 
       {/* Cards de métricas */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
         <KpiCard icon="play_circle" iconColor="text-primary" iconBg="bg-primary/10"
           label="Iniciados" value={data.iniciados} />
         <KpiCard icon="check_circle" iconColor="text-tertiary" iconBg="bg-tertiary/10"
@@ -161,155 +190,214 @@ export function TourDashboard() {
           sub={`${data.concluidos} de ${data.iniciados}`} />
       </div>
 
-      {/* Filtros */}
-      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm p-4 mb-6">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <h3 className="text-label-lg font-bold text-on-surface flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-[18px] text-on-surface-variant">tune</span>
-            Filtros
-          </h3>
-          {temFiltroAtivo(filtros) && (
+      {/* Resumo interpretativo */}
+      <p className="text-body-md text-on-surface-variant mb-6 flex items-start gap-2">
+        <span className="material-symbols-outlined text-[18px] text-primary shrink-0 mt-0.5">insights</span>
+        {resumo}
+      </p>
+
+      {/* Eventos do tour */}
+      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-outline-variant/30 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-on-surface-variant">history</span>
+              <div>
+                <h3 className="text-title-lg font-bold text-on-surface">Eventos do tour</h3>
+                <p className="text-label-md text-outline mt-0.5">
+                  {data.total} evento{data.total === 1 ? '' : 's'}{temFiltro ? ' com os filtros aplicados' : ' registrados'}
+                </p>
+              </div>
+            </div>
+            {temFiltroAtivo(filtros) && (
+              <button
+                onClick={limparFiltros}
+                className="flex items-center gap-1 text-label-md text-on-surface-variant hover:text-error transition-colors shrink-0"
+              >
+                <span className="material-symbols-outlined text-[16px]">filter_list_off</span>
+                Limpar filtros
+              </button>
+            )}
+          </div>
+
+          {/* Busca geral */}
+          <div className="relative">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-outline pointer-events-none">search</span>
+            <input
+              type="text"
+              value={filtros.busca}
+              onChange={e => setFiltros(f => ({ ...f, busca: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Enter') aplicarFiltro(filtros) }}
+              placeholder="Buscar por usuário, cliente, unidade, passo ou evento..."
+              className="w-full pl-9 pr-3 py-2.5 bg-surface-bright border border-outline-variant rounded-xl text-body-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+
+          {/* Chips de atalho + botão de filtros avançados */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <ChipFiltro label="Todos" active={!filtros.tipo_evento} onClick={() => alternarTipoEvento('')} />
+            <ChipFiltro label="Iniciados" active={filtros.tipo_evento === 'inicio'} onClick={() => alternarTipoEvento('inicio')} />
+            <ChipFiltro label="Concluídos" active={filtros.tipo_evento === 'concluido'} onClick={() => alternarTipoEvento('concluido')} />
+            <ChipFiltro label="Pulados" active={filtros.tipo_evento === 'pulado'} onClick={() => alternarTipoEvento('pulado')} />
+            <ChipFiltro label="Elemento não encontrado" active={filtros.tipo_evento === 'elemento_nao_encontrado'} onClick={() => alternarTipoEvento('elemento_nao_encontrado')} />
+            <span className="w-px h-5 bg-outline-variant mx-0.5" />
+            <ChipFiltro label="Últimos 7 dias" active={ehAtalhoPeriodo(filtros, 6)} onClick={() => definirAtalhoPeriodo(6)} />
+            <ChipFiltro label="Últimos 30 dias" active={ehAtalhoPeriodo(filtros, 29)} onClick={() => definirAtalhoPeriodo(29)} />
             <button
-              onClick={limparFiltros}
-              className="flex items-center gap-1 text-label-md text-on-surface-variant hover:text-error transition-colors"
+              onClick={() => setShowAvancados(v => !v)}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-all ${
+                qtdFiltrosAvancados(filtros) > 0
+                  ? 'bg-secondary/10 text-secondary border-secondary/30'
+                  : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary/50 hover:text-primary'
+              }`}
             >
-              <span className="material-symbols-outlined text-[16px]">filter_list_off</span>
-              Limpar filtros
+              <span className="material-symbols-outlined text-[13px]">tune</span>
+              Filtros avançados
+              {qtdFiltrosAvancados(filtros) > 0 && (
+                <span className="ml-0.5 w-4 h-4 rounded-full bg-secondary text-on-secondary text-[10px] flex items-center justify-center">
+                  {qtdFiltrosAvancados(filtros)}
+                </span>
+              )}
+              <span className="material-symbols-outlined text-[13px]">{showAvancados ? 'expand_less' : 'expand_more'}</span>
             </button>
+          </div>
+
+          {/* Filtros avançados — colapsável */}
+          {showAvancados && (
+            <div className="pt-1 space-y-3 border-t border-outline-variant/30">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
+                <div>
+                  <label className="block text-label-sm text-on-surface-variant mb-1">Data inicial</label>
+                  <input
+                    type="date"
+                    value={filtros.data_inicio}
+                    onChange={e => setFiltros(f => ({ ...f, data_inicio: e.target.value }))}
+                    className={campo}
+                  />
+                </div>
+                <div>
+                  <label className="block text-label-sm text-on-surface-variant mb-1">Data final</label>
+                  <input
+                    type="date"
+                    value={filtros.data_fim}
+                    onChange={e => setFiltros(f => ({ ...f, data_fim: e.target.value }))}
+                    className={campo}
+                  />
+                </div>
+                <div>
+                  <label className="block text-label-sm text-on-surface-variant mb-1">Passo do tour</label>
+                  <Select
+                    value={filtros.passo_ordem}
+                    onChange={v => setFiltros(f => ({ ...f, passo_ordem: v }))}
+                    options={opcoesPasso}
+                    size="sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-label-sm text-on-surface-variant mb-1">Cliente</label>
+                  <input
+                    type="text"
+                    value={filtros.cliente}
+                    onChange={e => setFiltros(f => ({ ...f, cliente: e.target.value }))}
+                    placeholder="Nome ou ID do cliente"
+                    className={campo}
+                  />
+                </div>
+                <div>
+                  <label className="block text-label-sm text-on-surface-variant mb-1">Usuário</label>
+                  <input
+                    type="text"
+                    value={filtros.usuario}
+                    onChange={e => setFiltros(f => ({ ...f, usuario: e.target.value }))}
+                    placeholder="Nome, e-mail ou ID"
+                    className={campo}
+                  />
+                </div>
+                <div>
+                  <label className="block text-label-sm text-on-surface-variant mb-1">Unidade/Clínica</label>
+                  <input
+                    type="text"
+                    value={filtros.unidade}
+                    onChange={e => setFiltros(f => ({ ...f, unidade: e.target.value }))}
+                    placeholder="Nome ou ID"
+                    className={campo}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                {qtdFiltrosAvancados(filtros) > 0 && (
+                  <button
+                    onClick={limparFiltrosAvancados}
+                    className="px-4 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors"
+                  >
+                    Limpar
+                  </button>
+                )}
+                <button
+                  onClick={() => aplicarFiltro(filtros)}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[18px]">filter_alt</span>
+                  Aplicar filtros
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <div>
-            <label className="block text-label-sm text-on-surface-variant mb-1">Data inicial</label>
-            <input
-              type="date"
-              value={filtros.data_inicio}
-              onChange={e => setFiltros(f => ({ ...f, data_inicio: e.target.value }))}
-              className={campo}
-            />
-          </div>
-          <div>
-            <label className="block text-label-sm text-on-surface-variant mb-1">Data final</label>
-            <input
-              type="date"
-              value={filtros.data_fim}
-              onChange={e => setFiltros(f => ({ ...f, data_fim: e.target.value }))}
-              className={campo}
-            />
-          </div>
-          <div className="flex items-end gap-1.5">
-            <button onClick={() => definirAtalhoPeriodo(0)} className={atalho}>Hoje</button>
-            <button onClick={() => definirAtalhoPeriodo(6)} className={atalho}>Últimos 7 dias</button>
-            <button onClick={() => definirAtalhoPeriodo(29)} className={atalho}>Últimos 30 dias</button>
-          </div>
-
-          <div>
-            <label className="block text-label-sm text-on-surface-variant mb-1">Tipo de evento</label>
-            <Select
-              value={filtros.tipo_evento}
-              onChange={v => setFiltros(f => ({ ...f, tipo_evento: v }))}
-              options={TIPOS_EVENTO_OPCOES}
-              size="sm"
-            />
-          </div>
-          <div>
-            <label className="block text-label-sm text-on-surface-variant mb-1">Passo do tour</label>
-            <Select
-              value={filtros.passo_ordem}
-              onChange={v => setFiltros(f => ({ ...f, passo_ordem: v }))}
-              options={opcoesPasso}
-              size="sm"
-            />
-          </div>
-          <div className="hidden lg:block" />
-
-          <div>
-            <label className="block text-label-sm text-on-surface-variant mb-1">Cliente</label>
-            <input
-              type="text"
-              value={filtros.cliente}
-              onChange={e => setFiltros(f => ({ ...f, cliente: e.target.value }))}
-              placeholder="Nome ou ID do cliente"
-              className={campo}
-            />
-          </div>
-          <div>
-            <label className="block text-label-sm text-on-surface-variant mb-1">Usuário</label>
-            <input
-              type="text"
-              value={filtros.usuario}
-              onChange={e => setFiltros(f => ({ ...f, usuario: e.target.value }))}
-              placeholder="Nome, e-mail ou ID"
-              className={campo}
-            />
-          </div>
-          <div>
-            <label className="block text-label-sm text-on-surface-variant mb-1">Unidade/Clínica</label>
-            <input
-              type="text"
-              value={filtros.unidade}
-              onChange={e => setFiltros(f => ({ ...f, unidade: e.target.value }))}
-              placeholder="Nome ou ID"
-              className={campo}
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end mt-3">
-          <button
-            onClick={aplicarFiltros}
-            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95"
-          >
-            <span className="material-symbols-outlined text-[18px]">filter_alt</span>
-            Aplicar filtros
-          </button>
-        </div>
-      </div>
-
-      {/* Eventos recentes */}
-      <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3">
-          <span className="material-symbols-outlined text-on-surface-variant">history</span>
-          <div>
-            <h3 className="text-title-lg font-bold text-on-surface">Eventos recentes</h3>
-            <p className="text-label-md text-outline mt-0.5">
-              {temFiltro
-                ? `${eventos_recentes.length} evento${eventos_recentes.length === 1 ? '' : 's'} encontrado${eventos_recentes.length === 1 ? '' : 's'} com os filtros aplicados`
-                : `Últimos ${eventos_recentes.length} eventos registrados para este tour.`}
-            </p>
-          </div>
-        </div>
-
-        {eventos_recentes.length === 0 ? (
-          <EmptyState
-            icon={temFiltro ? 'filter_alt_off' : 'history'}
-            title={temFiltro ? 'Nenhum evento encontrado' : 'Nenhum evento registrado ainda'}
-            description={temFiltro
-              ? 'Nenhum evento corresponde aos filtros aplicados. Tente ajustar o período ou limpar os filtros.'
-              : 'Os eventos aparecem aqui assim que o tour for exibido para os usuários.'}
-          />
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-surface-container-low border-b border-outline-variant">
-                  <tr>
-                    {['Data/Hora', 'Tipo', 'Passo', 'Usuário', 'Cliente', 'Clínica/Unidade'].map(h => (
-                      <th key={h} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-outline-variant/30">
-                  {paginados.map(ev => <EventoRow key={ev.id} evento={ev} />)}
-                </tbody>
-              </table>
-            </div>
-            <Pagination page={page} total={eventos_recentes.length} perPage={PER_PAGE} onChange={setPage} />
-          </>
+        {error && (
+          <p className="px-5 py-3 text-label-md text-error flex items-center gap-1.5 border-b border-outline-variant/30">
+            <span className="material-symbols-outlined text-[16px]">error</span>
+            {error}
+          </p>
         )}
+
+        <div className={loading ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}>
+          {data.eventos_recentes.length === 0 ? (
+            <EmptyState
+              icon={temFiltro ? 'filter_alt_off' : 'history'}
+              title={temFiltro ? 'Nenhum evento encontrado' : 'Nenhum evento registrado ainda'}
+              description={temFiltro
+                ? 'Nenhum evento corresponde aos filtros aplicados. Tente ajustar o período ou limpar os filtros.'
+                : 'Os eventos aparecem aqui assim que o tour for exibido para os usuários.'}
+            />
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-surface-container-low border-b border-outline-variant">
+                    <tr>
+                      {['Data/Hora', 'Tipo', 'Passo', 'Usuário', 'Cliente', 'Clínica/Unidade'].map(h => (
+                        <th key={h} className="px-4 py-2.5 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/30">
+                    {data.eventos_recentes.map(ev => <EventoRow key={ev.id} evento={ev} />)}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination page={data.page} total={data.total} perPage={data.per_page} onChange={mudarPagina} />
+            </>
+          )}
+        </div>
       </div>
     </section>
+  )
+}
+
+function ChipFiltro({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all border whitespace-nowrap ${
+        active
+          ? 'bg-primary text-on-primary border-primary'
+          : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary/50 hover:text-primary'
+      }`}
+    >
+      {label}
+    </button>
   )
 }
 
@@ -337,13 +425,13 @@ function resolverUnidade(evento: EventoTourDashboard): { texto: string; isFallba
 function EventoRow({ evento }: { evento: EventoTourDashboard }) {
   return (
     <tr className="hover:bg-surface-container-low/50 transition-colors">
-      <td className="px-4 py-3 whitespace-nowrap align-middle">
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
         <CellText value={formatDateTime(evento.criado_em)} />
       </td>
-      <td className="px-4 py-3 whitespace-nowrap align-middle">
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
         <EventoTourBadge tipo={evento.tipo_evento} />
       </td>
-      <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[220px]">
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle max-w-[220px]">
         {evento.passo_ordem != null ? (
           <span className="text-[13px] text-on-surface truncate block" title={evento.passo_titulo ?? undefined}>
             #{evento.passo_ordem + 1} {evento.passo_titulo ?? ''}
@@ -352,13 +440,13 @@ function EventoRow({ evento }: { evento: EventoTourDashboard }) {
           <CellText value={NI} />
         )}
       </td>
-      <td className="px-4 py-3 whitespace-nowrap align-middle">
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
         <PessoaCell {...resolverPessoa(evento)} />
       </td>
-      <td className="px-4 py-3 whitespace-nowrap align-middle">
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
         <PessoaCell {...resolverCliente(evento)} />
       </td>
-      <td className="px-4 py-3 whitespace-nowrap align-middle">
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
         <PessoaCell {...resolverUnidade(evento)} />
       </td>
     </tr>

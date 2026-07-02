@@ -194,6 +194,12 @@ export interface TourDashboardData {
   elementos_nao_encontrados: number
   taxa_conclusao: number
   eventos_recentes: EventoTourDashboard[]
+  // Paginação da lista de eventos — os cards acima sempre consideram todos
+  // os dados filtrados, independente da página atual.
+  page: number
+  per_page: number
+  total: number
+  total_pages: number
 }
 
 export type CriterioStatus = 'ok' | 'bloqueado' | 'aviso' | 'nao_aplicavel'

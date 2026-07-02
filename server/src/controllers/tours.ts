@@ -442,7 +442,7 @@ export async function buscarDashboard(req: Request, res: Response) {
     if (!tour) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
 
     const {
-      data_inicio, data_fim, tipo_evento, passo_id, passo_ordem, cliente, usuario, unidade,
+      data_inicio, data_fim, tipo_evento, passo_id, passo_ordem, cliente, usuario, unidade, busca, page, per_page,
     } = req.query as Record<string, string | undefined>
 
     // Filtros comuns aos 4 cards E à lista de eventos: período, passo,
@@ -532,17 +532,72 @@ export async function buscarDashboard(req: Request, res: Response) {
       whereEventos.tipo_evento = tipo_evento
     }
 
-    const [iniciados, concluidos, pulados, elementos_nao_encontrados, eventosRecentes] = await Promise.all([
+    // Busca geral — só afeta a lista de eventos (mesmo critério de
+    // tipo_evento acima), nunca os cards. Casa usuário/cliente/unidade (id ou
+    // nome/e-mail), tipo de evento (valor ou rótulo em pt-BR) e título do
+    // passo — tudo sem diferenciar maiúsculas/acentos.
+    if (busca?.trim()) {
+      const termo = busca.trim()
+      // A classe do regex abaixo contém os caracteres literais U+0300–U+036F
+      // (marcas diacríticas combinantes) — aparecem "vazios" no editor, mas
+      // são exatamente os acentos que sobram depois de normalize('NFD').
+      const normalizar = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      const termoNormalizado = normalizar(termo)
+
+      const LABELS_TIPO_EVENTO: Record<string, string> = {
+        inicio: 'inicio',
+        passo_visualizado: 'passo visualizado',
+        elemento_nao_encontrado: 'elemento nao encontrado',
+        pulado: 'pulado',
+        concluido: 'concluido',
+      }
+      const tiposCorrespondentes = TIPOS_EVENTO_TOUR.filter(t =>
+        normalizar(t).includes(termoNormalizado) || normalizar(LABELS_TIPO_EVENTO[t]).includes(termoNormalizado)
+      )
+      const passosCorrespondentes = tour.passos
+        .filter(p => normalizar(p.titulo).includes(termoNormalizado))
+        .map(p => p.ordem)
+
+      const orBusca: Prisma.EventoTourWhereInput[] = [
+        { usuario_id: { contains: termo, mode: 'insensitive' } },
+        { contexto: { path: ['usuario_nome'], string_contains: termo } },
+        { contexto: { path: ['usuario_email'], string_contains: termo } },
+        { contexto: { path: ['cliente_id'], string_contains: termo } },
+        { contexto: { path: ['cliente_nome'], string_contains: termo } },
+        { contexto: { path: ['unidade_id'], string_contains: termo } },
+        { contexto: { path: ['unidade_nome'], string_contains: termo } },
+        { contexto: { path: ['clinica_id'], string_contains: termo } },
+        { contexto: { path: ['clinica_nome'], string_contains: termo } },
+      ]
+      if (tiposCorrespondentes.length > 0) orBusca.push({ tipo_evento: { in: tiposCorrespondentes } })
+      if (passosCorrespondentes.length > 0) orBusca.push({ passo_ordem: { in: passosCorrespondentes } })
+
+      whereEventos.AND = [...(Array.isArray(whereEventos.AND) ? whereEventos.AND : whereEventos.AND ? [whereEventos.AND] : []), { OR: orBusca }]
+    }
+
+    const PER_PAGE_PADRAO = 10
+    const pageNum = Math.max(1, Math.trunc(Number(page)) || 1)
+    const perPageNum = Math.min(100, Math.max(1, Math.trunc(Number(per_page)) || PER_PAGE_PADRAO))
+
+    const [iniciados, concluidos, pulados, elementos_nao_encontrados, totalEventos, eventosRecentes] = await Promise.all([
       prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'inicio' } }),
       prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'concluido' } }),
       prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'pulado' } }),
       prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'elemento_nao_encontrado' } }),
+      // Total de eventos que casam com os filtros (incl. tipo_evento/busca),
+      // sem paginação — usado pro contador do card e pro cálculo de páginas.
+      // Os cards de métricas acima continuam considerando TODOS os dados
+      // filtrados (nunca a página atual).
+      prisma.eventoTour.count({ where: whereEventos }),
       prisma.eventoTour.findMany({
         where: whereEventos,
         orderBy: { criado_em: 'desc' },
-        take: 100,
+        skip: (pageNum - 1) * perPageNum,
+        take: perPageNum,
       }),
     ])
+
+    const total_pages = Math.max(1, Math.ceil(totalEventos / perPageNum))
 
     const taxa_conclusao = iniciados > 0
       ? Math.round((concluidos / iniciados) * 1000) / 10
