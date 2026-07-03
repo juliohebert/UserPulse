@@ -179,7 +179,24 @@
       '.up-rec-contador{white-space:nowrap;background:rgba(255,255,255,.14);border-radius:999px;padding:2px 9px;font-size:11px;font-weight:700}',
       '.up-rec-ultimo{opacity:.65;white-space:nowrap;max-width:220px;overflow:hidden;text-overflow:ellipsis;font-size:12px}',
       '.up-rec-aviso{display:none;width:100%;flex-basis:100%;text-align:center;color:#ffd54f;font-weight:700;font-size:11px;margin-top:2px}',
+      // Opção "Revisar passos em tempo real" — mesma linha cheia
+      // (flex-basis:100%) que .up-rec-aviso/.up-rec-troca-info usam pra
+      // quebrar dentro da barra flutuante sem depender de layout extra.
+      '.up-rec-toggle{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:#f8f9ff;cursor:pointer;white-space:nowrap;flex-basis:100%;justify-content:center;opacity:.85}',
+      '.up-rec-toggle:hover{opacity:1}',
+      '.up-rec-toggle input{width:13px;height:13px;accent-color:#0058be;cursor:pointer;flex-shrink:0;margin:0}',
+      '.up-rec-toggle-hint{flex-basis:100%;text-align:center;font-size:10px;font-style:italic;color:rgba(248,249,255,.65);line-height:1.35}',
       '.up-rec-aviso.up-rec-aviso-visivel{display:block}',
+      // Barra principal — 3 linhas (status / ações / opção), mais estreita e
+      // compacta que o pill de uma linha só usada por troca/localizar (essas
+      // continuam com .up-rec-bar puro, sem nenhuma destas regras).
+      '.up-rec-bar-principal{max-width:min(360px, calc(100vw - 24px));padding:6px 11px;gap:4px;font-size:11.5px}',
+      '.up-rec-bar-linha{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;flex-basis:100%}',
+      '.up-rec-bar-linha-status .up-rec-ultimo{max-width:150px}',
+      '.up-rec-bar-linha-acoes{gap:5px}',
+      '.up-rec-bar-linha-acoes .up-rec-btn{padding:5px 9px;font-size:11px}',
+      '.up-rec-bar-linha-opcao{gap:3px;margin-top:1px;padding-top:5px;border-top:1px solid rgba(255,255,255,.12)}',
+      '.up-rec-bar-linha-opcao .up-rec-toggle{opacity:.9}',
       '.up-rec-troca-info{flex-basis:100%;text-align:center;opacity:.85;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}',
       '.up-rec-troca-status{flex-basis:100%;text-align:center;color:#ffd54f;font-weight:700;font-size:11px}',
       '.up-rec-destaque{position:fixed;z-index:2147483630;border-radius:10px;box-shadow:0 0 0 9999px rgba(11,28,48,.35),0 0 0 3px #0058be,0 0 0 5px rgba(0,88,190,.25);pointer-events:none;transition:top .15s ease,left .15s ease,width .15s ease,height .15s ease}',
@@ -212,6 +229,63 @@
       '.up-rec-btn-danger:hover{background:rgba(255,82,82,.36)}',
       '.up-rec-overlay{position:fixed;inset:0;z-index:2147483650;display:flex;align-items:center;justify-content:center;background:rgba(11,28,48,.55);padding:16px}',
       '.up-rec-modal{width:100%;max-width:720px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
+      // Mini revisão pós-clique — mais estreito e compacto que o modal de
+      // revisão final (só título/descrição/2 selects), pra ler como uma
+      // interrupção rápida, não uma segunda tela cheia.
+      '.up-rec-modal-mini{max-width:380px;gap:6px}',
+      // Painel lateral "Passos capturados" (opcional, revisarTempoReal) — ao
+      // contrário de .up-rec-overlay, NÃO cobre a tela inteira: fica ancorado
+      // na borda direita, com largura fixa, pra não bloquear cliques no resto
+      // da página (a gravação continua rodando por trás normalmente).
+      '.up-rec-lateral{position:fixed;top:16px;right:16px;bottom:16px;width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border-radius:14px;box-shadow:0 18px 50px rgba(11,28,48,.3);display:flex;flex-direction:column;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;overflow:hidden}',
+      '.up-rec-lateral-cabecalho{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;border-bottom:1px solid rgba(194,198,214,.5);flex-shrink:0}',
+      '.up-rec-lateral-titulo{display:flex;align-items:center;gap:6px;min-width:0}',
+      '.up-rec-lateral-titulo-texto{font-size:11.5px;font-weight:800;white-space:nowrap}',
+      '.up-rec-lateral-contagem{font-size:10px;font-weight:800;color:#0058be;background:#eff4ff;border-radius:999px;padding:1px 7px;white-space:nowrap;flex-shrink:0}',
+      '.up-rec-lateral-cabecalho .up-rec-btn-icone{padding:3px 7px}',
+      // Corpo: lista (altura fixa, rola sozinha se passar de ~5 itens) +
+      // detalhe do passo selecionado (ocupa o resto, rola independente).
+      '.up-rec-lateral-corpo{flex:1;min-height:0;display:flex;flex-direction:column}',
+      '.up-rec-lateral-lista{flex-shrink:0;border-bottom:1px solid rgba(194,198,214,.4);max-height:150px;overflow-y:auto;display:flex;flex-direction:column;padding:4px;gap:1px}',
+      '.up-rec-lateral-item{display:flex;align-items:center;gap:6px;padding:4px 7px;border-radius:7px;cursor:pointer;font-size:11.5px;line-height:16px;text-align:left;border:0;border-left:3px solid transparent;background:transparent;color:#0b1c30;width:100%}',
+      '.up-rec-lateral-item:hover{background:#f3f5fb}',
+      // Selecionado: faixa azul à esquerda + fundo + texto em negrito, mais
+      // fácil de identificar de relance que só um fundo claro.
+      '.up-rec-lateral-item-ativo{background:#dbe8ff;border-left-color:#0058be}',
+      '.up-rec-lateral-item-ativo .up-rec-lateral-item-resumo{font-weight:700;color:#0058be}',
+      '.up-rec-lateral-item-numero{width:15px;height:15px;flex-shrink:0;border-radius:999px;background:#d8e2ff;color:#0058be;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800}',
+      '.up-rec-lateral-item-resumo{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}',
+      '.up-rec-lateral-detalhe{flex:1;min-height:0;overflow-y:auto;padding:9px 10px;display:flex;flex-direction:column;gap:2px}',
+      '.up-rec-lateral-detalhe-vazio{padding:18px 12px;font-size:11.5px;color:#8a90a3;text-align:center}',
+      // Overrides compactos dos campos compartilhados (input/textarea/label/
+      // grid) só DENTRO do painel lateral — a revisão final e o mini painel
+      // pós-clique continuam com o tamanho padrão de sempre.
+      '.up-rec-lateral .up-rec-revisao-label-principal{font-size:9.5px;margin-top:4px}',
+      '.up-rec-lateral .up-rec-input{padding:5px 7px;font-size:12px;margin-top:2px}',
+      '.up-rec-lateral .up-rec-textarea-sm{padding:5px 7px;font-size:12px;min-height:32px;margin-top:2px}',
+      '.up-rec-lateral .up-rec-revisao-grid{gap:6px;margin-top:5px}',
+      '.up-rec-lateral .up-rec-revisao-label{font-size:9px;margin-top:2px}',
+      // Preview do tooltip, mais enxuto aqui do que na revisão final/mini painel.
+      '.up-rec-lateral-preview-wrap .up-rec-preview{margin-top:0}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-tooltip{padding:7px 9px;max-width:100%}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-progress{font-size:9px;margin-bottom:2px}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-titulo{font-size:12px;margin-bottom:2px;line-height:15px}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-desc{font-size:11px;line-height:14px}',
+      // Ações secundárias (Localizar/Trocar/Remover) — uma linha compacta de
+      // botões estreitos com texto curto, em vez de 3 botões largos com texto
+      // completo (a descrição completa vira o title, no hover).
+      '.up-rec-lateral-acoes{display:flex;gap:4px;margin-top:6px}',
+      '.up-rec-lateral-acoes .up-rec-btn-icone{flex:1;text-align:center;padding:5px 4px;font-size:10px}',
+      '.up-rec-lateral-rodape{display:flex;gap:8px;padding:7px 10px;border-top:1px solid rgba(194,198,214,.5);flex-shrink:0}',
+      '.up-rec-lateral-rodape .up-rec-btn{flex:1;border-radius:9px;padding:6px 10px;font-size:11.5px;font-weight:700}',
+      // Pill recolhida — só ícone + contador, clicável pra reabrir o painel.
+      // touch-action:none evita o navegador competir com o arrasto em telas
+      // touch (scroll da página no lugar de mover o pill); user-select:none
+      // evita selecionar o texto "Passos capturados" ao arrastar rápido.
+      '.up-rec-lateral-pill{position:fixed;top:16px;right:16px;z-index:2147483620;display:flex;align-items:center;gap:6px;background:#0b1c30;color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 18px 40px rgba(11,28,48,.35);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px;font-weight:700;cursor:grab;border:0;touch-action:none;user-select:none}',
+      '.up-rec-lateral-pill:active{cursor:grabbing}',
+      '.up-rec-lateral-pill:hover{opacity:.9}',
+      '@media (max-width:600px){.up-rec-lateral{top:8px;right:8px;bottom:8px;width:calc(100vw - 16px)}}',
       '@media (max-width:480px){.up-rec-overlay{padding:8px}.up-rec-modal{max-height:calc(100vh - 16px);border-radius:12px;padding:14px;gap:8px}}',
       '.up-rec-modal-title{font-size:16px;font-weight:800;margin:0;flex-shrink:0}',
       '.up-rec-modal-sub{font-size:12px;color:#424754;margin:0;flex-shrink:0}',
@@ -233,31 +307,41 @@
       // (não pill) e um pouco mais de respiro, em vez do botão compacto/pill
       // usado na barra flutuante escura.
       '.up-rec-modal-actions .up-rec-btn{border-radius:10px;padding:8px 16px;font-size:13px}',
+      // Rodapé da revisão final, só: divisória sutil separando do conteúdo
+      // rolável acima (nunca é coberto — flex-shrink:0 já garantia isso) e
+      // botões um pouco mais compactos/alinhados que o padrão genérico.
+      '.up-rec-modal-revisao .up-rec-modal-actions{border-top:1px solid rgba(194,198,214,.5);padding-top:10px;gap:6px}',
+      '.up-rec-modal-revisao .up-rec-modal-actions .up-rec-btn{padding:7px 14px;font-size:12.5px}',
       // Cabeçalho do modal de revisão (título + subtítulo) — separado da
       // barra de ações e da lista rolável por uma borda sutil, igual ao
       // cabeçalho de modal do sistema (ex.: Catálogo de Telas).
-      '.up-rec-revisao-cabecalho{display:flex;flex-direction:column;gap:4px;padding-bottom:10px;border-bottom:1px solid rgba(194,198,214,.5);flex-shrink:0}',
-      '.up-rec-modal-revisao .up-rec-modal-title{font-size:15px;font-weight:700}',
+      // Modal de revisão final — mais compacta/limpa que o padrão genérico
+      // (.up-rec-modal), sem afetar os outros modais (escolha de seletor,
+      // painel final, mini revisão pós-clique) que continuam com o padrão.
+      '.up-rec-modal-revisao{padding:16px;gap:8px}',
+      '.up-rec-revisao-cabecalho{display:flex;flex-direction:column;gap:3px;padding-bottom:8px;border-bottom:1px solid rgba(194,198,214,.5);flex-shrink:0}',
+      '.up-rec-modal-revisao .up-rec-modal-title{font-size:14px;font-weight:700}',
+      '.up-rec-modal-revisao .up-rec-modal-sub{font-size:11px}',
       '.up-rec-revisao-topo{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0}',
-      '.up-rec-revisao-contagem{font-size:11px;font-weight:800;color:#0058be;background:#eff4ff;border-radius:999px;padding:2px 10px;white-space:nowrap;flex-shrink:0}',
+      '.up-rec-revisao-contagem{font-size:10.5px;font-weight:800;color:#0058be;background:#eff4ff;border-radius:999px;padding:2px 9px;white-space:nowrap;flex-shrink:0}',
       // Pequena barra de ações acima da lista de passos — "Analisar passos"
       // vive aqui, não solto entre o subtítulo e a lista.
-      '.up-rec-revisao-toolbar{display:flex;align-items:center;padding-bottom:8px;border-bottom:1px solid rgba(194,198,214,.4);flex-shrink:0}',
+      '.up-rec-revisao-toolbar{display:flex;align-items:center;padding-bottom:6px;border-bottom:1px solid rgba(194,198,214,.4);flex-shrink:0}',
       // Única área com scroll interno do modal — cabeçalho e rodapé (ações)
       // ficam de fora, sempre visíveis (flex-shrink:0 neles).
-      '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding-right:4px}',
-      // Mesmo tratamento de card de passo do admin (Tours > Editar):
-      // borda outline-variant + fundo levemente tingido de surface-container-low.
-      '.up-rec-revisao-item{border:1px solid #c2c6d6;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;background:rgba(239,244,255,.4)}',
+      '.up-rec-revisao-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px}',
+      // Card do passo mais leve: menos padding, fundo quase neutro (o azul
+      // ficou só no número/seleção, não no card inteiro).
+      '.up-rec-revisao-item{border:1px solid #c2c6d6;border-radius:10px;padding:9px 10px;display:flex;flex-direction:column;gap:5px;background:#fbfcfe}',
       '.up-rec-revisao-header{display:flex;align-items:center;justify-content:space-between;gap:8px}',
-      '.up-rec-revisao-header-titulo{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}',
-      // Círculo numerado — mesmo padrão visual do admin (bg-primary-fixed
-      // text-primary) pra identificar a ordem do passo de forma mais clara
-      // que só um número em texto.
-      '.up-rec-revisao-numero{width:20px;height:20px;flex-shrink:0;border-radius:999px;background:#d8e2ff;color:#0058be;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800}',
-      '.up-rec-revisao-ordem{font-weight:800;font-size:12px;color:#0b1c30;flex-shrink:0;white-space:nowrap}',
-      '.up-rec-revisao-resumo{font-size:11px;color:#727785;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}',
-      '.up-rec-revisao-acoes{display:flex;gap:4px;flex-wrap:wrap;flex-shrink:0}',
+      '.up-rec-revisao-header-titulo{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden}',
+      // Círculo numerado discreto — só identifica a ordem, sem competir com
+      // o título do passo (up-rec-revisao-resumo), que agora é o texto de
+      // maior destaque no cabeçalho.
+      '.up-rec-revisao-numero{width:16px;height:16px;flex-shrink:0;border-radius:999px;background:#eef1f8;color:#8a90a3;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:800}',
+      '.up-rec-revisao-ordem{font-weight:600;font-size:10px;color:#8a90a3;flex-shrink:0;white-space:nowrap;text-transform:uppercase;letter-spacing:.02em}',
+      '.up-rec-revisao-resumo{font-size:12.5px;font-weight:700;color:#0b1c30;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}',
+      '.up-rec-revisao-acoes{display:flex;gap:3px;flex-wrap:wrap;flex-shrink:0}',
       // Neutro por padrão (mover/duplicar) — mesmo esquema do admin
       // (text-on-surface-variant hover:bg-surface-container-high): discreto em
       // repouso, só ganha fundo no hover.
@@ -287,15 +371,29 @@
       '.up-rec-btn-icone.up-rec-btn-danger:hover{background:#ffdad6;border-color:#ba1a1a}',
       // Título/descrição são os campos principais — rótulo normal (não
       // maiúsculo/técnico), pra se destacar da seção de configuração abaixo.
-      '.up-rec-revisao-principal{display:flex;flex-direction:column;gap:3px}',
+      '.up-rec-revisao-principal{display:flex;flex-direction:column;gap:2px}',
       '.up-rec-revisao-label-principal{font-size:11px;font-weight:800;color:#424754;margin-top:6px}',
       '.up-rec-revisao-label{font-size:10px;font-weight:700;color:#8a90a3;text-transform:uppercase;letter-spacing:.03em;display:block;margin-top:4px}',
+      // Campos mais compactos e consistentes, só dentro da revisão final —
+      // input/textarea/label/grid são reaproveitados pelo mini painel
+      // pós-clique e pelo painel lateral, que já têm seus próprios overrides
+      // (ou o padrão de sempre) e não devem mudar de tamanho aqui.
+      '.up-rec-modal-revisao .up-rec-input{padding:6px 9px;font-size:12.5px;margin-top:2px}',
+      '.up-rec-modal-revisao .up-rec-textarea-sm{padding:6px 9px;font-size:12.5px;min-height:38px;margin-top:2px}',
+      '.up-rec-modal-revisao .up-rec-revisao-label-principal{font-size:10px;margin-top:5px}',
+      '.up-rec-modal-revisao .up-rec-revisao-label{font-size:9.5px;margin-top:3px}',
+      '.up-rec-modal-revisao .up-rec-revisao-grid{gap:7px}',
       // Mesmo esquema de borda/foco dos inputs do admin (border-outline-variant,
       // focus:ring-primary) — só compacto o bastante pra caber vários campos
       // por card sem esticar o modal.
       '.up-rec-input{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;color:#0b1c30;background:#f8f9ff;margin-top:3px;outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
       '.up-rec-input:hover{border-color:#a8adbd}',
       '.up-rec-input:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16);background:#fff}',
+      // Select nativo (mini painel/painel lateral — "Posição do tooltip",
+      // "Como avançar") continua sendo um <select> de verdade (sem componente
+      // novo); só desenha uma seta própria (mesma cor/estilo do resto do
+      // gravador) no lugar do ícone padrão do navegador, que costuma destoar.
+      'select.up-rec-input{appearance:none;-webkit-appearance:none;-moz-appearance:none;cursor:pointer;padding-right:26px;background-image:url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 20 20\' fill=\'none\'><path d=\'M5.5 8L10 12.5L14.5 8\' stroke=\'%23727785\' stroke-width=\'1.6\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/></svg>");background-repeat:no-repeat;background-position:right 8px center;background-size:14px}',
       '.up-rec-textarea-sm{width:100%;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;color:#0b1c30;background:#f8f9ff;resize:vertical;min-height:44px;margin-top:3px;outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
       '.up-rec-textarea-sm:hover{border-color:#a8adbd}',
       '.up-rec-textarea-sm:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16);background:#fff}',
@@ -305,7 +403,7 @@
       // do sistema (borda outline-variant, foco azul primário).
       '.up-rec-customselect{position:relative;width:100%;margin-top:3px}',
       '.up-rec-select-nativo{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;opacity:0;pointer-events:none}',
-      '.up-rec-cs-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:6px;border:1px solid #c2c6d6;border-radius:8px;padding:7px 9px;font-size:12.5px;font-family:inherit;color:#0b1c30;background:#fff;cursor:pointer;outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
+      '.up-rec-cs-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:6px;border:1px solid #c2c6d6;border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;color:#0b1c30;background:#fff;cursor:pointer;outline:none;transition:border-color .15s ease,box-shadow .15s ease}',
       '.up-rec-cs-trigger:hover{border-color:#a8adbd}',
       '.up-rec-cs-trigger[aria-expanded="true"]{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
       '.up-rec-cs-valor{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}',
@@ -324,18 +422,42 @@
       // Seção "Configuração do passo" — agrupada visualmente à parte (fundo
       // discreto), separando o que é técnico (seletor/comportamento) do que é
       // conteúdo principal (título/descrição) editado acima.
-      '.up-rec-revisao-config{background:#fff;border:1px solid rgba(194,198,214,.5);border-radius:8px;padding:9px 11px;margin-top:6px}',
-      '.up-rec-revisao-config-titulo{font-size:10px;font-weight:800;color:#8a90a3;text-transform:uppercase;letter-spacing:.04em;margin:0 0 2px}',
+      '.up-rec-revisao-config{background:#fff;border:1px solid rgba(194,198,214,.5);border-radius:8px;padding:7px 9px;margin-top:4px}',
+      '.up-rec-revisao-config-titulo{font-size:9.5px;font-weight:800;color:#8a90a3;text-transform:uppercase;letter-spacing:.04em;margin:0 0 2px}',
       '.up-rec-revisao-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
       // Seletor: chip de leitura (não deve parecer um input editável).
-      '.up-rec-revisao-codigo{display:inline-flex;max-width:100%;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f8;border:1px solid #dde1ee;border-radius:6px;padding:3px 7px;color:#425066;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}',
+      '.up-rec-revisao-codigo{display:inline-flex;max-width:100%;font:10.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f8;border:1px solid #dde1ee;border-radius:6px;padding:3px 7px;color:#425066;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}',
+      // Localizar/Trocar agrupados numa linha compacta, em vez de dois botões
+      // largos com texto completo (a descrição completa vira o title, no hover).
+      '.up-rec-revisao-seletor-acoes{display:flex;gap:4px;margin-top:4px}',
+      '.up-rec-revisao-seletor-acoes .up-rec-btn-icone{flex:1;text-align:center;padding:4px 6px;font-size:10.5px}',
+      // Preview separado do resto por uma divisória sutil (sem virar mais um
+      // card cheio, que pesaria visualmente) — mais enxuto que na revisão
+      // padrão de sempre, só aqui dentro da revisão final.
+      '.up-rec-revisao-preview-wrap{margin-top:2px;padding-top:7px;border-top:1px dashed rgba(194,198,214,.6)}',
+      '.up-rec-modal-revisao .up-rec-preview{margin-top:0}',
+      '.up-rec-modal-revisao .up-rec-preview-tooltip{padding:7px 9px;box-shadow:none}',
+      '.up-rec-modal-revisao .up-rec-preview-progress{font-size:9px;margin-bottom:2px}',
+      '.up-rec-modal-revisao .up-rec-preview-titulo{font-size:12px;margin-bottom:2px;line-height:15px}',
+      '.up-rec-modal-revisao .up-rec-preview-desc{font-size:11px;line-height:14px}',
       // Alertas discretos (obrigatórios pro importador) — chips compactos lado
       // a lado em vez de lista empilhada, pra ocupar menos espaço vertical no
       // card. Marcador "▲" reforça que é algo a corrigir, não só uma dica.
-      '.up-rec-revisao-alertas{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px}',
-      '.up-rec-revisao-alertas li{font-size:10.5px;line-height:1.3;color:#e65100;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:3px 7px}',
-      '.up-rec-revisao-alertas li::before{content:"\\25B2";font-size:7px;margin-right:4px;vertical-align:middle}',
-      '.up-rec-troca-btn{display:inline-flex;margin-top:4px}',
+      '.up-rec-revisao-alertas{list-style:none;margin:5px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:3px}',
+      '.up-rec-revisao-alertas li{font-size:10px;line-height:1.3;color:#e65100;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:2px 6px}',
+      '.up-rec-revisao-alertas li::before{content:"\\25B2";font-size:6.5px;margin-right:3px;vertical-align:middle}',
+      // Preview do tooltip — mockup estático (não é o overlay real do tour),
+      // só pra o usuário ter noção de como título/descrição vão aparecer.
+      // Atualizado ao vivo por recorderRevisaoOnInput (mesmo texto, sem
+      // reabrir a lista inteira).
+      '.up-rec-preview{margin-top:6px}',
+      '.up-rec-preview-label{font-size:10px;font-weight:800;color:#8a90a3;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px}',
+      '.up-rec-preview-tooltip{border:1px solid #c2c6d6;border-radius:10px;background:#fff;padding:10px 12px;max-width:280px}',
+      '.up-rec-preview-progress{font-size:10px;font-weight:800;color:#0058be;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px}',
+      '.up-rec-preview-titulo{font-size:13px;font-weight:800;color:#0b1c30;margin:0 0 4px;line-height:17px}',
+      '.up-rec-preview-titulo.up-rec-preview-vazio{color:#8a90a3;font-style:italic;font-weight:600}',
+      '.up-rec-preview-desc{font-size:12px;line-height:16px;color:#424754;margin:0}',
+      '.up-rec-preview-desc.up-rec-preview-vazio{color:#8a90a3;font-style:italic}',
       '@media (max-width:480px){.up-rec-revisao-grid{grid-template-columns:1fr}}',
       // Botão "Analisar passos" (topo do painel de revisão) e as sugestões
       // discretas por passo — visualmente distintas dos alertas (tom azul,
@@ -2106,6 +2228,9 @@
   var RECORDER_BAR_ID = 'userpulse-recorder-bar';
   var RECORDER_PAINEL_ID = 'userpulse-recorder-painel';
   var RECORDER_TROCA_BAR_ID = 'userpulse-recorder-troca-bar';
+  var RECORDER_LOCALIZAR_BAR_ID = 'userpulse-recorder-localizar-bar';
+  var RECORDER_MINI_REVISAO_ID = 'userpulse-recorder-mini-revisao';
+  var RECORDER_PAINEL_LATERAL_ID = 'userpulse-recorder-painel-lateral';
   var RECORDER_INPUT_DEBOUNCE_MS = 500;
   var RECORDER_CLIQUE_DEDUPE_MS = 600;
   var RECORDER_URL_POLL_MS = 500;
@@ -2132,6 +2257,29 @@
     // Liga/desliga a exibição das sugestões do "Analisar passos" — também
     // efêmero (não persistido), só controla se o bloco de sugestões aparece.
     analiseAtiva: false,
+    // Desativado por padrão — captura rápida continua sendo o comportamento
+    // padrão. Quando true, cada passo capturado abre um mini painel de
+    // revisão antes de voltar a capturar (ver recorderAbrirMiniRevisao).
+    // Persistido (sobrevive a reload) igual a pausado/meta/passos, ao
+    // contrário de trocaIndice/analiseAtiva (efêmeros de UI).
+    revisarCadaPasso: false,
+    // Desativado por padrão — painel lateral "Passos capturados" (ver
+    // recorderRenderPainelLateral). Diferente de revisarCadaPasso: não pausa
+    // a captura, só mantém um painel não-bloqueante sincronizado. Persistido
+    // igual a revisarCadaPasso.
+    revisarTempoReal: false,
+    // Efêmeros de UI do painel lateral (não persistidos) — recolhido/
+    // expandido e qual passo está selecionado pra edição no painel.
+    painelLateralAberto: true,
+    painelLateralIndiceSelecionado: null,
+    // Pra onde a barra "Localizar na tela" deve voltar ao fechar — 'revisao'
+    // (padrão, comportamento já existente) ou 'painel-lateral' (novo).
+    localizarOrigem: null,
+    // Estado de pausado antes de entrar em "Trocar elemento" — permite essa
+    // ação ser disparada tanto de dentro da revisão final (já pausada) quanto
+    // do painel lateral (captura ainda ativa), restaurando o estado correto
+    // ao sair (ver recorderIniciarTrocaElemento/recorderPararEscutaTroca).
+    pausadoAntesTroca: false,
   };
 
   // Opções editáveis na revisão — mesmos valores aceitos pelo backend/admin
@@ -2176,6 +2324,8 @@
         meta: recorderState.meta,
         passos: recorderState.passos,
         navegacoes: recorderState.navegacoes,
+        revisarCadaPasso: recorderState.revisarCadaPasso,
+        revisarTempoReal: recorderState.revisarTempoReal,
       };
       window.sessionStorage.setItem(RECORDER_STORAGE_KEY, JSON.stringify(dados));
     } catch (_e) { /* sessionStorage indisponível (modo privado, quota etc.) — segue só em memória */ }
@@ -2205,7 +2355,7 @@
   function recorderElementoNaBarra(el) {
     if (!el || !el.closest) return false;
     try {
-      return Boolean(el.closest('#' + RECORDER_BAR_ID + ', #' + RECORDER_PAINEL_ID + ', #' + RECORDER_TROCA_BAR_ID));
+      return Boolean(el.closest('#' + RECORDER_BAR_ID + ', #' + RECORDER_PAINEL_ID + ', #' + RECORDER_TROCA_BAR_ID + ', #' + RECORDER_LOCALIZAR_BAR_ID + ', #' + RECORDER_MINI_REVISAO_ID + ', #' + RECORDER_PAINEL_LATERAL_ID));
     } catch (_e) {
       return false;
     }
@@ -2526,6 +2676,465 @@
     recorderState.elParaIndice.set(el, recorderState.passos.length - 1);
     recorderAtualizarBarra();
     recorderPersistir();
+    // Opcional (desativado por padrão) — painel lateral não-bloqueante:
+    // o passo recém capturado fica selecionado automaticamente. Não pausa a
+    // captura — o usuário continua clicando normalmente.
+    if (recorderState.revisarTempoReal) {
+      recorderState.painelLateralIndiceSelecionado = recorderState.passos.length - 1;
+      recorderRenderPainelLateral();
+    }
+    // Opcional (desativado por padrão) — mini revisão logo após o clique. Só
+    // dispara quando o usuário ligou a opção na barra; captura rápida
+    // continua sendo o comportamento padrão.
+    if (recorderState.revisarCadaPasso) {
+      recorderAbrirMiniRevisao(recorderState.passos.length - 1);
+    }
+  }
+
+  // ─── Mini revisão pós-clique (opcional) ───────────────────────────────────
+  // Só título/descrição/posição do tooltip/modo de avanço — de propósito bem
+  // mais enxuta que o painel de revisão final (sem alertas/sugestões/trocar
+  // elemento), pra não virar uma segunda tela pesada a cada clique. Reaproveita
+  // recorderHtmlPreview (mesmo mockup da revisão final) sem duplicar nada.
+
+  // attrNome parametrizado pra reaproveitar tanto no mini painel
+  // (data-miniv-campo) quanto no painel lateral (data-lat-campo) sem duplicar
+  // a função — só muda qual atributo o listener delegado de cada painel lê.
+  function recorderSimpleSelectHtml(attrNome, campo, valorAtual, opcoes) {
+    var options = opcoes.map(function (o) {
+      return '<option value="' + escapeHtml(o.value) + '"' + (o.value === valorAtual ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
+    }).join('');
+    return '<select class="up-rec-input" ' + attrNome + '="' + campo + '">' + options + '</select>';
+  }
+
+  function recorderHtmlMiniRevisao(passo, indice, total) {
+    return [
+      '<div class="up-rec-modal up-rec-modal-mini">',
+      '<p class="up-rec-modal-title">Passo capturado</p>',
+      '<p class="up-rec-modal-sub">Revise este passo antes de continuar gravando — ou desative "Revisar cada passo após o clique" na barra pra pular esta etapa.</p>',
+      recorderHtmlPreview(passo, indice, total),
+      '<label class="up-rec-revisao-label-principal">Título</label>',
+      '<input type="text" class="up-rec-input" data-miniv-campo="titulo" value="' + escapeHtml(passo.titulo || '') + '">',
+      '<label class="up-rec-revisao-label-principal">Descrição</label>',
+      '<textarea class="up-rec-textarea-sm" data-miniv-campo="descricao">' + escapeHtml(passo.descricao || '') + '</textarea>',
+      '<div class="up-rec-revisao-grid" style="margin-top:2px">',
+      '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSimpleSelectHtml('data-miniv-campo', 'tooltip_posicao', passo.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
+      '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSimpleSelectHtml('data-miniv-campo', 'modo_avanco_interacao', passo.modo_avanco_interacao, RECORDER_MODOS_AVANCO) + '</div>',
+      '</div>',
+      '<div class="up-rec-modal-actions">',
+      '<button type="button" class="up-rec-btn up-rec-btn-danger" data-miniv-ignorar>Ignorar este clique</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-miniv-finalizar>Finalizar gravação</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-primary" data-miniv-salvar>Salvar e continuar</button>',
+      '</div>',
+      '</div>',
+    ].join('');
+  }
+
+  // Pausa a captura enquanto o mini painel está aberto. Não precisa lembrar
+  // um "pausado anterior" pra restaurar (diferente da revisão final): só
+  // chega aqui vindo de recorderRegistrarPasso, que só roda quando NÃO
+  // estava pausado — recorderCapturarClique/Valor já não registram passo
+  // nenhum com recorderState.pausado true.
+  function recorderAbrirMiniRevisao(indice) {
+    var passo = recorderState.passos[indice];
+    if (!passo) return;
+    recorderState.pausado = true;
+
+    var existente = document.getElementById(RECORDER_MINI_REVISAO_ID);
+    if (existente) existente.remove();
+
+    var root = document.createElement('div');
+    root.id = RECORDER_MINI_REVISAO_ID;
+    root.className = 'up-rec-overlay';
+    root.innerHTML = recorderHtmlMiniRevisao(passo, indice, recorderState.passos.length);
+    document.body.appendChild(root);
+
+    root.addEventListener('input', function (event) { recorderMiniRevisaoOnInput(event, indice); });
+    root.addEventListener('change', function (event) { recorderMiniRevisaoOnInput(event, indice); });
+    root.addEventListener('click', function (event) { recorderMiniRevisaoOnClick(event, indice); });
+  }
+
+  function recorderMiniRevisaoOnInput(event, indice) {
+    var alvo = event.target;
+    if (!(alvo instanceof Element)) return;
+    var campo = alvo.getAttribute('data-miniv-campo');
+    if (!campo) return;
+    var passo = recorderState.passos[indice];
+    if (!passo) return;
+    passo[campo] = alvo.value;
+    recorderPersistir();
+
+    if (campo !== 'titulo' && campo !== 'descricao') return;
+    var root = document.getElementById(RECORDER_MINI_REVISAO_ID);
+    if (!root) return;
+    if (campo === 'titulo') {
+      var previewTitulo = root.querySelector('[data-rev-preview-titulo="' + indice + '"]');
+      if (previewTitulo) {
+        var semTitulo = !passo.titulo || !passo.titulo.trim();
+        previewTitulo.textContent = semTitulo ? 'Título do passo' : passo.titulo;
+        previewTitulo.classList.toggle('up-rec-preview-vazio', semTitulo);
+      }
+    } else {
+      var previewDesc = root.querySelector('[data-rev-preview-desc="' + indice + '"]');
+      if (previewDesc) {
+        var semDescricao = !passo.descricao || !String(passo.descricao).trim();
+        previewDesc.textContent = semDescricao ? 'Descrição do passo (opcional)' : passo.descricao;
+        previewDesc.classList.toggle('up-rec-preview-vazio', semDescricao);
+      }
+    }
+  }
+
+  function recorderFecharMiniRevisao() {
+    var root = document.getElementById(RECORDER_MINI_REVISAO_ID);
+    if (root) root.remove();
+  }
+
+  function recorderMiniRevisaoOnClick(event, indice) {
+    var alvo = event.target;
+    if (!(alvo instanceof Element)) return;
+
+    if (alvo.closest('[data-miniv-salvar]')) {
+      recorderFecharMiniRevisao();
+      recorderState.pausado = false;
+      recorderAtualizarBarra();
+      // Se o painel lateral também estiver ativo (as duas opções não são
+      // excludentes), reflete o passo salvo por lá também.
+      if (recorderState.revisarTempoReal) {
+        recorderState.painelLateralIndiceSelecionado = indice;
+        recorderRenderPainelLateral();
+      }
+      return;
+    }
+
+    if (alvo.closest('[data-miniv-ignorar]')) {
+      recorderState.passos.splice(indice, 1);
+      recorderPersistir();
+      recorderFecharMiniRevisao();
+      recorderState.pausado = false;
+      recorderAtualizarBarra();
+      if (recorderState.revisarTempoReal) {
+        recorderState.painelLateralIndiceSelecionado = recorderState.passos.length ? recorderState.passos.length - 1 : null;
+        recorderRenderPainelLateral();
+      }
+      return;
+    }
+
+    if (alvo.closest('[data-miniv-finalizar]')) {
+      recorderFecharMiniRevisao();
+      recorderFinalizar(); // já cuida de pausar, fechar o painel lateral e abrir a revisão final
+      return;
+    }
+  }
+
+  // ─── Painel lateral "Passos capturados" (revisarTempoReal, opcional) ─────
+  // Não pausa a captura — usuário continua clicando normalmente enquanto o
+  // painel mostra/edita os passos já capturados. Recolhível (vira uma pill
+  // com contador) e sempre lê/escreve direto em recorderState.passos, então
+  // nunca fica "fora de sincronia" com o que a gravação já capturou.
+
+  function recorderHtmlPainelLateralItem(p, i, ativo) {
+    return [
+      '<button type="button" class="up-rec-lateral-item' + (ativo ? ' up-rec-lateral-item-ativo' : '') + '" data-lat-selecionar data-lat-index="' + i + '">',
+      '<span class="up-rec-lateral-item-numero">' + (i + 1) + '</span>',
+      '<span class="up-rec-lateral-item-resumo">' + escapeHtml(recorderResumoPasso(p)) + '</span>',
+      '</button>',
+    ].join('');
+  }
+
+  function recorderHtmlPainelLateralDetalhe(passo, indice, total) {
+    var elementoAtual = null;
+    try { elementoAtual = selecionarElementoPasso(passo); } catch (_e) { elementoAtual = null; }
+    return [
+      '<div class="up-rec-lateral-preview-wrap">' + recorderHtmlPreview(passo, indice, total) + '</div>',
+      (elementoAtual ? '' : '<p style="margin:4px 0 0"><span style="display:inline-block;font-size:10px;line-height:1.3;color:#e65100;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:2px 6px">Elemento não encontrado na tela atual.</span></p>'),
+      '<label class="up-rec-revisao-label-principal">Título</label>',
+      '<input type="text" class="up-rec-input" data-lat-campo="titulo" value="' + escapeHtml(passo.titulo || '') + '">',
+      '<label class="up-rec-revisao-label-principal">Descrição</label>',
+      '<textarea class="up-rec-textarea-sm" data-lat-campo="descricao">' + escapeHtml(passo.descricao || '') + '</textarea>',
+      '<div class="up-rec-revisao-grid">',
+      '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSimpleSelectHtml('data-lat-campo', 'tooltip_posicao', passo.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
+      '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSimpleSelectHtml('data-lat-campo', 'modo_avanco_interacao', passo.modo_avanco_interacao, RECORDER_MODOS_AVANCO) + '</div>',
+      '</div>',
+      '<div class="up-rec-lateral-acoes">',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-lat-localizar title="Localizar na tela: destaca este elemento na página real">Localizar</button>',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-lat-trocar title="Trocar elemento: clique de novo no elemento certo na tela real">Trocar</button>',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-danger" data-lat-remover title="Remover este passo">Remover</button>',
+      '</div>',
+    ].join('');
+  }
+
+  function recorderHtmlPainelLateral() {
+    var passos = recorderState.passos;
+    var indice = recorderState.painelLateralIndiceSelecionado;
+    var passo = indice != null ? passos[indice] : null;
+    var itens = passos.map(function (p, i) { return recorderHtmlPainelLateralItem(p, i, i === indice); }).join('');
+
+    return [
+      '<div class="up-rec-lateral-cabecalho">',
+      '<div class="up-rec-lateral-titulo">',
+      '<span class="up-rec-lateral-titulo-texto">Passos capturados</span>',
+      '<span class="up-rec-lateral-contagem">' + passos.length + '</span>',
+      '</div>',
+      '<button type="button" class="up-rec-btn-icone" data-lat-recolher title="Recolher painel">&minus;</button>',
+      '</div>',
+      '<div class="up-rec-lateral-corpo">',
+      (passos.length
+        ? '<div class="up-rec-lateral-lista">' + itens + '</div>'
+        : ''),
+      '<div class="up-rec-lateral-detalhe">',
+      (passo
+        ? recorderHtmlPainelLateralDetalhe(passo, indice, passos.length)
+        : '<p class="up-rec-lateral-detalhe-vazio">Nenhum passo capturado ainda. Interaja com a tela do sistema pra começar.</p>'),
+      '</div>',
+      '</div>',
+      '<div class="up-rec-lateral-rodape">',
+      '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-lat-finalizar' + (passos.length === 0 ? ' disabled' : '') + '>Finalizar e revisar</button>',
+      '</div>',
+    ].join('');
+  }
+
+  // Posição do pill minimizado (e, ao reabrir, do próprio painel) — só em
+  // memória, não precisa sobreviver a reload. null até o primeiro arrasto:
+  // enquanto isso, cada estado usa a posição padrão de sempre (CSS).
+  var recorderLateralPosicao = null;
+
+  function recorderClampPosicaoLateral(top, left, largura, altura) {
+    var margem = 8;
+    var maxTop = Math.max(margem, window.innerHeight - altura - margem);
+    var maxLeft = Math.max(margem, window.innerWidth - largura - margem);
+    return {
+      top: Math.min(Math.max(top, margem), maxTop),
+      left: Math.min(Math.max(left, margem), maxLeft),
+    };
+  }
+
+  function recorderAplicarPosicaoLateral(el) {
+    if (!recorderLateralPosicao) return;
+    var rect = el.getBoundingClientRect();
+    var pos = recorderClampPosicaoLateral(recorderLateralPosicao.top, recorderLateralPosicao.left, rect.width, rect.height);
+    el.style.top = pos.top + 'px';
+    el.style.left = pos.left + 'px';
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
+  }
+
+  // Arrastar o pill minimizado — Pointer Events cobrem mouse/touch/caneta
+  // com a mesma API. Só passa a mover de verdade depois de confirmar
+  // deslocamento real (RECORDER_ARRASTO_LIMIAR_PX): abaixo disso continua
+  // sendo tratado como clique simples (reabrir o painel), não arrasto.
+  // Roda inteiramente em listeners do próprio elemento — nunca no capture
+  // de clique do gravador (document), então nunca vira passo do tour (o
+  // painel lateral já é excluído disso por recorderElementoNaBarra de qualquer forma).
+  var RECORDER_ARRASTO_LIMIAR_PX = 4;
+
+  function recorderLigarArrastoPill(el) {
+    var arrastando = false;
+    var arrastou = false;
+    var offsetX = 0;
+    var offsetY = 0;
+
+    el.addEventListener('pointerdown', function (event) {
+      if (event.button != null && event.button !== 0) return;
+      arrastando = true;
+      arrastou = false;
+      var rect = el.getBoundingClientRect();
+      offsetX = event.clientX - rect.left;
+      offsetY = event.clientY - rect.top;
+      try { el.setPointerCapture(event.pointerId); } catch (_e) {}
+    });
+
+    el.addEventListener('pointermove', function (event) {
+      if (!arrastando) return;
+      var rect = el.getBoundingClientRect();
+      var novoTop = event.clientY - offsetY;
+      var novoLeft = event.clientX - offsetX;
+      if (!arrastou && (Math.abs(novoLeft - rect.left) > RECORDER_ARRASTO_LIMIAR_PX || Math.abs(novoTop - rect.top) > RECORDER_ARRASTO_LIMIAR_PX)) {
+        arrastou = true;
+      }
+      if (!arrastou) return;
+      var pos = recorderClampPosicaoLateral(novoTop, novoLeft, rect.width, rect.height);
+      el.style.top = pos.top + 'px';
+      el.style.left = pos.left + 'px';
+      el.style.right = 'auto';
+      el.style.bottom = 'auto';
+      recorderLateralPosicao = pos;
+    });
+
+    function finalizarArrasto(event) {
+      if (!arrastando) return;
+      arrastando = false;
+      try { el.releasePointerCapture(event.pointerId); } catch (_e) {}
+    }
+    el.addEventListener('pointerup', finalizarArrasto);
+    el.addEventListener('pointercancel', finalizarArrasto);
+
+    // Clique simples (sem arrasto) reabre o painel — clique que terminou um
+    // arrasto real é ignorado aqui (não deve expandir o painel sozinho).
+    el.addEventListener('click', function (event) {
+      if (arrastou) {
+        event.preventDefault();
+        event.stopPropagation();
+        arrastou = false;
+        return;
+      }
+      recorderState.painelLateralAberto = true;
+      recorderRenderPainelLateral();
+    });
+  }
+
+  function recorderRenderPainelLateral() {
+    var existente = document.getElementById(RECORDER_PAINEL_LATERAL_ID);
+    if (existente) existente.remove();
+    if (!recorderState.revisarTempoReal) return;
+
+    var root = document.createElement('div');
+    root.id = RECORDER_PAINEL_LATERAL_ID;
+
+    if (!recorderState.painelLateralAberto) {
+      root.className = 'up-rec-lateral-pill';
+      root.setAttribute('title', 'Arraste para mover — clique para reabrir o painel de passos capturados');
+      root.innerHTML = 'Passos capturados <span class="up-rec-lateral-contagem">' + recorderState.passos.length + '</span>';
+      document.body.appendChild(root);
+      recorderAplicarPosicaoLateral(root);
+      recorderLigarArrastoPill(root);
+      return;
+    }
+
+    root.className = 'up-rec-lateral';
+    root.innerHTML = recorderHtmlPainelLateral();
+    document.body.appendChild(root);
+    recorderAplicarPosicaoLateral(root); // abre a partir de onde o pill foi arrastado, se aplicável
+
+    root.addEventListener('input', recorderPainelLateralOnInput);
+    root.addEventListener('change', recorderPainelLateralOnInput);
+    root.addEventListener('click', recorderPainelLateralOnClick);
+  }
+
+  function recorderFecharPainelLateral() {
+    var root = document.getElementById(RECORDER_PAINEL_LATERAL_ID);
+    if (root) root.remove();
+  }
+
+  function recorderPainelLateralOnInput(event) {
+    var alvo = event.target;
+    if (!(alvo instanceof Element)) return;
+    var campo = alvo.getAttribute('data-lat-campo');
+    if (!campo) return;
+    var indice = recorderState.painelLateralIndiceSelecionado;
+    var passo = indice != null ? recorderState.passos[indice] : null;
+    if (!passo) return;
+    passo[campo] = alvo.value;
+    recorderPersistir();
+
+    // Resumo na lista + preview no detalhe — atualizados no lugar, sem
+    // re-renderizar o painel inteiro (perderia foco/cursor do usuário).
+    if (campo === 'titulo') {
+      var itemResumo = document.querySelector('#' + RECORDER_PAINEL_LATERAL_ID + ' [data-lat-index="' + indice + '"] .up-rec-lateral-item-resumo');
+      if (itemResumo) itemResumo.textContent = recorderResumoPasso(passo);
+
+      var previewTitulo = document.querySelector('[data-rev-preview-titulo="' + indice + '"]');
+      if (previewTitulo) {
+        var semTitulo = !passo.titulo || !passo.titulo.trim();
+        previewTitulo.textContent = semTitulo ? 'Título do passo' : passo.titulo;
+        previewTitulo.classList.toggle('up-rec-preview-vazio', semTitulo);
+      }
+    }
+    if (campo === 'descricao') {
+      var previewDesc = document.querySelector('[data-rev-preview-desc="' + indice + '"]');
+      if (previewDesc) {
+        var semDescricao = !passo.descricao || !String(passo.descricao).trim();
+        previewDesc.textContent = semDescricao ? 'Descrição do passo (opcional)' : passo.descricao;
+        previewDesc.classList.toggle('up-rec-preview-vazio', semDescricao);
+      }
+    }
+  }
+
+  function recorderPainelLateralOnClick(event) {
+    var alvo = event.target;
+    if (!(alvo instanceof Element)) return;
+
+    if (alvo.closest('[data-lat-recolher]')) {
+      recorderState.painelLateralAberto = false;
+      recorderRenderPainelLateral();
+      return;
+    }
+
+    var btnSelecionar = alvo.closest('[data-lat-selecionar]');
+    if (btnSelecionar) {
+      recorderState.painelLateralIndiceSelecionado = Number(btnSelecionar.getAttribute('data-lat-index'));
+      recorderRenderPainelLateral();
+      return;
+    }
+
+    if (alvo.closest('[data-lat-remover]')) {
+      var idxRem = recorderState.painelLateralIndiceSelecionado;
+      if (idxRem == null) return;
+      recorderState.passos.splice(idxRem, 1);
+      recorderState.painelLateralIndiceSelecionado = recorderState.passos.length ? Math.min(idxRem, recorderState.passos.length - 1) : null;
+      recorderPersistir();
+      recorderAtualizarBarra();
+      recorderRenderPainelLateral();
+      return;
+    }
+
+    if (alvo.closest('[data-lat-localizar]')) {
+      var idxLoc = recorderState.painelLateralIndiceSelecionado;
+      if (idxLoc == null) return;
+      recorderLocalizarElemento(idxLoc, 'painel-lateral');
+      return;
+    }
+
+    if (alvo.closest('[data-lat-trocar]')) {
+      var idxTro = recorderState.painelLateralIndiceSelecionado;
+      if (idxTro == null) return;
+      recorderIniciarTrocaElemento(idxTro);
+      return;
+    }
+
+    if (alvo.closest('[data-lat-finalizar]')) {
+      if (recorderState.passos.length === 0) return;
+      recorderFinalizar(); // já remove o painel lateral e abre a revisão final
+      return;
+    }
+  }
+
+  // ─── Relevância do clique ──────────────────────────────────────────────
+  // Nem todo clique deve virar passo — clicar em fundo, texto solto ou
+  // container genérico não é uma interação real que faça sentido guiar
+  // depois. Só considera alvo válido tags/roles interativos ou um elemento
+  // com identificador estável (data-cy/data-testid/id/aria-label).
+  var RECORDER_TAGS_RELEVANTES = ['button', 'a', 'input', 'select', 'textarea', 'label'];
+  var RECORDER_ROLES_RELEVANTES = ['button', 'link', 'tab', 'menuitem', 'checkbox'];
+  // Landmarks estruturais — nunca viram passo, mesmo que por acaso tenham
+  // id/aria-label (clicar "no body"/"na main" não é uma ação real do usuário).
+  var RECORDER_TAGS_NUNCA_RELEVANTES = ['body', 'html', 'main', 'section'];
+
+  function recorderElementoRelevante(el) {
+    if (!el || el.nodeType !== 1) return false;
+    var tag = el.tagName ? el.tagName.toLowerCase() : '';
+    if (RECORDER_TAGS_NUNCA_RELEVANTES.indexOf(tag) !== -1) return false;
+    if (RECORDER_TAGS_RELEVANTES.indexOf(tag) !== -1) return true;
+    var role = el.getAttribute && el.getAttribute('role');
+    if (role && RECORDER_ROLES_RELEVANTES.indexOf(role) !== -1) return true;
+    if (el.getAttribute && (el.getAttribute('data-cy') || el.getAttribute('data-testid') || el.getAttribute('aria-label'))) return true;
+    if (el.id) return true;
+    return false;
+  }
+
+  // Sobe do elemento clicado até achar o ancestral relevante mais próximo
+  // (ou o próprio alvo, se já for relevante) — clicar num <span> genérico
+  // dentro de um <button data-cy="..."> deve capturar o botão, não o span.
+  // Para em qualquer landmark estrutural (body/html/main/section) sem achar
+  // nada — retorna null, e o clique é ignorado.
+  function recorderLocalizarAlvoRelevante(el) {
+    var atual = el;
+    while (atual && atual.nodeType === 1) {
+      var tag = atual.tagName ? atual.tagName.toLowerCase() : '';
+      if (RECORDER_TAGS_NUNCA_RELEVANTES.indexOf(tag) !== -1) return null;
+      if (recorderElementoRelevante(atual)) return atual;
+      atual = atual.parentElement;
+    }
+    return null;
   }
 
   // Cliques disparam ao_clicar; nunca chama preventDefault/stopPropagation —
@@ -2534,12 +3143,20 @@
     if (!recorderState.ativo || recorderState.pausado) return;
     var el = event.target;
     if (!(el instanceof Element) || recorderElementoNaBarra(el)) return;
-    if (isEditableTarget(el) || recorderCampoSensivel(el)) return; // esses vão por input/change, não por clique
+    if (isEditableTarget(el)) return; // esses vão por input/change, não por clique
+
+    var alvo = recorderLocalizarAlvoRelevante(el);
+    if (!alvo) {
+      recorderMostrarAvisoBarra('Clique em um botão, campo ou elemento identificável para capturar um passo.');
+      return;
+    }
+    if (recorderCampoSensivel(alvo)) return;
+
     var agora = Date.now();
-    if (recorderState.ultimoEl === el && (agora - recorderState.ultimoElTimestamp) < RECORDER_CLIQUE_DEDUPE_MS) return; // duplo clique acidental
-    recorderState.ultimoEl = el;
+    if (recorderState.ultimoEl === alvo && (agora - recorderState.ultimoElTimestamp) < RECORDER_CLIQUE_DEDUPE_MS) return; // duplo clique acidental
+    recorderState.ultimoEl = alvo;
     recorderState.ultimoElTimestamp = agora;
-    recorderRegistrarPasso(el, recorderInferirModo(el));
+    recorderRegistrarPasso(alvo, recorderInferirModo(alvo));
   }
 
   // input/change disparam ao_alterar_valor. Nunca lê event.target.value — só
@@ -2576,8 +3193,15 @@
   function recorderDesfazerUltimo() {
     if (recorderState.passos.length === 0) return;
     recorderState.passos.pop();
+    // Mesmo ajuste de seleção do botão "Remover passo" do painel lateral
+    // (data-lat-remover): só corrige o índice selecionado se ele deixou de
+    // existir — se o selecionado era um passo anterior, continua como está.
+    if (recorderState.painelLateralIndiceSelecionado != null && recorderState.painelLateralIndiceSelecionado >= recorderState.passos.length) {
+      recorderState.painelLateralIndiceSelecionado = recorderState.passos.length ? recorderState.passos.length - 1 : null;
+    }
     recorderAtualizarBarra();
     recorderPersistir();
+    recorderRenderPainelLateral(); // sem efeito se revisarTempoReal estiver desligado
   }
 
   function recorderPausarOuContinuar() {
@@ -2659,6 +3283,7 @@
     recorderPersistir();
     var bar = document.getElementById(RECORDER_BAR_ID);
     if (bar) bar.remove();
+    recorderFecharPainelLateral(); // se estava aberto (revisarTempoReal), a revisão final assume o lugar dele
     recorderRenderRevisao();
   }
 
@@ -2675,6 +3300,7 @@
     if (bar) bar.remove();
     var painel = document.getElementById(RECORDER_PAINEL_ID);
     if (painel) painel.remove();
+    recorderFecharPainelLateral();
   }
 
   // ─── Painel de revisão (antes de gerar o JSON) ────────────────────────────
@@ -2686,6 +3312,15 @@
     if (p.seletor_tipo === 'css') alertas.push('Seletor CSS pode ser frágil. Prefira data-cy quando possível.');
     if (RECORDER_MODOS_AVANCO_COM_CONFIRMACAO.indexOf(p.modo_avanco_interacao) !== -1 && (!p.seletor_confirmacao || !String(p.seletor_confirmacao).trim())) {
       alertas.push('Informe o seletor de confirmação para este modo funcionar corretamente.');
+    }
+    // Elemento pode não existir mais nesta tela (navegou, painel fechou etc.)
+    // — só avisa, nunca bloqueia edição/remoção/reordenação do passo. Mesma
+    // lógica de localização do runtime do tour (selecionarElementoPasso),
+    // chamada aqui só para leitura.
+    var elementoAtual = null;
+    try { elementoAtual = selecionarElementoPasso(p); } catch (_e) { elementoAtual = null; }
+    if (!elementoAtual) {
+      alertas.push('Elemento não encontrado na tela atual — pode estar oculto, ter sido removido ou você pode estar em outra página. Você ainda pode editar este passo normalmente.');
     }
     return alertas;
   }
@@ -2873,6 +3508,24 @@
     ].join('');
   }
 
+  // Mockup estático do tooltip real do tour (mesmas classes/rótulos usados em
+  // renderTour) — só ilustrativo, não executa nada. Título/descrição vazios
+  // mostram um placeholder em itálico, igual ao preview de passo do admin.
+  function recorderHtmlPreview(p, i, total) {
+    var semTitulo = !p.titulo || !p.titulo.trim();
+    var semDescricao = !p.descricao || !String(p.descricao).trim();
+    return [
+      '<div class="up-rec-preview">',
+      '<p class="up-rec-preview-label">Preview do tooltip</p>',
+      '<div class="up-rec-preview-tooltip">',
+      '<p class="up-rec-preview-progress">Passo ' + (i + 1) + ' de ' + total + '</p>',
+      '<p class="up-rec-preview-titulo' + (semTitulo ? ' up-rec-preview-vazio' : '') + '" data-rev-preview-titulo="' + i + '">' + escapeHtml(semTitulo ? 'Título do passo' : p.titulo) + '</p>',
+      '<p class="up-rec-preview-desc' + (semDescricao ? ' up-rec-preview-vazio' : '') + '" data-rev-preview-desc="' + i + '">' + escapeHtml(semDescricao ? 'Descrição do passo (opcional)' : p.descricao) + '</p>',
+      '</div>',
+      '</div>',
+    ].join('');
+  }
+
   function recorderHtmlRevisaoItem(p, i, total, passos) {
     var resumo = recorderResumoTituloRevisao(p);
     return [
@@ -2895,13 +3548,17 @@
       '<label class="up-rec-revisao-label-principal">Descrição</label>',
       '<textarea class="up-rec-textarea-sm" data-rev-campo="descricao" data-rev-index="' + i + '">' + escapeHtml(p.descricao || '') + '</textarea>',
       '</div>',
+      '<div class="up-rec-revisao-preview-wrap">' + recorderHtmlPreview(p, i, total) + '</div>',
       '<div class="up-rec-revisao-config">',
       '<p class="up-rec-revisao-config-titulo">Configuração do passo</p>',
       '<div class="up-rec-revisao-grid">',
       '<div>',
       '<span class="up-rec-revisao-label">Seletor</span>',
       '<code class="up-rec-revisao-codigo" title="' + escapeHtml(p.seletor) + '">' + escapeHtml(p.seletor_tipo) + ': ' + escapeHtml(p.seletor) + '</code>',
-      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento up-rec-troca-btn" data-rev-trocar data-rev-index="' + i + '" title="Clicar novamente no elemento na tela real">Trocar elemento</button>',
+      '<div class="up-rec-revisao-seletor-acoes">',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-rev-localizar data-rev-index="' + i + '" title="Localizar na tela: destaca este elemento na página real">Localizar</button>',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-rev-trocar data-rev-index="' + i + '" title="Trocar elemento: clique de novo no elemento certo na tela real">Trocar</button>',
+      '</div>',
       '</div>',
       '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSelectHtml('tooltip_posicao', i, p.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
       '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSelectHtml('modo_avanco_interacao', i, p.modo_avanco_interacao, RECORDER_MODOS_AVANCO) + '</div>',
@@ -2955,6 +3612,7 @@
     recorderState.pausado = Boolean(recorderState.pausadoAntesRevisao);
     recorderPersistir();
     recorderRenderBarra();
+    if (recorderState.revisarTempoReal) recorderRenderPainelLateral(); // reabre o painel lateral, se ainda ligado
   }
 
   // Botão "Gerar JSON" da revisão — esse sim finaliza de verdade: para a
@@ -2996,6 +3654,24 @@
       if (resumoEl) {
         var resumo = recorderResumoTituloRevisao(passo);
         resumoEl.textContent = resumo ? '— ' + resumo : '';
+      }
+    }
+
+    // Preview do tooltip — mesmo texto ao vivo, sem re-renderizar o card.
+    if (campo === 'titulo') {
+      var previewTitulo = document.querySelector('[data-rev-preview-titulo="' + indice + '"]');
+      if (previewTitulo) {
+        var semTitulo = !passo.titulo || !passo.titulo.trim();
+        previewTitulo.textContent = semTitulo ? 'Título do passo' : passo.titulo;
+        previewTitulo.classList.toggle('up-rec-preview-vazio', semTitulo);
+      }
+    }
+    if (campo === 'descricao') {
+      var previewDesc = document.querySelector('[data-rev-preview-desc="' + indice + '"]');
+      if (previewDesc) {
+        var semDescricao = !passo.descricao || !String(passo.descricao).trim();
+        previewDesc.textContent = semDescricao ? 'Descrição do passo (opcional)' : passo.descricao;
+        previewDesc.classList.toggle('up-rec-preview-vazio', semDescricao);
       }
     }
 
@@ -3144,6 +3820,13 @@
       recorderIniciarTrocaElemento(idxT);
       return;
     }
+
+    var btnLocalizar = alvo.closest('[data-rev-localizar]');
+    if (btnLocalizar) {
+      var idxL = Number(btnLocalizar.getAttribute('data-rev-index'));
+      recorderLocalizarElemento(idxL);
+      return;
+    }
   }
 
   function recorderRenderRevisao() {
@@ -3237,10 +3920,18 @@
   // página real), tenta localizar o elemento ATUAL do passo (mesma lógica do
   // runtime do tour — selecionarElementoPasso) pra dar contexto ao usuário
   // antes dele clicar em outro, e mostra a barra flutuante com esse contexto.
+  // Pausa a captura normal enquanto espera o clique de troca — obrigatório
+  // quando chamado do painel lateral (captura ainda ativa; sem isso o
+  // clique no novo elemento vira também um passo novo indesejado). Guarda o
+  // pausado anterior pra restaurar corretamente ao sair (recorderPararEscutaTroca)
+  // — no fluxo já existente via revisão final, já estava pausado, então
+  // restaura pausado=true igual antes; sem mudança de comportamento ali.
   function recorderIniciarTrocaElemento(indice) {
     var passo = recorderState.passos[indice];
     if (!passo) return;
     recorderState.trocaIndice = indice;
+    recorderState.pausadoAntesTroca = recorderState.pausado;
+    recorderState.pausado = true;
     var painel = document.getElementById(RECORDER_PAINEL_ID);
     if (painel) painel.remove();
 
@@ -3329,11 +4020,16 @@
     recorderUnbindDestaqueReposicao();
     var bar = document.getElementById(RECORDER_TROCA_BAR_ID);
     if (bar) bar.remove();
+    recorderState.pausado = recorderState.pausadoAntesTroca;
   }
 
   function recorderCancelarTroca() {
     recorderPararEscutaTroca();
     recorderState.trocaIndice = null;
+    // Chegar aqui sempre leva pra revisão final (mesmo vindo do painel
+    // lateral, que não bloqueia a tela) — precisa estar pausado antes de
+    // abri-la, senão a captura normal ficaria ativa por baixo do overlay.
+    recorderState.pausado = true;
     recorderRenderRevisao(); // volta pro painel de revisão sem alterar o passo
   }
 
@@ -3358,6 +4054,72 @@
 
     recorderPararEscutaTroca();
     recorderMostrarEscolhaSeletor(el);
+  }
+
+  // ─── "Localizar na tela" (dentro da revisão ou do painel lateral) ────────
+  // Diferente de "Trocar elemento": não espera clique nenhum, só destaca +
+  // rola até o elemento ATUAL do passo pra dar contexto, com um botão pra
+  // voltar. Reaproveita o mesmo destaque/scroll do runtime do tour
+  // (selecionarElementoPasso) — nunca altera o passo.
+  // origem ('revisao', padrão, ou 'painel-lateral') controla só pra onde
+  // recorderFecharLocalizarBarra volta ao fechar — o painel lateral nunca
+  // bloqueia a tela como a revisão final, então não precisa ser removido
+  // nem readicionado.
+  function recorderLocalizarElemento(indice, origem) {
+    var passo = recorderState.passos[indice];
+    if (!passo) return;
+    recorderState.localizarOrigem = origem === 'painel-lateral' ? 'painel-lateral' : 'revisao';
+
+    if (recorderState.localizarOrigem === 'revisao') {
+      var painel = document.getElementById(RECORDER_PAINEL_ID);
+      if (painel) painel.remove();
+    }
+
+    var elementoAtual = null;
+    try { elementoAtual = selecionarElementoPasso(passo); } catch (_e) { elementoAtual = null; }
+
+    recorderRenderLocalizarBarra(indice, passo, Boolean(elementoAtual));
+
+    if (elementoAtual) {
+      recorderMostrarDestaque(elementoAtual);
+      try { elementoAtual.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_e) {}
+      recorderBindDestaqueReposicao();
+    }
+  }
+
+  function recorderRenderLocalizarBarra(indice, passo, elementoEncontrado) {
+    if (document.getElementById(RECORDER_LOCALIZAR_BAR_ID)) return;
+
+    var tituloParte = passo && passo.titulo && passo.titulo.trim() ? ' — ' + escapeHtml(passo.titulo.trim()) : '';
+
+    var bar = document.createElement('div');
+    bar.id = RECORDER_LOCALIZAR_BAR_ID;
+    bar.className = 'up-rec-bar';
+    bar.innerHTML = [
+      '<span class="up-rec-label">Passo ' + (indice + 1) + tituloParte + '</span>',
+      '<span class="up-rec-troca-status">' + (elementoEncontrado
+        ? 'Elemento destacado na tela.'
+        : 'Elemento não encontrado nesta tela — pode estar oculto ou em outra página.') + '</span>',
+      '<div class="up-rec-actions">',
+      '<button type="button" class="up-rec-btn up-rec-btn-primary" data-localizar-voltar>Voltar à revisão</button>',
+      '</div>',
+    ].join('');
+    document.body.appendChild(bar);
+
+    bar.addEventListener('click', function (event) {
+      if (event.target instanceof Element && event.target.closest('[data-localizar-voltar]')) recorderFecharLocalizarBarra();
+    });
+  }
+
+  function recorderFecharLocalizarBarra() {
+    recorderRemoverDestaque();
+    recorderUnbindDestaqueReposicao();
+    var bar = document.getElementById(RECORDER_LOCALIZAR_BAR_ID);
+    if (bar) bar.remove();
+    var origem = recorderState.localizarOrigem;
+    recorderState.localizarOrigem = null;
+    if (origem === 'painel-lateral') return; // painel lateral nunca foi removido — nada a reabrir
+    recorderRenderRevisao(); // volta pro painel de revisão sem alterar nada
   }
 
   function recorderQualidadeLabel(qualidade) {
@@ -3397,6 +4159,11 @@
   // do painel de revisão/final, já que nunca aparecem ao mesmo tempo.
   function recorderMostrarEscolhaSeletor(el) {
     var candidatos = recorderGerarCandidatosSeletor(el);
+
+    // Mostra .up-rec-overlay (bloqueia a tela) — sempre pausado a partir
+    // daqui, mesmo vindo do painel lateral (captura ativa) via Trocar
+    // elemento; sem isso a captura normal ficaria ligada por baixo do modal.
+    recorderState.pausado = true;
 
     var existente = document.getElementById(RECORDER_PAINEL_ID);
     if (existente) existente.remove();
@@ -3573,21 +4340,53 @@
 
     var bar = document.createElement('div');
     bar.id = RECORDER_BAR_ID;
-    bar.className = 'up-rec-bar';
+    // up-rec-bar-principal só afeta esta barra — troca/localizar continuam
+    // com o .up-rec-bar de sempre, sem mudança visual nenhuma nelas.
+    bar.className = 'up-rec-bar up-rec-bar-principal';
     bar.innerHTML = [
+      // Linha 1 — status
+      '<div class="up-rec-bar-linha up-rec-bar-linha-status">',
       '<span class="up-rec-dot"></span>',
       '<span class="up-rec-label">Gravando Tour</span>',
       '<span class="up-rec-contador" data-up-rec-contador>0 passos</span>',
       '<span class="up-rec-ultimo" data-up-rec-ultimo></span>',
-      '<div class="up-rec-actions">',
+      '</div>',
+      // Linha 2 — ações principais
+      '<div class="up-rec-bar-linha up-rec-bar-linha-acoes">',
       '<button type="button" class="up-rec-btn" data-up-rec-pause>Pausar</button>',
       '<button type="button" class="up-rec-btn" data-up-rec-undo disabled>Desfazer último passo</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-danger" data-up-rec-cancel>Cancelar</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-primary" data-up-rec-finish>Finalizar</button>',
       '</div>',
+      // Linha 3 — opção de revisão em tempo real (única opção de revisão
+      // durante a captura; a antiga "revisar cada passo após o clique" foi
+      // removida da interface por duplicar esse mesmo propósito).
+      '<div class="up-rec-bar-linha up-rec-bar-linha-opcao">',
+      '<label class="up-rec-toggle">',
+      '<input type="checkbox" data-up-rec-revisar-tempo-real' + (recorderState.revisarTempoReal ? ' checked' : '') + '>',
+      'Revisar passos em tempo real',
+      '</label>',
+      '<span class="up-rec-toggle-hint">Ao ativar, os passos capturados aparecerão em um painel lateral para você preencher título e descrição durante a gravação.</span>',
+      '</div>',
       '<span class="up-rec-aviso" data-up-rec-aviso></span>',
     ].join('');
     document.body.appendChild(bar);
+
+    var toggleTempoReal = bar.querySelector('[data-up-rec-revisar-tempo-real]');
+    if (toggleTempoReal) {
+      toggleTempoReal.addEventListener('change', function () {
+        recorderState.revisarTempoReal = toggleTempoReal.checked;
+        recorderPersistir();
+        if (recorderState.revisarTempoReal) {
+          if (recorderState.painelLateralIndiceSelecionado == null && recorderState.passos.length) {
+            recorderState.painelLateralIndiceSelecionado = recorderState.passos.length - 1;
+          }
+          recorderRenderPainelLateral();
+        } else {
+          recorderFecharPainelLateral();
+        }
+      });
+    }
 
     bar.addEventListener('click', function (event) {
       var alvo = event.target;
@@ -3621,6 +4420,8 @@
     recorderState.passos = Array.isArray(dados.passos) ? dados.passos : [];
     recorderState.navegacoes = Array.isArray(dados.navegacoes) ? dados.navegacoes : [];
     recorderState.meta = dados.meta || { titulo: '', descricao: '', sistema: '', prioridade: 0, url_contem: window.location.pathname };
+    recorderState.revisarCadaPasso = Boolean(dados.revisarCadaPasso);
+    recorderState.revisarTempoReal = Boolean(dados.revisarTempoReal);
     recorderState.ultimoEl = null;
     recorderState.ultimoElTimestamp = 0;
     recorderState.inputTimers = new WeakMap();
@@ -3637,6 +4438,10 @@
     recorderIniciarCaptura();
     recorderPersistir();
     recorderRenderBarra();
+    if (recorderState.revisarTempoReal) {
+      recorderState.painelLateralIndiceSelecionado = recorderState.passos.length ? recorderState.passos.length - 1 : null;
+      recorderRenderPainelLateral();
+    }
   }
 
   // Chamado no início de init(). Prioridade: retoma uma gravação já em
