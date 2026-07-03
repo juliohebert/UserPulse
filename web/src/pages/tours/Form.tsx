@@ -69,11 +69,11 @@ const ACOES_AO_AVANCAR = [
 ]
 
 const MODOS_AVANCO_INTERACAO = [
-  { value: 'manual', label: 'Manual (só pelo botão Próximo)' },
-  { value: 'ao_clicar', label: 'Ao clicar no elemento destacado' },
-  { value: 'ao_alterar_valor', label: 'Ao preencher/alterar o valor' },
-  { value: 'ao_aparecer_elemento', label: 'Quando outro elemento aparecer' },
-  { value: 'ao_sumir_elemento', label: 'Quando outro elemento sumir' },
+  { value: 'manual', label: 'Avançar pelo botão Próximo' },
+  { value: 'ao_clicar', label: 'Avançar ao clicar no elemento destacado' },
+  { value: 'ao_alterar_valor', label: 'Avançar ao preencher/alterar o valor' },
+  { value: 'ao_aparecer_elemento', label: 'Avançar quando outro elemento aparecer' },
+  { value: 'ao_sumir_elemento', label: 'Avançar quando outro elemento sumir' },
 ]
 
 const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
@@ -103,33 +103,63 @@ function destinoConfigurado(form: FormState): boolean {
 }
 
 function montarChecklist(form: FormState, passos: PassoState[]): ChecklistItem[] {
-  const temPasso = passos.length > 0
-  const todosComTitulo = passos.every(p => p.titulo.trim())
-  const todosComDescricao = passos.every(p => p.descricao.trim())
-  const todosComSeletor = passos.every(p => p.seletor.trim())
-  const faltamSeletores = passos.some(p => !p.seletor.trim())
+  const total = passos.length
+  const semTitulo = passos.filter(p => !p.titulo.trim()).length
+  const comSeletor = passos.filter(p => p.seletor.trim()).length
+  const semSeletor = total - comSeletor
+  const algumIncompleto = passos.some(p => !p.titulo.trim() || !p.seletor.trim())
   const algumComCss = passos.some(p => p.seletor_tipo === 'css')
 
   const items: ChecklistItem[] = [
     { label: 'Título preenchido', status: form.titulo.trim() ? 'ok' : 'aviso' },
     {
+      label: 'Descrição preenchida',
+      status: form.descricao.trim() ? 'ok' : 'aviso',
+      detalhe: form.descricao.trim()
+        ? undefined
+        : 'Tour sem descrição — ela aparece na introdução do tour pra explicar o que será apresentado; sem ela, mostramos uma mensagem genérica.',
+    },
+    {
       label: 'Destino configurado',
       status: destinoConfigurado(form) ? 'ok' : 'aviso',
       detalhe: destinoConfigurado(form) ? undefined : 'Informe o sistema e a tela, data-cy ou URL, conforme o modo escolhido.',
     },
-    { label: 'Pelo menos 1 passo cadastrado', status: temPasso ? 'ok' : 'critico' },
-    { label: 'Todos os passos têm título', status: todosComTitulo ? 'ok' : 'critico' },
     {
-      label: 'Todos os passos têm descrição',
-      status: todosComDescricao ? 'ok' : 'aviso',
-      detalhe: todosComDescricao ? undefined : 'Opcional, mas ajuda o usuário a entender o que fazer em cada passo.',
+      label: `${total} passo${total === 1 ? '' : 's'} cadastrado${total === 1 ? '' : 's'}`,
+      status: total > 0 ? 'ok' : 'critico',
+      detalhe: total > 0 ? undefined : 'Adicione pelo menos um passo para o tour funcionar.',
     },
     {
-      label: 'Todos os passos têm seletor/data-cy',
-      status: todosComSeletor ? 'ok' : (form.ativo ? 'critico' : 'aviso'),
-      detalhe: todosComSeletor ? undefined : 'Necessário para o widget localizar o elemento na tela do usuário.',
+      label: semTitulo === 0 ? 'Todos os passos têm título' : `${semTitulo} passo${semTitulo === 1 ? '' : 's'} sem título`,
+      status: semTitulo === 0 ? 'ok' : 'critico',
+      detalhe: semTitulo === 0 ? undefined : 'Título do passo é obrigatório para salvar o tour.',
+    },
+    {
+      label: `${comSeletor} de ${total} passo${total === 1 ? '' : 's'} com seletor definido`,
+      status: total === 0 ? 'neutro' : semSeletor === 0 ? 'ok' : 'aviso',
+    },
+    {
+      label: semSeletor === 0 ? 'Nenhum passo sem seletor' : `${semSeletor} passo${semSeletor === 1 ? '' : 's'} sem seletor`,
+      status: semSeletor === 0 ? 'ok' : (form.ativo ? 'critico' : 'aviso'),
+      detalhe: semSeletor > 0 ? 'Necessário para o widget localizar o elemento na tela do usuário.' : undefined,
+    },
+    {
+      label: `Status: ${form.ativo ? 'Ativo' : 'Inativo (rascunho)'}`,
+      status: form.ativo ? 'ok' : 'neutro',
     },
   ]
+
+  if (form.ativo && algumIncompleto) {
+    items.push({
+      label: 'Tour ativo com passo incompleto',
+      status: 'critico',
+      detalhe: 'Existe passo sem título ou sem seletor — complete os passos pendentes ou desative o tour antes de publicar.',
+    })
+  } else if (!form.ativo) {
+    items.push({ label: 'Tour em rascunho — não visível para usuários', status: 'neutro' })
+  } else {
+    items.push({ label: 'Tour ativo e pronto para publicação', status: 'ok' })
+  }
 
   if (algumComCss) {
     items.push({
@@ -138,14 +168,6 @@ function montarChecklist(form: FormState, passos: PassoState[]): ChecklistItem[]
       detalhe: 'Prefira data-cy quando possível — seletores CSS quebram com mais facilidade quando o layout muda.',
     })
   }
-
-  items.push({
-    label: form.ativo ? 'Tour ativo exige seletores preenchidos' : 'Tour em rascunho',
-    status: form.ativo ? (faltamSeletores ? 'critico' : 'ok') : 'neutro',
-    detalhe: form.ativo
-      ? (faltamSeletores ? 'Preencha os seletores pendentes para poder ativar o tour.' : undefined)
-      : 'Seletores podem ficar em branco por enquanto — só são exigidos para ativar.',
-  })
 
   return items
 }
@@ -769,6 +791,7 @@ export function TourForm() {
                   placeholder="Para que serve este tour?"
                   className={`${field} resize-none`}
                 />
+                <p className="mt-1 text-[11px] text-outline">Essa descrição será exibida na introdução do tour para explicar o que será apresentado.</p>
               </div>
             </div>
           </div>
@@ -1054,7 +1077,8 @@ export function TourForm() {
                         size="sm"
                       />
                       <p className="text-[11px] text-on-surface-variant mt-1">
-                        Define se o passo pode avançar automaticamente após uma interação do usuário, como clicar, preencher ou aguardar um elemento aparecer/sumir.
+                        <strong className="text-on-surface-variant">Avançar pelo botão Próximo</strong>: só o clique em "Próximo" avança o tour.{' '}
+                        <strong className="text-on-surface-variant">Avançar ao interagir com o elemento destacado</strong> (demais opções): o usuário precisa clicar, preencher ou concluir a interação escolhida com o elemento em destaque para o tour continuar sozinho — o widget mostra esse aviso no tooltip do passo.
                       </p>
                     </div>
                     {MODOS_AVANCO_COM_CONFIRMACAO.includes(passo.modo_avanco_interacao) && (

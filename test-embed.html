@@ -226,6 +226,9 @@
       <button onclick="window.UserPulse.iniciarTour('teste-elemento-ausente')" style="background:#fff;color:#6b38d4;border:1px solid #c9b6f5;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;">
         Iniciar tour: elemento ausente (1º passo deve falhar)
       </button>
+      <button onclick="window.UserPulse.iniciarTour('tour-demo-local')" style="background:#fff;color:#6b38d4;border:1px solid #c9b6f5;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;">
+        Iniciar tour local (demo 3 passos)
+      </button>
       <span style="color:#5b3d99;">
         Para testar "Ação ao clicar em Próximo" (admin → passo do tour): aponte um passo para
         <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">botao-abrir-painel-lento</code>
@@ -233,6 +236,16 @@
         <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">campo-painel-lento</code>
         (painel abaixo, aparece ~1.5s depois — o widget deve mostrar "Aguardando próximo elemento..." nesse intervalo).
       </span>
+      <div style="width:100%;margin-top:4px;padding-top:10px;border-top:1px dashed #d9c9fb;color:#5b3d99;">
+        <strong>Tour local de exemplo</strong> — crie em <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">/tours/novo</code>
+        com o slug <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">tour-demo-local</code> e estes 3 passos
+        (o botão acima dispara por slug direto — sistema/tela do tour não importam pra esse teste):
+        <ol style="margin:6px 0 0 18px;">
+          <li>Alvo <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">[data-cy="tour-demo-boas-vindas"]</code> — título "Bem-vindo ao painel", texto "Aqui você acompanha as principais informações do sistema."</li>
+          <li>Alvo <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">[data-cy="tour-demo-busca"]</code> — título "Encontre registros rapidamente", texto "Use a busca para localizar informações importantes sem navegar por várias telas."</li>
+          <li>Alvo <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">[data-cy="tour-demo-acao-principal"]</code> — título "Execute a ação principal", texto "Este botão representa a ação mais importante desta tela."</li>
+        </ol>
+      </div>
     </div>
 
     <!-- chrome do sistema simulado -->
@@ -374,6 +387,60 @@
         <div id="painel-lento" style="display:none;margin-top:14px;">
           <label style="display:block;font-size:12px;font-weight:600;color:#667085;margin-bottom:6px;">Resultado carregado</label>
           <input type="text" class="search-input" style="width:280px;" placeholder="Apareceu depois do atraso" data-cy="campo-painel-lento" />
+        </div>
+      </div>
+
+      <!-- painel fake de "sistema cliente" simples — alvo do tour local de 3
+           passos (ver instruções no painel roxo "Testes de tour guiado" acima).
+           Independente do resto da página: não reaproveita nenhum data-cy
+           usado pelos testes de campanha/tour existentes. -->
+      <div class="card" style="margin-top:16px;padding:18px 20px;">
+        <h2 style="font-size:15px;margin-bottom:4px;">Demo: sistema cliente (tour local, 3 passos)</h2>
+        <p style="font-size:12px;color:#667085;margin-bottom:16px;">
+          Painel fake e independente da Agenda acima — só para testar o tour local de exemplo.
+        </p>
+
+        <div class="card" data-cy="tour-demo-boas-vindas" style="padding:16px 18px;margin-bottom:14px;background:#f8faff;">
+          <h3 style="font-size:14px;margin-bottom:4px;">Bem-vindo(a) de volta!</h3>
+          <p style="font-size:12.5px;color:#667085;">Aqui está um resumo rápido do que está acontecendo no seu painel hoje.</p>
+        </div>
+
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <input class="search-input" type="text" placeholder="Buscar registros…" data-cy="tour-demo-busca" />
+          </div>
+          <div class="toolbar-right">
+            <button class="btn btn-primary" data-cy="tour-demo-acao-principal">+ Nova ação</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Categoria</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Registro 001</td>
+                <td>Geral</td>
+                <td><span class="badge badge-green">Ativo</span></td>
+              </tr>
+              <tr>
+                <td>Registro 002</td>
+                <td>Financeiro</td>
+                <td><span class="badge badge-yellow">Pendente</span></td>
+              </tr>
+              <tr>
+                <td>Registro 003</td>
+                <td>Suporte</td>
+                <td><span class="badge badge-gray">Arquivado</span></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </main>

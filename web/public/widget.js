@@ -137,6 +137,7 @@
       '.up-tour-progress{font-size:11px;font-weight:800;color:#0058be;text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px}',
       '.up-tour-title{font-size:15px;font-weight:800;color:#0b1c30;margin:0 0 6px;line-height:20px}',
       '.up-tour-desc{font-size:13px;line-height:19px;color:#424754;margin:0}',
+      '.up-tour-hint{font-size:11px;font-weight:700;color:#0058be;margin-top:8px}',
       '.up-tour-warning{font-size:12px;line-height:17px;color:#ba1a1a;margin-top:10px;display:flex;gap:6px;align-items:flex-start;background:rgba(186,26,26,.08);border-radius:8px;padding:8px 10px}',
       '.up-tour-warning svg{width:15px;height:15px;flex-shrink:0;margin-top:1px;fill:currentColor}',
       '.up-tour-loading{font-size:12px;line-height:17px;color:#727785;margin-top:10px;display:flex;gap:8px;align-items:center;background:rgba(114,119,133,.08);border-radius:8px;padding:8px 10px}',
@@ -157,6 +158,14 @@
       '.up-tour-close{position:absolute;top:10px;right:10px;border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0}',
       '.up-tour-close:hover{background:#eff4ff;color:#0b1c30}',
       '.up-tour-close svg{width:16px;height:16px;fill:currentColor;display:block}',
+      // Footer empilhado (introdução / elemento não encontrado) — 3 ações
+      // full-width em vez do par Voltar/Próximo lado a lado do footer padrão.
+      '.up-tour-footer-stack{flex-direction:column;align-items:stretch}',
+      '.up-tour-footer-stack .up-tour-btn{width:100%;text-align:center}',
+      '.up-tour-feedback{display:flex;gap:10px;justify-content:center;margin-top:14px}',
+      '.up-tour-feedback-btn{border:0;background:#f3f5fa;border-radius:12px;width:44px;height:44px;font-size:22px;line-height:1;cursor:pointer;transition:transform .15s ease,background .15s ease;display:flex;align-items:center;justify-content:center}',
+      '.up-tour-feedback-btn:hover{background:#eff4ff;transform:scale(1.08)}',
+      '.up-tour-feedback-btn:active{transform:scale(.95)}',
       '@media (max-width:480px){.up-tour-tooltip{width:calc(100vw - 24px)}}',
       // Barra flutuante — fundo sempre escuro de propósito (independente do
       // tema claro/escuro da página host), pra garantir contraste e leitura
@@ -1267,8 +1276,12 @@
   // ─── Tours guiados ────────────────────────────────────────────────────────
 
   var TOUR_WIDGET_ID = 'userpulse-tour-root';
-  var TOUR_RETRY_MAX = 12;
-  var TOUR_RETRY_INTERVAL_MS = 300;
+  // Espera até ~5s pelo elemento do passo (20 tentativas x 250ms) antes de
+  // cair no fallback "elemento não encontrado" — dá tempo de layouts
+  // assíncronos (painel carregando, navegação recém-concluída etc.) revelarem
+  // o alvo sem precisar de retry manual do usuário.
+  var TOUR_RETRY_MAX = 20;
+  var TOUR_RETRY_INTERVAL_MS = 250;
 
   var tourState = {
     tour: null,
@@ -1282,6 +1295,11 @@
     interacaoCleanup: null,
     interacaoTimer: null,
     nextClickTimer: null,
+    // tela: null (fluxo normal de passos) | 'intro' | 'concluido' — telas que
+    // não dependem de um elemento no DOM, renderizadas antes/depois dos passos.
+    tela: null,
+    feedbackEscolhido: null,
+    fimTimer: null,
   };
 
   function fetchTour(slug) {
@@ -1452,19 +1470,27 @@
     return melhor;
   }
 
+  // Ações dedicadas (Tentar novamente / Pular este passo / Encerrar tour) em
+  // vez do footer genérico — aqui não há elemento real pra "Voltar"/"Próximo"
+  // clicarem contra, então cada ação mapeia num verbo específico pra esse
+  // estado. "Pular este passo" já resolve o caso de ser o último passo
+  // (conclui em vez de tentar avançar) — ver tourPularPasso.
   function renderTourNaoEncontrado() {
     var passo = tourState.tour.passos[tourState.indice];
     var total = tourState.tour.passos.length;
-    var ultimo = tourState.indice === total - 1;
     return [
       '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
-      '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Pular tour">' + icon('close') + '</button>',
+      '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Encerrar tour">' + icon('close') + '</button>',
       '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
       '<p class="up-tour-title">Elemento não encontrado</p>',
       passo.titulo ? '<p class="up-tour-desc" style="font-weight:700;color:#0b1c30">' + escapeHtml(passo.titulo) + '</p>' : '',
       passo.descricao ? '<p class="up-tour-desc">' + escapeHtml(passo.descricao) + '</p>' : '',
-      '<div class="up-tour-warning">' + icon('close') + '<span>Não foi possível localizar este elemento na tela atual. Você pode voltar, pular o tour ou continuar para o próximo passo.</span></div>',
-      tourFooter(total, ultimo),
+      '<div class="up-tour-warning">' + icon('close') + '<span>Não encontramos este item na tela. Ele pode estar oculto, indisponível ou você pode estar em outra página.</span></div>',
+      '<div class="up-tour-footer up-tour-footer-stack">',
+      '<button type="button" class="up-tour-btn up-tour-btn-primary" data-up-tour-retry="true">Tentar novamente</button>',
+      '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-skip-passo="true">Pular este passo</button>',
+      '<button type="button" class="up-tour-btn up-tour-btn-text" data-up-tour-skip="true">Encerrar tour</button>',
+      '</div>',
       '</div>',
     ].join('');
   }
@@ -1503,6 +1529,61 @@
     ].join('');
   }
 
+  // Tela de introdução, exibida antes do passo 0 (iniciarTour só monta essa
+  // tela; o passo 0 só é buscado/exibido depois de "Começar tour" — ver
+  // tourIntroComecar). "Não mostrar novamente" reaproveita tourPular() —
+  // mesmo efeito de registrar 'pulado' e marcar localStorage que o botão
+  // Pular já usa em qualquer outro ponto do tour.
+  function renderTourIntro() {
+    var tour = tourState.tour;
+    var total = tour.passos.length;
+    // Descrição cadastrada no tour (campo já existente, mesmo usado no
+    // admin) explica o que será apresentado; sem ela, cai na mensagem
+    // genérica de sempre.
+    var descricao = tour.descricao && tour.descricao.trim()
+      ? tour.descricao.trim()
+      : 'Vamos te guiar por este recurso em ' + total + ' passo' + (total === 1 ? '' : 's') + '.';
+    return [
+      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
+      '<button type="button" class="up-tour-close" data-up-tour-intro-dispensar="true" aria-label="Fechar">' + icon('close') + '</button>',
+      '<p class="up-tour-title">' + escapeHtml(tour.titulo || 'Novo tour guiado') + '</p>',
+      '<p class="up-tour-desc">' + escapeHtml(descricao) + '</p>',
+      '<div class="up-tour-footer up-tour-footer-stack">',
+      '<button type="button" class="up-tour-btn up-tour-btn-primary" data-up-tour-intro-comecar="true">Começar tour</button>',
+      '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-intro-dispensar="true">Agora não</button>',
+      '<button type="button" class="up-tour-btn up-tour-btn-text" data-up-tour-intro-nunca-mais="true">Não mostrar novamente</button>',
+      '</div>',
+      '</div>',
+    ].join('');
+  }
+
+  // Tela final, exibida depois do último passo (tourConcluir monta essa tela
+  // em vez de encerrar na hora — ver tourConcluir). O feedback é só visual/
+  // local: não há endpoint/tipo de evento pra isso hoje, e a instrução foi
+  // explícita em não criar backend novo só pra essa avaliação.
+  function renderTourFim() {
+    if (tourState.feedbackEscolhido) {
+      return [
+        '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
+        '<p class="up-tour-title">Obrigado pelo feedback!</p>',
+        '<p class="up-tour-desc">Isso nos ajuda a melhorar este tour.</p>',
+        '</div>',
+      ].join('');
+    }
+    return [
+      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
+      '<button type="button" class="up-tour-close" data-up-tour-fim-fechar="true" aria-label="Fechar">' + icon('close') + '</button>',
+      '<p class="up-tour-title">Tour concluído</p>',
+      '<p class="up-tour-desc">Esse tour foi útil pra você?</p>',
+      '<div class="up-tour-feedback">',
+      '<button type="button" class="up-tour-feedback-btn" data-up-tour-feedback="nao_ajudou" aria-label="Não ajudou">😕</button>',
+      '<button type="button" class="up-tour-feedback-btn" data-up-tour-feedback="ajudou" aria-label="Ajudou">🙂</button>',
+      '<button type="button" class="up-tour-feedback-btn" data-up-tour-feedback="muito_util" aria-label="Muito útil">🤩</button>',
+      '</div>',
+      '</div>',
+    ].join('');
+  }
+
   function renderTour() {
     if (!tourState.ativo || !tourState.tour) return;
 
@@ -1513,6 +1594,20 @@
     root.id = TOUR_WIDGET_ID;
     root.className = 'up-tour-overlay';
     tourState.root = root;
+
+    if (tourState.tela === 'intro') {
+      root.innerHTML = renderTourIntro();
+      document.body.appendChild(root);
+      bindTourEvents();
+      return;
+    }
+
+    if (tourState.tela === 'concluido') {
+      root.innerHTML = renderTourFim();
+      document.body.appendChild(root);
+      bindTourEvents();
+      return;
+    }
 
     if (tourState.naoEncontrado) {
       root.innerHTML = renderTourNaoEncontrado();
@@ -1548,6 +1643,12 @@
       '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
       '<p class="up-tour-title">' + escapeHtml(passo.titulo) + '</p>',
       passo.descricao ? '<p class="up-tour-desc">' + escapeHtml(passo.descricao) + '</p>' : '',
+      // Passo configurado pra avançar por interação (qualquer modo além de
+      // "manual") — avisa que clicar em "Próximo" não é o único jeito de
+      // continuar; Pular/Fechar continuam disponíveis no footer normal.
+      (passo.modo_avanco_interacao && passo.modo_avanco_interacao !== 'manual')
+        ? '<p class="up-tour-hint">Clique no elemento destacado para continuar.</p>'
+        : '',
       '<div class="up-tour-dots" style="margin-top:10px">' + dots.join('') + '</div>',
       tourFooter(total, ultimo),
       '</div>',
@@ -1588,7 +1689,10 @@
   }
 
   function tourKeydown(event) {
-    if (event.key === 'Escape') tourPular();
+    if (event.key !== 'Escape') return;
+    if (tourState.tela === 'intro') { tourIntroDispensar(); return; }
+    if (tourState.tela === 'concluido') { finalizarTour(); return; }
+    tourPular();
   }
 
   function bindTourEvents() {
@@ -1600,6 +1704,14 @@
       if (target.closest('[data-up-tour-next]')) { event.preventDefault(); tourProximo(); return; }
       if (target.closest('[data-up-tour-finish]')) { event.preventDefault(); tourConcluir(); return; }
       if (target.closest('[data-up-tour-skip]')) { event.preventDefault(); tourPular(); return; }
+      if (target.closest('[data-up-tour-skip-passo]')) { event.preventDefault(); tourPularPasso(); return; }
+      if (target.closest('[data-up-tour-retry]')) { event.preventDefault(); tourTentarNovamente(); return; }
+      if (target.closest('[data-up-tour-intro-comecar]')) { event.preventDefault(); tourIntroComecar(); return; }
+      if (target.closest('[data-up-tour-intro-dispensar]')) { event.preventDefault(); tourIntroDispensar(); return; }
+      if (target.closest('[data-up-tour-intro-nunca-mais]')) { event.preventDefault(); tourPular(); return; }
+      if (target.closest('[data-up-tour-fim-fechar]')) { event.preventDefault(); finalizarTour(); return; }
+      var feedbackEl = target.closest('[data-up-tour-feedback]');
+      if (feedbackEl) { event.preventDefault(); tourFeedback(feedbackEl.getAttribute('data-up-tour-feedback')); return; }
     });
   }
 
@@ -1855,16 +1967,66 @@
     finalizarTour();
   }
 
+  // "Pular este passo" no estado de elemento não encontrado — avança para o
+  // próximo passo (ou conclui, se for o último) sem encerrar o tour inteiro
+  // como tourPular() faz. Não passa por tourProximo() porque não há elemento
+  // real nesse estado para os fluxos de acao_ao_avancar/clique sintético.
+  function tourPularPasso() {
+    var total = tourState.tour.passos.length;
+    if (tourState.indice >= total - 1) { tourConcluir(); return; }
+    irParaPasso(tourState.indice + 1);
+  }
+
+  // "Tentar novamente" no estado de elemento não encontrado — repete a busca
+  // do passo atual do zero (mesmo fluxo/retries de irParaPasso), sem avançar
+  // índice. Útil quando o host revela o elemento depois (painel que abre,
+  // navegação manual do usuário até a tela certa etc.).
+  function tourTentarNovamente() {
+    irParaPasso(tourState.indice);
+  }
+
+  function limparFimTimer() {
+    if (tourState.fimTimer) {
+      window.clearTimeout(tourState.fimTimer);
+      tourState.fimTimer = null;
+    }
+  }
+
+  // Feedback da tela final — só visual/local (não existe endpoint/tipo de
+  // evento pra isso hoje, e criar um exigiria mudança de backend). Mostra um
+  // "obrigado" rápido e fecha sozinho.
+  var TOUR_FEEDBACK_AUTOFECHAR_MS = 1400;
+
+  function tourFeedback(valor) {
+    if (!valor) return;
+    tourState.feedbackEscolhido = valor;
+    renderTour();
+    limparFimTimer();
+    tourState.fimTimer = window.setTimeout(finalizarTour, TOUR_FEEDBACK_AUTOFECHAR_MS);
+  }
+
+  // Ao concluir o último passo, mostra a tela final (com feedback opcional)
+  // em vez de encerrar na hora — finalizarTour() só roda quando o usuário
+  // fecha essa tela (botão fechar, Esc ou o auto-fechar após o feedback).
   function tourConcluir() {
     registrarEventoTour('concluido', tourState.indice);
     if (tourState.tour && (!state.config || !state.config.usuario_id)) tourMarkShown(tourState.tour);
-    finalizarTour();
+    limparBuscaTimer();
+    limparInteracao();
+    limparNextClickTimer();
+    unbindTourReposHandlers();
+    tourState.elementoAtual = null;
+    tourState.naoEncontrado = false;
+    tourState.tela = 'concluido';
+    tourState.feedbackEscolhido = null;
+    renderTour();
   }
 
   function finalizarTour() {
     limparBuscaTimer();
     limparInteracao();
     limparNextClickTimer();
+    limparFimTimer();
     unbindTourReposHandlers();
     document.removeEventListener('keydown', tourKeydown);
     var oldRoot = document.getElementById(TOUR_WIDGET_ID);
@@ -1874,6 +2036,25 @@
     tourState.root = null;
     tourState.elementoAtual = null;
     tourState.naoEncontrado = false;
+    tourState.tela = null;
+    tourState.feedbackEscolhido = null;
+  }
+
+  // "Começar tour" na introdução — só agora o tour é considerado iniciado de
+  // fato: evento 'inicio', reposicionamento e busca do passo 0 só disparam
+  // aqui, não em iniciarTour() (que só monta a introdução).
+  function tourIntroComecar() {
+    tourState.tela = null;
+    registrarEventoTour('inicio', 0);
+    bindTourReposHandlers();
+    irParaPasso(0);
+  }
+
+  // "Agora não" — só fecha a introdução, sem registrar nada. Diferente de
+  // "Não mostrar novamente" (que reaproveita tourPular()), este tour pode
+  // voltar a ser avaliado/oferecido numa próxima navegação normalmente.
+  function tourIntroDispensar() {
+    finalizarTour();
   }
 
   function iniciarTour(tour) {
@@ -1882,10 +2063,9 @@
     ensureStyles();
     tourState.tour = tour;
     tourState.ativo = true;
-    registrarEventoTour('inicio', 0);
-    bindTourReposHandlers();
+    tourState.tela = 'intro';
     document.addEventListener('keydown', tourKeydown);
-    irParaPasso(0);
+    renderTour();
   }
 
   // Avalia automaticamente, no init(), se há um tour guiado elegível para o
