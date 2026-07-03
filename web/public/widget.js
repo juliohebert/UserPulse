@@ -190,13 +190,49 @@
       // Barra principal — 3 linhas (status / ações / opção), mais estreita e
       // compacta que o pill de uma linha só usada por troca/localizar (essas
       // continuam com .up-rec-bar puro, sem nenhuma destas regras).
-      '.up-rec-bar-principal{max-width:min(360px, calc(100vw - 24px));padding:6px 11px;gap:4px;font-size:11.5px}',
-      '.up-rec-bar-linha{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:6px;flex-basis:100%}',
-      '.up-rec-bar-linha-status .up-rec-ultimo{max-width:150px}',
+      // backdrop-filter é só reforço estético (efeito "vidro fosco") — sem
+      // suporte, cai de volta pro fundo sólido de sempre, sem perda de
+      // legibilidade nem de nenhuma outra funcionalidade.
+      // border-radius bem menor que o .up-rec-bar padrão (pílula) — fica com
+      // cara de toolbar retangular, não de "bolha" alta, mesmo com 3 linhas.
+      '.up-rec-bar-principal{max-width:min(324px, calc(100vw - 24px));padding:6px 10px;gap:3px;font-size:11px;background:rgba(11,28,48,.92);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:14px}',
+      '.up-rec-bar-linha{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:5px;flex-basis:100%}',
+      '.up-rec-bar-linha-status .up-rec-ultimo{max-width:130px}',
       '.up-rec-bar-linha-acoes{gap:5px}',
-      '.up-rec-bar-linha-acoes .up-rec-btn{padding:5px 9px;font-size:11px}',
-      '.up-rec-bar-linha-opcao{gap:3px;margin-top:1px;padding-top:5px;border-top:1px solid rgba(255,255,255,.12)}',
-      '.up-rec-bar-linha-opcao .up-rec-toggle{opacity:.9}',
+      '.up-rec-bar-linha-acoes .up-rec-btn{padding:4px 8px;font-size:10.5px}',
+      // Ícone + texto curto (Pausar/Desfazer/Cancelar) — nunca só ícone: com
+      // texto sempre visível, não depende de title (evita o tooltip nativo
+      // do navegador aparecendo por cima da toolbar ao passar o mouse).
+      // Mesmo padding pros dois estados do botão principal (Pausar/
+      // Continuar) — só o texto/cor mudam, a toolbar não "pula" de tamanho.
+      '.up-rec-btn-bar{display:inline-flex;align-items:center;justify-content:center;gap:4px;padding:5px 8px;border:0;border-radius:8px;background:rgba(255,255,255,.1);color:#f8f9ff;font-size:10px;font-weight:700;white-space:nowrap;cursor:pointer;transition:background .12s ease,transform .1s ease}',
+      '.up-rec-btn-bar svg{width:12px;height:12px;fill:currentColor;display:block;flex-shrink:0}',
+      '.up-rec-btn-bar:hover{background:rgba(255,255,255,.2)}',
+      '.up-rec-btn-bar:active{transform:scale(.96)}',
+      '.up-rec-btn-bar:disabled{opacity:.3;cursor:not-allowed;transform:none}',
+      '.up-rec-btn-bar-danger{background:rgba(255,82,82,.16);color:#ffb4b4}',
+      '.up-rec-btn-bar-danger:hover{background:rgba(255,82,82,.28)}',
+      // Continuar (só quando pausado) ganha a cor primária — mesmo formato/
+      // padding dos outros botões da fileira, só troca o fundo pra azul.
+      '.up-rec-btn-bar.up-rec-btn-primary{background:#0058be;font-weight:800}',
+      '.up-rec-btn-bar.up-rec-btn-primary:hover{background:#0058be;opacity:.9}',
+      '.up-rec-bar-finalizar{display:inline-flex;align-items:center;gap:5px}',
+      '.up-rec-bar-finalizar svg{width:13px;height:13px;fill:currentColor}',
+      // Estado pausado: bolinha para de piscar e vira âmbar, rótulo do
+      // status acompanha a cor — dá pra perceber o estado sem ler o texto
+      // do botão Continuar.
+      '.up-rec-bar-pausado .up-rec-dot{background:#ff9f43;animation:none}',
+      '.up-rec-bar-pausado .up-rec-label{color:#ffc48a}',
+      // Card central "Gravação pausada" — só um indicador, nunca bloqueia a
+      // página (pointer-events:none) nem escurece a tela inteira (sem
+      // overlay full-screen, só o card em si).
+      '.up-rec-pausa-card{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483610;display:flex;align-items:center;gap:10px;background:rgba(11,28,48,.9);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;padding:12px 20px;border-radius:14px;box-shadow:0 18px 44px rgba(11,28,48,.35);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;font-weight:700;pointer-events:none;animation:up-rec-pausa-surgir .18s ease}',
+      '@keyframes up-rec-pausa-surgir{from{opacity:0;transform:translate(-50%,-50%) scale(.94)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}',
+      '.up-rec-pausa-card-icone{width:30px;height:30px;flex-shrink:0;border-radius:50%;border:2px solid #ff9f43;color:#ff9f43;display:flex;align-items:center;justify-content:center}',
+      '.up-rec-pausa-card-icone svg{width:15px;height:15px;fill:currentColor}',
+      '.up-rec-bar-linha-opcao{gap:2px;margin-top:1px;padding-top:4px;border-top:1px solid rgba(255,255,255,.1)}',
+      '.up-rec-bar-linha-opcao .up-rec-toggle{opacity:.9;font-size:11px}',
+      '.up-rec-bar-linha-opcao .up-rec-toggle-hint{font-size:9.5px}',
       '.up-rec-troca-info{flex-basis:100%;text-align:center;opacity:.85;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}',
       '.up-rec-troca-status{flex-basis:100%;text-align:center;color:#ffd54f;font-weight:700;font-size:11px}',
       '.up-rec-destaque{position:fixed;z-index:2147483630;border-radius:10px;box-shadow:0 0 0 9999px rgba(11,28,48,.35),0 0 0 3px #0058be,0 0 0 5px rgba(0,88,190,.25);pointer-events:none;transition:top .15s ease,left .15s ease,width .15s ease,height .15s ease}',
@@ -237,54 +273,90 @@
       // contrário de .up-rec-overlay, NÃO cobre a tela inteira: fica ancorado
       // na borda direita, com largura fixa, pra não bloquear cliques no resto
       // da página (a gravação continua rodando por trás normalmente).
-      '.up-rec-lateral{position:fixed;top:16px;right:16px;bottom:16px;width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border-radius:14px;box-shadow:0 18px 50px rgba(11,28,48,.3);display:flex;flex-direction:column;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;overflow:hidden}',
-      '.up-rec-lateral-cabecalho{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;border-bottom:1px solid rgba(194,198,214,.5);flex-shrink:0}',
-      '.up-rec-lateral-titulo{display:flex;align-items:center;gap:6px;min-width:0}',
-      '.up-rec-lateral-titulo-texto{font-size:11.5px;font-weight:800;white-space:nowrap}',
-      '.up-rec-lateral-contagem{font-size:10px;font-weight:800;color:#0058be;background:#eff4ff;border-radius:999px;padding:1px 7px;white-space:nowrap;flex-shrink:0}',
+      '.up-rec-lateral{position:fixed;top:16px;right:16px;bottom:16px;width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 20px 55px rgba(11,28,48,.25);display:flex;flex-direction:column;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;overflow:hidden}',
+      '.up-rec-lateral-cabecalho{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:9px 11px;background:linear-gradient(180deg,#f8faff,#fff);border-bottom:1px solid rgba(194,198,214,.5);flex-shrink:0}',
+      '.up-rec-lateral-titulo{display:flex;align-items:center;gap:7px;min-width:0}',
+      '.up-rec-lateral-titulo-dot{width:6px;height:6px;border-radius:50%;background:#0058be;flex-shrink:0}',
+      '.up-rec-lateral-titulo-texto{font-size:11.5px;font-weight:800;white-space:nowrap;letter-spacing:.01em}',
+      '.up-rec-lateral-contagem{font-size:10px;font-weight:800;color:#0058be;background:#eff4ff;border-radius:999px;padding:1px 8px;white-space:nowrap;flex-shrink:0}',
+      // No cabeçalho especificamente, vira um selo circular sólido (em vez
+      // do chip claro genérico) — mesmo peso visual de um contador "de
+      // verdade", não só mais um texto ao lado do título.
+      '.up-rec-lateral-cabecalho .up-rec-lateral-contagem{color:#fff;background:#0058be;min-width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;border-radius:999px}',
       '.up-rec-lateral-cabecalho .up-rec-btn-icone{padding:3px 7px}',
       // Corpo: lista (altura fixa, rola sozinha se passar de ~5 itens) +
       // detalhe do passo selecionado (ocupa o resto, rola independente).
       '.up-rec-lateral-corpo{flex:1;min-height:0;display:flex;flex-direction:column}',
-      '.up-rec-lateral-lista{flex-shrink:0;border-bottom:1px solid rgba(194,198,214,.4);max-height:150px;overflow-y:auto;display:flex;flex-direction:column;padding:4px;gap:1px}',
-      '.up-rec-lateral-item{display:flex;align-items:center;gap:6px;padding:4px 7px;border-radius:7px;cursor:pointer;font-size:11.5px;line-height:16px;text-align:left;border:0;border-left:3px solid transparent;background:transparent;color:#0b1c30;width:100%}',
-      '.up-rec-lateral-item:hover{background:#f3f5fb}',
-      // Selecionado: faixa azul à esquerda + fundo + texto em negrito, mais
-      // fácil de identificar de relance que só um fundo claro.
-      '.up-rec-lateral-item-ativo{background:#dbe8ff;border-left-color:#0058be}',
-      '.up-rec-lateral-item-ativo .up-rec-lateral-item-resumo{font-weight:700;color:#0058be}',
-      '.up-rec-lateral-item-numero{width:15px;height:15px;flex-shrink:0;border-radius:999px;background:#d8e2ff;color:#0058be;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800}',
-      '.up-rec-lateral-item-resumo{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}',
-      '.up-rec-lateral-detalhe{flex:1;min-height:0;overflow-y:auto;padding:9px 10px;display:flex;flex-direction:column;gap:2px}',
-      '.up-rec-lateral-detalhe-vazio{padding:18px 12px;font-size:11.5px;color:#8a90a3;text-align:center}',
+      '.up-rec-lateral-lista{flex-shrink:0;border-bottom:1px solid rgba(194,198,214,.4);max-height:168px;overflow-y:auto;display:flex;flex-direction:column;padding:4px 5px;background:#fbfcfe}',
+      // Timeline: divisória fina entre passos (em vez de espaçamento com
+      // fundo em cada item) — mais parecido com uma lista de eventos do que
+      // com um formulário de linhas repetidas.
+      '.up-rec-lateral-item{display:flex;align-items:flex-start;gap:7px;padding:6px 6px;cursor:pointer;text-align:left;border:0;border-left:3px solid transparent;border-bottom:1px solid rgba(194,198,214,.3);background:transparent;color:#0b1c30;width:100%;transition:background .12s ease}',
+      '.up-rec-lateral-lista .up-rec-lateral-item:last-child{border-bottom:0}',
+      '.up-rec-lateral-item:hover{background:#eef1f8}',
+      // Selecionado: faixa azul à esquerda + fundo suave em degradê + sombra
+      // discreta, pra parecer um cartão "elevado", não só uma cor de fundo.
+      '.up-rec-lateral-item-ativo{background:linear-gradient(90deg,#e4edff,#eef4ff);border-left-color:#0058be;box-shadow:0 1px 4px rgba(0,88,190,.12)}',
+      '.up-rec-lateral-item-ativo .up-rec-lateral-item-resumo{font-weight:700;color:#0b1c30}',
+      '.up-rec-lateral-item-ativo .up-rec-lateral-item-rotulo{color:#0058be}',
+      '.up-rec-lateral-item-numero{width:16px;height:16px;flex-shrink:0;margin-top:1px;border-radius:999px;background:#eef1f8;color:#8a90a3;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;transition:background .12s ease,color .12s ease}',
+      '.up-rec-lateral-item-ativo .up-rec-lateral-item-numero{background:#0058be;color:#fff}',
+      // Coluna de texto — rótulo pequeno "Passo N" em cima, título do passo
+      // embaixo (mesma hierarquia de duas linhas usada no resto do produto).
+      '.up-rec-lateral-item-texto{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1;overflow:hidden}',
+      '.up-rec-lateral-item-rotulo{font-size:8.5px;font-weight:800;color:#a6acbb;text-transform:uppercase;letter-spacing:.04em;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.up-rec-lateral-item-resumo{font-size:11.5px;line-height:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}',
+      '.up-rec-lateral-detalhe{flex:1;min-height:0;overflow-y:auto;padding:10px 11px;display:flex;flex-direction:column;gap:2px}',
+      '.up-rec-lateral-detalhe-vazio{padding:22px 14px;font-size:11.5px;color:#8a90a3;text-align:center;line-height:1.5}',
       // Overrides compactos dos campos compartilhados (input/textarea/label/
       // grid) só DENTRO do painel lateral — a revisão final e o mini painel
       // pós-clique continuam com o tamanho padrão de sempre.
       '.up-rec-lateral .up-rec-revisao-label-principal{font-size:9.5px;margin-top:4px}',
       '.up-rec-lateral .up-rec-input{padding:5px 7px;font-size:12px;margin-top:2px}',
       '.up-rec-lateral .up-rec-textarea-sm{padding:5px 7px;font-size:12px;min-height:32px;margin-top:2px}',
+      // Select precisa de uma regra própria aqui: ".up-rec-lateral
+      // .up-rec-input" (2 classes) tem mais especificidade que "select.
+      // up-rec-input" (elemento+classe) e estava zerando o padding-right
+      // reservado pra seta customizada — o texto ficava colado/cortado
+      // embaixo dela. Essa regra (elemento+2 classes) volta a vencer.
+      '.up-rec-lateral select.up-rec-input{padding:5px 24px 5px 7px;font-size:11.5px;margin-top:2px}',
       '.up-rec-lateral .up-rec-revisao-grid{gap:6px;margin-top:5px}',
       '.up-rec-lateral .up-rec-revisao-label{font-size:9px;margin-top:2px}',
       // Preview do tooltip, mais enxuto aqui do que na revisão final/mini painel.
-      '.up-rec-lateral-preview-wrap .up-rec-preview{margin-top:0}',
-      '.up-rec-lateral-preview-wrap .up-rec-preview-tooltip{padding:7px 9px;max-width:100%}',
-      '.up-rec-lateral-preview-wrap .up-rec-preview-progress{font-size:9px;margin-bottom:2px}',
-      '.up-rec-lateral-preview-wrap .up-rec-preview-titulo{font-size:12px;margin-bottom:2px;line-height:15px}',
-      '.up-rec-lateral-preview-wrap .up-rec-preview-desc{font-size:11px;line-height:14px}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview{margin-top:0;margin-bottom:8px}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-label{font-size:9px;letter-spacing:.04em}',
+      // Balão sólido azul com "rabinho" apontando pro elemento — mais perto
+      // de como o tooltip aparece de verdade no runtime do tour (mockup
+      // ilustrativo, sem nenhuma relação com o overlay real) do que um card
+      // branco genérico. Só dentro do painel lateral.
+      '.up-rec-lateral-preview-wrap .up-rec-preview-tooltip{position:relative;padding:9px 11px 12px;max-width:100%;border:0;border-radius:10px;background:#0058be;box-shadow:0 6px 16px rgba(0,88,190,.3)}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-tooltip::after{content:"";position:absolute;left:18px;bottom:-6px;width:12px;height:12px;background:#0058be;clip-path:polygon(0 0,100% 0,0 100%);border-radius:0 0 0 3px}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-progress{color:rgba(255,255,255,.75);font-size:9px;margin-bottom:2px}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-titulo{color:#fff;font-size:12px;margin-bottom:2px;line-height:15px}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-titulo.up-rec-preview-vazio{color:rgba(255,255,255,.6)}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-desc{color:rgba(255,255,255,.92);font-size:11px;line-height:14px}',
+      '.up-rec-lateral-preview-wrap .up-rec-preview-desc.up-rec-preview-vazio{color:rgba(255,255,255,.6)}',
       // Ações secundárias (Localizar/Trocar/Remover) — uma linha compacta de
       // botões estreitos com texto curto, em vez de 3 botões largos com texto
       // completo (a descrição completa vira o title, no hover).
-      '.up-rec-lateral-acoes{display:flex;gap:4px;margin-top:6px}',
-      '.up-rec-lateral-acoes .up-rec-btn-icone{flex:1;text-align:center;padding:5px 4px;font-size:10px}',
-      '.up-rec-lateral-rodape{display:flex;gap:8px;padding:7px 10px;border-top:1px solid rgba(194,198,214,.5);flex-shrink:0}',
-      '.up-rec-lateral-rodape .up-rec-btn{flex:1;border-radius:9px;padding:6px 10px;font-size:11.5px;font-weight:700}',
+      '.up-rec-lateral-acoes{display:flex;gap:5px;margin-top:7px}',
+      '.up-rec-lateral-acoes .up-rec-btn-icone{flex:1;text-align:center;padding:5px 4px;font-size:10px;border:1px solid transparent}',
+      '.up-rec-lateral-acoes .up-rec-btn-icone-acento{border-color:rgba(0,88,190,.15)}',
+      '.up-rec-lateral-rodape{display:flex;gap:8px;padding:8px 11px;border-top:1px solid rgba(194,198,214,.5);flex-shrink:0;background:#fff}',
+      // CTA final evidente (continua sólida, azul, full-width) mas sem o
+      // gradiente/sombra "glossy" da rodada anterior — fica claro que é a
+      // ação principal do painel sem competir visualmente com o resto.
+      '.up-rec-lateral-rodape .up-rec-btn{flex:1;border-radius:9px;padding:7px 10px;font-size:11.5px;font-weight:700;background:#0058be;color:#fff}',
+      '.up-rec-lateral-rodape .up-rec-btn:hover{background:#0058be;opacity:.9}',
+      '.up-rec-lateral-rodape .up-rec-btn:disabled{background:#eceff5;color:#a6acbb;opacity:1}',
       // Pill recolhida — só ícone + contador, clicável pra reabrir o painel.
       // touch-action:none evita o navegador competir com o arrasto em telas
       // touch (scroll da página no lugar de mover o pill); user-select:none
       // evita selecionar o texto "Passos capturados" ao arrastar rápido.
-      '.up-rec-lateral-pill{position:fixed;top:16px;right:16px;z-index:2147483620;display:flex;align-items:center;gap:6px;background:#0b1c30;color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 18px 40px rgba(11,28,48,.35);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px;font-weight:700;cursor:grab;border:0;touch-action:none;user-select:none}',
-      '.up-rec-lateral-pill:active{cursor:grabbing}',
-      '.up-rec-lateral-pill:hover{opacity:.9}',
+      '.up-rec-lateral-pill{position:fixed;top:16px;right:16px;z-index:2147483620;display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#132844,#0b1c30);color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 16px 36px rgba(11,28,48,.4),0 0 0 1px rgba(255,255,255,.06) inset;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px;font-weight:700;cursor:grab;border:0;touch-action:none;user-select:none;transition:box-shadow .15s ease}',
+      '.up-rec-lateral-pill-dot{width:6px;height:6px;border-radius:50%;background:#4dabff;flex-shrink:0;box-shadow:0 0 0 3px rgba(77,171,255,.2)}',
+      '.up-rec-lateral-pill:active{cursor:grabbing;box-shadow:0 8px 22px rgba(11,28,48,.4),0 0 0 1px rgba(255,255,255,.06) inset}',
+      '.up-rec-lateral-pill:hover{opacity:.95}',
       '@media (max-width:600px){.up-rec-lateral{top:8px;right:8px;bottom:8px;width:calc(100vw - 16px)}}',
       '@media (max-width:480px){.up-rec-overlay{padding:8px}.up-rec-modal{max-height:calc(100vh - 16px);border-radius:12px;padding:14px;gap:8px}}',
       '.up-rec-modal-title{font-size:16px;font-weight:800;margin:0;flex-shrink:0}',
@@ -497,6 +569,15 @@
     }
     if (name === 'check') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.55 17.65-5.2-5.2 1.4-1.4 3.8 3.8 8.7-8.7 1.4 1.4-10.1 10.1Z"/></svg>';
+    }
+    if (name === 'pause') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zm5 0h3v14h-3z"/></svg>';
+    }
+    if (name === 'play') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7Z"/></svg>';
+    }
+    if (name === 'undo') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8Z"/></svg>';
     }
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8l-5 4V6a2 2 0 0 1 2-2Zm0 13.85L7.3 15H20V6H4v11.85Z"/></svg>';
   }
@@ -2231,6 +2312,7 @@
   var RECORDER_LOCALIZAR_BAR_ID = 'userpulse-recorder-localizar-bar';
   var RECORDER_MINI_REVISAO_ID = 'userpulse-recorder-mini-revisao';
   var RECORDER_PAINEL_LATERAL_ID = 'userpulse-recorder-painel-lateral';
+  var RECORDER_PAUSA_CARD_ID = 'userpulse-recorder-pausa-card';
   var RECORDER_INPUT_DEBOUNCE_MS = 500;
   var RECORDER_CLIQUE_DEDUPE_MS = 600;
   var RECORDER_URL_POLL_MS = 500;
@@ -2292,18 +2374,34 @@
     { value: 'left', label: 'Esquerda' },
     { value: 'right', label: 'Direita' },
   ];
+  // Labels curtos de propósito — o select nativo (painel lateral) não tem
+  // espaço pra frases longas sem cortar texto ou ficar apertado. O
+  // significado completo de cada modo continua explicado no title do select
+  // (ver recorderSimpleSelectHtml) — só o rótulo visível encolheu, value e
+  // comportamento (bindInteracao no runtime do tour) não mudaram.
   var RECORDER_MODOS_AVANCO = [
-    { value: 'manual', label: 'Manual (só pelo botão Próximo)' },
-    { value: 'ao_clicar', label: 'Ao clicar no elemento' },
-    { value: 'ao_alterar_valor', label: 'Ao preencher/alterar o valor' },
-    { value: 'ao_aparecer_elemento', label: 'Quando outro elemento aparecer' },
-    { value: 'ao_sumir_elemento', label: 'Quando outro elemento sumir' },
+    { value: 'manual', label: 'Botão Próximo' },
+    { value: 'ao_clicar', label: 'Clique no elemento' },
+    { value: 'ao_alterar_valor', label: 'Preencher valor' },
+    { value: 'ao_aparecer_elemento', label: 'Elemento aparecer' },
+    { value: 'ao_sumir_elemento', label: 'Elemento sumir' },
   ];
   var RECORDER_ACOES_AO_AVANCAR = [
     { value: 'apenas_avancar', label: 'Apenas avançar' },
     { value: 'clicar_elemento', label: 'Clicar no elemento destacado e avançar' },
   ];
   var RECORDER_MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento'];
+  // Explicação completa de cada modo — vira title (tooltip nativo, sem
+  // ocupar espaço visível) no select nativo do painel lateral/mini painel,
+  // já que o rótulo visível agora é curto demais pra carregar todo o
+  // contexto sozinho.
+  var RECORDER_MODOS_AVANCO_TITULO = {
+    manual: 'Manual — só avança pelo botão Próximo',
+    ao_clicar: 'Avança quando o usuário clica no elemento destacado',
+    ao_alterar_valor: 'Avança quando o usuário preenche ou altera o valor do campo',
+    ao_aparecer_elemento: 'Avança quando outro elemento aparece na tela',
+    ao_sumir_elemento: 'Avança quando outro elemento some da tela',
+  };
 
   // Persistência em sessionStorage — sobrevive a reload/navegação de página
   // inteira na mesma aba (o que uma SPA sem reload já não precisa, resolvido
@@ -2355,7 +2453,7 @@
   function recorderElementoNaBarra(el) {
     if (!el || !el.closest) return false;
     try {
-      return Boolean(el.closest('#' + RECORDER_BAR_ID + ', #' + RECORDER_PAINEL_ID + ', #' + RECORDER_TROCA_BAR_ID + ', #' + RECORDER_LOCALIZAR_BAR_ID + ', #' + RECORDER_MINI_REVISAO_ID + ', #' + RECORDER_PAINEL_LATERAL_ID));
+      return Boolean(el.closest('#' + RECORDER_BAR_ID + ', #' + RECORDER_PAINEL_ID + ', #' + RECORDER_TROCA_BAR_ID + ', #' + RECORDER_LOCALIZAR_BAR_ID + ', #' + RECORDER_MINI_REVISAO_ID + ', #' + RECORDER_PAINEL_LATERAL_ID + ', #' + RECORDER_PAUSA_CARD_ID));
     } catch (_e) {
       return false;
     }
@@ -2632,10 +2730,26 @@
       var ultimoPasso = recorderState.passos[recorderState.passos.length - 1];
       ultimoEl.textContent = ultimoPasso ? ('· Último: ' + recorderResumoPasso(ultimoPasso)) : '';
     }
+    // Estado pausado precisa ficar óbvio de relance (bolinha/rótulo mudam de
+    // cor — CSS via .up-rec-bar-pausado; card central — ver
+    // recorderMostrarCardPausado/recorderEsconderCardPausado) e o botão
+    // Pausar/Continuar precisa virar a ação em destaque (ícone+texto+cor
+    // primária) quando pausado. Texto sempre visível nos botões (nunca só
+    // title) — evita o tooltip nativo do navegador aparecendo por cima da
+    // toolbar ao passar o mouse.
+    bar.classList.toggle('up-rec-bar-pausado', recorderState.pausado);
+    var labelEl = bar.querySelector('[data-up-rec-status-label]');
+    if (labelEl) labelEl.textContent = recorderState.pausado ? 'Pausado' : 'Gravando Tour';
     var botaoPausa = bar.querySelector('[data-up-rec-pause]');
-    if (botaoPausa) botaoPausa.textContent = recorderState.pausado ? 'Continuar' : 'Pausar';
+    if (botaoPausa) {
+      botaoPausa.classList.toggle('up-rec-btn-primary', recorderState.pausado);
+      botaoPausa.innerHTML = recorderState.pausado
+        ? (icon('play') + '<span>Continuar</span>')
+        : (icon('pause') + '<span>Pausar</span>');
+    }
     var botaoDesfazer = bar.querySelector('[data-up-rec-undo]');
     if (botaoDesfazer) botaoDesfazer.disabled = recorderState.passos.length === 0;
+    if (recorderState.pausado) recorderMostrarCardPausado(); else recorderEsconderCardPausado();
   }
 
   // Aviso discreto e temporário na própria barra flutuante (ex.: tentar
@@ -2700,11 +2814,16 @@
   // attrNome parametrizado pra reaproveitar tanto no mini painel
   // (data-miniv-campo) quanto no painel lateral (data-lat-campo) sem duplicar
   // a função — só muda qual atributo o listener delegado de cada painel lê.
-  function recorderSimpleSelectHtml(attrNome, campo, valorAtual, opcoes) {
+  // titulos (opcional, ex.: RECORDER_MODOS_AVANCO_TITULO) vira o title de
+  // cada <option> e do próprio <select> (reflete a opção selecionada) —
+  // explica a opção sem aumentar a altura do campo.
+  function recorderSimpleSelectHtml(attrNome, campo, valorAtual, opcoes, titulos) {
     var options = opcoes.map(function (o) {
-      return '<option value="' + escapeHtml(o.value) + '"' + (o.value === valorAtual ? ' selected' : '') + '>' + escapeHtml(o.label) + '</option>';
+      var titulo = titulos && titulos[o.value];
+      return '<option value="' + escapeHtml(o.value) + '"' + (o.value === valorAtual ? ' selected' : '') + (titulo ? ' title="' + escapeHtml(titulo) + '"' : '') + '>' + escapeHtml(o.label) + '</option>';
     }).join('');
-    return '<select class="up-rec-input" ' + attrNome + '="' + campo + '">' + options + '</select>';
+    var tituloAtual = titulos && titulos[valorAtual];
+    return '<select class="up-rec-input" ' + attrNome + '="' + campo + '"' + (tituloAtual ? ' title="' + escapeHtml(tituloAtual) + '"' : '') + '>' + options + '</select>';
   }
 
   function recorderHtmlMiniRevisao(passo, indice, total) {
@@ -2719,7 +2838,7 @@
       '<textarea class="up-rec-textarea-sm" data-miniv-campo="descricao">' + escapeHtml(passo.descricao || '') + '</textarea>',
       '<div class="up-rec-revisao-grid" style="margin-top:2px">',
       '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSimpleSelectHtml('data-miniv-campo', 'tooltip_posicao', passo.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
-      '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSimpleSelectHtml('data-miniv-campo', 'modo_avanco_interacao', passo.modo_avanco_interacao, RECORDER_MODOS_AVANCO) + '</div>',
+      '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSimpleSelectHtml('data-miniv-campo', 'modo_avanco_interacao', passo.modo_avanco_interacao, RECORDER_MODOS_AVANCO, RECORDER_MODOS_AVANCO_TITULO) + '</div>',
       '</div>',
       '<div class="up-rec-modal-actions">',
       '<button type="button" class="up-rec-btn up-rec-btn-danger" data-miniv-ignorar>Ignorar este clique</button>',
@@ -2763,6 +2882,12 @@
     if (!passo) return;
     passo[campo] = alvo.value;
     recorderPersistir();
+
+    // Title do select acompanha a opção escolhida — o rótulo visível é
+    // curto de propósito, a explicação completa só aparece no hover.
+    if (campo === 'modo_avanco_interacao' && RECORDER_MODOS_AVANCO_TITULO[alvo.value]) {
+      alvo.title = RECORDER_MODOS_AVANCO_TITULO[alvo.value];
+    }
 
     if (campo !== 'titulo' && campo !== 'descricao') return;
     var root = document.getElementById(RECORDER_MINI_REVISAO_ID);
@@ -2836,7 +2961,10 @@
     return [
       '<button type="button" class="up-rec-lateral-item' + (ativo ? ' up-rec-lateral-item-ativo' : '') + '" data-lat-selecionar data-lat-index="' + i + '">',
       '<span class="up-rec-lateral-item-numero">' + (i + 1) + '</span>',
+      '<span class="up-rec-lateral-item-texto">',
+      '<span class="up-rec-lateral-item-rotulo">Passo ' + (i + 1) + (ativo ? ' · editando' : '') + '</span>',
       '<span class="up-rec-lateral-item-resumo">' + escapeHtml(recorderResumoPasso(p)) + '</span>',
+      '</span>',
       '</button>',
     ].join('');
   }
@@ -2853,7 +2981,7 @@
       '<textarea class="up-rec-textarea-sm" data-lat-campo="descricao">' + escapeHtml(passo.descricao || '') + '</textarea>',
       '<div class="up-rec-revisao-grid">',
       '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSimpleSelectHtml('data-lat-campo', 'tooltip_posicao', passo.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
-      '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSimpleSelectHtml('data-lat-campo', 'modo_avanco_interacao', passo.modo_avanco_interacao, RECORDER_MODOS_AVANCO) + '</div>',
+      '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSimpleSelectHtml('data-lat-campo', 'modo_avanco_interacao', passo.modo_avanco_interacao, RECORDER_MODOS_AVANCO, RECORDER_MODOS_AVANCO_TITULO) + '</div>',
       '</div>',
       '<div class="up-rec-lateral-acoes">',
       '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-lat-localizar title="Localizar na tela: destaca este elemento na página real">Localizar</button>',
@@ -2872,6 +3000,7 @@
     return [
       '<div class="up-rec-lateral-cabecalho">',
       '<div class="up-rec-lateral-titulo">',
+      '<span class="up-rec-lateral-titulo-dot"></span>',
       '<span class="up-rec-lateral-titulo-texto">Passos capturados</span>',
       '<span class="up-rec-lateral-contagem">' + passos.length + '</span>',
       '</div>',
@@ -2993,7 +3122,7 @@
     if (!recorderState.painelLateralAberto) {
       root.className = 'up-rec-lateral-pill';
       root.setAttribute('title', 'Arraste para mover — clique para reabrir o painel de passos capturados');
-      root.innerHTML = 'Passos capturados <span class="up-rec-lateral-contagem">' + recorderState.passos.length + '</span>';
+      root.innerHTML = '<span class="up-rec-lateral-pill-dot"></span>Passos capturados <span class="up-rec-lateral-contagem">' + recorderState.passos.length + '</span>';
       document.body.appendChild(root);
       recorderAplicarPosicaoLateral(root);
       recorderLigarArrastoPill(root);
@@ -3025,6 +3154,12 @@
     if (!passo) return;
     passo[campo] = alvo.value;
     recorderPersistir();
+
+    // Title do select acompanha a opção escolhida — o rótulo visível é
+    // curto de propósito, a explicação completa só aparece no hover.
+    if (campo === 'modo_avanco_interacao' && RECORDER_MODOS_AVANCO_TITULO[alvo.value]) {
+      alvo.title = RECORDER_MODOS_AVANCO_TITULO[alvo.value];
+    }
 
     // Resumo na lista + preview no detalhe — atualizados no lugar, sem
     // re-renderizar o painel inteiro (perderia foco/cursor do usuário).
@@ -3204,6 +3339,30 @@
     recorderRenderPainelLateral(); // sem efeito se revisarTempoReal estiver desligado
   }
 
+  // Card central "Gravação pausada" — só um indicador visual, nunca um
+  // modal: pointer-events:none garante que ele nunca intercepta clique
+  // nenhum (a página real continua totalmente visível e "clicável" por
+  // baixo dele; não é isso que impede captura enquanto pausado — quem faz
+  // isso é o guard de recorderState.pausado já existente em
+  // recorderCapturarClique/recorderCapturarValor). Mostrado/escondido a
+  // partir de recorderAtualizarBarra, sempre em sincronia com o estado real.
+  function recorderMostrarCardPausado() {
+    if (document.getElementById(RECORDER_PAUSA_CARD_ID)) return;
+    var card = document.createElement('div');
+    card.id = RECORDER_PAUSA_CARD_ID;
+    card.className = 'up-rec-pausa-card';
+    card.innerHTML = [
+      '<span class="up-rec-pausa-card-icone">' + icon('pause') + '</span>',
+      '<span class="up-rec-pausa-card-texto">Gravação pausada</span>',
+    ].join('');
+    document.body.appendChild(card);
+  }
+
+  function recorderEsconderCardPausado() {
+    var card = document.getElementById(RECORDER_PAUSA_CARD_ID);
+    if (card) card.remove();
+  }
+
   function recorderPausarOuContinuar() {
     recorderState.pausado = !recorderState.pausado;
     recorderAtualizarBarra();
@@ -3301,6 +3460,7 @@
     var painel = document.getElementById(RECORDER_PAINEL_ID);
     if (painel) painel.remove();
     recorderFecharPainelLateral();
+    recorderEsconderCardPausado();
   }
 
   // ─── Painel de revisão (antes de gerar o JSON) ────────────────────────────
@@ -3625,6 +3785,7 @@
     recorderState.ativo = false;
     recorderPararCaptura();
     recorderLimparPersistencia();
+    recorderEsconderCardPausado();
     recorderRenderPainelFinal();
   }
 
@@ -4344,19 +4505,23 @@
     // com o .up-rec-bar de sempre, sem mudança visual nenhuma nelas.
     bar.className = 'up-rec-bar up-rec-bar-principal';
     bar.innerHTML = [
-      // Linha 1 — status
+      // Linha 1 — status. Rótulo e bolinha mudam de cor/texto quando pausado
+      // (ver recorderAtualizarBarra) — estado pausado precisa ficar óbvio de
+      // relance, não só pelo texto do botão Continuar.
       '<div class="up-rec-bar-linha up-rec-bar-linha-status">',
       '<span class="up-rec-dot"></span>',
-      '<span class="up-rec-label">Gravando Tour</span>',
+      '<span class="up-rec-label" data-up-rec-status-label>Gravando Tour</span>',
       '<span class="up-rec-contador" data-up-rec-contador>0 passos</span>',
       '<span class="up-rec-ultimo" data-up-rec-ultimo></span>',
       '</div>',
-      // Linha 2 — ações principais
+      // Linha 2 — ações. Pausar/Desfazer/Cancelar viram ícones compactos
+      // (o texto completo fica no title); Continuar (quando pausado) e
+      // Finalizar continuam com texto — são as duas ações "de destaque".
       '<div class="up-rec-bar-linha up-rec-bar-linha-acoes">',
-      '<button type="button" class="up-rec-btn" data-up-rec-pause>Pausar</button>',
-      '<button type="button" class="up-rec-btn" data-up-rec-undo disabled>Desfazer último passo</button>',
-      '<button type="button" class="up-rec-btn up-rec-btn-danger" data-up-rec-cancel>Cancelar</button>',
-      '<button type="button" class="up-rec-btn up-rec-btn-primary" data-up-rec-finish>Finalizar</button>',
+      '<button type="button" class="up-rec-btn-bar" data-up-rec-pause>' + icon('pause') + '<span>Pausar</span></button>',
+      '<button type="button" class="up-rec-btn-bar" data-up-rec-undo disabled>' + icon('undo') + '<span>Desfazer</span></button>',
+      '<button type="button" class="up-rec-btn-bar up-rec-btn-bar-danger" data-up-rec-cancel>' + icon('close') + '<span>Cancelar</span></button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-primary up-rec-bar-finalizar" data-up-rec-finish>' + icon('check') + '<span>Finalizar</span></button>',
       '</div>',
       // Linha 3 — opção de revisão em tempo real (única opção de revisão
       // durante a captura; a antiga "revisar cada passo após o clique" foi
