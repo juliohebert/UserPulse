@@ -8,6 +8,7 @@ import widgetRouter from './routes/widget'
 import dashboardRouter from './routes/dashboard'
 import catalogoTelasRouter from './routes/catalogoTelas'
 import toursRouter from './routes/tours'
+import jornadasRouter from './routes/jornadas'
 
 dotenv.config()
 
@@ -90,6 +91,7 @@ app.get('/test-embed.html', (_req, res) => {
 app.use('/api/campanhas', corsAdmin, requireAdminToken, campanhasRouter)
 app.use('/api/catalogo-telas', corsAdmin, requireAdminToken, catalogoTelasRouter)
 app.use('/api/tours', corsAdmin, requireAdminToken, toursRouter)
+app.use('/api/jornadas', corsAdmin, requireAdminToken, jornadasRouter)
 app.use('/api/widget', corsWidget, widgetRouter)
 app.use('/api/dashboard', corsAdmin, requireAdminToken, dashboardRouter)
 
