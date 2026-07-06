@@ -5,6 +5,7 @@ const navItems = [
   { icon: 'campaign', label: 'Campanhas', to: '/campanhas' },
   { icon: 'add_circle', label: 'Nova Campanha', to: '/campanhas/nova' },
   { icon: 'map', label: 'Tours Guiados', to: '/tours' },
+  { icon: 'route', label: 'Jornadas', to: '/jornadas' },
   { icon: 'grid_view', label: 'Catálogo de Telas', to: '/catalogo-telas' },
   { icon: 'integration_instructions', label: 'Integração', to: '/integracao' },
 ]

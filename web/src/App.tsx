@@ -14,6 +14,8 @@ import { TourPreview } from './pages/tours/Preview'
 import { TourDashboard } from './pages/tours/Dashboard'
 import { TourGuide } from './pages/tours/Guide'
 import { TourGravador } from './pages/tours/Gravador'
+import { JornadasIndex } from './pages/jornadas/Index'
+import { JornadaForm } from './pages/jornadas/Form'
 
 export default function App() {
   return (
@@ -33,6 +35,9 @@ export default function App() {
         <Route path="tours/:id/editar" element={<TourForm />} />
         <Route path="tours/:id/preview" element={<TourPreview />} />
         <Route path="tours/:id/dashboard" element={<TourDashboard />} />
+        <Route path="jornadas" element={<JornadasIndex />} />
+        <Route path="jornadas/novo" element={<JornadaForm />} />
+        <Route path="jornadas/:id/editar" element={<JornadaForm />} />
         <Route path="catalogo-telas" element={<CatalogoTelasIndex />} />
         <Route path="integracao" element={<IntegracaoPage />} />
       </Route>

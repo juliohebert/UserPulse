@@ -202,6 +202,62 @@ export interface TourDashboardData {
   total_pages: number
 }
 
+export type TipoEtapaJornada = 'tour' | 'campanha' | 'link'
+
+export interface EtapaJornada {
+  id: string
+  bloco_id: string
+  titulo: string
+  descricao: string | null
+  tipo: TipoEtapaJornada
+  tour_id: string | null
+  campanha_id: string | null
+  url: string | null
+  texto_cta: string | null
+  abrir_nova_aba: boolean
+  ordem: number
+  obrigatoria: boolean
+  criado_em: string
+  atualizado_em: string
+  tour?: { id: string; titulo: string; slug: string; ativo: boolean } | null
+  campanha?: { id: string; titulo: string; slug: string; ativo: boolean } | null
+  status?: 'pendente' | 'concluida' | 'pulada'
+}
+
+// Nome técnico: BlocoJornada. Nome visual na UI/widget: "Pacote".
+export interface BlocoJornada {
+  id: string
+  jornada_id: string
+  titulo: string
+  descricao: string | null
+  ordem: number
+  obrigatorio: boolean
+  ativo: boolean
+  criado_em: string
+  atualizado_em: string
+  etapas?: EtapaJornada[]
+  progresso?: { concluido: boolean; etapas_concluidas: number; etapas_total: number }
+}
+
+export interface Jornada {
+  id: string
+  slug: string
+  titulo: string
+  descricao: string | null
+  ativo: boolean
+  permitir_refazer: boolean
+  segmentar_cliente_ids: string[]
+  segmentar_unidade_ids: string[]
+  segmentar_perfis: string[]
+  segmentar_usuario_tipos: string[]
+  segmentar_estados: string[]
+  criado_em: string
+  atualizado_em: string
+  blocos?: BlocoJornada[]
+  progresso?: { concluida: boolean; blocos_concluidos: number; blocos_total: number }
+  _count?: { blocos: number; etapas: number }
+}
+
 export type CriterioStatus = 'ok' | 'bloqueado' | 'aviso' | 'nao_aplicavel'
 
 export interface Criterio {

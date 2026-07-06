@@ -8,53 +8,54 @@ datasource db {
 }
 
 model Campanha {
-  id                     String    @id @default(uuid())
-  slug                   String    @unique
-  titulo                 String
-  subtitulo              String?
-  descricao              String
-  tipo                   String
-  sistema                String
-  tela                   String
-  imagem_url             String?
-  video_url              String?
-  texto_botao            String?
-  url_botao              String?
-  feedback_habilitado    Boolean   @default(true)
-  modo_exibicao          String    @default("modal_automatica")
-  gatilho                String    @default("ao_abrir_tela")
-  evento                 String?
-  modo_identificacao     String    @default("sistema_tela")
-  data_cy                String?
-  url_contem             String?
-  atraso_ms              Int       @default(800)
-  mostrar_uma_vez        Boolean   @default(false)
-  prioridade             Int       @default(0)
-  ordem                  Int       @default(0)
-  ativo                  Boolean   @default(true)
-  data_inicio            DateTime?
-  data_fim               DateTime?
+  id                        String    @id @default(uuid())
+  slug                      String    @unique
+  titulo                    String
+  subtitulo                 String?
+  descricao                 String
+  tipo                      String
+  sistema                   String
+  tela                      String
+  imagem_url                String?
+  video_url                 String?
+  texto_botao               String?
+  url_botao                 String?
+  feedback_habilitado       Boolean   @default(true)
+  modo_exibicao             String    @default("modal_automatica")
+  gatilho                   String    @default("ao_abrir_tela")
+  evento                    String?
+  modo_identificacao        String    @default("sistema_tela")
+  data_cy                   String?
+  url_contem                String?
+  atraso_ms                 Int       @default(800)
+  mostrar_uma_vez           Boolean   @default(false)
+  prioridade                Int       @default(0)
+  ordem                     Int       @default(0)
+  ativo                     Boolean   @default(true)
+  data_inicio               DateTime?
+  data_fim                  DateTime?
   pergunta_feedback         String?
   observacao_obrigatoria    Boolean   @default(false)
-  exige_confirmacao_leitura   Boolean   @default(false)
-  permitir_fechar_modal       Boolean   @default(true)
-  intervalo_reexibicao_dias   Int?
-  politica_reexibicao         String    @default("uma_vez_apos_visualizacao")
-  reexibir_apos_dias          Int?
-  encerrar_apos_evento        Boolean   @default(false)
-  evento_conclusao            String?
-  categoria                   String?
-  segmentar_cliente_ids       String[]  @default([])
-  segmentar_unidade_ids       String[]  @default([])
-  segmentar_perfis            String[]  @default([])
-  segmentar_usuario_tipos     String[]  @default([])
-  segmentar_estados           String[]  @default([])
-  criado_em                   DateTime  @default(now())
+  exige_confirmacao_leitura Boolean   @default(false)
+  permitir_fechar_modal     Boolean   @default(true)
+  intervalo_reexibicao_dias Int?
+  politica_reexibicao       String    @default("uma_vez_apos_visualizacao")
+  reexibir_apos_dias        Int?
+  encerrar_apos_evento      Boolean   @default(false)
+  evento_conclusao          String?
+  categoria                 String?
+  segmentar_cliente_ids     String[]  @default([])
+  segmentar_unidade_ids     String[]  @default([])
+  segmentar_perfis          String[]  @default([])
+  segmentar_usuario_tipos   String[]  @default([])
+  segmentar_estados         String[]  @default([])
+  criado_em                 DateTime  @default(now())
   atualizado_em             DateTime  @updatedAt
 
-  feedbacks              Feedback[]
-  eventos                EventoCampanha[]
-  confirmacoes           ConfirmacaoLeitura[]
+  feedbacks     Feedback[]
+  eventos       EventoCampanha[]
+  confirmacoes  ConfirmacaoLeitura[]
+  etapasJornada EtapaJornada[]
 
   @@map("campanhas")
 }
@@ -68,28 +69,28 @@ model ConfirmacaoLeitura {
   contexto      Json?
   criado_em     DateTime @default(now())
 
-  campanha      Campanha @relation(fields: [campanha_id], references: [id])
+  campanha Campanha @relation(fields: [campanha_id], references: [id])
 
   @@map("confirmacoes_leitura")
 }
 
 model Feedback {
-  id            String   @id @default(uuid())
-  campanha_id   String
-  nota          Int
-  observacao    String?
-  usuario_id    String?
-  usuario_nome  String?
-  usuario_email String?
-  sistema       String?
-  tela          String?
-  navegador         String?
-  dispositivo       String?
-  contexto          Json?
-  telefone_contato  String?
-  criado_em         DateTime @default(now())
+  id               String   @id @default(uuid())
+  campanha_id      String
+  nota             Int
+  observacao       String?
+  usuario_id       String?
+  usuario_nome     String?
+  usuario_email    String?
+  sistema          String?
+  tela             String?
+  navegador        String?
+  dispositivo      String?
+  contexto         Json?
+  telefone_contato String?
+  criado_em        DateTime @default(now())
 
-  campanha      Campanha @relation(fields: [campanha_id], references: [id])
+  campanha Campanha @relation(fields: [campanha_id], references: [id])
 
   @@map("feedbacks")
 }
@@ -122,7 +123,7 @@ model EventoCampanha {
   contexto    Json?
   criado_em   DateTime @default(now())
 
-  campanha    Campanha @relation(fields: [campanha_id], references: [id])
+  campanha Campanha @relation(fields: [campanha_id], references: [id])
 
   @@map("eventos_campanha")
 }
@@ -142,14 +143,15 @@ model TourGuiado {
   criado_em          DateTime @default(now())
   atualizado_em      DateTime @updatedAt
 
-  passos             TourPasso[]
-  eventos            EventoTour[]
+  passos        TourPasso[]
+  eventos       EventoTour[]
+  etapasJornada EtapaJornada[]
 
   @@map("tours_guiados")
 }
 
 model EventoTour {
-  id          String     @id @default(uuid())
+  id          String   @id @default(uuid())
   tour_id     String
   tipo_evento String
   passo_ordem Int?
@@ -159,30 +161,30 @@ model EventoTour {
   navegador   String?
   dispositivo String?
   contexto    Json?
-  criado_em   DateTime   @default(now())
+  criado_em   DateTime @default(now())
 
-  tour        TourGuiado @relation(fields: [tour_id], references: [id])
+  tour TourGuiado @relation(fields: [tour_id], references: [id])
 
   @@index([tour_id])
   @@map("eventos_tour")
 }
 
 model TourPasso {
-  id                String     @id @default(uuid())
-  tour_id           String
-  ordem             Int        @default(0)
-  titulo            String
-  descricao         String?
-  seletor_tipo      String     @default("data_cy")
-  seletor           String
-  tooltip_posicao   String     @default("auto")
-  acao_ao_avancar   String     @default("apenas_avancar")
-  modo_avanco_interacao String @default("manual")
+  id                    String   @id @default(uuid())
+  tour_id               String
+  ordem                 Int      @default(0)
+  titulo                String
+  descricao             String?
+  seletor_tipo          String   @default("data_cy")
+  seletor               String
+  tooltip_posicao       String   @default("auto")
+  acao_ao_avancar       String   @default("apenas_avancar")
+  modo_avanco_interacao String   @default("manual")
   seletor_confirmacao   String?
-  criado_em         DateTime   @default(now())
-  atualizado_em     DateTime   @updatedAt
+  criado_em             DateTime @default(now())
+  atualizado_em         DateTime @updatedAt
 
-  tour              TourGuiado @relation(fields: [tour_id], references: [id], onDelete: Cascade)
+  tour TourGuiado @relation(fields: [tour_id], references: [id], onDelete: Cascade)
 
   @@index([tour_id])
   @@map("tour_passos")
@@ -204,4 +206,112 @@ model EventoUsuario {
   @@index([sistema, usuario_id, evento])
   @@index([sistema, usuario_id, evento, criado_em])
   @@map("eventos_usuario")
+}
+
+// ─── Jornadas (Onboarding Guiado) ──────────────────────────────────────────
+// Central/checklist acessada pelo usuário (não dispara automaticamente como
+// Campanha/TourGuiado) — agrupa BlocoJornada (nome visual: "Pacote"), que por
+// sua vez agrupam etapas que referenciam conteúdo já existente (Tour ou
+// Campanha) ou um link externo. Progresso é por usuário, via EventoJornada
+// (mesmo padrão de EventoTour/EventoCampanha).
+
+model Jornada {
+  id                      String   @id @default(uuid())
+  slug                    String   @unique
+  titulo                  String
+  descricao               String?
+  ativo                   Boolean  @default(true)
+  permitir_refazer        Boolean  @default(false)
+  segmentar_cliente_ids   String[] @default([])
+  segmentar_unidade_ids   String[] @default([])
+  segmentar_perfis        String[] @default([])
+  segmentar_usuario_tipos String[] @default([])
+  segmentar_estados       String[] @default([])
+  criado_em               DateTime @default(now())
+  atualizado_em           DateTime @updatedAt
+
+  blocos  BlocoJornada[]
+  eventos EventoJornada[]
+
+  @@map("jornadas")
+}
+
+// Nome visual na UI/widget: "Pacote". Agrupa etapas dentro de uma Jornada —
+// o usuário final navega pacote por pacote (não vê a lista de etapas toda de
+// uma vez).
+model BlocoJornada {
+  id            String   @id @default(uuid())
+  jornada_id    String
+  titulo        String
+  descricao     String?
+  ordem         Int      @default(0)
+  obrigatorio   Boolean  @default(true)
+  ativo         Boolean  @default(true)
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  jornada Jornada         @relation(fields: [jornada_id], references: [id], onDelete: Cascade)
+  etapas  EtapaJornada[]
+  eventos EventoJornada[]
+
+  @@index([jornada_id])
+  @@map("blocos_jornada")
+}
+
+// tipo: 'tour' | 'campanha' | 'link' — exatamente um entre tour_id/campanha_id/url
+// deve estar preenchido conforme o tipo; validado na aplicação (controller),
+// não por constraint do banco. texto_cta/abrir_nova_aba só fazem sentido
+// quando tipo = 'link'.
+// tour_id/campanha_id usam onDelete: SetNull — se o Tour/Campanha referenciado
+// for excluído, a etapa permanece (com referência ausente) em vez de bloquear
+// a exclusão ou apagar a etapa junto; o admin deve alertar visualmente nesse caso.
+model EtapaJornada {
+  id             String   @id @default(uuid())
+  bloco_id       String
+  titulo         String
+  descricao      String?
+  tipo           String
+  tour_id        String?
+  campanha_id    String?
+  url            String?
+  texto_cta      String?  @default("Abrir")
+  abrir_nova_aba Boolean  @default(true)
+  ordem          Int      @default(0)
+  obrigatoria    Boolean  @default(true)
+  criado_em      DateTime @default(now())
+  atualizado_em  DateTime @updatedAt
+
+  bloco    BlocoJornada    @relation(fields: [bloco_id], references: [id], onDelete: Cascade)
+  tour     TourGuiado?     @relation(fields: [tour_id], references: [id], onDelete: SetNull)
+  campanha Campanha?       @relation(fields: [campanha_id], references: [id], onDelete: SetNull)
+  eventos  EventoJornada[]
+
+  @@index([bloco_id])
+  @@map("etapas_jornada")
+}
+
+// tipo_evento: 'jornada_aberta' | 'jornada_iniciada' | 'bloco_aberto' |
+// 'bloco_iniciado' | 'bloco_concluido' | 'etapa_aberta' | 'etapa_concluida' |
+// 'etapa_pulada' | 'jornada_concluida'
+// bloco_id/etapa_id são null em eventos no nível da jornada (aberta/iniciada/concluída).
+model EventoJornada {
+  id          String   @id @default(uuid())
+  jornada_id  String
+  bloco_id    String?
+  etapa_id    String?
+  tipo_evento String
+  usuario_id  String?
+  sistema     String?
+  tela        String?
+  navegador   String?
+  dispositivo String?
+  contexto    Json?
+  criado_em   DateTime @default(now())
+
+  jornada Jornada       @relation(fields: [jornada_id], references: [id])
+  bloco   BlocoJornada? @relation(fields: [bloco_id], references: [id], onDelete: SetNull)
+  etapa   EtapaJornada? @relation(fields: [etapa_id], references: [id], onDelete: SetNull)
+
+  @@index([jornada_id])
+  @@map("eventos_jornada")
 }
