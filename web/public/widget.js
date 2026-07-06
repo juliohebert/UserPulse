@@ -235,6 +235,11 @@
       '.up-rec-bar-linha-opcao .up-rec-toggle-hint{font-size:9.5px}',
       '.up-rec-troca-info{flex-basis:100%;text-align:center;opacity:.85;font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;word-break:break-all}',
       '.up-rec-troca-status{flex-basis:100%;text-align:center;color:#ffd54f;font-weight:700;font-size:11px}',
+      // Barra de troca: bolinha azul (não a vermelha piscante de "gravando")
+      // e o título do passo como subtítulo próprio, deixando claro que essa
+      // é uma ação pontual de seleção, não a gravação em si.
+      '.up-rec-bar-troca .up-rec-dot{background:#4dabff;animation:none;box-shadow:0 0 0 3px rgba(77,171,255,.25)}',
+      '.up-rec-troca-titulo-passo{flex-basis:100%;text-align:center;font-size:12px;font-weight:600;opacity:.92}',
       '.up-rec-destaque{position:fixed;z-index:2147483630;border-radius:10px;box-shadow:0 0 0 9999px rgba(11,28,48,.35),0 0 0 3px #0058be,0 0 0 5px rgba(0,88,190,.25);pointer-events:none;transition:top .15s ease,left .15s ease,width .15s ease,height .15s ease}',
       '.up-rec-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}',
       // Base pensada pro fundo ESCURO da barra flutuante (texto branco sobre
@@ -369,6 +374,10 @@
       // evita selecionar o texto "Passos capturados" ao arrastar rápido.
       '.up-rec-lateral-pill{position:fixed;top:16px;right:16px;z-index:2147483620;display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#132844,#0b1c30);color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 16px 36px rgba(11,28,48,.4),0 0 0 1px rgba(255,255,255,.06) inset;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px;font-weight:700;cursor:grab;border:0;touch-action:none;user-select:none;transition:box-shadow .15s ease}',
       '.up-rec-lateral-pill-dot{width:6px;height:6px;border-radius:50%;background:#4dabff;flex-shrink:0;box-shadow:0 0 0 3px rgba(77,171,255,.2)}',
+      // Pill durante uma troca (ver recorderRenderPainelLateral) — âmbar em
+      // vez de azul, mesmo padrão de cor de "ação pendente" já usado em
+      // avisos do gravador, pra diferenciar de relance do estado normal.
+      '.up-rec-lateral-pill-trocando .up-rec-lateral-pill-dot{background:#ffb020;box-shadow:0 0 0 3px rgba(255,176,32,.25)}',
       '.up-rec-lateral-pill:active{cursor:grabbing;box-shadow:0 8px 22px rgba(11,28,48,.4),0 0 0 1px rgba(255,255,255,.06) inset}',
       '.up-rec-lateral-pill:hover{opacity:.95}',
       '@media (max-width:600px){.up-rec-lateral{top:8px;right:8px;bottom:8px;width:calc(100vw - 16px)}}',
@@ -3333,9 +3342,18 @@
     root.id = RECORDER_PAINEL_LATERAL_ID;
 
     if (!recorderState.painelLateralAberto) {
-      root.className = 'up-rec-lateral-pill';
-      root.setAttribute('title', 'Arraste para mover — clique para reabrir o painel de passos capturados');
-      root.innerHTML = '<span class="up-rec-lateral-pill-dot"></span>Passos capturados <span class="up-rec-lateral-contagem">' + recorderState.passos.length + '</span>';
+      // Recolhido durante uma troca (recorderIniciarTrocaElemento com origem
+      // 'painel-lateral') — destaca qual passo está em modo troca em vez do
+      // texto genérico "Passos capturados", já que o painel completo (com a
+      // lista) não está visível pra mostrar isso de outro jeito.
+      var emTroca = recorderState.trocaIndice != null;
+      root.className = emTroca ? 'up-rec-lateral-pill up-rec-lateral-pill-trocando' : 'up-rec-lateral-pill';
+      root.setAttribute('title', emTroca
+        ? 'Selecionando novo elemento — clique pra ver os passos capturados'
+        : 'Arraste para mover — clique para reabrir o painel de passos capturados');
+      root.innerHTML = emTroca
+        ? '<span class="up-rec-lateral-pill-dot"></span>Trocando — Passo ' + (recorderState.trocaIndice + 1)
+        : '<span class="up-rec-lateral-pill-dot"></span>Passos capturados <span class="up-rec-lateral-contagem">' + recorderState.passos.length + '</span>';
       document.body.appendChild(root);
       recorderAplicarPosicaoLateral(root);
       recorderLigarArrastoPill(root);
@@ -4445,19 +4463,24 @@
       ? 'Elemento atual destacado. Clique em outro elemento para substituir.'
       : 'Elemento atual não encontrado nesta tela. Clique no novo elemento desejado.';
 
-    var tituloParte = passo && passo.titulo && passo.titulo.trim() ? ' — ' + escapeHtml(passo.titulo.trim()) : '';
+    var tituloParte = passo && passo.titulo && passo.titulo.trim()
+      ? '<span class="up-rec-troca-titulo-passo">' + escapeHtml(passo.titulo.trim()) + '</span>'
+      : '';
 
     var bar = document.createElement('div');
     bar.id = RECORDER_TROCA_BAR_ID;
-    bar.className = 'up-rec-bar';
+    bar.className = 'up-rec-bar up-rec-bar-troca';
     bar.innerHTML = [
       '<span class="up-rec-dot"></span>',
-      '<span class="up-rec-label">Trocando elemento do Passo ' + (indice + 1) + tituloParte + '</span>',
+      // Instrução explícita — "Selecione o novo elemento" deixa a ação
+      // pedida clara de cara, em vez de só descrever o modo ("Trocando...").
+      '<span class="up-rec-label">Selecione o novo elemento para o Passo ' + (indice + 1) + '</span>',
+      tituloParte,
       '<span class="up-rec-troca-info">Elemento atual: ' + escapeHtml(recorderFormatarSeletorAtual(passo)) + '</span>',
       '<span class="up-rec-troca-status" data-troca-aviso>' + escapeHtml(recorderTrocaStatusOriginal) + '</span>',
       '<div class="up-rec-actions">',
       (elementoEncontrado ? '<button type="button" class="up-rec-btn" data-troca-ver-atual>Ver seletores do elemento atual</button>' : ''),
-      '<button type="button" class="up-rec-btn up-rec-btn-danger" data-troca-cancelar>Cancelar seleção</button>',
+      '<button type="button" class="up-rec-btn up-rec-btn-danger" data-troca-cancelar>Cancelar troca</button>',
       '</div>',
     ].join('');
     document.body.appendChild(bar);
