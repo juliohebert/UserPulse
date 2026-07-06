@@ -273,7 +273,13 @@
       // contrário de .up-rec-overlay, NÃO cobre a tela inteira: fica ancorado
       // na borda direita, com largura fixa, pra não bloquear cliques no resto
       // da página (a gravação continua rodando por trás normalmente).
-      '.up-rec-lateral{position:fixed;top:16px;right:16px;bottom:16px;width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 20px 55px rgba(11,28,48,.25);display:flex;flex-direction:column;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;overflow:hidden}',
+      // Altura: hug-content (nunca estica até o rodapé da viewport à toa,
+      // evitando o vão vazio entre as ações do passo e "Finalizar e
+      // revisar"), limitada por max-height — quando o conteúdo (lista de
+      // passos + detalhe) excede isso, as regras de overflow-y:auto próprias
+      // de .up-rec-lateral-lista/.up-rec-lateral-detalhe assumem o scroll
+      // interno, mantendo cabeçalho e rodapé sempre visíveis.
+      '.up-rec-lateral{position:fixed;top:16px;right:16px;max-height:calc(100vh - 32px);width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 20px 55px rgba(11,28,48,.25);display:flex;flex-direction:column;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;overflow:hidden}',
       '.up-rec-lateral-cabecalho{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:9px 11px;background:linear-gradient(180deg,#f8faff,#fff);border-bottom:1px solid rgba(194,198,214,.5);flex-shrink:0}',
       '.up-rec-lateral-titulo{display:flex;align-items:center;gap:7px;min-width:0}',
       '.up-rec-lateral-titulo-dot{width:6px;height:6px;border-radius:50%;background:#0058be;flex-shrink:0}',
@@ -343,6 +349,10 @@
       '.up-rec-lateral-acoes .up-rec-btn-icone{flex:1;text-align:center;padding:5px 4px;font-size:10px;border:1px solid transparent}',
       '.up-rec-lateral-acoes .up-rec-btn-icone-acento{border-color:rgba(0,88,190,.15)}',
       '.up-rec-lateral-rodape{display:flex;gap:8px;padding:8px 11px;border-top:1px solid rgba(194,198,214,.5);flex-shrink:0;background:#fff}',
+      // "Pré-visualizar" divide o rodapé com o CTA principal (mesma largura
+      // via flex:1) — usa o estilo "acento" já usado em Localizar/Trocar,
+      // pra ficar claro que é uma ação secundária frente a "Finalizar e revisar".
+      '.up-rec-lateral-rodape .up-rec-btn-icone{flex:1;text-align:center;padding:7px 8px;font-size:11.5px}',
       // CTA final evidente (continua sólida, azul, full-width) mas sem o
       // gradiente/sombra "glossy" da rodada anterior — fica claro que é a
       // ação principal do painel sem competir visualmente com o resto.
@@ -1569,6 +1579,11 @@
     tela: null,
     feedbackEscolhido: null,
     fimTimer: null,
+    // true só durante "Pré-visualizar tour" do gravador (ver
+    // recorderPreVisualizarTour) — nesse modo, registrarEventoTour/
+    // tourMarkShown viram no-op (nenhum evento real/marcação de "já visto" é
+    // gerado por uma prévia). Resetado pra false em finalizarTour().
+    preview: false,
   };
 
   function fetchTour(slug) {
@@ -1614,6 +1629,7 @@
   }
 
   function tourMarkShown(tour) {
+    if (tourState.preview) return; // prévia do gravador nunca marca "já visto" no navegador real
     try {
       window.localStorage.setItem(tourShownKey(tour), '1');
     } catch (_err) {}
@@ -1622,7 +1638,7 @@
   function registrarEventoTour(tipoEvento, passoOrdem) {
     var tour = tourState.tour;
     var config = state.config;
-    if (!tour || !config) return;
+    if (!tour || !config || tourState.preview) return; // prévia do gravador nunca gera evento real
     fetch(apiUrl('/api/widget/tour/evento'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -2307,6 +2323,10 @@
     tourState.naoEncontrado = false;
     tourState.tela = null;
     tourState.feedbackEscolhido = null;
+    if (tourState.preview) {
+      tourState.preview = false;
+      recorderRestaurarAposPreview();
+    }
   }
 
   // "Começar tour" na introdução — só agora o tour é considerado iniciado de
@@ -2402,6 +2422,14 @@
     // não um dado do tour (se a página recarregar no meio, a troca é
     // simplesmente abandonada sem alterar o passo).
     trocaIndice: null,
+    // De onde "Trocar elemento" foi disparado — 'revisao' (revisão final,
+    // comportamento original) ou 'painel-lateral'. Define pra onde voltar ao
+    // aplicar/cancelar a troca (recorderAplicarNovoSeletor e os cancelamentos
+    // em recorderCancelarTroca/recorderMostrarEscolhaSeletor): 'revisao' volta
+    // pra recorderRenderRevisao(), 'painel-lateral' volta pro próprio painel
+    // lateral com o mesmo passo selecionado, sem nunca abrir a revisão final.
+    // Também efêmero, mesmo motivo de trocaIndice.
+    trocaOrigem: null,
     // Liga/desliga a exibição das sugestões do "Analisar passos" — também
     // efêmero (não persistido), só controla se o bloco de sugestões aparece.
     analiseAtiva: false,
@@ -3083,6 +3111,7 @@
       '</div>',
       '</div>',
       '<div class="up-rec-lateral-rodape">',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-lat-preview title="Pré-visualizar o tour com os passos atuais, sem finalizar a gravação">Pré-visualizar</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-lat-finalizar' + (passos.length === 0 ? ' disabled' : '') + '>Finalizar e revisar</button>',
       '</div>',
     ].join('');
@@ -3210,6 +3239,71 @@
     if (root) root.remove();
   }
 
+  // Pré-visualização do tour com os passos atuais (capturados/editados),
+  // sem finalizar a gravação, gerar JSON ou limpar recorderState — reaproveita
+  // o runtime real do tour (iniciarTour) pra usar título/descrição/posição do
+  // tooltip/modo de avanço exatamente como o usuário final veria. tourState.preview
+  // marca a sessão como prévia: registrarEventoTour/tourMarkShown não fazem
+  // nada enquanto ativo (ver definições), então nenhum evento de analytics ou
+  // marcação de "já visto" é gerado por uma prévia. finalizarTour() já reseta
+  // esse marcador ao encerrar (Concluir, Pular, Esc, fechar a tela final),
+  // então o usuário volta pro painel lateral automaticamente — ele nunca foi
+  // escondido (só fica visualmente atrás do overlay do tour, que tem z-index
+  // menor que o painel/barra do gravador).
+  function recorderPreVisualizarTour() {
+    if (recorderState.passos.length === 0) {
+      recorderMostrarAvisoBarra('Adicione ao menos um passo para pré-visualizar.');
+      return;
+    }
+
+    // A barra flutuante e o painel lateral têm z-index mais alto que o
+    // overlay do tour (necessário nos demais fluxos, pra nunca ficarem
+    // escondidos atrás de um tour real) — durante a prévia isso pode cobrir o
+    // tooltip/botões Próximo/Voltar dependendo de onde ele é posicionado.
+    // Escondidos aqui (nunca removidos do estado — só o elemento do DOM da
+    // barra fica display:none, e o painel lateral é fechado normalmente,
+    // reaberto por recorderRestaurarAposPreview quando finalizarTour() roda).
+    var bar = document.getElementById(RECORDER_BAR_ID);
+    if (bar) bar.style.display = 'none';
+    recorderFecharPainelLateral();
+
+    var meta = recorderState.meta || {};
+    var tourPreview = {
+      id: null,
+      titulo: meta.titulo || 'Pré-visualização do tour',
+      descricao: meta.descricao || '',
+      passos: recorderState.passos.map(function (p) {
+        return {
+          titulo: p.titulo,
+          descricao: p.descricao,
+          seletor_tipo: p.seletor_tipo,
+          seletor: p.seletor,
+          tooltip_posicao: p.tooltip_posicao,
+          acao_ao_avancar: p.acao_ao_avancar,
+          modo_avanco_interacao: p.modo_avanco_interacao,
+          seletor_confirmacao: p.seletor_confirmacao,
+        };
+      }),
+    };
+    // iniciarTour() chama finalizarTour() internamente primeiro (pra limpar
+    // qualquer tour anterior) — se "preview" já estivesse true nesse
+    // momento, essa limpeza interna seria lida como "uma prévia acabou" e
+    // restauraria a barra/painel prematuramente. Por isso marca só depois.
+    iniciarTour(tourPreview);
+    tourState.preview = true;
+  }
+
+  // Chamado por finalizarTour() quando a sessão que terminou era uma prévia
+  // (ver recorderPreVisualizarTour) — reexibe a barra flutuante e o painel
+  // lateral escondidos antes de iniciar a prévia. recorderState nunca foi
+  // alterado durante a prévia, então o painel volta exatamente como estava
+  // (mesma seleção, mesmos passos).
+  function recorderRestaurarAposPreview() {
+    var bar = document.getElementById(RECORDER_BAR_ID);
+    if (bar) bar.style.display = '';
+    if (recorderState.revisarTempoReal) recorderRenderPainelLateral();
+  }
+
   function recorderPainelLateralOnInput(event) {
     var alvo = event.target;
     if (!(alvo instanceof Element)) return;
@@ -3288,7 +3382,12 @@
     if (alvo.closest('[data-lat-trocar]')) {
       var idxTro = recorderState.painelLateralIndiceSelecionado;
       if (idxTro == null) return;
-      recorderIniciarTrocaElemento(idxTro);
+      recorderIniciarTrocaElemento(idxTro, 'painel-lateral');
+      return;
+    }
+
+    if (alvo.closest('[data-lat-preview]')) {
+      recorderPreVisualizarTour();
       return;
     }
 
@@ -3342,6 +3441,7 @@
   // a interação real do usuário com o sistema acontece normalmente.
   function recorderCapturarClique(event) {
     if (!recorderState.ativo || recorderState.pausado) return;
+    if (tourState.ativo) return; // pré-visualização (ver recorderPreVisualizarTour) em andamento — nunca vira passo novo
     var el = event.target;
     if (!(el instanceof Element) || recorderElementoNaBarra(el)) return;
     if (isEditableTarget(el)) return; // esses vão por input/change, não por clique
@@ -3367,6 +3467,7 @@
   // gravação (elParaIndice evita duplicar a cada nova tecla/seleção).
   function recorderCapturarValor(event) {
     if (!recorderState.ativo || recorderState.pausado) return;
+    if (tourState.ativo) return; // pré-visualização (ver recorderPreVisualizarTour) em andamento — nunca vira passo novo
     var el = event.target;
     if (!(el instanceof Element) || recorderElementoNaBarra(el)) return;
     if (recorderCampoSensivel(el)) return;
@@ -4153,14 +4254,24 @@
   // pausado anterior pra restaurar corretamente ao sair (recorderPararEscutaTroca)
   // — no fluxo já existente via revisão final, já estava pausado, então
   // restaura pausado=true igual antes; sem mudança de comportamento ali.
-  function recorderIniciarTrocaElemento(indice) {
+  function recorderIniciarTrocaElemento(indice, origem) {
     var passo = recorderState.passos[indice];
     if (!passo) return;
     recorderState.trocaIndice = indice;
+    recorderState.trocaOrigem = origem === 'painel-lateral' ? 'painel-lateral' : 'revisao';
     recorderState.pausadoAntesTroca = recorderState.pausado;
     recorderState.pausado = true;
     var painel = document.getElementById(RECORDER_PAINEL_ID);
     if (painel) painel.remove();
+
+    if (recorderState.trocaOrigem === 'painel-lateral') {
+      // Recolhe pro pill enquanto o usuário seleciona o novo elemento — mesma
+      // ideia de remover o painel de revisão acima, mas pro painel lateral
+      // (nunca é removido do DOM, só recolhido; reabre em recorderAplicarNovoSeletor/
+      // recorderCancelarTroca/cancelar da escolha de seletor).
+      recorderState.painelLateralAberto = false;
+      recorderRenderPainelLateral();
+    }
 
     var elementoAtual = null;
     try { elementoAtual = selecionarElementoPasso(passo); } catch (_e) { elementoAtual = null; }
@@ -4251,11 +4362,23 @@
   }
 
   function recorderCancelarTroca() {
-    recorderPararEscutaTroca();
+    recorderPararEscutaTroca(); // já restaura recorderState.pausado = pausadoAntesTroca
+    var indice = recorderState.trocaIndice;
+    var origem = recorderState.trocaOrigem;
     recorderState.trocaIndice = null;
-    // Chegar aqui sempre leva pra revisão final (mesmo vindo do painel
-    // lateral, que não bloqueia a tela) — precisa estar pausado antes de
-    // abri-la, senão a captura normal ficaria ativa por baixo do overlay.
+    recorderState.trocaOrigem = null;
+
+    if (origem === 'painel-lateral') {
+      // Volta pro painel lateral com o mesmo passo selecionado — nunca abre a
+      // revisão final nem gera JSON.
+      recorderState.painelLateralIndiceSelecionado = indice;
+      recorderState.painelLateralAberto = true;
+      recorderRenderPainelLateral();
+      return;
+    }
+
+    // Vindo da revisão final — precisa estar pausado antes de reabri-la,
+    // senão a captura normal ficaria ativa por baixo do overlay.
     recorderState.pausado = true;
     recorderRenderRevisao(); // volta pro painel de revisão sem alterar o passo
   }
@@ -4406,7 +4529,17 @@
       if (!(alvo instanceof Element)) return;
 
       if (alvo.closest('[data-esc-cancelar]')) {
+        var indiceCancelar = recorderState.trocaIndice;
+        var origemCancelar = recorderState.trocaOrigem;
         recorderState.trocaIndice = null;
+        recorderState.trocaOrigem = null;
+        if (origemCancelar === 'painel-lateral') {
+          recorderState.pausado = recorderState.pausadoAntesTroca;
+          recorderState.painelLateralIndiceSelecionado = indiceCancelar;
+          recorderState.painelLateralAberto = true;
+          recorderRenderPainelLateral();
+          return;
+        }
         recorderRenderRevisao(); // cancelar aqui também não altera o passo
         return;
       }
@@ -4427,6 +4560,7 @@
   // automática (o gravador nunca inventa descrição), então fica como estava.
   function recorderAplicarNovoSeletor(el, candidato) {
     var indice = recorderState.trocaIndice;
+    var origem = recorderState.trocaOrigem;
     var passo = recorderState.passos[indice];
     // Defesa extra: só aplica se o candidato tiver um seletor_tipo válido
     // (data_cy ou css) — recorderGerarCandidatosSeletor já só gera esses dois,
@@ -4438,6 +4572,19 @@
       recorderPersistir();
     }
     recorderState.trocaIndice = null;
+    recorderState.trocaOrigem = null;
+
+    if (origem === 'painel-lateral') {
+      // Volta pro painel lateral, mesmo passo continua selecionado — nunca
+      // abre a revisão final nem gera JSON (bug corrigido: antes sempre caía
+      // em recorderRenderRevisao(), mesmo vindo do painel lateral).
+      recorderState.pausado = recorderState.pausadoAntesTroca;
+      recorderState.painelLateralIndiceSelecionado = indice;
+      recorderState.painelLateralAberto = true;
+      recorderRenderPainelLateral();
+      return;
+    }
+
     recorderRenderRevisao();
   }
 
