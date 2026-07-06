@@ -305,6 +305,12 @@
       '.up-rec-lateral-item{display:flex;align-items:flex-start;gap:7px;padding:6px 6px;cursor:pointer;text-align:left;border:0;border-left:3px solid transparent;border-bottom:1px solid rgba(194,198,214,.3);background:transparent;color:#0b1c30;width:100%;transition:background .12s ease}',
       '.up-rec-lateral-lista .up-rec-lateral-item:last-child{border-bottom:0}',
       '.up-rec-lateral-item:hover{background:#eef1f8}',
+      // Arrastar pra reordenar (ver recorderPainelLateralOnDragStart/OnDragOver
+      // /OnDrop) — o item arrastado fica meio transparente, e o item sob o
+      // cursor ganha uma faixa azul no topo indicando onde vai entrar ao soltar.
+      '.up-rec-lateral-item[draggable="true"]{cursor:grab}',
+      '.up-rec-lateral-item-arrastando{opacity:.4}',
+      '.up-rec-lateral-item-dragover{border-top:2px solid #0058be}',
       // Selecionado: faixa azul à esquerda + fundo suave em degradê + sombra
       // discreta, pra parecer um cartão "elevado", não só uma cor de fundo.
       '.up-rec-lateral-item-ativo{background:linear-gradient(90deg,#e4edff,#eef4ff);border-left-color:#0058be;box-shadow:0 1px 4px rgba(0,88,190,.12)}',
@@ -3123,7 +3129,11 @@
 
   function recorderHtmlPainelLateralItem(p, i, ativo) {
     return [
-      '<button type="button" class="up-rec-lateral-item' + (ativo ? ' up-rec-lateral-item-ativo' : '') + '" data-lat-selecionar data-lat-index="' + i + '">',
+      // draggable=true habilita reordenar por arrastar (ver recorderPainelLateralOnDragStart
+      // e cia.) — o botão continua funcionando por clique normalmente
+      // (dragstart só dispara com um gesto de arrasto de verdade, nunca num
+      // clique simples).
+      '<button type="button" class="up-rec-lateral-item' + (ativo ? ' up-rec-lateral-item-ativo' : '') + '" data-lat-selecionar data-lat-index="' + i + '" draggable="true" title="Clique para editar — arraste para reordenar">',
       '<span class="up-rec-lateral-item-numero">' + (i + 1) + '</span>',
       '<span class="up-rec-lateral-item-texto">',
       '<span class="up-rec-lateral-item-rotulo">Passo ' + (i + 1) + (ativo ? ' · editando' : '') + '</span>',
@@ -3368,11 +3378,97 @@
     root.addEventListener('input', recorderPainelLateralOnInput);
     root.addEventListener('change', recorderPainelLateralOnInput);
     root.addEventListener('click', recorderPainelLateralOnClick);
+    root.addEventListener('dragstart', recorderPainelLateralOnDragStart);
+    root.addEventListener('dragover', recorderPainelLateralOnDragOver);
+    root.addEventListener('drop', recorderPainelLateralOnDrop);
+    root.addEventListener('dragend', recorderPainelLateralOnDragEnd);
   }
 
   function recorderFecharPainelLateral() {
     var root = document.getElementById(RECORDER_PAINEL_LATERAL_ID);
     if (root) root.remove();
+  }
+
+  // ─── Reordenar passos por arrastar (painel lateral) ────────────────────
+  // Delegação de eventos nativa de drag-and-drop (dragstart/dragover/drop),
+  // ligada no root do painel lateral em recorderRenderPainelLateral — cada
+  // re-render (reordenar, selecionar, editar campo…) recria o root e
+  // religa os listeners, então nunca sobra referência de root antigo.
+  var recorderDragState = { indiceOrigem: null };
+
+  function recorderPainelLateralOnDragStart(event) {
+    var item = event.target.closest('[data-lat-selecionar]');
+    if (!item) return;
+    recorderDragState.indiceOrigem = Number(item.getAttribute('data-lat-index'));
+    item.classList.add('up-rec-lateral-item-arrastando');
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      try { event.dataTransfer.setData('text/plain', String(recorderDragState.indiceOrigem)); } catch (_e) {}
+    }
+  }
+
+  function recorderPainelLateralOnDragOver(event) {
+    if (recorderDragState.indiceOrigem == null) return;
+    var item = event.target.closest('[data-lat-selecionar]');
+    if (!item) return;
+    event.preventDefault(); // obrigatório pro navegador permitir o drop aqui
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    var lista = item.parentElement;
+    if (lista) {
+      var itens = lista.querySelectorAll('[data-lat-selecionar]');
+      for (var i = 0; i < itens.length; i++) itens[i].classList.remove('up-rec-lateral-item-dragover');
+    }
+    item.classList.add('up-rec-lateral-item-dragover');
+  }
+
+  function recorderLimparEstadoDrag() {
+    recorderDragState.indiceOrigem = null;
+    var marcados = document.querySelectorAll('.up-rec-lateral-item-dragover, .up-rec-lateral-item-arrastando');
+    for (var i = 0; i < marcados.length; i++) {
+      marcados[i].classList.remove('up-rec-lateral-item-dragover', 'up-rec-lateral-item-arrastando');
+    }
+  }
+
+  function recorderPainelLateralOnDrop(event) {
+    var indiceOrigem = recorderDragState.indiceOrigem;
+    var item = event.target.closest('[data-lat-selecionar]');
+    if (indiceOrigem == null || !item) { recorderLimparEstadoDrag(); return; }
+    event.preventDefault();
+    var indiceDestino = Number(item.getAttribute('data-lat-index'));
+    recorderLimparEstadoDrag();
+    recorderReordenarPassos(indiceOrigem, indiceDestino);
+  }
+
+  function recorderPainelLateralOnDragEnd() {
+    recorderLimparEstadoDrag();
+  }
+
+  // Move o passo de indiceOrigem pra indiceDestino em recorderState.passos.
+  // Mantém o passo que estava selecionado continuando selecionado depois —
+  // guarda a REFERÊNCIA do objeto (não o índice) antes de mexer no array,
+  // já que o índice do passo selecionado pode mudar mesmo quando ele não é
+  // o que foi arrastado (ex.: arrastar o passo 1 pro fim empurra todo mundo
+  // uma posição pra trás).
+  function recorderReordenarPassos(indiceOrigem, indiceDestino) {
+    var passos = recorderState.passos;
+    if (indiceOrigem === indiceDestino) return;
+    if (indiceOrigem < 0 || indiceOrigem >= passos.length) return;
+    if (indiceDestino < 0 || indiceDestino >= passos.length) return;
+
+    var passoSelecionado = recorderState.painelLateralIndiceSelecionado != null
+      ? passos[recorderState.painelLateralIndiceSelecionado]
+      : null;
+
+    var passoMovido = passos.splice(indiceOrigem, 1)[0];
+    passos.splice(indiceDestino, 0, passoMovido);
+
+    if (passoSelecionado) {
+      recorderState.painelLateralIndiceSelecionado = passos.indexOf(passoSelecionado);
+    }
+
+    recorderPersistir();
+    recorderAtualizarBarra();
+    recorderRenderPainelLateral();
   }
 
   // Pré-visualização do tour com os passos atuais (capturados/editados),
