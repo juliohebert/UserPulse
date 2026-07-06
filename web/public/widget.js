@@ -3124,12 +3124,68 @@
     ].join('');
   }
 
+  // ─── Alerta de seletor frágil (painel lateral) ─────────────────────────
+  // Heurística por texto do seletor — nunca bloqueia salvar/usar o passo, só
+  // avisa. Só se aplica a seletor_tipo=css: data-cy é sempre considerado
+  // estável (é o próprio propósito do atributo), então nunca entra aqui.
+  var RECORDER_FRAGIL_NTH_REGEX = /:nth-child\(|:nth-of-type\(/i;
+  // Classes que "cheiram" a geradas por build tool (css-in-js, CSS modules —
+  // ex.: css-1a2b3c, sc-AxjAm, styles_button__x7Ff2) ou puramente estruturais/
+  // genéricas sem nenhum significado semântico próprio (container, wrapper…).
+  var RECORDER_FRAGIL_CLASSE_REGEX = /\.(css|sc|jsx|module)-[a-z0-9]+/i;
+  var RECORDER_FRAGIL_CLASSE_GENERICA_REGEX = /\.(container|wrapper|content|inner|outer|row|col|item|box|list|group|panel|section|card|main|body)\d*\b/i;
+  var RECORDER_FRAGIL_CLASSE_HASH_REGEX = /\.[a-zA-Z]+_[a-z0-9]{5,}\b/;
+
+  function recorderSeletorEhFragil(passo) {
+    if (!passo || passo.seletor_tipo !== 'css' || !passo.seletor || !passo.seletor.trim()) return false;
+    var seletor = passo.seletor.trim();
+    if (RECORDER_FRAGIL_NTH_REGEX.test(seletor)) return true;
+    if (RECORDER_FRAGIL_CLASSE_REGEX.test(seletor) || RECORDER_FRAGIL_CLASSE_HASH_REGEX.test(seletor)) return true;
+    // Caminho longo com vários ">" — estrutura profunda, quebra fácil com
+    // qualquer mudança de markup.
+    if ((seletor.match(/>/g) || []).length >= 2) return true;
+    // Classe genérica (container/wrapper/...) sem nenhum id/atributo que
+    // ancore num identificador estável junto — sozinha, é muito rasa.
+    if (RECORDER_FRAGIL_CLASSE_GENERICA_REGEX.test(seletor) && !/[#\[]/.test(seletor)) return true;
+    // Muito dependente de estrutura: 3+ elementos encadeados (com/sem ">"),
+    // sem id nem atributo nenhum pra ancorar.
+    var partes = seletor.split(/\s*>\s*|\s+/).filter(Boolean);
+    if (partes.length >= 3 && !/[#\[]/.test(seletor)) return true;
+    return false;
+  }
+
+  // Reaproveita recorderGerarCandidatosSeletor (mesmo gerador usado ao
+  // capturar/trocar um elemento) contra o elemento ATUAL do passo — se achar
+  // uma opção melhor que a em uso (recomendado/bom, e realmente diferente),
+  // sugere. Só visual: nunca aplica sozinho.
+  function recorderSugerirSeletorAlternativo(passo, elementoAtual) {
+    if (!elementoAtual) return null;
+    var candidatos = recorderGerarCandidatosSeletor(elementoAtual);
+    if (!candidatos.length) return null;
+    var melhor = candidatos[0]; // já vem ordenado: recomendado > bom > frágil
+    if (melhor.qualidade === 'fragil') return null;
+    if (melhor.seletor_tipo === passo.seletor_tipo && melhor.seletor === passo.seletor) return null;
+    return recorderFormatarSeletorAtual({ seletor_tipo: melhor.seletor_tipo, seletor: melhor.seletor });
+  }
+
+  function recorderHtmlAlertaSeletorFragil(passo, elementoAtual) {
+    if (!recorderSeletorEhFragil(passo)) return '';
+    var alternativa = recorderSugerirSeletorAlternativo(passo, elementoAtual);
+    return [
+      '<p style="margin:4px 0 0"><span style="display:inline-block;font-size:10px;line-height:1.3;color:#e65100;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:2px 6px">Seletor frágil. Prefira data-cy, id ou aria-label.</span></p>',
+      (alternativa
+        ? '<p style="margin:2px 0 0"><span style="display:inline-block;font-size:10px;line-height:1.3;color:#0058be;background:#eff4ff;border:1px solid rgba(0,88,190,.15);border-radius:6px;padding:2px 6px">Alternativa sugerida: <code>' + escapeHtml(alternativa) + '</code></span></p>'
+        : ''),
+    ].join('');
+  }
+
   function recorderHtmlPainelLateralDetalhe(passo, indice, total) {
     var elementoAtual = null;
     try { elementoAtual = selecionarElementoPasso(passo); } catch (_e) { elementoAtual = null; }
     return [
       '<div class="up-rec-lateral-preview-wrap">' + recorderHtmlPreview(passo, indice, total) + '</div>',
       (elementoAtual ? '' : '<p style="margin:4px 0 0"><span style="display:inline-block;font-size:10px;line-height:1.3;color:#e65100;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:2px 6px">Elemento não encontrado na tela atual.</span></p>'),
+      recorderHtmlAlertaSeletorFragil(passo, elementoAtual),
       '<label class="up-rec-revisao-label-principal">Título</label>',
       '<input type="text" class="up-rec-input" data-lat-campo="titulo" value="' + escapeHtml(passo.titulo || '') + '">',
       '<label class="up-rec-revisao-label-principal">Descrição</label>',
