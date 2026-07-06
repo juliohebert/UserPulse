@@ -348,6 +348,10 @@
       '.up-rec-lateral-acoes{display:flex;gap:5px;margin-top:7px}',
       '.up-rec-lateral-acoes .up-rec-btn-icone{flex:1;text-align:center;padding:5px 4px;font-size:10px;border:1px solid transparent}',
       '.up-rec-lateral-acoes .up-rec-btn-icone-acento{border-color:rgba(0,88,190,.15)}',
+      // "Testar passo" fica numa linha própria (largura cheia), separado dos
+      // 3 botões estreitos acima — testar é uma ação mais "pesada" (abre uma
+      // prévia de verdade) que merece mais destaque que Localizar/Trocar/Remover.
+      '.up-rec-lateral-testar{display:block;width:100%;text-align:center;margin-top:6px;padding:6px 8px;font-size:11px;border:1px solid rgba(0,88,190,.15)}',
       '.up-rec-lateral-rodape{display:flex;gap:8px;padding:8px 11px;border-top:1px solid rgba(194,198,214,.5);flex-shrink:0;background:#fff}',
       // "Pré-visualizar" divide o rodapé com o CTA principal (mesma largura
       // via flex:1) — usa o estilo "acento" já usado em Localizar/Trocar,
@@ -2291,9 +2295,14 @@
   // nem gerar JSON (mesma garantia já validada pro fluxo normal de Trocar).
   function tourTrocarPassoAtual() {
     if (!tourState.preview) return;
-    var indice = tourState.indice;
+    // tourState.indice é o índice DENTRO do tour temporário da prévia (0, 1,
+    // 2… ou sempre 0 numa prévia de "Testar passo", já que só tem 1 item) —
+    // recorderState.previewIndices traduz de volta pro índice real em
+    // recorderState.passos (ver recorderIniciarPreview).
+    var indices = recorderState.previewIndices;
+    var indiceReal = (indices && indices[tourState.indice] != null) ? indices[tourState.indice] : tourState.indice;
     finalizarTour();
-    recorderIniciarTrocaElemento(indice, 'painel-lateral');
+    recorderIniciarTrocaElemento(indiceReal, 'painel-lateral');
   }
 
   function limparFimTimer() {
@@ -2372,14 +2381,32 @@
     finalizarTour();
   }
 
-  function iniciarTour(tour) {
+  // pularIntro (opcional, default false) — usado só por recorderTestarPasso
+  // (ver mais abaixo): pula a tela de introdução e vai direto pro passo 0,
+  // já que "testar só este passo" não precisa de uma tela de boas-vindas no
+  // meio. preview (opcional, default false) — marca a sessão como prévia do
+  // gravador (ver recorderIniciarPreview); precisa ser setado AQUI, logo após
+  // a limpeza de finalizarTour() e ANTES de qualquer coisa que possa disparar
+  // um evento (irParaPasso quando pularIntro=true chama registrarEventoTour
+  // de forma síncrona se o elemento já existir na tela — setar tourState.preview
+  // só depois de iniciarTour() retornar, como antes, deixava esse evento
+  // escapar sem a marcação de prévia ainda ativa). O disparo real do tour
+  // (iniciarTourPublico/avaliarTourAutomatico) nunca passa esses argumentos,
+  // então continua com introdução normal e preview=false.
+  function iniciarTour(tour, pularIntro, preview) {
     if (!tour || !tour.passos || tour.passos.length === 0) return;
     finalizarTour();
     ensureStyles();
     tourState.tour = tour;
     tourState.ativo = true;
-    tourState.tela = 'intro';
+    tourState.preview = Boolean(preview);
     document.addEventListener('keydown', tourKeydown);
+    if (pularIntro) {
+      bindTourReposHandlers();
+      irParaPasso(0);
+      return;
+    }
+    tourState.tela = 'intro';
     renderTour();
   }
 
@@ -2456,6 +2483,14 @@
     // lateral com o mesmo passo selecionado, sem nunca abrir a revisão final.
     // Também efêmero, mesmo motivo de trocaIndice.
     trocaOrigem: null,
+    // Mapeia o índice do passo DENTRO do tour temporário de prévia (0, 1, 2…)
+    // pro índice REAL em recorderState.passos — necessário porque
+    // "Testar passo" monta um tour de um item só (sempre índice 0 na prévia,
+    // mas o passo testado pode ser qualquer um dos reais). "Pré-visualizar
+    // tour" usa o mapeamento identidade (todos os passos, na mesma ordem).
+    // Lido só por tourTrocarPassoAtual, pra saber qual passo real trocar.
+    // Efêmero (nunca persistido), como trocaIndice/trocaOrigem.
+    previewIndices: null,
     // Liga/desliga a exibição das sugestões do "Analisar passos" — também
     // efêmero (não persistido), só controla se o bloco de sugestões aparece.
     analiseAtiva: false,
@@ -3108,6 +3143,7 @@
       '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-lat-trocar title="Trocar elemento: clique de novo no elemento certo na tela real">Trocar</button>',
       '<button type="button" class="up-rec-btn-icone up-rec-btn-danger" data-lat-remover title="Remover este passo">Remover</button>',
       '</div>',
+      '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento up-rec-lateral-testar" data-lat-testar-passo title="Testar só este passo, sem finalizar a gravação">Testar passo</button>',
     ].join('');
   }
 
@@ -3276,47 +3312,73 @@
   // então o usuário volta pro painel lateral automaticamente — ele nunca foi
   // escondido (só fica visualmente atrás do overlay do tour, que tem z-index
   // menor que o painel/barra do gravador).
+  // Converte um passo de recorderState.passos pro formato aceito por
+  // tourState.tour.passos (iniciarTour) — mesmos campos, sem id/ordem, que
+  // não existem/fazem sentido numa prévia.
+  function recorderMapPassoParaPreview(p) {
+    return {
+      titulo: p.titulo,
+      descricao: p.descricao,
+      seletor_tipo: p.seletor_tipo,
+      seletor: p.seletor,
+      tooltip_posicao: p.tooltip_posicao,
+      acao_ao_avancar: p.acao_ao_avancar,
+      modo_avanco_interacao: p.modo_avanco_interacao,
+      seletor_confirmacao: p.seletor_confirmacao,
+    };
+  }
+
+  // Setup compartilhado entre "Pré-visualizar tour" (todos os passos) e
+  // "Testar passo" (um só) — esconde a barra/painel do gravador (nunca
+  // removidos do estado, só do DOM; recorderRestaurarAposPreview reabre
+  // quando finalizarTour() roda), guarda o mapeamento índice-da-prévia →
+  // índice real (previewIndices, usado por tourTrocarPassoAtual) e inicia o
+  // tour já marcado como prévia (preview=true em iniciarTour — precisa ser
+  // exatamente ali, não depois, senão pularIntro=true dispararia
+  // registrarEventoTour de dentro de irParaPasso ainda sem a marcação).
+  function recorderIniciarPreview(tourPreview, indicesReais, pularIntro) {
+    var bar = document.getElementById(RECORDER_BAR_ID);
+    if (bar) bar.style.display = 'none';
+    recorderFecharPainelLateral();
+    recorderState.previewIndices = indicesReais;
+    iniciarTour(tourPreview, pularIntro, true);
+  }
+
   function recorderPreVisualizarTour() {
     if (recorderState.passos.length === 0) {
       recorderMostrarAvisoBarra('Adicione ao menos um passo para pré-visualizar.');
       return;
     }
-
-    // A barra flutuante e o painel lateral têm z-index mais alto que o
-    // overlay do tour (necessário nos demais fluxos, pra nunca ficarem
-    // escondidos atrás de um tour real) — durante a prévia isso pode cobrir o
-    // tooltip/botões Próximo/Voltar dependendo de onde ele é posicionado.
-    // Escondidos aqui (nunca removidos do estado — só o elemento do DOM da
-    // barra fica display:none, e o painel lateral é fechado normalmente,
-    // reaberto por recorderRestaurarAposPreview quando finalizarTour() roda).
-    var bar = document.getElementById(RECORDER_BAR_ID);
-    if (bar) bar.style.display = 'none';
-    recorderFecharPainelLateral();
-
     var meta = recorderState.meta || {};
     var tourPreview = {
       id: null,
       titulo: meta.titulo || 'Pré-visualização do tour',
       descricao: meta.descricao || '',
-      passos: recorderState.passos.map(function (p) {
-        return {
-          titulo: p.titulo,
-          descricao: p.descricao,
-          seletor_tipo: p.seletor_tipo,
-          seletor: p.seletor,
-          tooltip_posicao: p.tooltip_posicao,
-          acao_ao_avancar: p.acao_ao_avancar,
-          modo_avanco_interacao: p.modo_avanco_interacao,
-          seletor_confirmacao: p.seletor_confirmacao,
-        };
-      }),
+      passos: recorderState.passos.map(recorderMapPassoParaPreview),
     };
-    // iniciarTour() chama finalizarTour() internamente primeiro (pra limpar
-    // qualquer tour anterior) — se "preview" já estivesse true nesse
-    // momento, essa limpeza interna seria lida como "uma prévia acabou" e
-    // restauraria a barra/painel prematuramente. Por isso marca só depois.
-    iniciarTour(tourPreview);
-    tourState.preview = true;
+    var indices = recorderState.passos.map(function (_, i) { return i; });
+    recorderIniciarPreview(tourPreview, indices);
+  }
+
+  // "Testar passo" (painel lateral, passo selecionado) — mesma prévia real
+  // do tour, mas com um único passo. Pula a tela de introdução (pularIntro=true
+  // em recorderIniciarPreview) — testar um passo só não precisa de boas-vindas.
+  // Se o elemento não for encontrado, cai no mesmo estado "Elemento não
+  // encontrado" de sempre (renderTourNaoEncontrado), com "Trocar elemento
+  // deste passo" disponível (tourState.preview) — tourTrocarPassoAtual usa
+  // previewIndices pra saber que o índice 0 da prévia é, na verdade,
+  // recorderState.passos[indice] real.
+  function recorderTestarPasso(indice) {
+    var passo = recorderState.passos[indice];
+    if (!passo) return;
+    var meta = recorderState.meta || {};
+    var tourPreview = {
+      id: null,
+      titulo: passo.titulo || meta.titulo || 'Testar passo',
+      descricao: passo.descricao || '',
+      passos: [recorderMapPassoParaPreview(passo)],
+    };
+    recorderIniciarPreview(tourPreview, [indice], true);
   }
 
   // Chamado por finalizarTour() quando a sessão que terminou era uma prévia
@@ -3409,6 +3471,13 @@
       var idxTro = recorderState.painelLateralIndiceSelecionado;
       if (idxTro == null) return;
       recorderIniciarTrocaElemento(idxTro, 'painel-lateral');
+      return;
+    }
+
+    if (alvo.closest('[data-lat-testar-passo]')) {
+      var idxTeste = recorderState.painelLateralIndiceSelecionado;
+      if (idxTeste == null) return;
+      recorderTestarPasso(idxTeste);
       return;
     }
 
