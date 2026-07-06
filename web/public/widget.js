@@ -1773,6 +1773,14 @@
       '<div class="up-tour-warning">' + icon('close') + '<span>Não encontramos este item na tela. Ele pode estar oculto, indisponível ou você pode estar em outra página.</span></div>',
       '<div class="up-tour-footer up-tour-footer-stack">',
       '<button type="button" class="up-tour-btn up-tour-btn-primary" data-up-tour-retry="true">Tentar novamente</button>',
+      // Só na prévia do gravador (tourState.preview) — no tour real não faz
+      // sentido nem existe recorderIniciarTrocaElemento pra chamar (ver
+      // tourTrocarPassoAtual). Deixa o usuário corrigir o seletor na hora, em
+      // vez de precisar encerrar a prévia, achar o passo no painel lateral e
+      // clicar Trocar manualmente.
+      (tourState.preview
+        ? '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-trocar-passo="true">Trocar elemento deste passo</button>'
+        : ''),
       '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-skip-passo="true">Pular este passo</button>',
       '<button type="button" class="up-tour-btn up-tour-btn-text" data-up-tour-skip="true">Encerrar tour</button>',
       '</div>',
@@ -1991,6 +1999,7 @@
       if (target.closest('[data-up-tour-skip]')) { event.preventDefault(); tourPular(); return; }
       if (target.closest('[data-up-tour-skip-passo]')) { event.preventDefault(); tourPularPasso(); return; }
       if (target.closest('[data-up-tour-retry]')) { event.preventDefault(); tourTentarNovamente(); return; }
+      if (target.closest('[data-up-tour-trocar-passo]')) { event.preventDefault(); tourTrocarPassoAtual(); return; }
       if (target.closest('[data-up-tour-intro-comecar]')) { event.preventDefault(); tourIntroComecar(); return; }
       if (target.closest('[data-up-tour-intro-dispensar]')) { event.preventDefault(); tourIntroDispensar(); return; }
       if (target.closest('[data-up-tour-intro-nunca-mais]')) { event.preventDefault(); tourPular(); return; }
@@ -2268,6 +2277,23 @@
   // navegação manual do usuário até a tela certa etc.).
   function tourTentarNovamente() {
     irParaPasso(tourState.indice);
+  }
+
+  // "Trocar elemento deste passo", só disponível no estado "elemento não
+  // encontrado" durante uma prévia do gravador (ver tourState.preview e
+  // recorderPreVisualizarTour) — nunca aparece no tour real (renderTourNaoEncontrado
+  // só inclui o botão quando tourState.preview é true). Fecha a prévia
+  // (finalizarTour() já restaura a barra/painel do gravador, escondidos
+  // durante a prévia — ver recorderRestaurarAposPreview) e entra direto no
+  // fluxo de "Trocar" do passo que falhou, com origem 'painel-lateral' — ao
+  // confirmar um novo seletor, recorderFinalizarTrocaElemento() volta pro
+  // painel lateral com esse mesmo passo selecionado, sem abrir revisão final
+  // nem gerar JSON (mesma garantia já validada pro fluxo normal de Trocar).
+  function tourTrocarPassoAtual() {
+    if (!tourState.preview) return;
+    var indice = tourState.indice;
+    finalizarTour();
+    recorderIniciarTrocaElemento(indice, 'painel-lateral');
   }
 
   function limparFimTimer() {
