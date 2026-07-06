@@ -559,6 +559,61 @@
       '.up-rec-qualidade-recomendado{background:rgba(0,105,71,.1);color:#006947}',
       '.up-rec-qualidade-bom{background:rgba(0,88,190,.1);color:#0058be}',
       '.up-rec-qualidade-fragil{background:rgba(230,81,0,.12);color:#e65100}',
+      // Onboarding Guiado (Jornadas) — painel lateral simples + botão flutuante.
+      '.up-jorn-painel{position:fixed;top:0;right:0;bottom:0;width:360px;max-width:92vw;background:#fff;border-left:1px solid #e0e2ef;box-shadow:-12px 0 32px rgba(11,28,48,.14);display:flex;flex-direction:column}',
+      '.up-jorn-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid rgba(194,198,214,.45);flex-shrink:0}',
+      '.up-jorn-header-titulo{margin:0;font-size:16px;font-weight:800;color:#0b1c30}',
+      '.up-jorn-body{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px}',
+      '.up-jorn-card{border:1px solid #e0e2ef;border-radius:14px;padding:14px;background:#f8f9ff}',
+      '.up-jorn-card-titulo{margin:0 0 4px;font-size:14px;font-weight:800;color:#0b1c30}',
+      '.up-jorn-card-desc{margin:0 0 10px;font-size:12.5px;line-height:1.4;color:#424754}',
+      '.up-jorn-progresso{margin-bottom:10px}',
+      '.up-jorn-progresso-barra{height:6px;border-radius:999px;background:#e0e2ef;overflow:hidden;margin-bottom:5px}',
+      '.up-jorn-progresso-fill{height:100%;background:#0058be;border-radius:999px;transition:width .25s ease}',
+      '.up-jorn-progresso-texto{font-size:11px;font-weight:700;color:#727785}',
+      '.up-jorn-etapas{display:flex;flex-direction:column;gap:8px}',
+      '.up-jorn-etapa{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid #e0e2ef;border-radius:12px;background:#fff;cursor:pointer;text-align:left;width:100%;font-family:inherit;transition:border-color .15s ease,background .15s ease}',
+      '.up-jorn-etapa:hover{border-color:#0058be;background:#f6f9ff}',
+      '.up-jorn-etapa:disabled{opacity:.55;cursor:not-allowed}',
+      '.up-jorn-etapa-concluida{border-color:rgba(0,105,71,.35);background:#f2faf6}',
+      // Concluída não é "indisponível" (opacidade/not-allowed do disabled
+      // genérico acima) — é um estado positivo, então some com o esmaecimento
+      // e usa cursor default em vez de not-allowed.
+      '.up-jorn-etapa-concluida:disabled{opacity:1;cursor:default}',
+      '.up-jorn-etapa-num{flex-shrink:0;width:22px;height:22px;border-radius:999px;background:#eff4ff;color:#0058be;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center}',
+      '.up-jorn-etapa-check{flex-shrink:0;width:22px;height:22px;border-radius:999px;background:#006947;color:#fff;display:flex;align-items:center;justify-content:center}',
+      '.up-jorn-etapa-check svg{width:13px;height:13px;fill:currentColor}',
+      '.up-jorn-etapa-corpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}',
+      '.up-jorn-etapa-titulo{font-size:13px;font-weight:700;color:#0b1c30}',
+      '.up-jorn-etapa-desc{font-size:11.5px;color:#424754;line-height:1.35}',
+      '.up-jorn-etapa-tipo{font-size:10px;font-weight:700;color:#8a90a3;text-transform:uppercase;letter-spacing:.02em}',
+      // Estrutura em 2 níveis: jornada (título/descrição/progresso geral) lista
+      // seus pacotes (BlocoJornada); cada pacote abre pra sua própria lista de
+      // etapas (reaproveita .up-jorn-etapas/.up-jorn-etapa já existentes).
+      '.up-jorn-jornada + .up-jorn-jornada{margin-top:18px;padding-top:18px;border-top:1px solid #e0e2ef}',
+      '.up-jorn-jornada-concluida{display:flex;align-items:center;gap:6px;margin:0 0 10px;font-size:12px;font-weight:800;color:#006947}',
+      '.up-jorn-jornada-concluida svg{width:14px;height:14px;fill:currentColor}',
+      '.up-jorn-pacotes{display:flex;flex-direction:column;gap:8px}',
+      '.up-jorn-pacote{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px;border:1px solid #e0e2ef;border-radius:12px;background:#fff;cursor:pointer;text-align:left;width:100%;font-family:inherit;transition:border-color .15s ease,background .15s ease}',
+      '.up-jorn-pacote:hover{border-color:#0058be;background:#f6f9ff}',
+      '.up-jorn-pacote:disabled{opacity:.55;cursor:not-allowed}',
+      '.up-jorn-pacote-concluido{border-color:rgba(0,105,71,.35);background:#f2faf6}',
+      '.up-jorn-pacote-corpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}',
+      '.up-jorn-pacote-titulo{font-size:13px;font-weight:700;color:#0b1c30}',
+      '.up-jorn-pacote-desc{font-size:11.5px;color:#424754;line-height:1.35}',
+      '.up-jorn-pacote-cta{flex-shrink:0;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#0058be;white-space:nowrap}',
+      '.up-jorn-pacote-cta-concluido{color:#006947}',
+      '.up-jorn-pacote-cta svg{width:13px;height:13px;fill:currentColor}',
+      '.up-jorn-etapas-header{margin-bottom:10px}',
+      '.up-jorn-voltar{display:flex;align-items:center;gap:5px;background:transparent;border:0;padding:0;margin-bottom:10px;font-family:inherit;font-size:12px;font-weight:700;color:#0058be;cursor:pointer}',
+      '.up-jorn-voltar:hover{text-decoration:underline}',
+      '.up-jorn-voltar svg{width:14px;height:14px;fill:currentColor}',
+      '.up-jorn-vazio{padding:32px 16px;text-align:center}',
+      '.up-jorn-vazio-texto{margin:0;font-size:13px;color:#727785}',
+      '.up-jorn-fab{position:fixed;bottom:24px;right:24px;height:44px;padding:0 18px 0 14px;border:0;border-radius:999px;background:#0058be;color:#fff;box-shadow:0 14px 32px rgba(0,88,190,.28);display:flex;align-items:center;gap:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:800;transition:transform .18s ease,box-shadow .18s ease}',
+      '.up-jorn-fab:hover{transform:translateY(-1px);box-shadow:0 18px 38px rgba(0,88,190,.34)}',
+      '.up-jorn-fab svg{width:18px;height:18px;fill:currentColor}',
+      '@media (max-width:480px){.up-jorn-painel{width:100vw;max-width:100vw}}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -578,6 +633,12 @@
     }
     if (name === 'undo') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8Z"/></svg>';
+    }
+    if (name === 'route') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v2H4zm0 5h10v2H4zm0 5h16v2H4z"/></svg>';
+    }
+    if (name === 'arrow_back') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20Z"/></svg>';
     }
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8l-5 4V6a2 2 0 0 1 2-2Zm0 13.85L7.3 15H20V6H4v11.85Z"/></svg>';
   }
@@ -1285,6 +1346,11 @@
     }
 
     if (normalized.sistema) avaliarTourAutomatico(normalized);
+
+    // Jornadas nunca disparam sozinhas — só reavalia se o botão flutuante deve
+    // aparecer (não reabre o painel, mesmo que estivesse aberto antes do init()).
+    fecharJornadaPainel();
+    avaliarJornadasParaBotao(normalized);
   }
 
   function track(eventoNome, metadataOpcional) {
@@ -4659,6 +4725,413 @@
     }).catch(function () { /* fail silently */ });
   }
 
+  // ─── Onboarding Guiado (Jornadas) — MVP ────────────────────────────────────
+  // Central/checklist que o usuário abre manualmente — via
+  // window.UserPulse.abrirJornadas() ou pelo botão flutuante "Jornada" (Parte 3),
+  // que só aparece quando há jornada elegível. Nunca dispara sozinha, ao
+  // contrário de campanhas/tours automáticos (avaliarTourAutomatico/checkMode).
+  //
+  // Estrutura: Jornada -> BlocoJornada ("Pacote" na UI/widget) -> EtapaJornada.
+  // Navegação em 2 níveis: painel inicial lista os Pacotes de cada jornada
+  // elegível; clicar em "Iniciar"/"Continuar" abre as etapas daquele pacote;
+  // "Voltar para pacotes" retorna à lista. permitir_refazer continua sendo
+  // uma configuração da Jornada (não do pacote/etapa).
+  //
+  // Limitação conhecida (MVP): etapas do tipo "campanha" ficam desabilitadas no
+  // painel, com a mensagem "Campanha será suportada em breve". Disparar uma
+  // campanha manualmente reaproveitando fetchCampaign/render exigiria dividir
+  // o slot único state.campanha (hoje usado só pela avaliação automática por
+  // sistema/tela) sem quebrar o fluxo existente — fica para uma fase seguinte,
+  // conforme combinado.
+
+  var JORNADA_PAINEL_ID = 'userpulse-jornada-painel';
+  var JORNADA_FAB_ID = 'userpulse-jornada-fab';
+
+  var jornadaState = {
+    jornadas: [],
+    aberto: false,
+    fabDisponivel: false,
+    // null = mostrando a lista de pacotes; { jornadaId, blocoId } = dentro das
+    // etapas de um pacote específico.
+    blocoAtivo: null,
+  };
+
+  function fetchJornadas(sistema, tela, usuario_id, contexto) {
+    var params = new URLSearchParams();
+    if (sistema) params.set('sistema', sistema);
+    if (tela) params.set('tela', tela);
+    if (usuario_id) params.set('usuario_id', usuario_id);
+    appendContexto(params, contexto);
+    return fetch(apiUrl('/api/widget/jornadas?' + params.toString()), {
+      headers: { Accept: 'application/json' },
+    }).then(function (response) {
+      if (!response.ok) return [];
+      return response.json();
+    });
+  }
+
+  function jornadaEncontrar(jornadaId) {
+    for (var i = 0; i < jornadaState.jornadas.length; i++) {
+      if (jornadaState.jornadas[i].id === jornadaId) return jornadaState.jornadas[i];
+    }
+    return null;
+  }
+
+  function jornadaEncontrarBloco(jornada, blocoId) {
+    if (!jornada || !jornada.blocos) return null;
+    for (var i = 0; i < jornada.blocos.length; i++) {
+      if (jornada.blocos[i].id === blocoId) return jornada.blocos[i];
+    }
+    return null;
+  }
+
+  // contextoExtra (opcional) é mesclado por cima do contexto padrão do widget
+  // — usado hoje só para marcar { refazer: true } quando jornada.permitir_refazer
+  // libera reexecutar uma etapa já concluída. bloco_id é opcional (null nos
+  // eventos de nível jornada, preenchido nos de nível pacote/etapa).
+  function registrarEventoJornada(jornadaId, blocoId, etapaId, tipoEvento, contextoExtra) {
+    var config = state.config;
+    if (!config || !jornadaId) return;
+    var contexto = contextoExtra
+      ? Object.assign({}, config.contexto || {}, contextoExtra)
+      : (config.contexto || undefined);
+    fetch(apiUrl('/api/widget/jornada/evento'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        jornada_id: jornadaId,
+        bloco_id: blocoId != null ? blocoId : undefined,
+        etapa_id: etapaId != null ? etapaId : undefined,
+        tipo_evento: tipoEvento,
+        usuario_id: config.usuario_id || undefined,
+        sistema: config.sistema || undefined,
+        tela: config.tela || undefined,
+        navegador: window.navigator.userAgent,
+        dispositivo: getDevice(),
+        contexto: contexto,
+      }),
+    }).catch(function () { /* fail silently */ });
+  }
+
+  function jornadaTipoLabel(etapa) {
+    if (etapa.tipo === 'tour') return 'Tour guiado';
+    if (etapa.tipo === 'campanha') return 'Campanha · em breve';
+    return 'Link';
+  }
+
+  function renderJornadaEtapaHtml(jornada, bloco, etapa, index) {
+    var status = etapa.status || 'pendente';
+    var concluida = status === 'concluida';
+    // permitir_refazer é configurado na Jornada (não no pacote/etapa) — só
+    // libera reexecutar uma etapa já concluída quando true; por padrão (false)
+    // fica bloqueada.
+    var podeRefazer = concluida && Boolean(jornada.permitir_refazer);
+    // disabled nativo bloqueia clique/reexecução no próprio DOM (o clique nem
+    // chega ao listener delegado) — não depende só da checagem em
+    // jornadaPainelClick, que fica como segunda camada de segurança.
+    var desabilitada = (concluida && !podeRefazer) || etapa.tipo === 'campanha';
+    var classe = 'up-jorn-etapa' + (concluida ? ' up-jorn-etapa-concluida' : '');
+    var marcador = concluida
+      ? '<span class="up-jorn-etapa-check">' + icon('check') + '</span>'
+      : '<span class="up-jorn-etapa-num">' + (index + 1) + '</span>';
+    var tituloAttr = concluida
+      ? (podeRefazer ? ' title="Clique para refazer esta etapa."' : ' title="Etapa já concluída."')
+      : (etapa.tipo === 'campanha' ? ' title="Campanha será suportada em breve."' : '');
+    var tipoTexto = concluida
+      ? (podeRefazer ? 'Concluída · Refazer' : 'Concluída')
+      : jornadaTipoLabel(etapa) + (etapa.obrigatoria ? '' : ' · opcional');
+    return (
+      '<button type="button" class="' + classe + '"' +
+        ' data-up-jorn-jornada="' + escapeHtml(jornada.id) + '"' +
+        ' data-up-jorn-bloco="' + escapeHtml(bloco.id) + '"' +
+        ' data-up-jorn-etapa="' + index + '"' +
+        (desabilitada ? ' disabled' : '') + tituloAttr +
+      '>' +
+        marcador +
+        '<span class="up-jorn-etapa-corpo">' +
+          '<span class="up-jorn-etapa-titulo">' + escapeHtml(etapa.titulo) + '</span>' +
+          (etapa.descricao ? '<span class="up-jorn-etapa-desc">' + escapeHtml(etapa.descricao) + '</span>' : '') +
+          '<span class="up-jorn-etapa-tipo">' + escapeHtml(tipoTexto) + '</span>' +
+        '</span>' +
+      '</button>'
+    );
+  }
+
+  function renderJornadaPacoteCardHtml(jornada, bloco) {
+    var progresso = bloco.progresso || { concluido: false, etapas_concluidas: 0, etapas_total: (bloco.etapas || []).length };
+    var pct = progresso.etapas_total > 0 ? Math.round((progresso.etapas_concluidas / progresso.etapas_total) * 100) : 0;
+    var iniciado = progresso.etapas_concluidas > 0;
+    var textoCta = progresso.concluido ? 'Concluído' : (iniciado ? 'Continuar' : 'Iniciar');
+    var desabilitado = !bloco.ativo;
+    return (
+      '<button type="button" class="up-jorn-pacote' + (progresso.concluido ? ' up-jorn-pacote-concluido' : '') + '"' +
+        ' data-up-jorn-jornada="' + escapeHtml(jornada.id) + '"' +
+        ' data-up-jorn-abrir-bloco="' + escapeHtml(bloco.id) + '"' +
+        (desabilitado ? ' disabled title="Pacote indisponível no momento."' : '') +
+      '>' +
+        '<span class="up-jorn-pacote-corpo">' +
+          '<span class="up-jorn-pacote-titulo">' + escapeHtml(bloco.titulo) + '</span>' +
+          (bloco.descricao ? '<span class="up-jorn-pacote-desc">' + escapeHtml(bloco.descricao) + '</span>' : '') +
+          '<span class="up-jorn-progresso">' +
+            '<span class="up-jorn-progresso-barra"><span class="up-jorn-progresso-fill" style="width:' + pct + '%"></span></span>' +
+            '<span class="up-jorn-progresso-texto">' + progresso.etapas_concluidas + ' de ' + progresso.etapas_total + ' etapas concluídas</span>' +
+          '</span>' +
+        '</span>' +
+        '<span class="up-jorn-pacote-cta' + (progresso.concluido ? ' up-jorn-pacote-cta-concluido' : '') + '">' +
+          (progresso.concluido ? icon('check') : '') + textoCta +
+        '</span>' +
+      '</button>'
+    );
+  }
+
+  function renderJornadaCardHtml(jornada) {
+    var blocos = jornada.blocos || [];
+    var progresso = jornada.progresso || { concluida: false, blocos_concluidos: 0, blocos_total: blocos.length };
+    var pacotesHtml = blocos.map(function (b) { return renderJornadaPacoteCardHtml(jornada, b); }).join('');
+    return (
+      '<div class="up-jorn-jornada">' +
+        '<h4 class="up-jorn-card-titulo">' + escapeHtml(jornada.titulo) + '</h4>' +
+        (jornada.descricao ? '<p class="up-jorn-card-desc">' + escapeHtml(jornada.descricao) + '</p>' : '') +
+        (progresso.concluida
+          ? '<p class="up-jorn-jornada-concluida">' + icon('check') + ' Jornada concluída</p>'
+          : '<p class="up-jorn-progresso-texto" style="margin-bottom:8px">' + progresso.blocos_concluidos + ' de ' + progresso.blocos_total + ' pacotes concluídos</p>') +
+        '<div class="up-jorn-pacotes">' + pacotesHtml + '</div>' +
+      '</div>'
+    );
+  }
+
+  function renderJornadaListaPacotesHtml() {
+    if (jornadaState.jornadas.length === 0) {
+      return '<div class="up-jorn-vazio"><p class="up-jorn-vazio-texto">Nenhuma jornada disponível no momento.</p></div>';
+    }
+    return jornadaState.jornadas.map(renderJornadaCardHtml).join('');
+  }
+
+  function renderJornadaEtapasDoBlocoHtml(jornada, bloco) {
+    var etapas = bloco.etapas || [];
+    var etapasHtml = etapas.map(function (e, i) { return renderJornadaEtapaHtml(jornada, bloco, e, i); }).join('');
+    return (
+      '<div class="up-jorn-etapas-header">' +
+        '<button type="button" class="up-jorn-voltar" data-up-jorn-voltar-pacotes>' + icon('arrow_back') + ' Voltar para pacotes</button>' +
+        '<h4 class="up-jorn-card-titulo">' + escapeHtml(bloco.titulo) + '</h4>' +
+        (bloco.descricao ? '<p class="up-jorn-card-desc">' + escapeHtml(bloco.descricao) + '</p>' : '') +
+      '</div>' +
+      '<div class="up-jorn-etapas">' + etapasHtml + '</div>'
+    );
+  }
+
+  function renderJornadaPainelHtml() {
+    if (jornadaState.blocoAtivo) {
+      var jornada = jornadaEncontrar(jornadaState.blocoAtivo.jornadaId);
+      var bloco = jornadaEncontrarBloco(jornada, jornadaState.blocoAtivo.blocoId);
+      if (jornada && bloco) return renderJornadaEtapasDoBlocoHtml(jornada, bloco);
+      // Estado ficou inconsistente (ex.: dado recarregado) — volta pra lista.
+      jornadaState.blocoAtivo = null;
+    }
+    return renderJornadaListaPacotesHtml();
+  }
+
+  function renderJornadaPainel() {
+    var existente = document.getElementById(JORNADA_PAINEL_ID);
+    if (!jornadaState.aberto) {
+      if (existente) existente.remove();
+      return;
+    }
+    var html =
+      '<div class="up-jorn-painel">' +
+        '<div class="up-jorn-header">' +
+          '<h3 class="up-jorn-header-titulo">Jornadas</h3>' +
+          '<button type="button" class="up-close" data-up-jorn-fechar aria-label="Fechar">' + icon('close') + '</button>' +
+        '</div>' +
+        '<div class="up-jorn-body">' + renderJornadaPainelHtml() + '</div>' +
+      '</div>';
+
+    var root = existente;
+    if (!root) {
+      root = document.createElement('div');
+      root.id = JORNADA_PAINEL_ID;
+      root.className = 'up-widget-root';
+      document.body.appendChild(root);
+      root.addEventListener('click', jornadaPainelClick);
+    }
+    root.innerHTML = html;
+  }
+
+  function fecharJornadaPainel() {
+    if (!jornadaState.aberto) return;
+    jornadaState.aberto = false;
+    jornadaState.blocoAtivo = null;
+    var existente = document.getElementById(JORNADA_PAINEL_ID);
+    if (existente) existente.remove();
+    renderJornadaFab(jornadaState.fabDisponivel);
+  }
+
+  function jornadaAbrirBloco(jornada, bloco) {
+    jornadaState.blocoAtivo = { jornadaId: jornada.id, blocoId: bloco.id };
+    if (!bloco._abertoRegistrado) {
+      bloco._abertoRegistrado = true;
+      registrarEventoJornada(jornada.id, bloco.id, null, 'bloco_aberto');
+    }
+    renderJornadaPainel();
+  }
+
+  function jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra) {
+    etapa.status = 'concluida';
+    registrarEventoJornada(jornada.id, bloco.id, etapa.id, 'etapa_concluida', contextoExtra);
+    renderJornadaPainel();
+    jornadaChecarConclusaoBloco(jornada, bloco);
+  }
+
+  // Bloco (Pacote) concluído: todas as suas etapas obrigatórias concluídas.
+  function jornadaChecarConclusaoBloco(jornada, bloco) {
+    if (bloco.progresso && bloco.progresso.concluido) return
+    var pendentesObrigatorias = (bloco.etapas || []).filter(function (e) {
+      return e.obrigatoria && e.status !== 'concluida';
+    });
+    if (pendentesObrigatorias.length === 0) {
+      if (bloco.progresso) bloco.progresso.concluido = true;
+      registrarEventoJornada(jornada.id, bloco.id, null, 'bloco_concluido');
+      jornadaChecarConclusaoGeral(jornada);
+    }
+  }
+
+  // Jornada concluída: todos os pacotes obrigatórios concluídos.
+  function jornadaChecarConclusaoGeral(jornada) {
+    if (jornada._concluidaRegistrada) return;
+    var pendentesObrigatorios = (jornada.blocos || []).filter(function (b) {
+      return b.obrigatorio && !(b.progresso && b.progresso.concluido);
+    });
+    if (pendentesObrigatorios.length === 0) {
+      jornada._concluidaRegistrada = true;
+      registrarEventoJornada(jornada.id, null, null, 'jornada_concluida');
+    }
+  }
+
+  function jornadaPainelClick(e) {
+    var fechar = e.target.closest('[data-up-jorn-fechar]');
+    if (fechar) { fecharJornadaPainel(); return; }
+
+    var voltar = e.target.closest('[data-up-jorn-voltar-pacotes]');
+    if (voltar) { jornadaState.blocoAtivo = null; renderJornadaPainel(); return; }
+
+    var abrirBloco = e.target.closest('[data-up-jorn-abrir-bloco]');
+    if (abrirBloco) {
+      if (abrirBloco.disabled) return;
+      var jIdBloco = abrirBloco.getAttribute('data-up-jorn-jornada');
+      var bId = abrirBloco.getAttribute('data-up-jorn-abrir-bloco');
+      var jornadaDoBloco = jornadaEncontrar(jIdBloco);
+      var blocoAlvo = jornadaEncontrarBloco(jornadaDoBloco, bId);
+      if (!jornadaDoBloco || !blocoAlvo) return;
+      jornadaAbrirBloco(jornadaDoBloco, blocoAlvo);
+      return;
+    }
+
+    var btn = e.target.closest('[data-up-jorn-etapa]');
+    if (!btn || btn.disabled) return;
+    var jornadaId = btn.getAttribute('data-up-jorn-jornada');
+    var blocoId = btn.getAttribute('data-up-jorn-bloco');
+    var idx = Number(btn.getAttribute('data-up-jorn-etapa'));
+    var jornada = jornadaEncontrar(jornadaId);
+    var bloco = jornadaEncontrarBloco(jornada, blocoId);
+    if (!jornada || !bloco || !bloco.etapas) return;
+    var etapa = bloco.etapas[idx];
+    if (!etapa) return;
+
+    // Etapa já concluída só é reexecutável quando a jornada tem
+    // permitir_refazer=true (configurado no admin) — senão, mesmo bloqueio de
+    // sempre. O botão nativo disabled já impede isso na maioria dos casos;
+    // esta checagem é a segunda camada de segurança.
+    var refazendo = etapa.status === 'concluida';
+    if (refazendo && !jornada.permitir_refazer) return;
+    var contextoExtra = refazendo ? { refazer: true } : undefined;
+
+    if (!jornada._iniciadaRegistrada) {
+      jornada._iniciadaRegistrada = true;
+      registrarEventoJornada(jornada.id, null, null, 'jornada_iniciada');
+    }
+    if (!bloco._iniciadoRegistrado) {
+      bloco._iniciadoRegistrado = true;
+      registrarEventoJornada(jornada.id, bloco.id, null, 'bloco_iniciado');
+    }
+    registrarEventoJornada(jornada.id, bloco.id, etapa.id, 'etapa_aberta', contextoExtra);
+
+    if (etapa.tipo === 'link' && etapa.url) {
+      window.open(etapa.url, etapa.abrir_nova_aba ? '_blank' : '_self', 'noopener,noreferrer');
+      jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
+    } else if (etapa.tipo === 'tour' && etapa.tour && etapa.tour.slug) {
+      // MVP: conclui a etapa já ao iniciar o tour pelo checklist — aguardar a
+      // conclusão real do tour (via EventoTour) fica para uma fase seguinte.
+      jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
+      fecharJornadaPainel();
+      iniciarTourPublico(etapa.tour.slug);
+    }
+    // tipo === 'campanha': sem ação — botão fica desabilitado (ver renderJornadaEtapaHtml).
+  }
+
+  function renderJornadaFab(mostrar) {
+    var existente = document.getElementById(JORNADA_FAB_ID);
+    if (!mostrar || jornadaState.aberto) {
+      if (existente) existente.remove();
+      return;
+    }
+    if (existente) return;
+    ensureStyles();
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = JORNADA_FAB_ID;
+    btn.className = 'up-jorn-fab';
+    btn.setAttribute('aria-label', 'Jornada');
+    btn.innerHTML = icon('route') + '<span>Jornada</span>';
+    btn.addEventListener('click', function () { abrirJornadasPublico(); });
+    document.body.appendChild(btn);
+  }
+
+  // Avaliado no init() (sistema opcional — Jornada não é filtrada por
+  // sistema/tela, só por segmentação) só para decidir se o botão flutuante
+  // aparece. Nunca abre o painel sozinho, nunca inicia tour sozinho.
+  function avaliarJornadasParaBotao(config) {
+    var contexto = resolveContexto();
+    fetchJornadas(config.sistema, config.tela, config.usuario_id, contexto).then(function (jornadas) {
+      jornadaState.fabDisponivel = (jornadas || []).length > 0;
+      renderJornadaFab(jornadaState.fabDisponivel);
+    }).catch(function () {
+      jornadaState.fabDisponivel = false;
+      renderJornadaFab(false);
+    });
+  }
+
+  // API pública para abrir a central de jornadas manualmente (ex.: botão
+  // "Central de ajuda" no host, ou o botão flutuante "Jornada"):
+  //   window.UserPulse.abrirJornadas()
+  function abrirJornadasPublico() {
+    var config = state.config;
+    if (!config) return;
+    ensureStyles();
+    var contexto = resolveContexto();
+    fetchJornadas(config.sistema, config.tela, config.usuario_id, contexto).then(function (jornadas) {
+      // Pré-marca jornada._concluidaRegistrada com o que já veio concluído do
+      // servidor (sessões anteriores) — bloco.progresso.concluido em si já
+      // vem certo do servidor, sem precisar de flag equivalente por bloco.
+      jornadaState.jornadas = (jornadas || []).map(function (j) {
+        j._concluidaRegistrada = Boolean(j.progresso && j.progresso.concluida);
+        return j;
+      });
+      jornadaState.blocoAtivo = null;
+      jornadaState.aberto = true;
+      renderJornadaFab(false);
+      renderJornadaPainel();
+      for (var i = 0; i < jornadaState.jornadas.length; i++) {
+        registrarEventoJornada(jornadaState.jornadas[i].id, null, null, 'jornada_aberta');
+      }
+    }).catch(function () {
+      jornadaState.jornadas = [];
+      jornadaState.blocoAtivo = null;
+      jornadaState.aberto = true;
+      renderJornadaFab(false);
+      renderJornadaPainel();
+    });
+  }
+
   // Drain any calls queued by widget-loader.js before this script finished loading
   var _q = window.UserPulse && window.UserPulse._q;
   window.UserPulse = window.UserPulse || {};
@@ -4666,6 +5139,7 @@
   window.UserPulse.track = track;
   window.UserPulse.updateContext = updateContext;
   window.UserPulse.iniciarTour = iniciarTourPublico;
+  window.UserPulse.abrirJornadas = abrirJornadasPublico;
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
     for (var _qi = 0; _qi < _q.length; _qi++) {
@@ -4674,6 +5148,7 @@
       else if (_qc[0] === 'track') track.apply(null, _qc[1]);
       else if (_qc[0] === 'updateContext') updateContext.apply(null, _qc[1]);
       else if (_qc[0] === 'iniciarTour') iniciarTourPublico.apply(null, _qc[1]);
+      else if (_qc[0] === 'abrirJornadas') abrirJornadasPublico.apply(null, _qc[1]);
     }
   }
 })();

@@ -11,6 +11,7 @@ interface FormState {
   titulo: string
   descricao: string
   ativo: boolean
+  permitir_refazer: boolean
   segmentar_cliente_ids: string[]
   segmentar_unidade_ids: string[]
   segmentar_perfis: string[]
@@ -19,7 +20,7 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
-  titulo: '', descricao: '', ativo: true,
+  titulo: '', descricao: '', ativo: true, permitir_refazer: false,
   segmentar_cliente_ids: [], segmentar_unidade_ids: [], segmentar_perfis: [],
   segmentar_usuario_tipos: [], segmentar_estados: [],
 }
@@ -41,6 +42,19 @@ const ETAPA_VAZIA: EtapaFormState = {
   url: '', texto_cta: 'Abrir', abrir_nova_aba: true, obrigatoria: true,
 }
 
+// Nome técnico: BlocoJornada. Nome visual nesta tela e no widget: "Pacote".
+interface BlocoFormState {
+  titulo: string
+  descricao: string
+  obrigatorio: boolean
+  ativo: boolean
+  etapas: EtapaFormState[]
+}
+
+const BLOCO_VAZIO: BlocoFormState = {
+  titulo: '', descricao: '', obrigatorio: true, ativo: true, etapas: [],
+}
+
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
@@ -58,7 +72,7 @@ export function JornadaForm() {
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [slug, setSlug] = useState('')
-  const [etapas, setEtapas] = useState<EtapaFormState[]>([])
+  const [blocos, setBlocos] = useState<BlocoFormState[]>([])
   const [tours, setTours] = useState<TourGuiado[]>([])
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
   const [loadingJornada, setLoadingJornada] = useState(isEdit)
@@ -91,6 +105,7 @@ export function JornadaForm() {
           titulo: j.titulo,
           descricao: j.descricao ?? '',
           ativo: j.ativo,
+          permitir_refazer: j.permitir_refazer ?? false,
           segmentar_cliente_ids: j.segmentar_cliente_ids ?? [],
           segmentar_unidade_ids: j.segmentar_unidade_ids ?? [],
           segmentar_perfis: j.segmentar_perfis ?? [],
@@ -98,17 +113,23 @@ export function JornadaForm() {
           segmentar_estados: j.segmentar_estados ?? [],
         })
         setSlug(j.slug)
-        setEtapas(
-          (j.etapas ?? []).map(e => ({
-            titulo: e.titulo,
-            descricao: e.descricao ?? '',
-            tipo: e.tipo,
-            tour_id: e.tour_id ?? '',
-            campanha_id: e.campanha_id ?? '',
-            url: e.url ?? '',
-            texto_cta: e.texto_cta ?? 'Abrir',
-            abrir_nova_aba: e.abrir_nova_aba,
-            obrigatoria: e.obrigatoria,
+        setBlocos(
+          (j.blocos ?? []).map(b => ({
+            titulo: b.titulo,
+            descricao: b.descricao ?? '',
+            obrigatorio: b.obrigatorio,
+            ativo: b.ativo,
+            etapas: (b.etapas ?? []).map(e => ({
+              titulo: e.titulo,
+              descricao: e.descricao ?? '',
+              tipo: e.tipo,
+              tour_id: e.tour_id ?? '',
+              campanha_id: e.campanha_id ?? '',
+              url: e.url ?? '',
+              texto_cta: e.texto_cta ?? 'Abrir',
+              abrir_nova_aba: e.abrir_nova_aba,
+              obrigatoria: e.obrigatoria,
+            })),
           }))
         )
       })
@@ -119,16 +140,16 @@ export function JornadaForm() {
   const set = (key: keyof FormState, value: string | boolean | string[]) =>
     setForm(prev => ({ ...prev, [key]: value }))
 
-  const setEtapa = (index: number, patch: Partial<EtapaFormState>) =>
-    setEtapas(prev => prev.map((e, i) => (i === index ? { ...e, ...patch } : e)))
+  const setBloco = (index: number, patch: Partial<BlocoFormState>) =>
+    setBlocos(prev => prev.map((b, i) => (i === index ? { ...b, ...patch } : b)))
 
-  const addEtapa = () => setEtapas(prev => [...prev, { ...ETAPA_VAZIA }])
+  const addBloco = () => setBlocos(prev => [...prev, { ...BLOCO_VAZIO, etapas: [] }])
 
-  const removeEtapa = (index: number) =>
-    setEtapas(prev => prev.filter((_, i) => i !== index))
+  const removeBloco = (index: number) =>
+    setBlocos(prev => prev.filter((_, i) => i !== index))
 
-  const moveEtapa = (index: number, dir: -1 | 1) => {
-    setEtapas(prev => {
+  const moveBloco = (index: number, dir: -1 | 1) => {
+    setBlocos(prev => {
       const next = [...prev]
       const target = index + dir
       if (target < 0 || target >= next.length) return prev
@@ -137,6 +158,29 @@ export function JornadaForm() {
     })
   }
 
+  const setEtapa = (blocoIndex: number, etapaIndex: number, patch: Partial<EtapaFormState>) =>
+    setBlocos(prev => prev.map((b, bi) => (
+      bi !== blocoIndex ? b : { ...b, etapas: b.etapas.map((e, ei) => (ei === etapaIndex ? { ...e, ...patch } : e)) }
+    )))
+
+  const addEtapa = (blocoIndex: number) =>
+    setBlocos(prev => prev.map((b, bi) => (bi === blocoIndex ? { ...b, etapas: [...b.etapas, { ...ETAPA_VAZIA }] } : b)))
+
+  const removeEtapa = (blocoIndex: number, etapaIndex: number) =>
+    setBlocos(prev => prev.map((b, bi) => (
+      bi !== blocoIndex ? b : { ...b, etapas: b.etapas.filter((_, ei) => ei !== etapaIndex) }
+    )))
+
+  const moveEtapa = (blocoIndex: number, etapaIndex: number, dir: -1 | 1) =>
+    setBlocos(prev => prev.map((b, bi) => {
+      if (bi !== blocoIndex) return b
+      const next = [...b.etapas]
+      const target = etapaIndex + dir
+      if (target < 0 || target >= next.length) return b
+      ;[next[etapaIndex], next[target]] = [next[target], next[etapaIndex]]
+      return { ...b, etapas: next }
+    }))
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -144,13 +188,22 @@ export function JornadaForm() {
       setError('O título da jornada é obrigatório.')
       return
     }
-    for (const [i, et] of etapas.entries()) {
-      const n = i + 1
-      if (!et.titulo.trim()) { setError(`Etapa ${n}: título é obrigatório.`); return }
-      if (!et.tipo) { setError(`Etapa ${n}: tipo é obrigatório.`); return }
-      if (et.tipo === 'tour' && !et.tour_id) { setError(`Etapa ${n}: selecione um tour.`); return }
-      if (et.tipo === 'campanha' && !et.campanha_id) { setError(`Etapa ${n}: selecione uma campanha.`); return }
-      if (et.tipo === 'link' && !et.url.trim()) { setError(`Etapa ${n}: informe a URL do link.`); return }
+    if (blocos.length === 0) {
+      setError('A jornada precisa ter pelo menos um pacote.')
+      return
+    }
+    for (const [bi, bloco] of blocos.entries()) {
+      const bn = bi + 1
+      if (!bloco.titulo.trim()) { setError(`Pacote ${bn}: título é obrigatório.`); return }
+      if (bloco.etapas.length === 0) { setError(`Pacote ${bn}: adicione pelo menos uma etapa.`); return }
+      for (const [ei, et] of bloco.etapas.entries()) {
+        const rotulo = `Pacote ${bn} - Etapa ${ei + 1}`
+        if (!et.titulo.trim()) { setError(`${rotulo}: título é obrigatório.`); return }
+        if (!et.tipo) { setError(`${rotulo}: tipo é obrigatório.`); return }
+        if (et.tipo === 'tour' && !et.tour_id) { setError(`${rotulo}: selecione um tour.`); return }
+        if (et.tipo === 'campanha' && !et.campanha_id) { setError(`${rotulo}: selecione uma campanha.`); return }
+        if (et.tipo === 'link' && !et.url.trim()) { setError(`${rotulo}: informe a URL do link.`); return }
+      }
     }
 
     setSubmitting(true)
@@ -161,6 +214,7 @@ export function JornadaForm() {
         titulo: form.titulo.trim(),
         descricao: form.descricao.trim() || null,
         ativo: form.ativo,
+        permitir_refazer: form.permitir_refazer,
         segmentar_cliente_ids: form.segmentar_cliente_ids,
         segmentar_unidade_ids: form.segmentar_unidade_ids,
         segmentar_perfis: form.segmentar_perfis,
@@ -169,16 +223,22 @@ export function JornadaForm() {
         // Só envia os campos compatíveis com o tipo de cada etapa — os demais
         // ficam undefined e somem do JSON, satisfazendo a validação de
         // exclusividade da API (tour_id/campanha_id/url mutuamente exclusivos).
-        etapas: etapas.map(et => ({
-          titulo: et.titulo.trim(),
-          descricao: et.descricao.trim() || null,
-          tipo: et.tipo,
-          tour_id: et.tipo === 'tour' ? et.tour_id : undefined,
-          campanha_id: et.tipo === 'campanha' ? et.campanha_id : undefined,
-          url: et.tipo === 'link' ? et.url.trim() : undefined,
-          texto_cta: et.tipo === 'link' ? (et.texto_cta.trim() || 'Abrir') : undefined,
-          abrir_nova_aba: et.tipo === 'link' ? et.abrir_nova_aba : undefined,
-          obrigatoria: et.obrigatoria,
+        blocos: blocos.map(b => ({
+          titulo: b.titulo.trim(),
+          descricao: b.descricao.trim() || null,
+          obrigatorio: b.obrigatorio,
+          ativo: b.ativo,
+          etapas: b.etapas.map(et => ({
+            titulo: et.titulo.trim(),
+            descricao: et.descricao.trim() || null,
+            tipo: et.tipo,
+            tour_id: et.tipo === 'tour' ? et.tour_id : undefined,
+            campanha_id: et.tipo === 'campanha' ? et.campanha_id : undefined,
+            url: et.tipo === 'link' ? et.url.trim() : undefined,
+            texto_cta: et.tipo === 'link' ? (et.texto_cta.trim() || 'Abrir') : undefined,
+            abrir_nova_aba: et.tipo === 'link' ? et.abrir_nova_aba : undefined,
+            obrigatoria: et.obrigatoria,
+          })),
         })),
       }
 
@@ -221,8 +281,8 @@ export function JornadaForm() {
             </h2>
             <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
               {isEdit
-                ? 'Ajuste as etapas e o destino desta jornada de onboarding.'
-                : 'Monte uma central de onboarding guiada, com etapas que apontam para tours, campanhas ou links.'}
+                ? 'Ajuste os pacotes e o destino desta jornada de onboarding.'
+                : 'Monte uma central de onboarding guiada, organizada em pacotes de etapas.'}
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -314,6 +374,13 @@ export function JornadaForm() {
                   <p className="text-label-sm text-on-surface-variant">Jornadas inativas não aparecem para os usuários.</p>
                 </div>
               </div>
+              <div className="flex items-center gap-3 pt-1">
+                <ToggleSwitch checked={form.permitir_refazer} onChange={v => set('permitir_refazer', v)} />
+                <div>
+                  <p className="text-body-md font-semibold text-on-surface">Permitir que o usuário refaça etapas concluídas</p>
+                  <p className="text-label-sm text-on-surface-variant">Quando desativado, etapas concluídas ficam bloqueadas para o usuário final.</p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -347,55 +414,55 @@ export function JornadaForm() {
             </div>
           </div>
 
-          {/* Etapas */}
+          {/* Pacotes (BlocoJornada) */}
           <div className={card}>
             <CardHeader
               number={nextStep()}
-              icon="checklist"
+              icon="folder_open"
               iconBg="bg-secondary-fixed"
               iconColor="text-secondary"
-              title="Etapas da jornada"
-              description="Defina a sequência de conteúdos que compõem o onboarding."
+              title="Pacotes da jornada"
+              description="Agrupe as etapas em pacotes — o usuário navega pacote por pacote."
               action={
                 <button
                   type="button"
-                  onClick={addEtapa}
+                  onClick={addBloco}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-on-primary rounded-lg text-label-sm font-bold hover:opacity-90 transition-all active:scale-95"
                 >
                   <span className="material-symbols-outlined text-[16px]">add</span>
-                  Adicionar etapa
+                  Adicionar pacote
                 </button>
               }
             />
 
-            {etapas.length === 0 ? (
+            {blocos.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-3 py-10 px-6 text-center border border-dashed border-outline-variant rounded-xl">
-                <span className="material-symbols-outlined text-[32px] text-outline">checklist</span>
+                <span className="material-symbols-outlined text-[32px] text-outline">folder_open</span>
                 <p className="text-body-md text-on-surface-variant max-w-sm">
-                  Nenhuma etapa adicionada ainda. Cada etapa pode apontar para um tour guiado, uma campanha ou um link externo.
+                  Nenhum pacote adicionado ainda. Cada pacote agrupa um conjunto de etapas (tour, campanha ou link).
                 </p>
                 <button
                   type="button"
-                  onClick={addEtapa}
+                  onClick={addBloco}
                   className="px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold"
                 >
-                  Adicionar etapa
+                  Adicionar pacote
                 </button>
               </div>
             ) : (
-              <div className="space-y-3">
-                {etapas.map((et, i) => (
-                  <div key={i} className="rounded-xl border border-outline-variant bg-surface-container-low/40 p-4">
+              <div className="space-y-4">
+                {blocos.map((bloco, bi) => (
+                  <div key={bi} className="rounded-xl border border-outline-variant bg-surface-container-low/60 p-4">
                     <div className="flex items-center justify-between gap-2 mb-3">
                       <span className="text-label-md font-bold text-on-surface flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-primary-fixed text-primary flex items-center justify-center text-[12px] font-bold">{i + 1}</span>
-                        Etapa {i + 1}
+                        <span className="w-6 h-6 rounded-full bg-secondary-fixed text-secondary flex items-center justify-center text-[12px] font-bold">{bi + 1}</span>
+                        Pacote {bi + 1}
                       </span>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
-                          onClick={() => moveEtapa(i, -1)}
-                          disabled={i === 0}
+                          onClick={() => moveBloco(bi, -1)}
+                          disabled={bi === 0}
                           title="Mover para cima"
                           className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                         >
@@ -403,8 +470,8 @@ export function JornadaForm() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => moveEtapa(i, 1)}
-                          disabled={i === etapas.length - 1}
+                          onClick={() => moveBloco(bi, 1)}
+                          disabled={bi === blocos.length - 1}
                           title="Mover para baixo"
                           className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                         >
@@ -412,8 +479,8 @@ export function JornadaForm() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => removeEtapa(i)}
-                          title="Remover etapa"
+                          onClick={() => removeBloco(bi)}
+                          title="Remover pacote"
                           className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors"
                         >
                           <span className="material-symbols-outlined text-[16px]">delete</span>
@@ -421,16 +488,16 @@ export function JornadaForm() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                       <div className="md:col-span-2">
                         <label className="block text-label-sm text-on-surface-variant mb-1">
-                          Título da etapa <span className="text-error">*</span>
+                          Título do pacote <span className="text-error">*</span>
                         </label>
                         <input
                           required
-                          value={et.titulo}
-                          onChange={e => setEtapa(i, { titulo: e.target.value })}
-                          placeholder="Ex: Conheça a agenda"
+                          value={bloco.titulo}
+                          onChange={e => setBloco(bi, { titulo: e.target.value })}
+                          placeholder="Ex: Configurações"
                           className={`${field} text-[13px] py-2`}
                         />
                       </div>
@@ -438,108 +505,208 @@ export function JornadaForm() {
                         <label className="block text-label-sm text-on-surface-variant mb-1">Descrição</label>
                         <textarea
                           rows={2}
-                          value={et.descricao}
-                          onChange={e => setEtapa(i, { descricao: e.target.value })}
-                          placeholder="Texto exibido ao usuário para esta etapa"
+                          value={bloco.descricao}
+                          onChange={e => setBloco(bi, { descricao: e.target.value })}
+                          placeholder="Texto exibido ao usuário para este pacote"
                           className={`${field} text-[13px] py-2 resize-none`}
                         />
                       </div>
-
-                      <div>
-                        <label className="block text-label-sm text-on-surface-variant mb-1">
-                          Tipo <span className="text-error">*</span>
-                        </label>
-                        <Select
-                          size="sm"
-                          value={et.tipo}
-                          onChange={v => setEtapa(i, { tipo: v as TipoEtapaJornada })}
-                          options={TIPOS_ETAPA.map(t => ({ value: t.value, label: t.label }))}
-                        />
-                      </div>
-                      <div className="flex items-end pb-2.5">
+                      <div className="flex items-center gap-2">
                         <label className="flex items-center gap-2 text-body-md text-on-surface cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={et.obrigatoria}
-                            onChange={e => setEtapa(i, { obrigatoria: e.target.checked })}
+                            checked={bloco.obrigatorio}
+                            onChange={e => setBloco(bi, { obrigatorio: e.target.checked })}
                             className="rounded text-primary focus:ring-primary"
                           />
-                          Etapa obrigatória
+                          Pacote obrigatório
                         </label>
                       </div>
+                      <div className="flex items-center gap-2">
+                        <ToggleSwitch checked={bloco.ativo} onChange={v => setBloco(bi, { ativo: v })} />
+                        <span className="text-body-md text-on-surface">{bloco.ativo ? 'Ativo' : 'Inativo'}</span>
+                      </div>
+                    </div>
 
-                      {et.tipo === 'tour' && (
-                        <div className="md:col-span-2">
-                          <label className="block text-label-sm text-on-surface-variant mb-1">
-                            Tour guiado <span className="text-error">*</span>
-                          </label>
-                          <Select
-                            size="sm"
-                            value={et.tour_id}
-                            onChange={v => setEtapa(i, { tour_id: v })}
-                            placeholder="Selecione um tour existente"
-                            options={tours.map(t => ({ value: t.id, label: `${t.titulo}${t.ativo ? '' : ' (inativo)'}` }))}
-                          />
-                          {tours.length === 0 && (
-                            <p className="mt-1 text-[11px] text-outline">Nenhum tour guiado cadastrado ainda.</p>
-                          )}
+                    {/* Etapas do pacote */}
+                    <div className="pl-3 border-l-2 border-outline-variant/60 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-label-sm font-bold text-on-surface-variant uppercase tracking-wider">Etapas deste pacote</p>
+                        <button
+                          type="button"
+                          onClick={() => addEtapa(bi)}
+                          className="flex items-center gap-1 px-2.5 py-1 bg-surface-bright border border-outline-variant rounded-lg text-label-sm font-bold text-on-surface hover:bg-surface-container-low transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[14px]">add</span>
+                          Adicionar etapa
+                        </button>
+                      </div>
+
+                      {bloco.etapas.length === 0 ? (
+                        <p className="text-label-sm text-on-surface-variant py-2">Nenhuma etapa neste pacote ainda.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {bloco.etapas.map((et, ei) => (
+                            <div key={ei} className="rounded-xl border border-outline-variant bg-surface-bright p-4">
+                              <div className="flex items-center justify-between gap-2 mb-3">
+                                <span className="text-label-md font-bold text-on-surface flex items-center gap-2">
+                                  <span className="w-6 h-6 rounded-full bg-primary-fixed text-primary flex items-center justify-center text-[12px] font-bold">{ei + 1}</span>
+                                  Etapa {ei + 1}
+                                </span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => moveEtapa(bi, ei, -1)}
+                                    disabled={ei === 0}
+                                    title="Mover para cima"
+                                    className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => moveEtapa(bi, ei, 1)}
+                                    disabled={ei === bloco.etapas.length - 1}
+                                    title="Mover para baixo"
+                                    className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeEtapa(bi, ei)}
+                                    title="Remover etapa"
+                                    className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors"
+                                  >
+                                    <span className="material-symbols-outlined text-[16px]">delete</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div className="md:col-span-2">
+                                  <label className="block text-label-sm text-on-surface-variant mb-1">
+                                    Título da etapa <span className="text-error">*</span>
+                                  </label>
+                                  <input
+                                    required
+                                    value={et.titulo}
+                                    onChange={e => setEtapa(bi, ei, { titulo: e.target.value })}
+                                    placeholder="Ex: Conheça a agenda"
+                                    className={`${field} text-[13px] py-2`}
+                                  />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <label className="block text-label-sm text-on-surface-variant mb-1">Descrição</label>
+                                  <textarea
+                                    rows={2}
+                                    value={et.descricao}
+                                    onChange={e => setEtapa(bi, ei, { descricao: e.target.value })}
+                                    placeholder="Texto exibido ao usuário para esta etapa"
+                                    className={`${field} text-[13px] py-2 resize-none`}
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-label-sm text-on-surface-variant mb-1">
+                                    Tipo <span className="text-error">*</span>
+                                  </label>
+                                  <Select
+                                    size="sm"
+                                    value={et.tipo}
+                                    onChange={v => setEtapa(bi, ei, { tipo: v as TipoEtapaJornada })}
+                                    options={TIPOS_ETAPA.map(t => ({ value: t.value, label: t.label }))}
+                                  />
+                                </div>
+                                <div className="flex items-end pb-2.5">
+                                  <label className="flex items-center gap-2 text-body-md text-on-surface cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={et.obrigatoria}
+                                      onChange={e => setEtapa(bi, ei, { obrigatoria: e.target.checked })}
+                                      className="rounded text-primary focus:ring-primary"
+                                    />
+                                    Etapa obrigatória
+                                  </label>
+                                </div>
+
+                                {et.tipo === 'tour' && (
+                                  <div className="md:col-span-2">
+                                    <label className="block text-label-sm text-on-surface-variant mb-1">
+                                      Tour guiado <span className="text-error">*</span>
+                                    </label>
+                                    <Select
+                                      size="sm"
+                                      value={et.tour_id}
+                                      onChange={v => setEtapa(bi, ei, { tour_id: v })}
+                                      placeholder="Selecione um tour existente"
+                                      options={tours.map(t => ({ value: t.id, label: `${t.titulo}${t.ativo ? '' : ' (inativo)'}` }))}
+                                    />
+                                    {tours.length === 0 && (
+                                      <p className="mt-1 text-[11px] text-outline">Nenhum tour guiado cadastrado ainda.</p>
+                                    )}
+                                  </div>
+                                )}
+
+                                {et.tipo === 'campanha' && (
+                                  <div className="md:col-span-2">
+                                    <label className="block text-label-sm text-on-surface-variant mb-1">
+                                      Campanha <span className="text-error">*</span>
+                                    </label>
+                                    <Select
+                                      size="sm"
+                                      value={et.campanha_id}
+                                      onChange={v => setEtapa(bi, ei, { campanha_id: v })}
+                                      placeholder="Selecione uma campanha existente"
+                                      options={campanhas.map(c => ({ value: c.id, label: `${c.titulo}${c.ativo ? '' : ' (inativa)'}` }))}
+                                    />
+                                    {campanhas.length === 0 && (
+                                      <p className="mt-1 text-[11px] text-outline">Nenhuma campanha cadastrada ainda.</p>
+                                    )}
+                                  </div>
+                                )}
+
+                                {et.tipo === 'link' && (
+                                  <>
+                                    <div className="md:col-span-2">
+                                      <label className="block text-label-sm text-on-surface-variant mb-1">
+                                        URL <span className="text-error">*</span>
+                                      </label>
+                                      <input
+                                        type="url"
+                                        required
+                                        value={et.url}
+                                        onChange={e => setEtapa(bi, ei, { url: e.target.value })}
+                                        placeholder="https://..."
+                                        className={`${field} text-[13px] py-2`}
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-label-sm text-on-surface-variant mb-1">Texto do botão</label>
+                                      <input
+                                        value={et.texto_cta}
+                                        onChange={e => setEtapa(bi, ei, { texto_cta: e.target.value })}
+                                        placeholder="Abrir"
+                                        className={`${field} text-[13px] py-2`}
+                                      />
+                                    </div>
+                                    <div className="flex items-end pb-2.5">
+                                      <label className="flex items-center gap-2 text-body-md text-on-surface cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={et.abrir_nova_aba}
+                                          onChange={e => setEtapa(bi, ei, { abrir_nova_aba: e.target.checked })}
+                                          className="rounded text-primary focus:ring-primary"
+                                        />
+                                        Abrir em nova aba
+                                      </label>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      )}
-
-                      {et.tipo === 'campanha' && (
-                        <div className="md:col-span-2">
-                          <label className="block text-label-sm text-on-surface-variant mb-1">
-                            Campanha <span className="text-error">*</span>
-                          </label>
-                          <Select
-                            size="sm"
-                            value={et.campanha_id}
-                            onChange={v => setEtapa(i, { campanha_id: v })}
-                            placeholder="Selecione uma campanha existente"
-                            options={campanhas.map(c => ({ value: c.id, label: `${c.titulo}${c.ativo ? '' : ' (inativa)'}` }))}
-                          />
-                          {campanhas.length === 0 && (
-                            <p className="mt-1 text-[11px] text-outline">Nenhuma campanha cadastrada ainda.</p>
-                          )}
-                        </div>
-                      )}
-
-                      {et.tipo === 'link' && (
-                        <>
-                          <div className="md:col-span-2">
-                            <label className="block text-label-sm text-on-surface-variant mb-1">
-                              URL <span className="text-error">*</span>
-                            </label>
-                            <input
-                              type="url"
-                              required
-                              value={et.url}
-                              onChange={e => setEtapa(i, { url: e.target.value })}
-                              placeholder="https://..."
-                              className={`${field} text-[13px] py-2`}
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-label-sm text-on-surface-variant mb-1">Texto do botão</label>
-                            <input
-                              value={et.texto_cta}
-                              onChange={e => setEtapa(i, { texto_cta: e.target.value })}
-                              placeholder="Abrir"
-                              className={`${field} text-[13px] py-2`}
-                            />
-                          </div>
-                          <div className="flex items-end pb-2.5">
-                            <label className="flex items-center gap-2 text-body-md text-on-surface cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={et.abrir_nova_aba}
-                                onChange={e => setEtapa(i, { abrir_nova_aba: e.target.checked })}
-                                className="rounded text-primary focus:ring-primary"
-                              />
-                              Abrir em nova aba
-                            </label>
-                          </div>
-                        </>
                       )}
                     </div>
                   </div>

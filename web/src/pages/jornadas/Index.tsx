@@ -78,7 +78,7 @@ export function JornadasIndex() {
 
   const ativas = jornadas.filter(j => j.ativo).length
   const inativas = jornadas.length - ativas
-  const totalEtapas = jornadas.reduce((s, j) => s + (j._count?.etapas ?? j.etapas?.length ?? 0), 0)
+  const totalEtapas = jornadas.reduce((s, j) => s + (j._count?.etapas ?? 0), 0)
 
   const clearFilters = () => {
     setBusca('')
@@ -285,7 +285,7 @@ export function JornadasIndex() {
                           </div>
                         </td>
                         <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">
-                          {jornada._count?.etapas ?? jornada.etapas?.length ?? 0} etapa(s)
+                          {jornada._count?.etapas ?? 0} etapa(s)
                         </td>
                         <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{formatDateTime(jornada.atualizado_em)}</td>
                         <td className="px-5 py-3.5 align-middle whitespace-nowrap">
@@ -319,7 +319,7 @@ export function JornadasIndex() {
                         <StatusBadge ativo={jornada.ativo} />
                       </div>
                       <span className="text-label-sm text-on-surface-variant">
-                        · {jornada._count?.etapas ?? jornada.etapas?.length ?? 0} etapa(s)
+                        · {jornada._count?.etapas ?? 0} etapa(s)
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
