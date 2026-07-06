@@ -4675,6 +4675,64 @@
     }
   }
 
+  // Decodifica o parâmetro up_rec_passos (base64url de um JSON.stringify de
+  // array de passos — ver encodePassosBase64Url em web/src/utils/tour.ts,
+  // gerado a partir de "Editar fluxo no sistema" em Form.tsx, modo edição).
+  // Base64 padrão (com +/=) quebraria dentro de uma query string sem
+  // encodeURIComponent extra; base64url evita isso.
+  function recorderDecodificarBase64Url(valor) {
+    var base64 = valor.replace(/-/g, '+').replace(/_/g, '/');
+    var resto = base64.length % 4;
+    if (resto) base64 += new Array(5 - resto).join('=');
+    var binario = window.atob(base64);
+    var bytes = new Uint8Array(binario.length);
+    for (var i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+
+  // Sanitiza cada item antes de aceitar no gravador — nunca confia direto no
+  // que veio da URL. Item sem título é descartado individualmente (em vez de
+  // invalidar o lote inteiro); demais campos caem pro mesmo default usado por
+  // recorderRegistrarPasso quando ausentes/tipo errado.
+  function recorderSanitizarPassoInicial(p) {
+    if (!p || typeof p !== 'object') return null;
+    var titulo = typeof p.titulo === 'string' ? p.titulo.trim() : '';
+    if (!titulo) return null;
+    return {
+      titulo: titulo,
+      descricao: typeof p.descricao === 'string' ? p.descricao : '',
+      seletor_tipo: p.seletor_tipo === 'css' ? 'css' : 'data_cy',
+      seletor: typeof p.seletor === 'string' ? p.seletor : '',
+      tooltip_posicao: typeof p.tooltip_posicao === 'string' ? p.tooltip_posicao : 'auto',
+      acao_ao_avancar: typeof p.acao_ao_avancar === 'string' ? p.acao_ao_avancar : 'apenas_avancar',
+      modo_avanco_interacao: typeof p.modo_avanco_interacao === 'string' ? p.modo_avanco_interacao : 'manual',
+      seletor_confirmacao: typeof p.seletor_confirmacao === 'string' ? p.seletor_confirmacao : null,
+    };
+  }
+
+  // Lê up_rec_passos para pré-carregar o gravador com os passos já
+  // cadastrados do tour (modo edição — ver "Editar fluxo no sistema" em
+  // Form.tsx). Qualquer falha (parâmetro ausente, base64/JSON inválido,
+  // formato inesperado) retorna [] em silêncio: o gravador segue funcionando
+  // normalmente, só começa vazio, como já fazia antes desta função existir.
+  function recorderLerPassosIniciais(params) {
+    var bruto = params.get('up_rec_passos');
+    if (!bruto) return [];
+    try {
+      var texto = recorderDecodificarBase64Url(bruto);
+      var lista = JSON.parse(texto);
+      if (!Array.isArray(lista)) return [];
+      var passos = [];
+      for (var i = 0; i < lista.length; i++) {
+        var sanitizado = recorderSanitizarPassoInicial(lista[i]);
+        if (sanitizado) passos.push(sanitizado);
+      }
+      return passos;
+    } catch (_e) {
+      return [];
+    }
+  }
+
   // Chamado no início de init(). Prioridade: retoma uma gravação já em
   // andamento (sessionStorage) mesmo sem ?userpulse_recorder=1 na URL — é
   // exatamente isso que permite sobreviver a um reload de página inteira.
@@ -4697,7 +4755,12 @@
     ensureStyles();
     recorderState.ativo = true;
     recorderState.pausado = false;
-    recorderState.passos = [];
+    // up_rec_passos é opcional (só presente quando "Editar fluxo no sistema"
+    // é aberto em modo edição, com passos já cadastrados) — na criação
+    // (Gravador de Fluxo / TourGravador.tsx) o parâmetro não é enviado e
+    // recorderLerPassosIniciais retorna [], preservando o início vazio de
+    // sempre.
+    recorderState.passos = recorderLerPassosIniciais(params);
     recorderState.navegacoes = [];
     recorderState.ultimoEl = null;
     recorderState.ultimoElTimestamp = 0;
@@ -4714,6 +4777,16 @@
     recorderIniciarCaptura();
     recorderPersistir();
     recorderRenderBarra();
+    // Passos pré-carregados devem aparecer de cara na revisão/lista lateral
+    // (ligar revisarTempoReal só quando há algo pra mostrar — comportamento
+    // padrão de gravação do zero continua igual, painel desligado até o
+    // usuário optar).
+    if (recorderState.passos.length > 0) {
+      recorderState.revisarTempoReal = true;
+      recorderState.painelLateralIndiceSelecionado = recorderState.passos.length - 1;
+      recorderPersistir();
+      recorderRenderPainelLateral();
+    }
   }
 
   // API pública para disparar um tour manualmente (ex.: botão "Ver tour" no host):

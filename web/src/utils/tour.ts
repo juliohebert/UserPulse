@@ -49,16 +49,75 @@ export interface GravadorParams {
   descricao: string
   sistema: string
   prioridade: number
+  // Só enviado em modo edição (TourForm) — pré-carrega o gravador com os
+  // passos já cadastrados do tour (ver recorderLerPassosIniciais em
+  // widget.js). Omitido na criação (TourGravador), que sempre abre vazio.
+  passos?: GravadorPassoPayload[]
 }
 
-export function buildGravadorUrl(params: GravadorParams): string {
+export interface GravadorPassoPayload {
+  titulo: string
+  descricao: string | null
+  seletor_tipo: string
+  seletor: string
+  tooltip_posicao: string
+  acao_ao_avancar: string
+  modo_avanco_interacao: string
+  seletor_confirmacao: string | null
+}
+
+export interface GravadorUrlResultado {
+  url: string
+  // false quando não havia passos pra enviar OU quando o payload codificado
+  // excedeu UP_REC_PASSOS_MAX_LEN (ver aviso em console.warn) — nesse caso o
+  // gravador abre vazio e o fallback "Colar passos gravados" continua sendo
+  // o caminho pra trazer os passos de volta.
+  passosIncluidos: boolean
+}
+
+// Limite conservador pro parâmetro up_rec_passos codificado: URLs muito
+// longas podem estourar limites do navegador ou do servidor do sistema
+// hospedeiro (ex.: nginx costuma limitar ~8KB de header por padrão). Preferimos
+// abrir o gravador vazio e cair no fallback já existente a arriscar uma URL
+// que alguns hosts rejeitam silenciosamente.
+const UP_REC_PASSOS_MAX_LEN = 4000
+
+// btoa não lida com UTF-8 fora do range Latin1 (títulos/descrições em
+// português têm acento) — por isso passa por TextEncoder antes, e o
+// resultado vira base64url (sem +/=) pra ir de forma segura dentro de uma
+// query string. Contraparte em widget.js: recorderDecodificarBase64Url.
+function encodePassosBase64Url(passos: GravadorPassoPayload[]): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(passos))
+  let binary = ''
+  bytes.forEach(b => { binary += String.fromCharCode(b) })
+  const base64 = btoa(binary)
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export function buildGravadorUrl(params: GravadorParams): GravadorUrlResultado {
   const url = new URL(params.urlInicial)
   url.searchParams.set('userpulse_recorder', '1')
   if (params.titulo.trim()) url.searchParams.set('up_rec_titulo', params.titulo.trim())
   if (params.descricao.trim()) url.searchParams.set('up_rec_descricao', params.descricao.trim())
   if (params.sistema.trim()) url.searchParams.set('up_rec_sistema', params.sistema.trim())
   if (params.prioridade) url.searchParams.set('up_rec_prioridade', String(params.prioridade))
-  return url.toString()
+
+  let passosIncluidos = false
+  if (params.passos && params.passos.length > 0) {
+    const encoded = encodePassosBase64Url(params.passos)
+    if (encoded.length <= UP_REC_PASSOS_MAX_LEN) {
+      url.searchParams.set('up_rec_passos', encoded)
+      passosIncluidos = true
+    } else {
+      console.warn(
+        `[UserPulse] Passos atuais do tour (${encoded.length} caracteres codificados) excedem o limite de ` +
+        `${UP_REC_PASSOS_MAX_LEN} para enviar ao gravador pela URL — abrindo gravador vazio. ` +
+        'Use "Colar passos gravados" ao finalizar a gravação para trazê-los de volta.'
+      )
+    }
+  }
+
+  return { url: url.toString(), passosIncluidos }
 }
 
 // Baixa um objeto como arquivo .json — mesmo padrão de download client-side

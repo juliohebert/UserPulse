@@ -44,9 +44,9 @@ export function TourGravador() {
       setError('Informe a URL inicial (a página real onde o fluxo começa).')
       return
     }
-    let url: string
+    let resultado: ReturnType<typeof buildGravadorUrl>
     try {
-      url = buildGravadorUrl({
+      resultado = buildGravadorUrl({
         urlInicial: form.urlInicial.trim(),
         titulo: form.titulo,
         descricao: form.descricao,
@@ -57,8 +57,8 @@ export function TourGravador() {
       setError('URL inicial inválida — use uma URL completa, ex: https://meusistema.com/app/agenda')
       return
     }
-    setUrlGerada(url)
-    window.open(url, '_blank', 'noopener')
+    setUrlGerada(resultado.url)
+    window.open(resultado.url, '_blank', 'noopener')
   }
 
   return (

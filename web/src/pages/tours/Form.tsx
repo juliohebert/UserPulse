@@ -6,7 +6,7 @@ import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
-import { comandoTestarSeletor } from '../../utils/tour'
+import { buildGravadorUrl, comandoTestarSeletor } from '../../utils/tour'
 
 interface PassoState {
   id?: string
@@ -77,6 +77,45 @@ const MODOS_AVANCO_INTERACAO = [
 ]
 
 const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
+
+// ─── Colar passos do Gravador de Fluxo ─────────────────────────────────────
+// Lê o mesmo JSON "userpulse.tour.v1" que o widget.js gera ao finalizar uma
+// gravação (botão "Copiar JSON"/"Copiar e abrir importação") e extrai só os
+// passos — nunca troca titulo/descricao/destino já preenchidos aqui no
+// formulário. Mesma tolerância de formato do ImportarTourModal (aceita tanto
+// o envelope { tour: {...} } quanto o objeto do tour direto).
+function extrairPassosDoJson(texto: string): { passos: PassoState[] } | { erro: string } {
+  let json: unknown
+  try {
+    json = JSON.parse(texto)
+  } catch {
+    return { erro: 'JSON malformado. Confira se colou o conteúdo completo.' }
+  }
+  if (!json || typeof json !== 'object') return { erro: 'JSON inválido.' }
+  const obj = json as Record<string, unknown>
+  const tourObj = (obj.tour && typeof obj.tour === 'object') ? (obj.tour as Record<string, unknown>) : obj
+  const passosBrutos = tourObj.passos
+  if (!Array.isArray(passosBrutos) || passosBrutos.length === 0) {
+    return { erro: 'O JSON precisa ter ao menos um passo em "passos".' }
+  }
+  const passos: PassoState[] = passosBrutos.map((p): PassoState => {
+    const passo = (p && typeof p === 'object') ? (p as Record<string, unknown>) : {}
+    return {
+      titulo: typeof passo.titulo === 'string' ? passo.titulo : '',
+      descricao: typeof passo.descricao === 'string' ? passo.descricao : '',
+      seletor_tipo: passo.seletor_tipo === 'css' ? 'css' : 'data_cy',
+      seletor: typeof passo.seletor === 'string' ? passo.seletor : '',
+      tooltip_posicao: typeof passo.tooltip_posicao === 'string' ? passo.tooltip_posicao : 'auto',
+      acao_ao_avancar: typeof passo.acao_ao_avancar === 'string' ? passo.acao_ao_avancar : 'apenas_avancar',
+      modo_avanco_interacao: typeof passo.modo_avanco_interacao === 'string' ? passo.modo_avanco_interacao : 'manual',
+      seletor_confirmacao: typeof passo.seletor_confirmacao === 'string' ? passo.seletor_confirmacao : '',
+    }
+  })
+  if (passos.some(p => !p.titulo.trim())) {
+    return { erro: 'Existe passo sem título no JSON colado — revise na aba do gravador antes de colar aqui.' }
+  }
+  return { passos }
+}
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
@@ -398,6 +437,17 @@ export function TourForm() {
   const [templateAplicadoId, setTemplateAplicadoId] = useState<string | null>(null)
   const [copiadoPasso, setCopiadoPasso] = useState<{ index: number; tipo: 'seletor' | 'comando' } | null>(null)
 
+  // ─── Editar fluxo no sistema (gravador, só na edição) ──────────────────
+  const [urlInicialGravador, setUrlInicialGravador] = useState('')
+  const [erroGravador, setErroGravador] = useState<string | null>(null)
+  const [urlGravadorGerada, setUrlGravadorGerada] = useState<string | null>(null)
+  const [jsonColadoTexto, setJsonColadoTexto] = useState('')
+  const [erroColar, setErroColar] = useState<string | null>(null)
+  const [avisoColar, setAvisoColar] = useState<string | null>(null)
+  const [substituidoOk, setSubstituidoOk] = useState(false)
+  // null = ainda não tentou abrir o gravador nesta visita à página.
+  const [passosIncluidosGravador, setPassosIncluidosGravador] = useState<boolean | null>(null)
+
   // Feedback de "salvo com sucesso" sobrevive ao redirecionamento pós-criação
   // (de /tours/novo para /tours/:id/editar) via router state, em vez de um
   // timer artificial. Consome e limpa o state para não reaparecer em
@@ -513,6 +563,91 @@ export function TourForm() {
       ;[next[index], next[target]] = [next[target], next[index]]
       return next
     })
+  }
+
+  // Abre o gravador de fluxo (mesma URL/mecanismo de TourGravador.tsx) numa
+  // nova aba, levando titulo/descricao/sistema/prioridade + os passos atuais
+  // do tour (up_rec_passos) — o gravador (widget.js/recorderLerPassosIniciais)
+  // pré-carrega a lista lateral com eles em vez de iniciar vazio. Se o
+  // payload for grande demais, buildGravadorUrl avisa via console.warn e abre
+  // vazio mesmo assim; refletimos isso na UI (passosIncluidosGravador) e o
+  // fallback "Colar passos gravados" abaixo continua disponível de qualquer
+  // forma.
+  const abrirGravador = () => {
+    setErroGravador(null)
+    setUrlGravadorGerada(null)
+    setPassosIncluidosGravador(null)
+    if (!urlInicialGravador.trim()) {
+      setErroGravador('Informe a URL inicial — a página real do sistema onde o fluxo deste tour começa.')
+      return
+    }
+    let resultado: ReturnType<typeof buildGravadorUrl>
+    try {
+      resultado = buildGravadorUrl({
+        urlInicial: urlInicialGravador.trim(),
+        titulo: form.titulo,
+        descricao: form.descricao,
+        sistema: form.sistema,
+        prioridade: Number(form.prioridade || 0),
+        passos: passos
+          .filter(p => p.titulo.trim())
+          .map(p => ({
+            titulo: p.titulo,
+            descricao: p.descricao || null,
+            seletor_tipo: p.seletor_tipo,
+            seletor: p.seletor,
+            tooltip_posicao: p.tooltip_posicao,
+            acao_ao_avancar: p.acao_ao_avancar,
+            modo_avanco_interacao: p.modo_avanco_interacao,
+            seletor_confirmacao: p.seletor_confirmacao || null,
+          })),
+      })
+    } catch {
+      setErroGravador('URL inicial inválida — use uma URL completa, ex: https://meusistema.com/app/agenda')
+      return
+    }
+    setUrlGravadorGerada(resultado.url)
+    setPassosIncluidosGravador(resultado.passosIncluidos)
+    window.open(resultado.url, '_blank', 'noopener')
+  }
+
+  // "Colar da área de transferência": só lê o clipboard e preenche o
+  // textarea — nunca substitui os passos sozinho. Mesmo padrão do "Colar
+  // JSON" em ImportarTourModal (web/src/pages/tours/Index.tsx).
+  const colarJsonGravador = async () => {
+    setErroColar(null)
+    setAvisoColar(null)
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      setAvisoColar('Não foi possível acessar a área de transferência. Use Ctrl+V para colar manualmente no campo abaixo.')
+      return
+    }
+    try {
+      const conteudo = await navigator.clipboard.readText()
+      if (!conteudo.trim()) {
+        setAvisoColar('A área de transferência está vazia.')
+        return
+      }
+      setJsonColadoTexto(conteudo)
+    } catch {
+      setAvisoColar('Não foi possível acessar a área de transferência. Use Ctrl+V para colar manualmente no campo abaixo.')
+    }
+  }
+
+  // Substitui só a lista local de passos (setPassos) — nunca chama o
+  // backend. O usuário revisa normalmente na seção "Passos do tour" abaixo e
+  // só persiste ao clicar em "Salvar" no topo da página.
+  const substituirPassosDoJson = () => {
+    setErroColar(null)
+    setSubstituidoOk(false)
+    const resultado = extrairPassosDoJson(jsonColadoTexto)
+    if ('erro' in resultado) {
+      setErroColar(resultado.erro)
+      return
+    }
+    setPassos(resultado.passos)
+    setJsonColadoTexto('')
+    setSubstituidoOk(true)
+    window.setTimeout(() => setSubstituidoOk(false), 3000)
   }
 
   // Ações discretas por passo — só copiam para a área de transferência, não
@@ -893,6 +1028,126 @@ export function TourForm() {
               )}
             </div>
           </div>
+
+          {/* Editar fluxo no sistema — só na edição */}
+          {isEdit && (
+            <div className={card}>
+              <CardHeader
+                number={nextStep()}
+                icon="videocam"
+                iconBg="bg-secondary-fixed"
+                iconColor="text-secondary"
+                title="Editar fluxo no sistema"
+                description="Abra o sistema integrado para ajustar os passos deste tour visualmente."
+              />
+              <div className="space-y-4 max-w-2xl">
+                <div>
+                  <label className="block text-label-md text-on-surface-variant mb-1.5">URL inicial</label>
+                  <input
+                    value={urlInicialGravador}
+                    onChange={e => setUrlInicialGravador(e.target.value)}
+                    placeholder="https://meusistema.com/app/agenda"
+                    className={`${field} font-mono text-[13px]`}
+                  />
+                  <p className="text-[11px] text-on-surface-variant mt-1">
+                    A página real onde o fluxo começa (precisa já ter o widget UserPulse instalado).
+                  </p>
+                </div>
+
+                <div className="flex items-start gap-2 p-3 bg-surface-container-low rounded-xl text-[11px] text-on-surface-variant">
+                  <span className="material-symbols-outlined text-[15px] shrink-0 mt-0.5">info</span>
+                  {passosIncluidosGravador === false ? (
+                    <span>
+                      Os {passos.length} passo{passos.length === 1 ? '' : 's'} atuais são grandes demais para enviar
+                      pela URL — o gravador abriu vazio desta vez (detalhes no console do navegador). Grave o fluxo,
+                      clique em "Copiar JSON" ao finalizar e cole abaixo em "Colar passos gravados".
+                    </span>
+                  ) : (
+                    <span>
+                      Ao clicar em "Editar fluxo no sistema", os {passos.length} passo{passos.length === 1 ? '' : 's'}{' '}
+                      já cadastrado{passos.length === 1 ? '' : 's'} deste tour são enviados junto — o gravador abre já
+                      com eles na lista lateral, prontos para editar, remover ou completar com novos passos. Ao
+                      finalizar, clique em "Copiar JSON" na aba do gravador e cole abaixo em "Colar passos gravados"
+                      para trazer o resultado de volta. Os passos atuais deste formulário só mudam quando você colar e
+                      clicar em "Substituir passos".
+                    </span>
+                  )}
+                </div>
+
+                {erroGravador && (
+                  <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[18px]">error</span>
+                    {erroGravador}
+                  </div>
+                )}
+
+                {urlGravadorGerada && (
+                  <div className="p-3 bg-tertiary/10 rounded-xl text-body-md text-tertiary flex items-start gap-2">
+                    <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">check_circle</span>
+                    <span>
+                      Gravação iniciada numa nova aba. Se o navegador bloqueou o pop-up, abra manualmente:{' '}
+                      <a href={urlGravadorGerada} target="_blank" rel="noreferrer" className="underline break-all">{urlGravadorGerada}</a>
+                    </span>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={abrirGravador}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-on-secondary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[18px]">videocam</span>
+                  Editar fluxo no sistema
+                </button>
+
+                <div className="pt-3 border-t border-outline-variant/40">
+                  <label className="block text-label-md text-on-surface-variant mb-1.5">
+                    Colar passos gravados (substitui a lista de passos abaixo)
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={colarJsonGravador}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-surface-bright border border-outline-variant rounded-lg text-label-sm font-bold text-on-surface hover:bg-surface-container-low transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[15px]">content_paste_go</span>
+                      Colar da área de transferência
+                    </button>
+                    {substituidoOk && (
+                      <span className="text-label-sm text-tertiary font-semibold flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                        Passos substituídos abaixo.
+                      </span>
+                    )}
+                  </div>
+                  {avisoColar && <p className="text-[11px] text-on-surface-variant mb-2">{avisoColar}</p>}
+                  <textarea
+                    value={jsonColadoTexto}
+                    onChange={e => setJsonColadoTexto(e.target.value)}
+                    rows={6}
+                    placeholder='{"formato":"userpulse.tour.v1","tour":{"passos":[...]}}'
+                    className={`${field} font-mono text-[12px] resize-none`}
+                  />
+                  {erroColar && (
+                    <div className="mt-2 p-3 bg-error-container text-on-error-container rounded-xl text-body-sm flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[16px]">error</span>
+                      {erroColar}
+                    </div>
+                  )}
+                  <div className="flex justify-end mt-2">
+                    <button
+                      type="button"
+                      onClick={substituirPassosDoJson}
+                      disabled={!jsonColadoTexto.trim()}
+                      className="px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all disabled:opacity-50"
+                    >
+                      Substituir passos
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Passos do tour */}
           <div className={card}>
