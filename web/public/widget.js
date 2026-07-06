@@ -4361,16 +4361,35 @@
     recorderState.pausado = recorderState.pausadoAntesTroca;
   }
 
-  function recorderCancelarTroca() {
-    recorderPararEscutaTroca(); // já restaura recorderState.pausado = pausadoAntesTroca
+  // Único ponto de saída do fluxo de "Trocar elemento" — chamado tanto ao
+  // cancelar (na barra de troca ou no modal de escolha de seletor) quanto ao
+  // confirmar um novo seletor (recorderAplicarNovoSeletor). Decide SEMPRE a
+  // partir de recorderState.trocaOrigem (nunca de onde foi chamado), e é o
+  // único lugar que limpa trocaIndice/trocaOrigem — elimina o risco de um
+  // dos chamadores esquecer a checagem de origem e cair direto em
+  // recorderRenderRevisao() por engano (bug anterior).
+  function recorderFinalizarTrocaElemento() {
     var indice = recorderState.trocaIndice;
     var origem = recorderState.trocaOrigem;
     recorderState.trocaIndice = null;
     recorderState.trocaOrigem = null;
 
+    // Causa raiz do bug "Trocar volta pra revisão/JSON mesmo vindo do painel
+    // lateral": o modal "Escolha o seletor deste passo" (recorderMostrarEscolhaSeletor)
+    // usa RECORDER_PAINEL_ID e nunca era removido daqui. recorderRenderRevisao()
+    // reaproveita esse MESMO id e por isso se auto-limpava (mascarando o
+    // problema no fluxo vindo da revisão) — mas recorderRenderPainelLateral()
+    // usa outro id (RECORDER_PAINEL_LATERAL_ID) e nunca tocava nesse overlay,
+    // que ficava por cima da tela bloqueando tudo (parecia "abrir outra
+    // tela"). Remove sempre aqui, único ponto de saída, antes de decidir pra
+    // onde voltar.
+    var escolhaOuRevisaoAntiga = document.getElementById(RECORDER_PAINEL_ID);
+    if (escolhaOuRevisaoAntiga) escolhaOuRevisaoAntiga.remove();
+
     if (origem === 'painel-lateral') {
       // Volta pro painel lateral com o mesmo passo selecionado — nunca abre a
       // revisão final nem gera JSON.
+      recorderState.pausado = recorderState.pausadoAntesTroca;
       recorderState.painelLateralIndiceSelecionado = indice;
       recorderState.painelLateralAberto = true;
       recorderRenderPainelLateral();
@@ -4381,6 +4400,11 @@
     // senão a captura normal ficaria ativa por baixo do overlay.
     recorderState.pausado = true;
     recorderRenderRevisao(); // volta pro painel de revisão sem alterar o passo
+  }
+
+  function recorderCancelarTroca() {
+    recorderPararEscutaTroca(); // já restaura recorderState.pausado = pausadoAntesTroca
+    recorderFinalizarTrocaElemento();
   }
 
   // Único clique escutado enquanto o modo de troca está ativo. Roda em fase
@@ -4529,18 +4553,7 @@
       if (!(alvo instanceof Element)) return;
 
       if (alvo.closest('[data-esc-cancelar]')) {
-        var indiceCancelar = recorderState.trocaIndice;
-        var origemCancelar = recorderState.trocaOrigem;
-        recorderState.trocaIndice = null;
-        recorderState.trocaOrigem = null;
-        if (origemCancelar === 'painel-lateral') {
-          recorderState.pausado = recorderState.pausadoAntesTroca;
-          recorderState.painelLateralIndiceSelecionado = indiceCancelar;
-          recorderState.painelLateralAberto = true;
-          recorderRenderPainelLateral();
-          return;
-        }
-        recorderRenderRevisao(); // cancelar aqui também não altera o passo
+        recorderFinalizarTrocaElemento(); // cancelar aqui também não altera o passo
         return;
       }
 
@@ -4559,9 +4572,8 @@
   // o que o usuário já escreveu na revisão. Descrição nunca tem uma fonte
   // automática (o gravador nunca inventa descrição), então fica como estava.
   function recorderAplicarNovoSeletor(el, candidato) {
-    var indice = recorderState.trocaIndice;
-    var origem = recorderState.trocaOrigem;
-    var passo = recorderState.passos[indice];
+    // Captura antes de recorderFinalizarTrocaElemento() limpar trocaIndice.
+    var passo = recorderState.passos[recorderState.trocaIndice];
     // Defesa extra: só aplica se o candidato tiver um seletor_tipo válido
     // (data_cy ou css) — recorderGerarCandidatosSeletor já só gera esses dois,
     // isso só protege contra um candidato inválido chegar aqui por engano.
@@ -4571,21 +4583,7 @@
       if (!passo.titulo || !passo.titulo.trim()) passo.titulo = recorderGerarTitulo(el);
       recorderPersistir();
     }
-    recorderState.trocaIndice = null;
-    recorderState.trocaOrigem = null;
-
-    if (origem === 'painel-lateral') {
-      // Volta pro painel lateral, mesmo passo continua selecionado — nunca
-      // abre a revisão final nem gera JSON (bug corrigido: antes sempre caía
-      // em recorderRenderRevisao(), mesmo vindo do painel lateral).
-      recorderState.pausado = recorderState.pausadoAntesTroca;
-      recorderState.painelLateralIndiceSelecionado = indice;
-      recorderState.painelLateralAberto = true;
-      recorderRenderPainelLateral();
-      return;
-    }
-
-    recorderRenderRevisao();
+    recorderFinalizarTrocaElemento();
   }
 
   var RECORDER_COPIAR_FEEDBACK_MS = 1600;
