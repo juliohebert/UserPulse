@@ -368,17 +368,24 @@
       // 3 botões estreitos acima — testar é uma ação mais "pesada" (abre uma
       // prévia de verdade) que merece mais destaque que Localizar/Trocar/Remover.
       '.up-rec-lateral-testar{display:block;width:100%;text-align:center;margin-top:6px;padding:6px 8px;font-size:11px;border:1px solid rgba(0,88,190,.15)}',
-      '.up-rec-lateral-rodape{display:flex;gap:8px;padding:8px 11px;border-top:1px solid rgba(194,198,214,.5);flex-shrink:0;background:#fff}',
+      // Coluna: link discreto "Ver como usuário final" em cima, linha de
+      // botões principais embaixo — evita espremer um 3º botão na mesma
+      // linha de Pré-visualizar/Finalizar (fica só mais um link, não compete
+      // visualmente com os CTAs de verdade).
+      '.up-rec-lateral-rodape{display:flex;flex-direction:column;gap:6px;padding:8px 11px;border-top:1px solid rgba(194,198,214,.5);flex-shrink:0;background:#fff}',
+      '.up-rec-lateral-rodape-principal{display:flex;gap:8px}',
+      '.up-rec-lateral-preview-final{background:transparent;border:0;color:#0058be;font-size:10.5px;font-weight:700;text-decoration:underline;text-align:center;padding:1px;cursor:pointer;width:100%}',
+      '.up-rec-lateral-preview-final:hover{opacity:.75}',
       // "Pré-visualizar" divide o rodapé com o CTA principal (mesma largura
       // via flex:1) — usa o estilo "acento" já usado em Localizar/Trocar,
       // pra ficar claro que é uma ação secundária frente a "Finalizar e revisar".
-      '.up-rec-lateral-rodape .up-rec-btn-icone{flex:1;text-align:center;padding:7px 8px;font-size:11.5px}',
+      '.up-rec-lateral-rodape-principal .up-rec-btn-icone{flex:1;text-align:center;padding:7px 8px;font-size:11.5px}',
       // CTA final evidente (continua sólida, azul, full-width) mas sem o
       // gradiente/sombra "glossy" da rodada anterior — fica claro que é a
       // ação principal do painel sem competir visualmente com o resto.
-      '.up-rec-lateral-rodape .up-rec-btn{flex:1;border-radius:9px;padding:7px 10px;font-size:11.5px;font-weight:700;background:#0058be;color:#fff}',
-      '.up-rec-lateral-rodape .up-rec-btn:hover{background:#0058be;opacity:.9}',
-      '.up-rec-lateral-rodape .up-rec-btn:disabled{background:#eceff5;color:#a6acbb;opacity:1}',
+      '.up-rec-lateral-rodape-principal .up-rec-btn{flex:1;border-radius:9px;padding:7px 10px;font-size:11.5px;font-weight:700;background:#0058be;color:#fff}',
+      '.up-rec-lateral-rodape-principal .up-rec-btn:hover{background:#0058be;opacity:.9}',
+      '.up-rec-lateral-rodape-principal .up-rec-btn:disabled{background:#eceff5;color:#a6acbb;opacity:1}',
       // Pill recolhida — só ícone + contador, clicável pra reabrir o painel.
       // touch-action:none evita o navegador competir com o arrasto em telas
       // touch (scroll da página no lugar de mover o pill); user-select:none
@@ -1608,6 +1615,12 @@
     // tourMarkShown viram no-op (nenhum evento real/marcação de "já visto" é
     // gerado por uma prévia). Resetado pra false em finalizarTour().
     preview: false,
+    // true só durante "Pré-visualizar como usuário final" (ver
+    // recorderPreVisualizarComoUsuarioFinal) — esconde "Trocar elemento
+    // deste passo" no estado "Elemento não encontrado", deixando a prévia
+    // idêntica ao que o usuário final vê. Resetado pra false em finalizarTour(),
+    // junto com preview.
+    previewModoUsuarioFinal: false,
   };
 
   function fetchTour(slug) {
@@ -1797,12 +1810,15 @@
       '<div class="up-tour-warning">' + icon('close') + '<span>Não encontramos este item na tela. Ele pode estar oculto, indisponível ou você pode estar em outra página.</span></div>',
       '<div class="up-tour-footer up-tour-footer-stack">',
       '<button type="button" class="up-tour-btn up-tour-btn-primary" data-up-tour-retry="true">Tentar novamente</button>',
-      // Só na prévia do gravador (tourState.preview) — no tour real não faz
+      // Só na prévia do gravador (tourState.preview) e fora do modo "usuário
+      // final" (tourState.previewModoUsuarioFinal) — no tour real não faz
       // sentido nem existe recorderIniciarTrocaElemento pra chamar (ver
-      // tourTrocarPassoAtual). Deixa o usuário corrigir o seletor na hora, em
-      // vez de precisar encerrar a prévia, achar o passo no painel lateral e
-      // clicar Trocar manualmente.
-      (tourState.preview
+      // tourTrocarPassoAtual), e na prévia "como usuário final" o objetivo é
+      // justamente não mostrar nenhum controle do gravador. Nos demais casos,
+      // deixa o usuário corrigir o seletor na hora, em vez de precisar
+      // encerrar a prévia, achar o passo no painel lateral e clicar Trocar
+      // manualmente.
+      (tourState.preview && !tourState.previewModoUsuarioFinal
         ? '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-trocar-passo="true">Trocar elemento deste passo</button>'
         : ''),
       '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-skip-passo="true">Pular este passo</button>',
@@ -2380,6 +2396,7 @@
     tourState.feedbackEscolhido = null;
     if (tourState.preview) {
       tourState.preview = false;
+      tourState.previewModoUsuarioFinal = false;
       recorderRestaurarAposPreview();
     }
   }
@@ -2410,16 +2427,22 @@
   // um evento (irParaPasso quando pularIntro=true chama registrarEventoTour
   // de forma síncrona se o elemento já existir na tela — setar tourState.preview
   // só depois de iniciarTour() retornar, como antes, deixava esse evento
-  // escapar sem a marcação de prévia ainda ativa). O disparo real do tour
+  // escapar sem a marcação de prévia ainda ativa). modoUsuarioFinal (opcional,
+  // default false) — usado só por recorderPreVisualizarComoUsuarioFinal:
+  // esconde "Trocar elemento deste passo" no estado "Elemento não encontrado"
+  // (ver renderTourNaoEncontrado), a única peça de UI do gravador que
+  // aparece dentro do próprio overlay do tour (bar/painel já ficam
+  // escondidos em qualquer prévia). O disparo real do tour
   // (iniciarTourPublico/avaliarTourAutomatico) nunca passa esses argumentos,
-  // então continua com introdução normal e preview=false.
-  function iniciarTour(tour, pularIntro, preview) {
+  // então continua com introdução normal e preview/modoUsuarioFinal=false.
+  function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal) {
     if (!tour || !tour.passos || tour.passos.length === 0) return;
     finalizarTour();
     ensureStyles();
     tourState.tour = tour;
     tourState.ativo = true;
     tourState.preview = Boolean(preview);
+    tourState.previewModoUsuarioFinal = Boolean(modoUsuarioFinal);
     document.addEventListener('keydown', tourKeydown);
     if (pularIntro) {
       bindTourReposHandlers();
@@ -3300,8 +3323,11 @@
       '</div>',
       '</div>',
       '<div class="up-rec-lateral-rodape">',
+      '<button type="button" class="up-rec-lateral-preview-final" data-lat-preview-final title="Prévia limpa, idêntica ao que o usuário final vê — sem nenhum controle do gravador na tela">Pré-visualizar como usuário final</button>',
+      '<div class="up-rec-lateral-rodape-principal">',
       '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-lat-preview title="Pré-visualizar o tour com os passos atuais, sem finalizar a gravação">Pré-visualizar</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-lat-finalizar' + (passos.length === 0 ? ' disabled' : '') + '>Finalizar e revisar</button>',
+      '</div>',
       '</div>',
     ].join('');
   }
@@ -3558,12 +3584,12 @@
   // tour já marcado como prévia (preview=true em iniciarTour — precisa ser
   // exatamente ali, não depois, senão pularIntro=true dispararia
   // registrarEventoTour de dentro de irParaPasso ainda sem a marcação).
-  function recorderIniciarPreview(tourPreview, indicesReais, pularIntro) {
+  function recorderIniciarPreview(tourPreview, indicesReais, pularIntro, modoUsuarioFinal) {
     var bar = document.getElementById(RECORDER_BAR_ID);
     if (bar) bar.style.display = 'none';
     recorderFecharPainelLateral();
     recorderState.previewIndices = indicesReais;
-    iniciarTour(tourPreview, pularIntro, true);
+    iniciarTour(tourPreview, pularIntro, true, modoUsuarioFinal);
   }
 
   function recorderPreVisualizarTour() {
@@ -3580,6 +3606,30 @@
     };
     var indices = recorderState.passos.map(function (_, i) { return i; });
     recorderIniciarPreview(tourPreview, indices);
+  }
+
+  // "Pré-visualizar como usuário final" — mesmo tour completo de
+  // recorderPreVisualizarTour, mas em tourState.previewModoUsuarioFinal=true:
+  // renderTourNaoEncontrado esconde "Trocar elemento deste passo" nesse modo
+  // (única peça de UI do gravador que aparecia dentro do próprio overlay do
+  // tour — bar/painel já ficam escondidos em qualquer prévia, ver
+  // recorderIniciarPreview). Fica assim visualmente idêntico ao que o
+  // usuário final realmente vê. "Pré-visualizar" comum continua existindo
+  // pra quem quer corrigir um passo na hora, sem trocar de tela.
+  function recorderPreVisualizarComoUsuarioFinal() {
+    if (recorderState.passos.length === 0) {
+      recorderMostrarAvisoBarra('Adicione ao menos um passo para pré-visualizar.');
+      return;
+    }
+    var meta = recorderState.meta || {};
+    var tourPreview = {
+      id: null,
+      titulo: meta.titulo || 'Pré-visualização do tour',
+      descricao: meta.descricao || '',
+      passos: recorderState.passos.map(recorderMapPassoParaPreview),
+    };
+    var indices = recorderState.passos.map(function (_, i) { return i; });
+    recorderIniciarPreview(tourPreview, indices, false, true);
   }
 
   // "Testar passo" (painel lateral, passo selecionado) — mesma prévia real
@@ -3713,6 +3763,11 @@
 
     if (alvo.closest('[data-lat-preview]')) {
       recorderPreVisualizarTour();
+      return;
+    }
+
+    if (alvo.closest('[data-lat-preview-final]')) {
+      recorderPreVisualizarComoUsuarioFinal();
       return;
     }
 
