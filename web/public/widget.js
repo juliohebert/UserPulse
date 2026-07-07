@@ -619,6 +619,13 @@
       '.up-jorn-card{border:1px solid #e0e2ef;border-radius:14px;padding:14px;background:#f8f9ff}',
       '.up-jorn-card-titulo{margin:0 0 4px;font-size:14px;font-weight:800;color:#0b1c30}',
       '.up-jorn-card-desc{margin:0 0 10px;font-size:12.5px;line-height:1.4;color:#424754}',
+      '.up-jorn-continuar{border:1px solid #bcd6f7;border-radius:14px;padding:12px 14px;background:#eef5ff;margin-bottom:12px}',
+      '.up-jorn-continuar-titulo{display:flex;align-items:center;gap:6px;margin:0 0 8px;font-size:11px;font-weight:800;color:#0058be;text-transform:uppercase;letter-spacing:.02em}',
+      '.up-jorn-continuar-titulo svg{width:13px;height:13px;fill:currentColor}',
+      '.up-jorn-continuar-linha{margin:0 0 3px;font-size:12.5px;color:#0b1c30;line-height:1.4}',
+      '.up-jorn-continuar-linha strong{font-weight:700}',
+      '.up-jorn-continuar-btn{margin-top:8px;width:100%;padding:9px 14px;border:0;border-radius:10px;background:#0058be;color:#fff;font-family:inherit;font-size:12.5px;font-weight:800;cursor:pointer;transition:opacity .15s ease}',
+      '.up-jorn-continuar-btn:hover{opacity:.9}',
       '.up-jorn-progresso{margin-bottom:10px}',
       '.up-jorn-progresso-barra{height:6px;border-radius:999px;background:#e0e2ef;overflow:hidden;margin-bottom:5px}',
       '.up-jorn-progresso-fill{height:100%;background:#0058be;border-radius:999px;transition:width .25s ease}',
@@ -5500,14 +5507,55 @@
     );
   }
 
+  // "Continue de onde parou": primeiro pacote obrigatório (e disponível) ainda
+  // não concluído e, dentro dele, a primeira etapa obrigatória pendente.
+  // Pacotes/etapas opcionais nunca aparecem aqui — só o que efetivamente falta
+  // pra concluir a jornada. Retorna null quando não há nada pendente (jornada
+  // concluída ou só restam itens opcionais).
+  function jornadaProximoPendente(jornada) {
+    var blocos = jornada.blocos || [];
+    for (var i = 0; i < blocos.length; i++) {
+      var bloco = blocos[i];
+      if (!bloco.obrigatorio || !bloco.ativo) continue;
+      if (bloco.progresso && bloco.progresso.concluido) continue;
+      var etapas = bloco.etapas || [];
+      for (var j = 0; j < etapas.length; j++) {
+        var etapa = etapas[j];
+        if (etapa.obrigatoria && etapa.status !== 'concluida') {
+          return { bloco: bloco, etapa: etapa };
+        }
+      }
+    }
+    return null;
+  }
+
+  // Botão reaproveita data-up-jorn-abrir-bloco (mesmo atributo dos cards de
+  // pacote) — abre só o pacote, nunca a etapa/tour direto, então cai no mesmo
+  // fluxo já tratado em jornadaPainelClick sem precisar de handler novo.
+  function renderJornadaContinuarHtml(jornada, proximo) {
+    return (
+      '<div class="up-jorn-continuar">' +
+        '<p class="up-jorn-continuar-titulo">' + icon('play') + ' Continue de onde parou</p>' +
+        '<p class="up-jorn-continuar-linha"><strong>Pacote:</strong> ' + escapeHtml(proximo.bloco.titulo) + '</p>' +
+        '<p class="up-jorn-continuar-linha"><strong>Próxima etapa:</strong> ' + escapeHtml(proximo.etapa.titulo) + '</p>' +
+        '<button type="button" class="up-jorn-continuar-btn"' +
+          ' data-up-jorn-jornada="' + escapeHtml(jornada.id) + '"' +
+          ' data-up-jorn-abrir-bloco="' + escapeHtml(proximo.bloco.id) + '"' +
+        '>Continuar</button>' +
+      '</div>'
+    );
+  }
+
   function renderJornadaCardHtml(jornada) {
     var blocos = jornada.blocos || [];
     var progresso = jornada.progresso || { concluida: false, blocos_concluidos: 0, blocos_total: blocos.length };
     var pacotesHtml = blocos.map(function (b) { return renderJornadaPacoteCardHtml(jornada, b); }).join('');
+    var proximo = progresso.concluida ? null : jornadaProximoPendente(jornada);
     return (
       '<div class="up-jorn-jornada">' +
         '<h4 class="up-jorn-card-titulo">' + escapeHtml(jornada.titulo) + '</h4>' +
         (jornada.descricao ? '<p class="up-jorn-card-desc">' + escapeHtml(jornada.descricao) + '</p>' : '') +
+        (proximo ? renderJornadaContinuarHtml(jornada, proximo) : '') +
         (progresso.concluida
           ? '<p class="up-jorn-jornada-concluida">' + icon('check') + ' Jornada concluída</p>'
           : '<p class="up-jorn-progresso-texto" style="margin-bottom:8px">' + progresso.blocos_concluidos + ' de ' + progresso.blocos_total + ' pacotes concluídos</p>') +
