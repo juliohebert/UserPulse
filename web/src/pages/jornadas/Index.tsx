@@ -103,15 +103,15 @@ export function JornadasIndex() {
   }
 
   const excluirJornada = async (jornada: Jornada) => {
-    if (!window.confirm(`Excluir a jornada "${jornada.titulo}"? Esta ação não pode ser desfeita e remove todas as etapas associadas.`)) return
+    if (!window.confirm('Remover este item? Esta ação não poderá ser desfeita.')) return
     setExcluindoId(jornada.id)
     setMensagem(null)
     try {
       await del(`/jornadas/${jornada.id}`)
       setJornadas(prev => prev.filter(j => j.id !== jornada.id))
-      setMensagem({ tipo: 'sucesso', texto: 'Jornada excluída com sucesso.' })
+      setMensagem({ tipo: 'sucesso', texto: 'Jornada removida com sucesso.' })
     } catch (e) {
-      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível excluir a jornada. Tente novamente.' })
+      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível remover a jornada. Tente novamente.' })
     } finally {
       setExcluindoId(null)
     }
@@ -358,7 +358,7 @@ function JornadaActions({ jornada, navigate, excluindoId, onExcluir, size = 'md'
       <button
         onClick={() => onExcluir(jornada)}
         disabled={excluindoId === jornada.id}
-        title="Excluir"
+        title="Remover"
         className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
       >
         <span className={`material-symbols-outlined text-[18px] ${excluindoId === jornada.id ? 'animate-spin' : ''}`}>

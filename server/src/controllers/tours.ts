@@ -267,11 +267,19 @@ export async function remover(req: Request, res: Response) {
     const existente = await prisma.tourGuiado.findUnique({ where: { id } })
     if (!existente) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
 
-    await prisma.tourGuiado.update({ where: { id }, data: { ativo: false } })
-    res.json({ mensagem: 'Tour guiado inativado com sucesso.' })
+    // Exclusão de verdade (antes este endpoint só marcava ativo:false) — passos
+    // caem em cascade (migration) e etapas de jornada que referenciam este tour
+    // ficam com tour_id=null (SetNull, decisão já tomada no schema). Eventos
+    // usam o comportamento padrão da FK (Restrict): se já existir EventoTour
+    // para este tour, a exclusão falha com P2003 abaixo.
+    await prisma.tourGuiado.delete({ where: { id } })
+    res.status(204).send()
   } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
+      return res.status(409).json({ erro: 'Não é possível remover porque já existem eventos vinculados. Inative este item.' })
+    }
     console.error(err)
-    res.status(500).json({ erro: 'Erro ao inativar tour guiado.' })
+    res.status(500).json({ erro: 'Erro ao remover tour guiado.' })
   }
 }
 

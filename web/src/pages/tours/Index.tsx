@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, type NavigateFunction } from 'react-router-dom'
-import { get, post, put } from '../../services/api'
+import { del, get, post, put } from '../../services/api'
 import type { TourExportEnvelope, TourGuiado } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
 import { downloadJson } from '../../utils/tour'
@@ -44,6 +44,7 @@ export function ToursIndex() {
   const [filterAtivo, setFilterAtivo] = useState<'todos' | 'ativos' | 'inativos'>('todos')
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [exportandoId, setExportandoId] = useState<string | null>(null)
+  const [removendoId, setRemovendoId] = useState<string | null>(null)
   const [modalImportarAberto, setModalImportarAberto] = useState(false)
   const [importarViaGravador, setImportarViaGravador] = useState(false)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
@@ -130,6 +131,21 @@ export function ToursIndex() {
       setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível duplicar o tour. Tente novamente.' })
     } finally {
       setDuplicandoId(null)
+    }
+  }
+
+  const removerTour = async (tour: TourGuiado) => {
+    if (!window.confirm('Remover este item? Esta ação não poderá ser desfeita.')) return
+    setRemovendoId(tour.id)
+    setMensagem(null)
+    try {
+      await del(`/tours/${tour.id}`)
+      setTours(prev => prev.filter(t => t.id !== tour.id))
+      setMensagem({ tipo: 'sucesso', texto: 'Tour removido com sucesso.' })
+    } catch (e) {
+      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível remover o tour. Tente novamente.' })
+    } finally {
+      setRemovendoId(null)
     }
   }
 
@@ -374,6 +390,8 @@ export function ToursIndex() {
                               onDuplicar={duplicarTour}
                               exportandoId={exportandoId}
                               onExportar={exportarTour}
+                              removendoId={removendoId}
+                              onRemover={removerTour}
                             />
                           </div>
                         </td>
@@ -418,6 +436,8 @@ export function ToursIndex() {
                           onDuplicar={duplicarTour}
                           exportandoId={exportandoId}
                           onExportar={exportarTour}
+                          removendoId={removendoId}
+                          onRemover={removerTour}
                           size="lg"
                         />
                       </div>
@@ -456,13 +476,17 @@ function StatusBadge({ ativo }: { ativo: boolean }) {
   )
 }
 
-function TourActions({ tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, size = 'md' }: {
+function TourActions({
+  tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, removendoId, onRemover, size = 'md',
+}: {
   tour: TourGuiado
   navigate: NavigateFunction
   duplicandoId: string | null
   onDuplicar: (tour: TourGuiado) => void
   exportandoId: string | null
   onExportar: (tour: TourGuiado) => void
+  removendoId: string | null
+  onRemover: (tour: TourGuiado) => void
   size?: 'md' | 'lg'
 }) {
   const btnPad = size === 'lg' ? 'p-2' : 'p-1.5'
@@ -486,6 +510,16 @@ function TourActions({ tour, navigate, duplicandoId, onDuplicar, exportandoId, o
       <button onClick={() => onExportar(tour)} disabled={exportandoId === tour.id} title="Exportar JSON" className={`${btnCls} disabled:opacity-40`}>
         <span className={`material-symbols-outlined text-[18px] ${exportandoId === tour.id ? 'animate-spin' : ''}`}>
           {exportandoId === tour.id ? 'progress_activity' : 'download'}
+        </span>
+      </button>
+      <button
+        onClick={() => onRemover(tour)}
+        disabled={removendoId === tour.id}
+        title="Remover"
+        className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
+      >
+        <span className={`material-symbols-outlined text-[18px] ${removendoId === tour.id ? 'animate-spin' : ''}`}>
+          {removendoId === tour.id ? 'progress_activity' : 'delete'}
         </span>
       </button>
     </>

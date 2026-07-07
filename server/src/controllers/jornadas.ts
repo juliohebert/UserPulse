@@ -335,17 +335,16 @@ export async function remover(req: Request, res: Response) {
     const existente = await prisma.jornada.findUnique({ where: { id } })
     if (!existente) return res.status(404).json({ erro: 'Jornada não encontrada.' })
 
-    // Exclusão de verdade (não é o "ativo: false" usado por tours/campanhas) —
-    // pedido explícito para esta etapa. Blocos e etapas caem em cascade
-    // (migration); eventos usam o comportamento padrão da FK (Restrict): se já
-    // existir EventoJornada para esta jornada, a exclusão falha com P2003 abaixo.
+    // Exclusão de verdade. Blocos e etapas caem em cascade (migration);
+    // eventos usam o comportamento padrão da FK (Restrict): se já existir
+    // EventoJornada para esta jornada, a exclusão falha com P2003 abaixo.
     await prisma.jornada.delete({ where: { id } })
     res.status(204).send()
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
-      return res.status(409).json({ erro: 'Não é possível excluir: esta jornada possui eventos registrados.' })
+      return res.status(409).json({ erro: 'Não é possível remover porque já existem eventos vinculados. Inative este item.' })
     }
     console.error(err)
-    res.status(500).json({ erro: 'Erro ao excluir jornada.' })
+    res.status(500).json({ erro: 'Erro ao remover jornada.' })
   }
 }
