@@ -285,6 +285,17 @@
       // de .up-rec-lateral-lista/.up-rec-lateral-detalhe assumem o scroll
       // interno, mantendo cabeçalho e rodapé sempre visíveis.
       '.up-rec-lateral{position:fixed;top:16px;right:16px;max-height:calc(100vh - 32px);width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 20px 55px rgba(11,28,48,.25);display:flex;flex-direction:column;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;overflow:hidden}',
+      // Sem isso, itens do painel lateral usam o content-box padrão do
+      // navegador — adicionar border-top ao item sob o cursor durante um
+      // drag (.up-rec-lateral-item-dragover, mais abaixo) crescia a altura
+      // dele em vez de só desenhar a borda, empurrando os itens seguintes
+      // pra baixo a cada evento dragover. Isso deslocava em cascata qual
+      // elemento ficava sob o cursor, fazendo o navegador perder o alvo
+      // certo do arrasto sempre que a lista tinha itens suficientes pra
+      // rolar (bug real, mais fácil de reproduzir com o agrupamento por
+      // seção porque os cabeçalhos de grupo já deixam a lista mais perto do
+      // limite de scroll com menos passos).
+      '.up-rec-lateral, .up-rec-lateral *{box-sizing:border-box}',
       '.up-rec-lateral-cabecalho{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:9px 11px;background:linear-gradient(180deg,#f8faff,#fff);border-bottom:1px solid rgba(194,198,214,.5);flex-shrink:0}',
       '.up-rec-lateral-titulo{display:flex;align-items:center;gap:7px;min-width:0}',
       '.up-rec-lateral-titulo-dot{width:6px;height:6px;border-radius:50%;background:#0058be;flex-shrink:0}',
