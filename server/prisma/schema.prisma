@@ -181,6 +181,11 @@ model TourPasso {
   acao_ao_avancar       String   @default("apenas_avancar")
   modo_avanco_interacao String   @default("manual")
   seletor_confirmacao   String?
+  // Agrupamento visual opcional (gravador de fluxo) — nunca validado nem
+  // usado em regra nenhuma do runtime do tour, só organiza a lista no
+  // painel lateral do gravador (widget.js) e persiste pra sobreviver a
+  // colar/editar/reabrir.
+  secao                 String?
   criado_em             DateTime @default(now())
   atualizado_em         DateTime @updatedAt
 

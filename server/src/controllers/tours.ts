@@ -19,6 +19,9 @@ interface PassoInput {
   acao_ao_avancar?: string
   modo_avanco_interacao?: string
   seletor_confirmacao?: string
+  // Agrupamento visual opcional do gravador de fluxo — texto livre, sem
+  // validação (mesmo tratamento de descricao/seletor_confirmacao).
+  secao?: string
 }
 
 function gerarSlugBase(titulo: string): string {
@@ -158,6 +161,7 @@ export async function criar(req: Request, res: Response) {
             acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
             modo_avanco_interacao: p.modo_avanco_interacao?.trim() || 'manual',
             seletor_confirmacao: p.seletor_confirmacao?.trim() || null,
+            secao: p.secao?.trim() || null,
           })),
         },
       },
@@ -241,6 +245,7 @@ export async function atualizar(req: Request, res: Response) {
                 acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
                 modo_avanco_interacao: p.modo_avanco_interacao?.trim() || 'manual',
                 seletor_confirmacao: p.seletor_confirmacao?.trim() || null,
+                secao: p.secao?.trim() || null,
               })),
             },
           }),
@@ -308,6 +313,7 @@ export async function duplicar(req: Request, res: Response) {
             acao_ao_avancar: p.acao_ao_avancar,
             modo_avanco_interacao: p.modo_avanco_interacao,
             seletor_confirmacao: p.seletor_confirmacao,
+            secao: p.secao,
           })),
         },
       },
@@ -354,6 +360,7 @@ export async function exportar(req: Request, res: Response) {
           acao_ao_avancar: p.acao_ao_avancar,
           modo_avanco_interacao: p.modo_avanco_interacao,
           seletor_confirmacao: p.seletor_confirmacao,
+          secao: p.secao,
         })),
       },
     })
@@ -419,6 +426,7 @@ export async function importar(req: Request, res: Response) {
             acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
             modo_avanco_interacao: p.modo_avanco_interacao?.trim() || 'manual',
             seletor_confirmacao: p.seletor_confirmacao?.trim() || null,
+            secao: p.secao?.trim() || null,
           })),
         },
       },

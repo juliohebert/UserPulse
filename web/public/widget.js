@@ -299,6 +299,11 @@
       // detalhe do passo selecionado (ocupa o resto, rola independente).
       '.up-rec-lateral-corpo{flex:1;min-height:0;display:flex;flex-direction:column}',
       '.up-rec-lateral-lista{flex-shrink:0;border-bottom:1px solid rgba(194,198,214,.4);max-height:168px;overflow-y:auto;display:flex;flex-direction:column;padding:4px 5px;background:#fbfcfe}',
+      // Cabeçalho de grupo (ver recorderAgruparPassosPorSecao) — só aparece
+      // quando há mais de uma seção em uso; texto pequeno, maiúsculo, sem
+      // fundo, só pra escanear rápido onde cada grupo começa.
+      '.up-rec-lateral-secao-titulo{font-size:8.5px;font-weight:800;color:#8a90a3;text-transform:uppercase;letter-spacing:.05em;padding:6px 6px 2px;margin-top:2px}',
+      '.up-rec-lateral-secao-titulo:first-child{margin-top:0}',
       // Timeline: divisória fina entre passos (em vez de espaçamento com
       // fundo em cada item) — mais parecido com uma lista de eventos do que
       // com um formulário de linhas repetidas.
@@ -2955,6 +2960,10 @@
       acao_ao_avancar: 'apenas_avancar',
       modo_avanco_interacao: modo,
       seletor_confirmacao: null,
+      // Agrupamento visual opcional no painel lateral (ver
+      // recorderAgruparPassosPorSecao) — nunca preenchido automaticamente,
+      // só pelo campo "Seção" no detalhe do passo.
+      secao: '',
     };
     recorderState.passos.push(passo);
     recorderState.elParaIndice.set(el, recorderState.passos.length - 1);
@@ -3209,6 +3218,10 @@
       '<input type="text" class="up-rec-input" data-lat-campo="titulo" value="' + escapeHtml(passo.titulo || '') + '">',
       '<label class="up-rec-revisao-label-principal">Descrição</label>',
       '<textarea class="up-rec-textarea-sm" data-lat-campo="descricao">' + escapeHtml(passo.descricao || '') + '</textarea>',
+      // Agrupamento visual opcional na lista (ver recorderAgruparPassosPorSecao)
+      // — nunca obrigatório; passos sem seção caem em "Sem seção" na lista.
+      '<label class="up-rec-revisao-label-principal">Seção <span style="font-weight:400;opacity:.65">(opcional)</span></label>',
+      '<input type="text" class="up-rec-input" data-lat-campo="secao" placeholder="Ex: Login, Cadastro…" value="' + escapeHtml(passo.secao || '') + '">',
       '<div class="up-rec-revisao-grid">',
       '<div><span class="up-rec-revisao-label">Posição do tooltip</span>' + recorderSimpleSelectHtml('data-lat-campo', 'tooltip_posicao', passo.tooltip_posicao, RECORDER_TOOLTIP_POSICOES) + '</div>',
       '<div><span class="up-rec-revisao-label">Como avançar</span>' + recorderSimpleSelectHtml('data-lat-campo', 'modo_avanco_interacao', passo.modo_avanco_interacao, RECORDER_MODOS_AVANCO, RECORDER_MODOS_AVANCO_TITULO) + '</div>',
@@ -3222,11 +3235,50 @@
     ].join('');
   }
 
+  // Agrupamento visual, não estrutural: recorderState.passos continua um
+  // array plano (é o que drag-and-drop reordena e o que vira o JSON final,
+  // na mesma ordem) — só a MONTAGEM do HTML da lista organiza os itens por
+  // "secao". Grupos aparecem na ordem da primeira ocorrência de cada nome
+  // (passos sem secao caem em "Sem seção", tratada como um nome de grupo
+  // normal). Cada item mantém seu índice REAL do array (data-lat-index),
+  // então selecionar/arrastar/editar continuam funcionando exatamente igual,
+  // só a apresentação muda.
+  function recorderAgruparPassosPorSecao(passos) {
+    var grupos = [];
+    var posicaoPorNome = {};
+    passos.forEach(function (p, i) {
+      var nome = (p.secao && p.secao.trim()) || 'Sem seção';
+      if (!(nome in posicaoPorNome)) {
+        posicaoPorNome[nome] = grupos.length;
+        grupos.push({ nome: nome, indices: [] });
+      }
+      grupos[posicaoPorNome[nome]].indices.push(i);
+    });
+    return grupos;
+  }
+
+  function recorderHtmlListaPassos(passos, indiceSelecionado) {
+    var grupos = recorderAgruparPassosPorSecao(passos);
+    // Só mostra o rótulo da seção quando há mais de um grupo — ninguém usou
+    // o campo "Seção" ainda (ou todo mundo usou o mesmo valor) não deve
+    // ganhar ruído visual extra na lista.
+    var mostrarRotulos = grupos.length > 1;
+    return grupos.map(function (g) {
+      var itensHtml = g.indices.map(function (i) {
+        return recorderHtmlPainelLateralItem(passos[i], i, i === indiceSelecionado);
+      }).join('');
+      var rotulo = mostrarRotulos
+        ? '<div class="up-rec-lateral-secao-titulo">' + escapeHtml(g.nome) + '</div>'
+        : '';
+      return rotulo + itensHtml;
+    }).join('');
+  }
+
   function recorderHtmlPainelLateral() {
     var passos = recorderState.passos;
     var indice = recorderState.painelLateralIndiceSelecionado;
     var passo = indice != null ? passos[indice] : null;
-    var itens = passos.map(function (p, i) { return recorderHtmlPainelLateralItem(p, i, i === indice); }).join('');
+    var itens = recorderHtmlListaPassos(passos, indice);
 
     return [
       '<div class="up-rec-lateral-cabecalho">',
@@ -3600,6 +3652,14 @@
         previewDesc.classList.toggle('up-rec-preview-vazio', semDescricao);
       }
     }
+    // "Seção" reagrupa a lista inteira (recorderAgruparPassosPorSecao) — só
+    // no "change" (blur/Enter), nunca no "input" a cada tecla, senão a lista
+    // reordenaria/re-renderizaria no meio da digitação e tiraria o foco do
+    // campo. Re-render completo é seguro aqui porque o campo já perdeu o
+    // foco quando "change" dispara.
+    if (campo === 'secao' && event.type === 'change') {
+      recorderRenderPainelLateral();
+    }
   }
 
   function recorderPainelLateralOnClick(event) {
@@ -3842,6 +3902,7 @@
             acao_ao_avancar: p.acao_ao_avancar,
             modo_avanco_interacao: p.modo_avanco_interacao,
             seletor_confirmacao: (p.seletor_confirmacao && String(p.seletor_confirmacao).trim()) || null,
+            secao: (p.secao && String(p.secao).trim()) || null,
           };
         }),
       },
@@ -5122,6 +5183,7 @@
       acao_ao_avancar: typeof p.acao_ao_avancar === 'string' ? p.acao_ao_avancar : 'apenas_avancar',
       modo_avanco_interacao: typeof p.modo_avanco_interacao === 'string' ? p.modo_avanco_interacao : 'manual',
       seletor_confirmacao: typeof p.seletor_confirmacao === 'string' ? p.seletor_confirmacao : null,
+      secao: typeof p.secao === 'string' ? p.secao : '',
     };
   }
 

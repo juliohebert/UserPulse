@@ -18,6 +18,9 @@ interface PassoState {
   acao_ao_avancar: string
   modo_avanco_interacao: string
   seletor_confirmacao: string
+  // Agrupamento visual opcional do gravador de fluxo (widget.js) — o admin
+  // não edita isso diretamente, só preserva o valor ao colar/salvar/reabrir.
+  secao: string
 }
 
 interface FormState {
@@ -41,7 +44,7 @@ const EMPTY: FormState = {
 
 const PASSO_VAZIO: PassoState = {
   titulo: '', descricao: '', seletor_tipo: 'data_cy', seletor: '', tooltip_posicao: 'auto', acao_ao_avancar: 'apenas_avancar',
-  modo_avanco_interacao: 'manual', seletor_confirmacao: '',
+  modo_avanco_interacao: 'manual', seletor_confirmacao: '', secao: '',
 }
 
 const MODOS = [
@@ -109,6 +112,7 @@ function extrairPassosDoJson(texto: string): { passos: PassoState[] } | { erro: 
       acao_ao_avancar: typeof passo.acao_ao_avancar === 'string' ? passo.acao_ao_avancar : 'apenas_avancar',
       modo_avanco_interacao: typeof passo.modo_avanco_interacao === 'string' ? passo.modo_avanco_interacao : 'manual',
       seletor_confirmacao: typeof passo.seletor_confirmacao === 'string' ? passo.seletor_confirmacao : '',
+      secao: typeof passo.secao === 'string' ? passo.secao : '',
     }
   })
   if (passos.some(p => !p.titulo.trim())) {
@@ -487,6 +491,7 @@ export function TourForm() {
                 acao_ao_avancar: p.acao_ao_avancar || 'apenas_avancar',
                 modo_avanco_interacao: p.modo_avanco_interacao || 'manual',
                 seletor_confirmacao: p.seletor_confirmacao ?? '',
+                secao: p.secao ?? '',
               }))
             : [{ ...PASSO_VAZIO }]
         )
@@ -516,6 +521,7 @@ export function TourForm() {
       acao_ao_avancar: 'apenas_avancar',
       modo_avanco_interacao: 'manual',
       seletor_confirmacao: '',
+      secao: '',
     })))
     setTemplateAplicadoId(tpl.id)
   }
@@ -546,6 +552,7 @@ export function TourForm() {
         acao_ao_avancar: original.acao_ao_avancar,
         modo_avanco_interacao: original.modo_avanco_interacao,
         seletor_confirmacao: original.seletor_confirmacao,
+        secao: original.secao,
       }
       const next = [...prev]
       next.splice(index + 1, 0, copia)
@@ -600,6 +607,7 @@ export function TourForm() {
             acao_ao_avancar: p.acao_ao_avancar,
             modo_avanco_interacao: p.modo_avanco_interacao,
             seletor_confirmacao: p.seletor_confirmacao || null,
+            secao: p.secao || null,
           })),
       })
     } catch {
@@ -708,6 +716,7 @@ export function TourForm() {
           acao_ao_avancar: p.acao_ao_avancar,
           modo_avanco_interacao: p.modo_avanco_interacao,
           seletor_confirmacao: p.seletor_confirmacao.trim() || null,
+          secao: p.secao.trim() || null,
         })),
       }
       const saved = isEdit

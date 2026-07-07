@@ -119,6 +119,7 @@ export interface TourPasso {
   acao_ao_avancar: string
   modo_avanco_interacao: string
   seletor_confirmacao: string | null
+  secao: string | null
   criado_em: string
   atualizado_em: string
 }
@@ -150,6 +151,7 @@ export interface TourExportPasso {
   acao_ao_avancar: string
   modo_avanco_interacao: string
   seletor_confirmacao: string | null
+  secao: string | null
 }
 
 export interface TourExportData {
