@@ -1601,6 +1601,12 @@
     }
     state.config.contexto = Object.assign({}, state.config.contexto || {}, novoContexto);
     evaluateCampaigns();
+    // updateContext() é o jeito "leve" de atualizar contexto sem chamar
+    // init() de novo (ex.: usuario_id só ficou disponível depois do mount
+    // inicial) — sem isso, a elegibilidade da Jornada nunca era reavaliada
+    // por esse caminho, e o FAB "Ajuda" podia ficar preso no valor da
+    // primeira checagem pra sempre.
+    jornadaReavaliarAposNavegacao();
   }
 
   function handleUrlChange() {
@@ -1624,6 +1630,10 @@
     var config = state.config;
     if (!config) return;
     if (!jornadaContextoValido()) {
+      // Invalida qualquer busca de elegibilidade ainda em andamento — se ela
+      // chegar depois, não pode reaproveitar um resultado que já era antigo
+      // no momento em que o contexto ficou inválido.
+      jornadaElegibilidadeToken++;
       renderJornadaFab(jornadaState.fabDisponivel);
       return;
     }
@@ -5429,6 +5439,14 @@
   var JORNADA_FAB_ID = 'userpulse-jornada-fab';
   var JORNADA_AVISO_ID = 'userpulse-jornada-aviso';
 
+  // Incrementado a cada nova busca de elegibilidade (avaliarJornadasParaBotao
+  // ou abrirJornadasPublico) — evita que uma resposta desatualizada (de uma
+  // busca mais antiga que demorou mais pra voltar) sobrescreva
+  // jornadaState.fabDisponivel depois de uma busca mais recente já ter
+  // resolvido. Sem isso, navegações rápidas em sequência podiam deixar o FAB
+  // "Ajuda" escondido pra sempre mesmo com jornada elegível de verdade.
+  var jornadaElegibilidadeToken = 0;
+
   var jornadaState = {
     jornadas: [],
     aberto: false,
@@ -6047,11 +6065,16 @@
   // sistema/tela, só por segmentação) só para decidir se o botão flutuante
   // aparece. Nunca abre o painel sozinho, nunca inicia tour sozinho.
   function avaliarJornadasParaBotao(config) {
+    var meuToken = ++jornadaElegibilidadeToken;
     var contexto = resolveContexto();
     fetchJornadas(config.sistema, config.tela, config.usuario_id, contexto).then(function (jornadas) {
+      // Resposta desatualizada — uma avaliação mais recente já foi disparada
+      // depois desta; deixa o resultado dela prevalecer.
+      if (meuToken !== jornadaElegibilidadeToken) return;
       jornadaState.fabDisponivel = (jornadas || []).length > 0;
       renderJornadaFab(jornadaState.fabDisponivel);
     }).catch(function () {
+      if (meuToken !== jornadaElegibilidadeToken) return;
       jornadaState.fabDisponivel = false;
       renderJornadaFab(false);
     });
@@ -6071,6 +6094,7 @@
       return;
     }
     ensureStyles();
+    var meuToken = ++jornadaElegibilidadeToken;
     var contexto = resolveContexto();
     fetchJornadas(config.sistema, config.tela, config.usuario_id, contexto).then(function (jornadas) {
       // Pré-marca jornada._concluidaRegistrada com o que já veio concluído do
@@ -6084,8 +6108,14 @@
       // — é uma fonte mais confiável que a checagem única do init() (que pode
       // ter rodado cedo demais/com contexto incompleto). Sem isso, fechar o
       // painel usava o valor antigo de fabDisponivel e o botão "Ajuda" podia
-      // ficar escondido pra sempre mesmo com jornada elegível de verdade.
-      jornadaState.fabDisponivel = jornadaState.jornadas.length > 0;
+      // ficar escondido pra sempre mesmo com jornada elegível de verdade. Só
+      // atualiza fabDisponivel se nenhuma avaliação mais nova rodou nesse
+      // meio tempo (mesma proteção contra resposta desatualizada usada em
+      // avaliarJornadasParaBotao) — a lista do painel em si sempre reflete
+      // esta busca, independente disso.
+      if (meuToken === jornadaElegibilidadeToken) {
+        jornadaState.fabDisponivel = jornadaState.jornadas.length > 0;
+      }
       jornadaState.blocoAtivo = null;
       jornadaState.busca = '';
       jornadaState.aberto = true;
@@ -6096,7 +6126,7 @@
       }
     }).catch(function () {
       jornadaState.jornadas = [];
-      jornadaState.fabDisponivel = false;
+      if (meuToken === jornadaElegibilidadeToken) jornadaState.fabDisponivel = false;
       jornadaState.blocoAtivo = null;
       jornadaState.busca = '';
       jornadaState.aberto = true;
