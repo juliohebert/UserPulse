@@ -5874,6 +5874,9 @@
     var existente = document.getElementById(JORNADA_PAINEL_ID);
     if (existente) existente.remove();
     renderJornadaFab(jornadaState.fabDisponivel);
+    // Segunda checagem defensiva, um instante depois de fechar — mesma
+    // lógica usada após o fetch de elegibilidade.
+    window.setTimeout(jornadaGarantirFabNoDom, 400);
   }
 
   function jornadaAbrirBloco(jornada, bloco) {
@@ -6051,6 +6054,16 @@
     renderJornadaFab(jornadaState.fabDisponivel);
   }
 
+  // Camada defensiva extra, além do renderJornadaFab já chamado logo depois
+  // de cada fetch de jornadas: garante que o botão exista no DOM sempre que
+  // as três condições realmente permitirem (elegível, contexto/tour/campanha
+  // OK, painel fechado) — mesmo que algum caminho intermediário tenha
+  // deixado de recriá-lo a tempo por qualquer motivo transitório.
+  function jornadaGarantirFabNoDom() {
+    if (!jornadaState.fabDisponivel || jornadaState.aberto || !jornadaPodeAbrirCentral()) return;
+    if (!document.getElementById(JORNADA_FAB_ID)) renderJornadaFab(true);
+  }
+
   function renderJornadaFab(mostrar) {
     var existente = document.getElementById(JORNADA_FAB_ID);
     var podeExibir = mostrar && jornadaPodeAbrirCentral();
@@ -6082,6 +6095,10 @@
       if (meuToken !== jornadaElegibilidadeToken) return;
       jornadaState.fabDisponivel = (jornadas || []).length > 0;
       renderJornadaFab(jornadaState.fabDisponivel);
+      // Segunda checagem, um instante depois — pega qualquer condição
+      // transitória (ex.: outro trecho de código mexendo no DOM bem nesse
+      // meio tempo) que tenha impedido o botão de ficar de fato no DOM.
+      window.setTimeout(jornadaGarantirFabNoDom, 400);
     }).catch(function () {
       if (meuToken !== jornadaElegibilidadeToken) return;
       jornadaState.fabDisponivel = false;
