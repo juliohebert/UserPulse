@@ -1633,7 +1633,11 @@
       // mesmo em telas sem nenhuma campanha realmente visível. Mesma lógica
       // pro tour: se ficou ativo e o usuário navegou pra longe dele, encerra.
       if (state.open) doClose();
-      if (tourState.ativo) finalizarTour();
+      // suprimirAbandonoNavegacao: navegação causada pelo próprio clique
+      // sintético de um passo "clicar_elemento" (tourProximo()) não conta como
+      // abandono — sem essa checagem, essa navegação encerrava o tour sozinho
+      // antes do avanço para o próximo passo sequer acontecer.
+      if (tourState.ativo && !tourState.suprimirAbandonoNavegacao) finalizarTour();
       evaluateUrlCampaigns();
       jornadaReavaliarAposNavegacao();
     }, 200);
@@ -1716,6 +1720,14 @@
     // idêntica ao que o usuário final vê. Resetado pra false em finalizarTour(),
     // junto com preview.
     previewModoUsuarioFinal: false,
+    // true entre o clique sintético de um passo "clicar_elemento" e a busca do
+    // próximo passo ser resolvida (elemento achado ou "não encontrado" depois
+    // de esgotar os retries) — ver tourProximo()/irParaPasso()/handleUrlChange().
+    // Esse clique costuma navegar de tela (é o próprio propósito da ação), e
+    // sem essa flag o handleUrlChange() tratava essa navegação como abandono
+    // do tour e chamava finalizarTour() no meio da transição, cancelando o
+    // avanço agendado e encerrando o tour sem nenhum aviso.
+    suprimirAbandonoNavegacao: false,
   };
 
   function fetchTour(slug) {
@@ -2329,6 +2341,11 @@
     if (!passo) { finalizarTour(); return; }
 
     localizarComRetry(passo, 0, function (el) {
+      // A partir daqui o próximo passo já foi resolvido (achado ou "não
+      // encontrado") — a navegação que o clique sintético de tourProximo()
+      // possa ter causado já cumpriu seu papel, então navegações daqui pra
+      // frente voltam a ser um sinal normal de abandono do tour.
+      tourState.suprimirAbandonoNavegacao = false;
       if (!tourState.ativo) return; // tour foi encerrado enquanto buscava
       if (!el) {
         tourState.naoEncontrado = true;
@@ -2374,6 +2391,10 @@
       // (ex.: ao_clicar); remove antes do clique sintético para não agendar um
       // segundo avanço concorrente a partir do mesmo clique.
       limparInteracao();
+      // Esse clique pode navegar de tela — suprime o auto-encerramento do
+      // tour por navegação (handleUrlChange) até irParaPasso() resolver o
+      // próximo passo (ver comentário na declaração de tourState acima).
+      tourState.suprimirAbandonoNavegacao = true;
       try { el.click(); } catch (_e) {}
       tourState.nextClickTimer = window.setTimeout(function () {
         tourState.nextClickTimer = null;
@@ -2489,6 +2510,7 @@
     tourState.naoEncontrado = false;
     tourState.tela = null;
     tourState.feedbackEscolhido = null;
+    tourState.suprimirAbandonoNavegacao = false;
     if (tourState.preview) {
       tourState.preview = false;
       tourState.previewModoUsuarioFinal = false;
