@@ -5459,21 +5459,25 @@
     var concluida = status === 'concluida';
     // permitir_refazer é configurado na Jornada (não no pacote/etapa) — só
     // libera reexecutar uma etapa já concluída quando true; por padrão (false)
-    // fica bloqueada.
+    // fica bloqueada. Exceção: etapa tipo tour concluída sempre pode ser
+    // revista (reabre o tour de novo, sem contar como nova conclusão) mesmo
+    // com permitir_refazer=false — etapas tipo link continuam bloqueadas
+    // nesse caso.
     var podeRefazer = concluida && Boolean(jornada.permitir_refazer);
+    var podeRever = concluida && !podeRefazer && etapa.tipo === 'tour';
     // disabled nativo bloqueia clique/reexecução no próprio DOM (o clique nem
     // chega ao listener delegado) — não depende só da checagem em
     // jornadaPainelClick, que fica como segunda camada de segurança.
-    var desabilitada = (concluida && !podeRefazer) || etapa.tipo === 'campanha';
+    var desabilitada = (concluida && !podeRefazer && !podeRever) || etapa.tipo === 'campanha';
     var classe = 'up-jorn-etapa' + (concluida ? ' up-jorn-etapa-concluida' : '');
     var marcador = concluida
       ? '<span class="up-jorn-etapa-check">' + icon('check') + '</span>'
       : '<span class="up-jorn-etapa-num">' + (index + 1) + '</span>';
     var tituloAttr = concluida
-      ? (podeRefazer ? ' title="Clique para refazer esta etapa."' : ' title="Etapa já concluída."')
+      ? (podeRefazer ? ' title="Clique para refazer esta etapa."' : (podeRever ? ' title="Clique para rever o tour."' : ' title="Etapa já concluída."'))
       : (etapa.tipo === 'campanha' ? ' title="Campanha será suportada em breve."' : '');
     var tipoTexto = concluida
-      ? (podeRefazer ? 'Concluída · Refazer' : 'Concluída')
+      ? (podeRefazer ? 'Concluída · Refazer' : (podeRever ? 'Concluída · Rever tour' : 'Concluída'))
       : jornadaTipoLabel(etapa) + (etapa.obrigatoria ? '' : ' · opcional');
     return (
       '<button type="button" class="' + classe + '"' +
@@ -5766,11 +5770,14 @@
 
     // Etapa já concluída só é reexecutável quando a jornada tem
     // permitir_refazer=true (configurado no admin) — senão, mesmo bloqueio de
-    // sempre. O botão nativo disabled já impede isso na maioria dos casos;
-    // esta checagem é a segunda camada de segurança.
-    var refazendo = etapa.status === 'concluida';
-    if (refazendo && !jornada.permitir_refazer) return;
-    var contextoExtra = refazendo ? { refazer: true } : undefined;
+    // sempre, EXCETO etapa tipo tour, que sempre pode ser revista (reabre o
+    // tour sem contar como nova conclusão). O botão nativo disabled já impede
+    // isso na maioria dos casos; esta checagem é a segunda camada de segurança.
+    var concluida = etapa.status === 'concluida';
+    var refazendo = concluida && Boolean(jornada.permitir_refazer);
+    var revendoTour = concluida && !refazendo && etapa.tipo === 'tour';
+    if (concluida && !refazendo && !revendoTour) return;
+    var contextoExtra = refazendo ? { refazer: true } : (revendoTour ? { rever: true } : undefined);
 
     if (!jornada._iniciadaRegistrada) {
       jornada._iniciadaRegistrada = true;
@@ -5786,11 +5793,18 @@
       window.open(etapa.url, etapa.abrir_nova_aba ? '_blank' : '_self', 'noopener,noreferrer');
       jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
     } else if (etapa.tipo === 'tour' && etapa.tour && etapa.tour.slug) {
-      // MVP: conclui a etapa já ao iniciar o tour pelo checklist — aguardar a
-      // conclusão real do tour (via EventoTour) fica para uma fase seguinte.
-      jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
-      fecharJornadaPainel();
-      iniciarTourPublico(etapa.tour.slug);
+      if (revendoTour) {
+        // Já concluída — só reabre o tour pra revisão, sem re-registrar
+        // etapa_concluida nem mexer no progresso da jornada.
+        fecharJornadaPainel();
+        iniciarTourPublico(etapa.tour.slug);
+      } else {
+        // MVP: conclui a etapa já ao iniciar o tour pelo checklist — aguardar a
+        // conclusão real do tour (via EventoTour) fica para uma fase seguinte.
+        jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
+        fecharJornadaPainel();
+        iniciarTourPublico(etapa.tour.slug);
+      }
     }
     // tipo === 'campanha': sem ação — botão fica desabilitado (ver renderJornadaEtapaHtml).
   }
