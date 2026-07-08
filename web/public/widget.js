@@ -6094,7 +6094,10 @@
       return;
     }
     ensureStyles();
-    var meuToken = ++jornadaElegibilidadeToken;
+    // Invalida qualquer avaliação em segundo plano (avaliarJornadasParaBotao)
+    // ainda em andamento — o que essa busca vai encontrar é a fonte mais
+    // confiável possível, já que é exatamente o que vai ficar na tela.
+    jornadaElegibilidadeToken++;
     var contexto = resolveContexto();
     fetchJornadas(config.sistema, config.tela, config.usuario_id, contexto).then(function (jornadas) {
       // Pré-marca jornada._concluidaRegistrada com o que já veio concluído do
@@ -6105,17 +6108,14 @@
         return j;
       });
       // Essa busca acabou de provar se existe (ou não) jornada elegível agora
-      // — é uma fonte mais confiável que a checagem única do init() (que pode
-      // ter rodado cedo demais/com contexto incompleto). Sem isso, fechar o
-      // painel usava o valor antigo de fabDisponivel e o botão "Ajuda" podia
-      // ficar escondido pra sempre mesmo com jornada elegível de verdade. Só
-      // atualiza fabDisponivel se nenhuma avaliação mais nova rodou nesse
-      // meio tempo (mesma proteção contra resposta desatualizada usada em
-      // avaliarJornadasParaBotao) — a lista do painel em si sempre reflete
-      // esta busca, independente disso.
-      if (meuToken === jornadaElegibilidadeToken) {
-        jornadaState.fabDisponivel = jornadaState.jornadas.length > 0;
-      }
+      // — é uma fonte mais confiável que qualquer avaliação em segundo plano
+      // (mesmo uma mais recente), porque é literalmente o que está sendo
+      // mostrado no painel neste momento. Por isso atualiza fabDisponivel
+      // incondicionalmente aqui, ao contrário de avaliarJornadasParaBotao
+      // (que só atualiza se ainda for a avaliação mais recente). Sem isso,
+      // fechar o painel podia usar um valor antigo de fabDisponivel e o botão
+      // "Ajuda" ficava escondido mesmo com jornada elegível de verdade.
+      jornadaState.fabDisponivel = jornadaState.jornadas.length > 0;
       jornadaState.blocoAtivo = null;
       jornadaState.busca = '';
       jornadaState.aberto = true;
@@ -6126,7 +6126,7 @@
       }
     }).catch(function () {
       jornadaState.jornadas = [];
-      if (meuToken === jornadaElegibilidadeToken) jornadaState.fabDisponivel = false;
+      jornadaState.fabDisponivel = false;
       jornadaState.blocoAtivo = null;
       jornadaState.busca = '';
       jornadaState.aberto = true;
