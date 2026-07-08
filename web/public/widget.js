@@ -658,7 +658,16 @@
       '.up-jorn-pacote:disabled{opacity:.55;cursor:not-allowed}',
       '.up-jorn-pacote-concluido{border-color:rgba(0,105,71,.35);background:#f2faf6}',
       '.up-jorn-pacote-corpo{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}',
+      '.up-jorn-pacote-topo{display:flex;align-items:center;justify-content:space-between;gap:8px}',
       '.up-jorn-pacote-titulo{font-size:13px;font-weight:700;color:#0b1c30}',
+      '.up-jorn-pacote-status{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap}',
+      '.up-jorn-pacote-status-dot{width:6px;height:6px;border-radius:999px;flex-shrink:0}',
+      '.up-jorn-pacote-status-nao-iniciado{color:#8a90a3}',
+      '.up-jorn-pacote-status-nao-iniciado .up-jorn-pacote-status-dot{background:#8a90a3}',
+      '.up-jorn-pacote-status-andamento{color:#0058be}',
+      '.up-jorn-pacote-status-andamento .up-jorn-pacote-status-dot{background:#0058be}',
+      '.up-jorn-pacote-status-concluido{color:#006947}',
+      '.up-jorn-pacote-status-concluido .up-jorn-pacote-status-dot{background:#006947}',
       '.up-jorn-pacote-desc{font-size:11.5px;color:#424754;line-height:1.35}',
       '.up-jorn-pacote-cta{flex-shrink:0;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#0058be;white-space:nowrap}',
       '.up-jorn-pacote-cta-concluido{color:#006947}',
@@ -5484,7 +5493,13 @@
     var progresso = bloco.progresso || { concluido: false, etapas_concluidas: 0, etapas_total: (bloco.etapas || []).length };
     var pct = progresso.etapas_total > 0 ? Math.round((progresso.etapas_concluidas / progresso.etapas_total) * 100) : 0;
     var iniciado = progresso.etapas_concluidas > 0;
-    var textoCta = progresso.concluido ? 'Concluído' : (iniciado ? 'Continuar' : 'Iniciar');
+    // CTA (ação do botão) e status (rótulo visual) são dois conceitos
+    // separados: um pacote concluído ainda é clicável — abre pra revisão, ou
+    // pra refazer se a jornada permitir — então o CTA usa "Rever" em vez de
+    // travar como "Concluído" (esse texto agora só aparece no status).
+    var textoCta = progresso.concluido ? 'Rever' : (iniciado ? 'Continuar' : 'Iniciar');
+    var statusChave = progresso.concluido ? 'concluido' : (iniciado ? 'andamento' : 'nao-iniciado');
+    var statusTexto = progresso.concluido ? 'Concluído' : (iniciado ? 'Em andamento' : 'Não iniciado');
     var desabilitado = !bloco.ativo;
     return (
       '<button type="button" class="up-jorn-pacote' + (progresso.concluido ? ' up-jorn-pacote-concluido' : '') + '"' +
@@ -5493,7 +5508,12 @@
         (desabilitado ? ' disabled title="Pacote indisponível no momento."' : '') +
       '>' +
         '<span class="up-jorn-pacote-corpo">' +
-          '<span class="up-jorn-pacote-titulo">' + escapeHtml(bloco.titulo) + '</span>' +
+          '<span class="up-jorn-pacote-topo">' +
+            '<span class="up-jorn-pacote-titulo">' + escapeHtml(bloco.titulo) + '</span>' +
+            '<span class="up-jorn-pacote-status up-jorn-pacote-status-' + statusChave + '">' +
+              '<span class="up-jorn-pacote-status-dot"></span>' + statusTexto +
+            '</span>' +
+          '</span>' +
           (bloco.descricao ? '<span class="up-jorn-pacote-desc">' + escapeHtml(bloco.descricao) + '</span>' : '') +
           '<span class="up-jorn-progresso">' +
             '<span class="up-jorn-progresso-barra"><span class="up-jorn-progresso-fill" style="width:' + pct + '%"></span></span>' +
@@ -5640,7 +5660,14 @@
   }
 
   function jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra) {
+    // Só conta pra progresso na primeira conclusão — refazer uma etapa já
+    // concluída (permitir_refazer=true) não pode incrementar de novo, senão
+    // etapas_concluidas passaria de etapas_total.
+    var primeiraConclusao = etapa.status !== 'concluida';
     etapa.status = 'concluida';
+    if (primeiraConclusao && bloco.progresso) {
+      bloco.progresso.etapas_concluidas = Math.min(bloco.progresso.etapas_concluidas + 1, bloco.progresso.etapas_total);
+    }
     registrarEventoJornada(jornada.id, bloco.id, etapa.id, 'etapa_concluida', contextoExtra);
     renderJornadaPainel();
     jornadaChecarConclusaoBloco(jornada, bloco);
@@ -5654,6 +5681,9 @@
     });
     if (pendentesObrigatorias.length === 0) {
       if (bloco.progresso) bloco.progresso.concluido = true;
+      if (jornada.progresso) {
+        jornada.progresso.blocos_concluidos = Math.min(jornada.progresso.blocos_concluidos + 1, jornada.progresso.blocos_total);
+      }
       registrarEventoJornada(jornada.id, bloco.id, null, 'bloco_concluido');
       jornadaChecarConclusaoGeral(jornada);
     }
@@ -5667,6 +5697,7 @@
     });
     if (pendentesObrigatorios.length === 0) {
       jornada._concluidaRegistrada = true;
+      if (jornada.progresso) jornada.progresso.concluida = true;
       registrarEventoJornada(jornada.id, null, null, 'jornada_concluida');
     }
   }
