@@ -668,9 +668,12 @@
       '.up-jorn-pacote-status-andamento .up-jorn-pacote-status-dot{background:#0058be}',
       '.up-jorn-pacote-status-concluido{color:#006947}',
       '.up-jorn-pacote-status-concluido .up-jorn-pacote-status-dot{background:#006947}',
+      '.up-jorn-pacote-status-bloqueado{color:#e65100}',
+      '.up-jorn-pacote-status-bloqueado .up-jorn-pacote-status-dot{background:#e65100}',
       '.up-jorn-pacote-desc{font-size:11.5px;color:#424754;line-height:1.35}',
       '.up-jorn-pacote-cta{flex-shrink:0;display:flex;align-items:center;gap:4px;font-size:11px;font-weight:800;color:#0058be;white-space:nowrap}',
       '.up-jorn-pacote-cta-concluido{color:#006947}',
+      '.up-jorn-pacote-cta-bloqueado{color:#8a90a3}',
       '.up-jorn-pacote-cta svg{width:13px;height:13px;fill:currentColor}',
       '.up-jorn-etapas-header{margin-bottom:10px}',
       '.up-jorn-voltar{display:flex;align-items:center;gap:5px;background:transparent;border:0;padding:0;margin-bottom:10px;font-family:inherit;font-size:12px;font-weight:700;color:#0058be;cursor:pointer}',
@@ -5489,23 +5492,49 @@
     );
   }
 
+  // Só se aplica quando jornada.permitir_pacotes_fora_ordem === false (default
+  // é true — comportamento atual, sem nenhum bloqueio). Pacote obrigatório
+  // fica bloqueado enquanto existir um pacote obrigatório ANTERIOR (por
+  // ordem) ainda não concluído. Pacotes opcionais nunca bloqueiam nem são
+  // bloqueados — a varredura por "anterior pendente" só considera obrigatórios.
+  function jornadaPacoteBloqueado(jornada, bloco) {
+    if (jornada.permitir_pacotes_fora_ordem !== false) return false;
+    if (!bloco.obrigatorio) return false;
+    var blocos = jornada.blocos || [];
+    for (var i = 0; i < blocos.length; i++) {
+      var anterior = blocos[i];
+      if (anterior.id === bloco.id) break;
+      if (anterior.obrigatorio && !(anterior.progresso && anterior.progresso.concluido)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function renderJornadaPacoteCardHtml(jornada, bloco) {
     var progresso = bloco.progresso || { concluido: false, etapas_concluidas: 0, etapas_total: (bloco.etapas || []).length };
     var pct = progresso.etapas_total > 0 ? Math.round((progresso.etapas_concluidas / progresso.etapas_total) * 100) : 0;
     var iniciado = progresso.etapas_concluidas > 0;
+    var bloqueado = jornadaPacoteBloqueado(jornada, bloco);
     // CTA (ação do botão) e status (rótulo visual) são dois conceitos
     // separados: um pacote concluído ainda é clicável — abre pra revisão, ou
     // pra refazer se a jornada permitir — então o CTA usa "Rever" em vez de
     // travar como "Concluído" (esse texto agora só aparece no status).
-    var textoCta = progresso.concluido ? 'Rever' : (iniciado ? 'Continuar' : 'Iniciar');
-    var statusChave = progresso.concluido ? 'concluido' : (iniciado ? 'andamento' : 'nao-iniciado');
-    var statusTexto = progresso.concluido ? 'Concluído' : (iniciado ? 'Em andamento' : 'Não iniciado');
-    var desabilitado = !bloco.ativo;
+    // Bloqueado por ordem tem prioridade sobre os demais estados: enquanto
+    // travado, não importa se já teve progresso registrado antes (ex.: jornada
+    // que só passou a exigir ordem depois de alguma etapa já concluída).
+    var textoCta = bloqueado ? 'Bloqueado' : (progresso.concluido ? 'Rever' : (iniciado ? 'Continuar' : 'Iniciar'));
+    var statusChave = bloqueado ? 'bloqueado' : (progresso.concluido ? 'concluido' : (iniciado ? 'andamento' : 'nao-iniciado'));
+    var statusTexto = bloqueado ? 'Bloqueado' : (progresso.concluido ? 'Concluído' : (iniciado ? 'Em andamento' : 'Não iniciado'));
+    var desabilitado = !bloco.ativo || bloqueado;
+    var tituloAttr = !bloco.ativo
+      ? ' title="Pacote indisponível no momento."'
+      : (bloqueado ? ' title="Conclua o pacote anterior para desbloquear."' : '');
     return (
       '<button type="button" class="up-jorn-pacote' + (progresso.concluido ? ' up-jorn-pacote-concluido' : '') + '"' +
         ' data-up-jorn-jornada="' + escapeHtml(jornada.id) + '"' +
         ' data-up-jorn-abrir-bloco="' + escapeHtml(bloco.id) + '"' +
-        (desabilitado ? ' disabled title="Pacote indisponível no momento."' : '') +
+        (desabilitado ? ' disabled' : '') + tituloAttr +
       '>' +
         '<span class="up-jorn-pacote-corpo">' +
           '<span class="up-jorn-pacote-topo">' +
@@ -5520,8 +5549,8 @@
             '<span class="up-jorn-progresso-texto">' + progresso.etapas_concluidas + ' de ' + progresso.etapas_total + ' etapas concluídas</span>' +
           '</span>' +
         '</span>' +
-        '<span class="up-jorn-pacote-cta' + (progresso.concluido ? ' up-jorn-pacote-cta-concluido' : '') + '">' +
-          (progresso.concluido ? icon('check') : '') + textoCta +
+        '<span class="up-jorn-pacote-cta' + (bloqueado ? ' up-jorn-pacote-cta-bloqueado' : (progresso.concluido ? ' up-jorn-pacote-cta-concluido' : '')) + '">' +
+          (progresso.concluido && !bloqueado ? icon('check') : '') + textoCta +
         '</span>' +
       '</button>'
     );
@@ -5717,6 +5746,9 @@
       var jornadaDoBloco = jornadaEncontrar(jIdBloco);
       var blocoAlvo = jornadaEncontrarBloco(jornadaDoBloco, bId);
       if (!jornadaDoBloco || !blocoAlvo) return;
+      // disabled nativo já impede isso na maioria dos casos — segunda camada
+      // de segurança, mesmo padrão usado pra permitir_refazer.
+      if (jornadaPacoteBloqueado(jornadaDoBloco, blocoAlvo)) return;
       jornadaAbrirBloco(jornadaDoBloco, blocoAlvo);
       return;
     }

@@ -227,6 +227,7 @@ model Jornada {
   descricao               String?
   ativo                   Boolean  @default(true)
   permitir_refazer        Boolean  @default(false)
+  permitir_pacotes_fora_ordem Boolean @default(true)
   segmentar_cliente_ids   String[] @default([])
   segmentar_unidade_ids   String[] @default([])
   segmentar_perfis        String[] @default([])

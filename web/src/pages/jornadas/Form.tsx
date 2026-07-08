@@ -12,6 +12,7 @@ interface FormState {
   descricao: string
   ativo: boolean
   permitir_refazer: boolean
+  permitir_pacotes_fora_ordem: boolean
   segmentar_cliente_ids: string[]
   segmentar_unidade_ids: string[]
   segmentar_perfis: string[]
@@ -20,7 +21,7 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
-  titulo: '', descricao: '', ativo: true, permitir_refazer: false,
+  titulo: '', descricao: '', ativo: true, permitir_refazer: false, permitir_pacotes_fora_ordem: true,
   segmentar_cliente_ids: [], segmentar_unidade_ids: [], segmentar_perfis: [],
   segmentar_usuario_tipos: [], segmentar_estados: [],
 }
@@ -106,6 +107,7 @@ export function JornadaForm() {
           descricao: j.descricao ?? '',
           ativo: j.ativo,
           permitir_refazer: j.permitir_refazer ?? false,
+          permitir_pacotes_fora_ordem: j.permitir_pacotes_fora_ordem ?? true,
           segmentar_cliente_ids: j.segmentar_cliente_ids ?? [],
           segmentar_unidade_ids: j.segmentar_unidade_ids ?? [],
           segmentar_perfis: j.segmentar_perfis ?? [],
@@ -215,6 +217,7 @@ export function JornadaForm() {
         descricao: form.descricao.trim() || null,
         ativo: form.ativo,
         permitir_refazer: form.permitir_refazer,
+        permitir_pacotes_fora_ordem: form.permitir_pacotes_fora_ordem,
         segmentar_cliente_ids: form.segmentar_cliente_ids,
         segmentar_unidade_ids: form.segmentar_unidade_ids,
         segmentar_perfis: form.segmentar_perfis,
@@ -379,6 +382,13 @@ export function JornadaForm() {
                 <div>
                   <p className="text-body-md font-semibold text-on-surface">Permitir que o usuário refaça etapas concluídas</p>
                   <p className="text-label-sm text-on-surface-variant">Quando desativado, etapas concluídas ficam bloqueadas para o usuário final.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <ToggleSwitch checked={form.permitir_pacotes_fora_ordem} onChange={v => set('permitir_pacotes_fora_ordem', v)} />
+                <div>
+                  <p className="text-body-md font-semibold text-on-surface">Permitir acessar pacotes fora de ordem</p>
+                  <p className="text-label-sm text-on-surface-variant">Quando desativado, o usuário precisa concluir o pacote anterior para acessar o próximo.</p>
                 </div>
               </div>
             </div>

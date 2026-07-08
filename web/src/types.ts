@@ -248,6 +248,7 @@ export interface Jornada {
   descricao: string | null
   ativo: boolean
   permitir_refazer: boolean
+  permitir_pacotes_fora_ordem: boolean
   segmentar_cliente_ids: string[]
   segmentar_unidade_ids: string[]
   segmentar_perfis: string[]

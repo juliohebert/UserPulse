@@ -218,7 +218,7 @@ export async function buscarPorId(req: Request, res: Response) {
 
 export async function criar(req: Request, res: Response) {
   try {
-    const { titulo, descricao, ativo, permitir_refazer, blocos } = req.body
+    const { titulo, descricao, ativo, permitir_refazer, permitir_pacotes_fora_ordem, blocos } = req.body
     const {
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis,
       segmentar_usuario_tipos, segmentar_estados,
@@ -245,6 +245,7 @@ export async function criar(req: Request, res: Response) {
         descricao: descricao?.trim() || null,
         ativo: ativo !== undefined ? Boolean(ativo) : true,
         permitir_refazer: permitir_refazer !== undefined ? Boolean(permitir_refazer) : false,
+        permitir_pacotes_fora_ordem: permitir_pacotes_fora_ordem !== undefined ? Boolean(permitir_pacotes_fora_ordem) : true,
         segmentar_cliente_ids: Array.isArray(segmentar_cliente_ids) ? segmentar_cliente_ids : [],
         segmentar_unidade_ids: Array.isArray(segmentar_unidade_ids) ? segmentar_unidade_ids : [],
         segmentar_perfis: Array.isArray(segmentar_perfis) ? segmentar_perfis : [],
@@ -270,7 +271,7 @@ export async function atualizar(req: Request, res: Response) {
     const existente = await prisma.jornada.findUnique({ where: { id } })
     if (!existente) return res.status(404).json({ erro: 'Jornada não encontrada.' })
 
-    const { titulo, descricao, ativo, permitir_refazer, blocos } = req.body
+    const { titulo, descricao, ativo, permitir_refazer, permitir_pacotes_fora_ordem, blocos } = req.body
     const {
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis,
       segmentar_usuario_tipos, segmentar_estados,
@@ -307,6 +308,7 @@ export async function atualizar(req: Request, res: Response) {
           ...(descricao !== undefined && { descricao: descricao?.trim() || null }),
           ...(ativo !== undefined && { ativo: Boolean(ativo) }),
           ...(permitir_refazer !== undefined && { permitir_refazer: Boolean(permitir_refazer) }),
+          ...(permitir_pacotes_fora_ordem !== undefined && { permitir_pacotes_fora_ordem: Boolean(permitir_pacotes_fora_ordem) }),
           ...(segmentar_cliente_ids !== undefined && { segmentar_cliente_ids: Array.isArray(segmentar_cliente_ids) ? segmentar_cliente_ids : [] }),
           ...(segmentar_unidade_ids !== undefined && { segmentar_unidade_ids: Array.isArray(segmentar_unidade_ids) ? segmentar_unidade_ids : [] }),
           ...(segmentar_perfis !== undefined && { segmentar_perfis: Array.isArray(segmentar_perfis) ? segmentar_perfis : [] }),
