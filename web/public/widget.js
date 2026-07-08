@@ -697,6 +697,7 @@
       '.up-jorn-fab{position:fixed;bottom:24px;right:24px;height:44px;padding:0 18px 0 14px;border:0;border-radius:999px;background:#0058be;color:#fff;box-shadow:0 14px 32px rgba(0,88,190,.28);display:flex;align-items:center;gap:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:800;transition:transform .18s ease,box-shadow .18s ease}',
       '.up-jorn-fab:hover{transform:translateY(-1px);box-shadow:0 18px 38px rgba(0,88,190,.34)}',
       '.up-jorn-fab svg{width:18px;height:18px;fill:currentColor}',
+      '.up-jorn-aviso{position:fixed;bottom:24px;right:24px;max-width:260px;padding:10px 14px;border-radius:10px;background:#0b1c30;color:#fff;font-family:inherit;font-size:12.5px;font-weight:600;line-height:1.4;box-shadow:0 14px 32px rgba(11,28,48,.28);z-index:2147483620}',
       '@media (max-width:480px){.up-jorn-painel{width:100vw;max-width:100vw}}',
     ].join('');
     document.head.appendChild(style);
@@ -859,6 +860,10 @@
       state.root.className = 'up-widget-root';
     }
     state.root.innerHTML = renderModal(isOpening);
+
+    // Campanha abriu ou fechou de verdade (não só re-renderizou por causa de
+    // nota/observação mudando) — reavalia se o FAB "Ajuda" deve aparecer.
+    if (isOpening || isClosing) jornadaReavaliarFab();
   }
 
   function updateScaleUI() {
@@ -1606,7 +1611,23 @@
     urlChangeTimer = window.setTimeout(function () {
       urlChangeTimer = null;
       evaluateUrlCampaigns();
+      jornadaReavaliarAposNavegacao();
     }, 200);
+  }
+
+  // SPA pode navegar de uma tela sem contexto de usuário válido (login,
+  // escolha de clínica) pra dentro do sistema sem recarregar a página nem
+  // chamar init() de novo — reavalia o FAB "Ajuda" nesse momento. Se o
+  // contexto virou inválido, só esconde na hora (sem fetch); se ficou válido,
+  // busca elegibilidade de novo (pode ter mudado desde a última checagem).
+  function jornadaReavaliarAposNavegacao() {
+    var config = state.config;
+    if (!config) return;
+    if (!jornadaContextoValido()) {
+      renderJornadaFab(jornadaState.fabDisponivel);
+      return;
+    }
+    avaliarJornadasParaBotao(config);
   }
 
   function bindSpaListeners() {
@@ -2445,6 +2466,9 @@
       tourState.previewModoUsuarioFinal = false;
       recorderRestaurarAposPreview();
     }
+    // Tour encerrado (concluído, pulado ou fechado) — reavalia se o FAB
+    // "Ajuda" deve voltar a aparecer agora que ele não está mais ocupando a tela.
+    jornadaReavaliarFab();
   }
 
   // "Começar tour" na introdução — só agora o tour é considerado iniciado de
@@ -2489,6 +2513,10 @@
     tourState.ativo = true;
     tourState.preview = Boolean(preview);
     tourState.previewModoUsuarioFinal = Boolean(modoUsuarioFinal);
+    // finalizarTour() acima já reavaliou o FAB com ativo=false (pra limpar um
+    // tour anterior, se houver) — agora que o tour novo está de fato ativo,
+    // reavalia de novo pra escondê-lo enquanto ele ocupa a tela.
+    jornadaReavaliarFab();
     document.addEventListener('keydown', tourKeydown);
     if (pularIntro) {
       bindTourReposHandlers();
@@ -2502,10 +2530,12 @@
   // Avalia automaticamente, no init(), se há um tour guiado elegível para o
   // contexto atual (mesmo princípio do checkMode usado para campanhas).
   function avaliarTourAutomatico(config) {
-    if (tourState.ativo || !config.sistema) return;
+    // Central de ajuda aberta não pode ser coberta por um tour automático —
+    // o usuário abriu ela de propósito, então não compete por cima.
+    if (tourState.ativo || jornadaState.aberto || !config.sistema) return;
     fetchTourCandidatos(config.sistema, config.tela, config.usuario_id, config.contexto)
       .then(function (candidatos) {
-        if (tourState.ativo) return;
+        if (tourState.ativo || jornadaState.aberto) return;
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
           if (!checkMode(c, config)) continue;
@@ -5397,6 +5427,7 @@
 
   var JORNADA_PAINEL_ID = 'userpulse-jornada-painel';
   var JORNADA_FAB_ID = 'userpulse-jornada-fab';
+  var JORNADA_AVISO_ID = 'userpulse-jornada-aviso';
 
   var jornadaState = {
     jornadas: [],
@@ -5476,28 +5507,35 @@
   function renderJornadaEtapaHtml(jornada, bloco, etapa, index) {
     var status = etapa.status || 'pendente';
     var concluida = status === 'concluida';
+    // Tour apontado pela etapa foi inativado depois de criada a jornada — não
+    // dá pra iniciar nem rever, então bloqueia independente de status/permitir_refazer.
+    var tourInativo = etapa.tipo === 'tour' && Boolean(etapa.tour) && etapa.tour.ativo === false;
     // permitir_refazer é configurado na Jornada (não no pacote/etapa) — só
     // libera reexecutar uma etapa já concluída quando true; por padrão (false)
     // fica bloqueada. Exceção: etapa tipo tour concluída sempre pode ser
     // revista (reabre o tour de novo, sem contar como nova conclusão) mesmo
     // com permitir_refazer=false — etapas tipo link continuam bloqueadas
     // nesse caso.
-    var podeRefazer = concluida && Boolean(jornada.permitir_refazer);
-    var podeRever = concluida && !podeRefazer && etapa.tipo === 'tour';
+    var podeRefazer = concluida && Boolean(jornada.permitir_refazer) && !tourInativo;
+    var podeRever = concluida && !podeRefazer && etapa.tipo === 'tour' && !tourInativo;
     // disabled nativo bloqueia clique/reexecução no próprio DOM (o clique nem
     // chega ao listener delegado) — não depende só da checagem em
     // jornadaPainelClick, que fica como segunda camada de segurança.
-    var desabilitada = (concluida && !podeRefazer && !podeRever) || etapa.tipo === 'campanha';
+    var desabilitada = (concluida && !podeRefazer && !podeRever) || etapa.tipo === 'campanha' || tourInativo;
     var classe = 'up-jorn-etapa' + (concluida ? ' up-jorn-etapa-concluida' : '');
     var marcador = concluida
       ? '<span class="up-jorn-etapa-check">' + icon('check') + '</span>'
       : '<span class="up-jorn-etapa-num">' + (index + 1) + '</span>';
-    var tituloAttr = concluida
-      ? (podeRefazer ? ' title="Clique para refazer esta etapa."' : (podeRever ? ' title="Clique para rever o tour."' : ' title="Etapa já concluída."'))
-      : (etapa.tipo === 'campanha' ? ' title="Campanha será suportada em breve."' : '');
-    var tipoTexto = concluida
-      ? (podeRefazer ? 'Concluída · Refazer' : (podeRever ? 'Concluída · Rever tour' : 'Concluída'))
-      : jornadaTipoLabel(etapa) + (etapa.obrigatoria ? '' : ' · opcional');
+    var tituloAttr = tourInativo
+      ? ' title="Este tour está indisponível no momento."'
+      : (concluida
+        ? (podeRefazer ? ' title="Clique para refazer esta etapa."' : (podeRever ? ' title="Clique para rever o tour."' : ' title="Etapa já concluída."'))
+        : (etapa.tipo === 'campanha' ? ' title="Campanha será suportada em breve."' : ''));
+    var tipoTexto = tourInativo
+      ? (concluida ? 'Concluída · Tour indisponível' : jornadaTipoLabel(etapa) + ' · indisponível')
+      : (concluida
+        ? (podeRefazer ? 'Concluída · Refazer' : (podeRever ? 'Concluída · Rever tour' : 'Concluída'))
+        : jornadaTipoLabel(etapa) + (etapa.obrigatoria ? '' : ' · opcional'));
     return (
       '<button type="button" class="' + classe + '"' +
         ' data-up-jorn-jornada="' + escapeHtml(jornada.id) + '"' +
@@ -5921,6 +5959,9 @@
       window.open(etapa.url, etapa.abrir_nova_aba ? '_blank' : '_self', 'noopener,noreferrer');
       jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
     } else if (etapa.tipo === 'tour' && etapa.tour && etapa.tour.slug) {
+      // disabled nativo já impede isso (ver renderJornadaEtapaHtml) — segunda
+      // camada de segurança, mesmo padrão de sempre.
+      if (etapa.tour.ativo === false) return;
       if (revendoTour) {
         // Já concluída — só reabre o tour pra revisão, sem re-registrar
         // etapa_concluida nem mexer no progresso da jornada.
@@ -5937,9 +5978,56 @@
     // tipo === 'campanha': sem ação — botão fica desabilitado (ver renderJornadaEtapaHtml).
   }
 
+  // Sem usuario_id, ou em telas de pré-login/pré-contexto, a Central de ajuda
+  // não deve aparecer — o widget é embarcado em sistemas diferentes e não
+  // conhece as rotas exatas de cada host, então usa uma heurística por path
+  // (padrões comuns de tela de autenticação) como segundo sinal, além do
+  // usuario_id de verdade.
+  function jornadaContextoValido() {
+    var config = state.config;
+    if (!config || !config.usuario_id) return false;
+    var path = '';
+    try { path = window.location.pathname.toLowerCase(); } catch (_e) { return true; }
+    var PADROES_SEM_CONTEXTO = ['/auth/', '/login', '/signin', '/sign-in'];
+    for (var i = 0; i < PADROES_SEM_CONTEXTO.length; i++) {
+      if (path.indexOf(PADROES_SEM_CONTEXTO[i]) !== -1) return false;
+    }
+    return true;
+  }
+
+  // Única fonte de verdade sobre se a Central pode aparecer/abrir agora —
+  // usada tanto pelo FAB quanto por abrirJornadasPublico(), pra manter as
+  // duas checagens sempre em sincronia.
+  function jornadaPodeAbrirCentral() {
+    return jornadaContextoValido() && !tourState.ativo && !(state.open && state.campanha);
+  }
+
+  function jornadaMostrarAvisoIndisponivel() {
+    ensureStyles();
+    var existente = document.getElementById(JORNADA_AVISO_ID);
+    if (existente) existente.remove();
+    var aviso = document.createElement('div');
+    aviso.id = JORNADA_AVISO_ID;
+    aviso.className = 'up-jorn-aviso';
+    aviso.textContent = 'Ajuda indisponível nesta tela.';
+    document.body.appendChild(aviso);
+    window.setTimeout(function () {
+      var el = document.getElementById(JORNADA_AVISO_ID);
+      if (el) el.remove();
+    }, 3000);
+  }
+
+  // Reavalia o FAB com a última elegibilidade conhecida (sem novo fetch) —
+  // usada quando tour/campanha abrem ou fecham, pra esconder/mostrar a Ajuda
+  // na hora, sem esperar a próxima navegação ou avaliação completa.
+  function jornadaReavaliarFab() {
+    renderJornadaFab(jornadaState.fabDisponivel);
+  }
+
   function renderJornadaFab(mostrar) {
     var existente = document.getElementById(JORNADA_FAB_ID);
-    if (!mostrar || jornadaState.aberto) {
+    var podeExibir = mostrar && jornadaPodeAbrirCentral();
+    if (!podeExibir || jornadaState.aberto) {
       if (existente) existente.remove();
       return;
     }
@@ -5975,6 +6063,13 @@
   function abrirJornadasPublico() {
     var config = state.config;
     if (!config) return;
+    // Mesma regra do FAB: sem contexto de usuário válido (tela de
+    // autenticação, sem usuario_id) ou com tour/campanha ocupando a tela, não
+    // abre — só avisa discretamente, em vez de competir visualmente por cima.
+    if (!jornadaPodeAbrirCentral()) {
+      jornadaMostrarAvisoIndisponivel();
+      return;
+    }
     ensureStyles();
     var contexto = resolveContexto();
     fetchJornadas(config.sistema, config.tela, config.usuario_id, contexto).then(function (jornadas) {
