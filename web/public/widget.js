@@ -5985,6 +5985,12 @@
         j._concluidaRegistrada = Boolean(j.progresso && j.progresso.concluida);
         return j;
       });
+      // Essa busca acabou de provar se existe (ou não) jornada elegível agora
+      // — é uma fonte mais confiável que a checagem única do init() (que pode
+      // ter rodado cedo demais/com contexto incompleto). Sem isso, fechar o
+      // painel usava o valor antigo de fabDisponivel e o botão "Ajuda" podia
+      // ficar escondido pra sempre mesmo com jornada elegível de verdade.
+      jornadaState.fabDisponivel = jornadaState.jornadas.length > 0;
       jornadaState.blocoAtivo = null;
       jornadaState.busca = '';
       jornadaState.aberto = true;
@@ -5995,6 +6001,7 @@
       }
     }).catch(function () {
       jornadaState.jornadas = [];
+      jornadaState.fabDisponivel = false;
       jornadaState.blocoAtivo = null;
       jornadaState.busca = '';
       jornadaState.aberto = true;
