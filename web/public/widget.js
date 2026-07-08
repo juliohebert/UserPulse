@@ -616,6 +616,8 @@
       '.up-jorn-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid rgba(194,198,214,.45);flex-shrink:0}',
       '.up-jorn-header-titulo{margin:0;font-size:16px;font-weight:800;color:#0b1c30}',
       '.up-jorn-body{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px}',
+      '.up-jorn-secao{display:flex;flex-direction:column;gap:14px}',
+      '.up-jorn-secao-titulo{margin:0;font-size:11px;font-weight:800;color:#8a90a3;text-transform:uppercase;letter-spacing:.04em}',
       '.up-jorn-card{border:1px solid #e0e2ef;border-radius:14px;padding:14px;background:#f8f9ff}',
       '.up-jorn-card-titulo{margin:0 0 4px;font-size:14px;font-weight:800;color:#0b1c30}',
       '.up-jorn-card-desc{margin:0 0 10px;font-size:12.5px;line-height:1.4;color:#424754}',
@@ -5362,7 +5364,7 @@
 
   // ─── Onboarding Guiado (Jornadas) — MVP ────────────────────────────────────
   // Central/checklist que o usuário abre manualmente — via
-  // window.UserPulse.abrirJornadas() ou pelo botão flutuante "Jornada" (Parte 3),
+  // window.UserPulse.abrirJornadas() ou pelo botão flutuante "Ajuda" (Parte 3),
   // que só aparece quando há jornada elegível. Nunca dispara sozinha, ao
   // contrário de campanhas/tours automáticos (avaliarTourAutomatico/checkMode).
   //
@@ -5645,7 +5647,15 @@
       // Estado ficou inconsistente (ex.: dado recarregado) — volta pra lista.
       jornadaState.blocoAtivo = null;
     }
-    return renderJornadaListaPacotesHtml();
+    // MVP da Central de ajuda: só a seção "Jornadas" por enquanto (sem busca,
+    // sem outras seções) — o rótulo já deixa o painel pronto pra crescer
+    // depois sem precisar mexer na estrutura de novo.
+    return (
+      '<div class="up-jorn-secao">' +
+        '<h4 class="up-jorn-secao-titulo">Jornadas</h4>' +
+        renderJornadaListaPacotesHtml() +
+      '</div>'
+    );
   }
 
   function renderJornadaPainel() {
@@ -5657,7 +5667,7 @@
     var html =
       '<div class="up-jorn-painel">' +
         '<div class="up-jorn-header">' +
-          '<h3 class="up-jorn-header-titulo">Jornadas</h3>' +
+          '<h3 class="up-jorn-header-titulo">Central de ajuda</h3>' +
           '<button type="button" class="up-close" data-up-jorn-fechar aria-label="Fechar">' + icon('close') + '</button>' +
         '</div>' +
         '<div class="up-jorn-body">' + renderJornadaPainelHtml() + '</div>' +
@@ -5821,8 +5831,8 @@
     btn.type = 'button';
     btn.id = JORNADA_FAB_ID;
     btn.className = 'up-jorn-fab';
-    btn.setAttribute('aria-label', 'Jornada');
-    btn.innerHTML = icon('route') + '<span>Jornada</span>';
+    btn.setAttribute('aria-label', 'Ajuda');
+    btn.innerHTML = icon('route') + '<span>Ajuda</span>';
     btn.addEventListener('click', function () { abrirJornadasPublico(); });
     document.body.appendChild(btn);
   }
@@ -5841,8 +5851,8 @@
     });
   }
 
-  // API pública para abrir a central de jornadas manualmente (ex.: botão
-  // "Central de ajuda" no host, ou o botão flutuante "Jornada"):
+  // API pública para abrir a central de ajuda manualmente (ex.: botão
+  // "Central de ajuda" no host, ou o botão flutuante "Ajuda"):
   //   window.UserPulse.abrirJornadas()
   function abrirJornadasPublico() {
     var config = state.config;
