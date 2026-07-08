@@ -618,6 +618,17 @@
       '.up-jorn-body{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px}',
       '.up-jorn-secao{display:flex;flex-direction:column;gap:14px}',
       '.up-jorn-secao-titulo{margin:0;font-size:11px;font-weight:800;color:#8a90a3;text-transform:uppercase;letter-spacing:.04em}',
+      '.up-jorn-busca{position:relative;flex-shrink:0}',
+      '.up-jorn-busca svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;fill:#8a90a3;pointer-events:none}',
+      '.up-jorn-busca-input{width:100%;height:36px;padding:0 12px 0 32px;border:1px solid #e0e2ef;border-radius:10px;font-family:inherit;font-size:12.5px;color:#0b1c30;background:#f8f9ff;outline:none;transition:border-color .15s ease}',
+      '.up-jorn-busca-input:focus{border-color:#0058be;background:#fff}',
+      '.up-jorn-busca-input::placeholder{color:#8a90a3}',
+      '.up-jorn-busca-resultados{display:flex;flex-direction:column;gap:8px}',
+      '.up-jorn-busca-resultado{display:flex;flex-direction:column;gap:2px;padding:12px;border:1px solid #e0e2ef;border-radius:12px;background:#fff;cursor:pointer;text-align:left;width:100%;font-family:inherit;transition:border-color .15s ease,background .15s ease}',
+      '.up-jorn-busca-resultado:hover{border-color:#0058be;background:#f6f9ff}',
+      '.up-jorn-busca-resultado:disabled{opacity:.55;cursor:not-allowed}',
+      '.up-jorn-busca-resultado-caminho{font-size:13px;font-weight:700;color:#0b1c30}',
+      '.up-jorn-busca-resultado-etapa{font-size:11.5px;color:#727785}',
       '.up-jorn-card{border:1px solid #e0e2ef;border-radius:14px;padding:14px;background:#f8f9ff}',
       '.up-jorn-card-titulo{margin:0 0 4px;font-size:14px;font-weight:800;color:#0b1c30}',
       '.up-jorn-card-desc{margin:0 0 10px;font-size:12.5px;line-height:1.4;color:#424754}',
@@ -712,6 +723,9 @@
     }
     if (name === 'arrow_back') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20Z"/></svg>';
+    }
+    if (name === 'search') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5Zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14Z"/></svg>';
     }
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8l-5 4V6a2 2 0 0 1 2-2Zm0 13.85L7.3 15H20V6H4v11.85Z"/></svg>';
   }
@@ -5391,6 +5405,9 @@
     // null = mostrando a lista de pacotes; { jornadaId, blocoId } = dentro das
     // etapas de um pacote específico.
     blocoAtivo: null,
+    // Texto da busca da Central de ajuda — só se aplica na lista de pacotes
+    // (some da tela quando dentro de um pacote específico).
+    busca: '',
   };
 
   function fetchJornadas(sistema, tela, usuario_id, contexto) {
@@ -5639,6 +5656,76 @@
     );
   }
 
+  function renderJornadaBuscaInputHtml() {
+    var valor = jornadaState.busca || '';
+    return (
+      '<div class="up-jorn-busca">' +
+        icon('search') +
+        '<input type="text" class="up-jorn-busca-input" data-up-jorn-busca' +
+          ' placeholder="Buscar etapas, pacotes ou jornadas" value="' + escapeHtml(valor) + '" />' +
+      '</div>'
+    );
+  }
+
+  function jornadaTextoContemBusca(texto, queryMinusculo) {
+    return Boolean(texto) && texto.toLowerCase().indexOf(queryMinusculo) !== -1;
+  }
+
+  // Cada pacote que bate (por título/descrição da jornada, do próprio pacote,
+  // ou de alguma etapa dentro dele) vira UM resultado, sem duplicar — clicar
+  // nele abre o pacote correspondente (mesmo caminho de sempre).
+  function jornadaBuscarResultados(query) {
+    var queryMinusculo = query.toLowerCase();
+    var resultados = [];
+    (jornadaState.jornadas || []).forEach(function (jornada) {
+      var jornadaBate = jornadaTextoContemBusca(jornada.titulo, queryMinusculo) || jornadaTextoContemBusca(jornada.descricao, queryMinusculo);
+      (jornada.blocos || []).forEach(function (bloco) {
+        var blocoBate = jornadaTextoContemBusca(bloco.titulo, queryMinusculo) || jornadaTextoContemBusca(bloco.descricao, queryMinusculo);
+        var etapaQueBateu = null;
+        (bloco.etapas || []).some(function (etapa) {
+          if (jornadaTextoContemBusca(etapa.titulo, queryMinusculo) || jornadaTextoContemBusca(etapa.descricao, queryMinusculo)) {
+            etapaQueBateu = etapa;
+            return true;
+          }
+          return false;
+        });
+        if (jornadaBate || blocoBate || etapaQueBateu) {
+          resultados.push({ jornada: jornada, bloco: bloco, etapa: etapaQueBateu });
+        }
+      });
+    });
+    return resultados;
+  }
+
+  function renderJornadaBuscaResultadoHtml(resultado) {
+    var jornada = resultado.jornada, bloco = resultado.bloco, etapa = resultado.etapa;
+    // Mesma checagem de bloqueio por ordem/disponibilidade dos cards normais
+    // — um resultado de busca não pode abrir um pacote que hoje está travado.
+    var bloqueado = jornadaPacoteBloqueado(jornada, bloco);
+    var desabilitado = !bloco.ativo || bloqueado;
+    var tituloAttr = !bloco.ativo
+      ? ' title="Pacote indisponível no momento."'
+      : (bloqueado ? ' title="Conclua o pacote anterior para desbloquear."' : '');
+    return (
+      '<button type="button" class="up-jorn-busca-resultado"' +
+        ' data-up-jorn-jornada="' + escapeHtml(jornada.id) + '"' +
+        ' data-up-jorn-abrir-bloco="' + escapeHtml(bloco.id) + '"' +
+        (desabilitado ? ' disabled' : '') + tituloAttr +
+      '>' +
+        '<span class="up-jorn-busca-resultado-caminho">' + escapeHtml(jornada.titulo) + ' › ' + escapeHtml(bloco.titulo) + '</span>' +
+        (etapa ? '<span class="up-jorn-busca-resultado-etapa">Etapa: ' + escapeHtml(etapa.titulo) + '</span>' : '') +
+      '</button>'
+    );
+  }
+
+  function renderJornadaBuscaResultadosHtml(query) {
+    var resultados = jornadaBuscarResultados(query);
+    if (resultados.length === 0) {
+      return '<div class="up-jorn-vazio"><p class="up-jorn-vazio-texto">Nenhum resultado encontrado.</p></div>';
+    }
+    return '<div class="up-jorn-busca-resultados">' + resultados.map(renderJornadaBuscaResultadoHtml).join('') + '</div>';
+  }
+
   function renderJornadaPainelHtml() {
     if (jornadaState.blocoAtivo) {
       var jornada = jornadaEncontrar(jornadaState.blocoAtivo.jornadaId);
@@ -5647,9 +5734,11 @@
       // Estado ficou inconsistente (ex.: dado recarregado) — volta pra lista.
       jornadaState.blocoAtivo = null;
     }
-    // MVP da Central de ajuda: só a seção "Jornadas" por enquanto (sem busca,
-    // sem outras seções) — o rótulo já deixa o painel pronto pra crescer
-    // depois sem precisar mexer na estrutura de novo.
+    var query = (jornadaState.busca || '').trim();
+    if (query) return renderJornadaBuscaResultadosHtml(query);
+    // MVP da Central de ajuda: só a seção "Jornadas" por enquanto (sem outras
+    // seções) — o rótulo já deixa o painel pronto pra crescer depois sem
+    // precisar mexer na estrutura de novo. Busca vazia mantém esse visual.
     return (
       '<div class="up-jorn-secao">' +
         '<h4 class="up-jorn-secao-titulo">Jornadas</h4>' +
@@ -5664,13 +5753,26 @@
       if (existente) existente.remove();
       return;
     }
+    // O innerHTML inteiro é recriado a cada re-render (mesmo padrão do resto
+    // do painel) — sem isso, o campo de busca perderia foco e posição do
+    // cursor a cada tecla digitada.
+    var buscaAntiga = existente ? existente.querySelector('[data-up-jorn-busca]') : null;
+    var buscaTinhaFoco = Boolean(buscaAntiga) && document.activeElement === buscaAntiga;
+    var buscaSelStart = buscaTinhaFoco ? buscaAntiga.selectionStart : null;
+    var buscaSelEnd = buscaTinhaFoco ? buscaAntiga.selectionEnd : null;
+
+    // Busca só aparece na lista de pacotes — dentro de um pacote específico
+    // (blocoAtivo) some, igual à seção "Jornadas" e o "Continue de onde parou".
     var html =
       '<div class="up-jorn-painel">' +
         '<div class="up-jorn-header">' +
           '<h3 class="up-jorn-header-titulo">Central de ajuda</h3>' +
           '<button type="button" class="up-close" data-up-jorn-fechar aria-label="Fechar">' + icon('close') + '</button>' +
         '</div>' +
-        '<div class="up-jorn-body">' + renderJornadaPainelHtml() + '</div>' +
+        '<div class="up-jorn-body">' +
+          (jornadaState.blocoAtivo ? '' : renderJornadaBuscaInputHtml()) +
+          renderJornadaPainelHtml() +
+        '</div>' +
       '</div>';
 
     var root = existente;
@@ -5680,8 +5782,24 @@
       root.className = 'up-widget-root';
       document.body.appendChild(root);
       root.addEventListener('click', jornadaPainelClick);
+      root.addEventListener('input', jornadaPainelInput);
     }
     root.innerHTML = html;
+
+    if (buscaTinhaFoco) {
+      var buscaNova = root.querySelector('[data-up-jorn-busca]');
+      if (buscaNova) {
+        buscaNova.focus();
+        try { buscaNova.setSelectionRange(buscaSelStart, buscaSelEnd); } catch (_e) { /* alguns navegadores não suportam em certos tipos de input */ }
+      }
+    }
+  }
+
+  function jornadaPainelInput(e) {
+    var campo = e.target.closest('[data-up-jorn-busca]');
+    if (!campo) return;
+    jornadaState.busca = campo.value;
+    renderJornadaPainel();
   }
 
   function fecharJornadaPainel() {
@@ -5868,6 +5986,7 @@
         return j;
       });
       jornadaState.blocoAtivo = null;
+      jornadaState.busca = '';
       jornadaState.aberto = true;
       renderJornadaFab(false);
       renderJornadaPainel();
@@ -5877,6 +5996,7 @@
     }).catch(function () {
       jornadaState.jornadas = [];
       jornadaState.blocoAtivo = null;
+      jornadaState.busca = '';
       jornadaState.aberto = true;
       renderJornadaFab(false);
       renderJornadaPainel();
