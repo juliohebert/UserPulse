@@ -1616,6 +1616,15 @@
     if (urlChangeTimer) { window.clearTimeout(urlChangeTimer); urlChangeTimer = null; }
     urlChangeTimer = window.setTimeout(function () {
       urlChangeTimer = null;
+      // Numa SPA, o usuário pode navegar pra outra tela sem fechar a campanha
+      // explicitamente (sem clicar no X) — o modal (position:fixed, cobre a
+      // tela toda) não tem nenhuma outra forma de saber que a navegação
+      // aconteceu, então state.open ficava preso em true pra sempre.
+      // jornadaPodeAbrirCentral() então continuava bloqueando o FAB "Ajuda"
+      // mesmo em telas sem nenhuma campanha realmente visível. Mesma lógica
+      // pro tour: se ficou ativo e o usuário navegou pra longe dele, encerra.
+      if (state.open) doClose();
+      if (tourState.ativo) finalizarTour();
       evaluateUrlCampaigns();
       jornadaReavaliarAposNavegacao();
     }, 200);
