@@ -321,3 +321,15 @@ model EventoJornada {
   @@index([jornada_id])
   @@map("eventos_jornada")
 }
+
+// Configuração global única do widget (linha singleton, id fixo) — hoje só
+// guarda a posição do botão "Ajuda" da Central de ajuda/Jornadas, mas serve
+// como base pra outras configurações globais futuras sem precisar de nova
+// tabela a cada uma.
+model ConfiguracaoWidget {
+  id                String   @id @default("singleton")
+  ajuda_fab_posicao String   @default("inferior_direita")
+  atualizado_em     DateTime @updatedAt
+
+  @@map("configuracao_widget")
+}

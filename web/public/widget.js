@@ -703,9 +703,26 @@
       // flutuante que o próprio host já tenha no canto inferior direito (ex.:
       // Clinic/Movidesk) — dá espaço suficiente pros dois convivere sem se
       // sobrepor visualmente.
-      '.up-jorn-fab{position:fixed;bottom:88px;right:24px;z-index:2147483630;pointer-events:auto;height:44px;padding:0 18px 0 14px;border:0;border-radius:999px;background:#0058be;color:#fff;box-shadow:0 14px 32px rgba(0,88,190,.28);display:flex;align-items:center;gap:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:800;transition:transform .18s ease,box-shadow .18s ease}',
+      // Posicionamento fica em classes modificadoras separadas (uma por
+      // valor de configuração), não na regra base — configurável no admin
+      // (Integração), aplicada pelo widget via jornadaFabClasse().
+      '.up-jorn-fab{position:fixed;z-index:2147483630;pointer-events:auto;height:44px;padding:0 18px 0 14px;border:0;border-radius:999px;background:#0058be;color:#fff;box-shadow:0 14px 32px rgba(0,88,190,.28);display:flex;align-items:center;gap:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:800;transition:transform .18s ease,box-shadow .18s ease}',
       '.up-jorn-fab:hover{transform:translateY(-1px);box-shadow:0 18px 38px rgba(0,88,190,.34)}',
       '.up-jorn-fab svg{width:18px;height:18px;fill:currentColor}',
+      // bottom:88px (em vez de 24px) no padrão evita empilhar em cima de um
+      // botão flutuante que o próprio host já tenha no canto inferior direito
+      // (ex.: Clinic/Movidesk).
+      '.up-jorn-fab-inferior_direita{right:24px;bottom:88px}',
+      '.up-jorn-fab-inferior_esquerda{left:24px;bottom:24px}',
+      '.up-jorn-fab-superior_direita{right:24px;top:24px}',
+      '.up-jorn-fab-superior_esquerda{left:24px;top:24px}',
+      '.up-jorn-fab-direita_central{right:24px;top:50%;transform:translateY(-50%)}',
+      '.up-jorn-fab-esquerda_central{left:24px;top:50%;transform:translateY(-50%)}',
+      // Nas posições centralizadas, o hover não pode simplesmente trocar pra
+      // translateY(-1px) (perderia a centralização vertical de -50%) — soma
+      // os dois deslocamentos. Precisa vir depois de ".up-jorn-fab:hover" no
+      // array (mesma especificidade — vale a ordem de declaração).
+      '.up-jorn-fab-direita_central:hover,.up-jorn-fab-esquerda_central:hover{transform:translateY(calc(-50% - 1px))}',
       '.up-jorn-aviso{position:fixed;bottom:24px;right:24px;max-width:260px;padding:10px 14px;border-radius:10px;background:#0b1c30;color:#fff;font-family:inherit;font-size:12.5px;font-weight:600;line-height:1.4;box-shadow:0 14px 32px rgba(11,28,48,.28);z-index:2147483620}',
       '@media (max-width:480px){.up-jorn-painel{width:100vw;max-width:100vw}}',
     ].join('');
@@ -1452,6 +1469,7 @@
     // aparecer (não reabre o painel, mesmo que estivesse aberto antes do init()).
     fecharJornadaPainel();
     avaliarJornadasParaBotao(normalized);
+    avaliarPosicaoAjudaFab();
   }
 
   function track(eventoNome, metadataOpcional) {
@@ -5475,6 +5493,11 @@
     // Texto da busca da Central de ajuda — só se aplica na lista de pacotes
     // (some da tela quando dentro de um pacote específico).
     busca: '',
+    // Posição do botão flutuante "Ajuda", configurável no admin (Integração)
+    // — buscada uma vez no init() e aplicada via classe CSS. Mantém o mesmo
+    // default visual de sempre (inferior_direita) até a busca resolver ou se
+    // a configuração nunca tiver sido definida.
+    fabPosicao: 'inferior_direita',
   };
 
   function fetchJornadas(sistema, tela, usuario_id, contexto) {
@@ -5489,6 +5512,27 @@
       if (!response.ok) return [];
       return response.json();
     });
+  }
+
+  var POSICOES_AJUDA_FAB_VALIDAS = [
+    'inferior_direita', 'inferior_esquerda', 'superior_direita',
+    'superior_esquerda', 'direita_central', 'esquerda_central',
+  ];
+
+  // Buscada uma única vez no init() — a posição do botão muda raramente
+  // (configuração de admin), não precisa reavaliar a cada navegação como a
+  // elegibilidade da Jornada.
+  function avaliarPosicaoAjudaFab() {
+    fetch(apiUrl('/api/widget/configuracao'), { headers: { Accept: 'application/json' } })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (config) {
+        var posicao = config && config.ajuda_fab_posicao;
+        if (posicao && POSICOES_AJUDA_FAB_VALIDAS.indexOf(posicao) !== -1) {
+          jornadaState.fabPosicao = posicao;
+          jornadaReavaliarFab();
+        }
+      })
+      .catch(function () { /* mantém o default já assumido */ });
   }
 
   function jornadaEncontrar(jornadaId) {
@@ -6073,6 +6117,10 @@
     if (!document.getElementById(JORNADA_FAB_ID)) renderJornadaFab(true);
   }
 
+  function jornadaFabClasse() {
+    return 'up-jorn-fab up-jorn-fab-' + (jornadaState.fabPosicao || 'inferior_direita');
+  }
+
   function renderJornadaFab(mostrar) {
     var existente = document.getElementById(JORNADA_FAB_ID);
     var podeExibir = mostrar && jornadaPodeAbrirCentral();
@@ -6080,12 +6128,18 @@
       if (existente) existente.remove();
       return;
     }
-    if (existente) return;
+    if (existente) {
+      // A posição pode ter mudado depois do botão já existir (config do
+      // admin chegou depois da 1ª criação) — atualiza a classe em vez de só
+      // pular, senão o botão ficaria preso na posição antiga até recarregar.
+      existente.className = jornadaFabClasse();
+      return;
+    }
     ensureStyles();
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.id = JORNADA_FAB_ID;
-    btn.className = 'up-jorn-fab';
+    btn.className = jornadaFabClasse();
     btn.setAttribute('aria-label', 'Ajuda');
     btn.innerHTML = icon('route') + '<span>Ajuda</span>';
     btn.addEventListener('click', function () { abrirJornadasPublico(); });

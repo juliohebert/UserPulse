@@ -1,4 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { get, put } from '../services/api'
+import { Select } from '../components/ui/Select'
 
 const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
@@ -207,6 +209,76 @@ const BEST_PRACTICES = [
   },
 ]
 
+// ── Configuração da Central de ajuda ────────────────────────────────────────
+
+const POSICOES_AJUDA_FAB = [
+  { value: 'inferior_direita', label: 'Inferior direita (padrão)' },
+  { value: 'inferior_esquerda', label: 'Inferior esquerda' },
+  { value: 'superior_direita', label: 'Superior direita' },
+  { value: 'superior_esquerda', label: 'Superior esquerda' },
+  { value: 'direita_central', label: 'Direita central' },
+  { value: 'esquerda_central', label: 'Esquerda central' },
+]
+
+function AjudaFabPosicaoCard() {
+  const [posicao, setPosicao] = useState('inferior_direita')
+  const [carregando, setCarregando] = useState(true)
+  const [salvando, setSalvando] = useState(false)
+  const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
+
+  useEffect(() => {
+    get<{ ajuda_fab_posicao: string }>('/configuracao-widget')
+      .then(c => setPosicao(c.ajuda_fab_posicao || 'inferior_direita'))
+      .catch(() => {})
+      .finally(() => setCarregando(false))
+  }, [])
+
+  const salvar = async (novaPosicao: string) => {
+    const anterior = posicao
+    setPosicao(novaPosicao)
+    setSalvando(true)
+    setMensagem(null)
+    try {
+      await put('/configuracao-widget', { ajuda_fab_posicao: novaPosicao })
+      setMensagem({ tipo: 'sucesso', texto: 'Posição atualizada.' })
+    } catch (e) {
+      setPosicao(anterior)
+      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível salvar. Tente novamente.' })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <SectionCard
+      icon="dashboard_customize"
+      iconBg="bg-secondary-fixed"
+      iconColor="text-secondary"
+      title="Central de ajuda — posição do botão"
+      subtitle="Escolha onde o botão flutuante &quot;Ajuda&quot; aparece, evitando conflito com outros widgets do sistema (ex.: chat de suporte)."
+    >
+      <div className="max-w-xs">
+        <Select
+          value={posicao}
+          options={POSICOES_AJUDA_FAB}
+          onChange={salvar}
+          disabled={carregando || salvando}
+        />
+      </div>
+      {mensagem && (
+        <p className={`inline-block px-3 py-1.5 rounded-lg text-label-md ${
+          mensagem.tipo === 'sucesso' ? 'bg-tertiary/10 text-tertiary' : 'bg-error-container text-on-error-container'
+        }`}>
+          {mensagem.texto}
+        </p>
+      )}
+      <Tip>
+        A mudança se aplica em alguns instantes para usuários com o widget já carregado na tela.
+      </Tip>
+    </SectionCard>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────
 
 export function IntegracaoPage() {
@@ -230,6 +302,9 @@ export function IntegracaoPage() {
 
       {/* ── Content ── */}
       <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
+
+        {/* Central de ajuda — posição do botão */}
+        <AjudaFabPosicaoCard />
 
         {/* A — Instalação */}
         <SectionCard

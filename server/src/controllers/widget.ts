@@ -865,3 +865,18 @@ export async function atualizarTelefone(req: Request, res: Response) {
     res.status(500).json({ erro: 'Erro ao salvar telefone.' })
   }
 }
+
+// ─── Configuração global do widget ──────────────────────────────────────────
+// Hoje só a posição do botão flutuante "Ajuda" — leitura pública (sem token),
+// igual ao resto do /api/widget. Nunca cria a linha (isso é responsabilidade
+// do admin em /api/configuracao-widget); se ainda não existir, cai no default
+// já assumido pelo widget mesmo sem essa chamada retornar nada útil.
+export async function buscarConfiguracaoWidget(_req: Request, res: Response) {
+  try {
+    const config = await prisma.configuracaoWidget.findUnique({ where: { id: 'singleton' } })
+    res.json({ ajuda_fab_posicao: config?.ajuda_fab_posicao || 'inferior_direita' })
+  } catch (err) {
+    console.error(err)
+    res.json({ ajuda_fab_posicao: 'inferior_direita' })
+  }
+}

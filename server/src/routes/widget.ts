@@ -16,5 +16,6 @@ router.get('/tour/candidatas', widget.buscarTourCandidatos)
 router.post('/tour/evento', widget.registrarEventoTour)
 router.get('/jornadas', widget.buscarJornadas)
 router.post('/jornada/evento', widget.registrarEventoJornada)
+router.get('/configuracao', widget.buscarConfiguracaoWidget)
 
 export default router

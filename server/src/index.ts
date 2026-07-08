@@ -9,6 +9,7 @@ import dashboardRouter from './routes/dashboard'
 import catalogoTelasRouter from './routes/catalogoTelas'
 import toursRouter from './routes/tours'
 import jornadasRouter from './routes/jornadas'
+import configuracaoRouter from './routes/configuracao'
 
 dotenv.config()
 
@@ -92,6 +93,7 @@ app.use('/api/campanhas', corsAdmin, requireAdminToken, campanhasRouter)
 app.use('/api/catalogo-telas', corsAdmin, requireAdminToken, catalogoTelasRouter)
 app.use('/api/tours', corsAdmin, requireAdminToken, toursRouter)
 app.use('/api/jornadas', corsAdmin, requireAdminToken, jornadasRouter)
+app.use('/api/configuracao-widget', corsAdmin, requireAdminToken, configuracaoRouter)
 app.use('/api/widget', corsWidget, widgetRouter)
 app.use('/api/dashboard', corsAdmin, requireAdminToken, dashboardRouter)
 
