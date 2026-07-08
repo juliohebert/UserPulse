@@ -612,7 +612,12 @@
       '.up-rec-qualidade-bom{background:rgba(0,88,190,.1);color:#0058be}',
       '.up-rec-qualidade-fragil{background:rgba(230,81,0,.12);color:#e65100}',
       // Onboarding Guiado (Jornadas) — painel lateral simples + botão flutuante.
-      '.up-jorn-painel{position:fixed;top:0;right:0;bottom:0;width:360px;max-width:92vw;background:#fff;border-left:1px solid #e0e2ef;box-shadow:-12px 0 32px rgba(11,28,48,.14);display:flex;flex-direction:column}',
+      // z-index bem alto e específico pro painel/FAB (maior que o do próprio
+      // botão, garantindo que o painel sempre fique por cima dele caso os
+      // dois coexistam) — sem isso, ficavam sem z-index nenhum (auto) e
+      // qualquer widget de terceiro com z-index mais alto (ex.: botão
+      // flutuante do Movidesk usado pelo Clinic) cobria os dois por cima.
+      '.up-jorn-painel{position:fixed;top:0;right:0;bottom:0;width:360px;max-width:92vw;z-index:2147483640;background:#fff;border-left:1px solid #e0e2ef;box-shadow:-12px 0 32px rgba(11,28,48,.14);display:flex;flex-direction:column}',
       '.up-jorn-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid rgba(194,198,214,.45);flex-shrink:0}',
       '.up-jorn-header-titulo{margin:0;font-size:16px;font-weight:800;color:#0b1c30}',
       '.up-jorn-body{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:14px}',
@@ -694,7 +699,11 @@
       '.up-jorn-voltar svg{width:14px;height:14px;fill:currentColor}',
       '.up-jorn-vazio{padding:32px 16px;text-align:center}',
       '.up-jorn-vazio-texto{margin:0;font-size:13px;color:#727785}',
-      '.up-jorn-fab{position:fixed;bottom:24px;right:24px;height:44px;padding:0 18px 0 14px;border:0;border-radius:999px;background:#0058be;color:#fff;box-shadow:0 14px 32px rgba(0,88,190,.28);display:flex;align-items:center;gap:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:800;transition:transform .18s ease,box-shadow .18s ease}',
+      // bottom:88px (em vez de 24px) evita empilhar em cima de um botão
+      // flutuante que o próprio host já tenha no canto inferior direito (ex.:
+      // Clinic/Movidesk) — dá espaço suficiente pros dois convivere sem se
+      // sobrepor visualmente.
+      '.up-jorn-fab{position:fixed;bottom:88px;right:24px;z-index:2147483630;pointer-events:auto;height:44px;padding:0 18px 0 14px;border:0;border-radius:999px;background:#0058be;color:#fff;box-shadow:0 14px 32px rgba(0,88,190,.28);display:flex;align-items:center;gap:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:800;transition:transform .18s ease,box-shadow .18s ease}',
       '.up-jorn-fab:hover{transform:translateY(-1px);box-shadow:0 18px 38px rgba(0,88,190,.34)}',
       '.up-jorn-fab svg{width:18px;height:18px;fill:currentColor}',
       '.up-jorn-aviso{position:fixed;bottom:24px;right:24px;max-width:260px;padding:10px 14px;border-radius:10px;background:#0b1c30;color:#fff;font-family:inherit;font-size:12.5px;font-weight:600;line-height:1.4;box-shadow:0 14px 32px rgba(11,28,48,.28);z-index:2147483620}',
