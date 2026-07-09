@@ -1644,7 +1644,7 @@
       // sintético de um passo "clicar_elemento" (tourProximo()) não conta como
       // abandono — sem essa checagem, essa navegação encerrava o tour sozinho
       // antes do avanço para o próximo passo sequer acontecer.
-      if (tourState.ativo && !tourState.suprimirAbandonoNavegacao) finalizarTour();
+      if (tourState.ativo && !tourState.suprimirAbandonoNavegacao) finalizarTour('navegacao_url');
       evaluateUrlCampaigns();
       jornadaReavaliarAposNavegacao();
     }, 200);
@@ -2056,9 +2056,51 @@
     ].join('');
   }
 
+  // Nunca deixa uma exceção no meio da renderização (seletor/DOM do host se
+  // comportando de forma inesperada, cálculo de posição, etc.) resultar num
+  // tour que "só some": o root antigo já foi removido antes de qualquer
+  // cálculo arriscado (ver renderTourInterno), então sem essa proteção uma
+  // exceção ali deixava a tela sem overlay nenhum, sem fallback, sem erro
+  // visível pro usuário — só um erro no console que ninguém via.
   function renderTour() {
     if (!tourState.ativo || !tourState.tour) return;
+    try {
+      renderTourInterno();
+    } catch (erro) {
+      renderTourErroFallback();
+    }
+  }
 
+  // Tela de fallback pra quando a renderização normal falha de forma
+  // inesperada (regra obrigatória: nunca sumir silenciosamente) — só depende
+  // do essencial (tourState.ativo/tour), nada específico de um passo, pra não
+  // arriscar falhar ela mesma pelo mesmo motivo que already falhou antes.
+  function renderTourErroFallback() {
+    if (!tourState.ativo) return;
+    var oldRoot = document.getElementById(TOUR_WIDGET_ID);
+    if (oldRoot) oldRoot.remove();
+    var root = document.createElement('div');
+    root.id = TOUR_WIDGET_ID;
+    root.className = 'up-tour-overlay';
+    tourState.root = root;
+    root.innerHTML = [
+      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
+      '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Encerrar tour">' + icon('close') + '</button>',
+      '<p class="up-tour-title">Não foi possível continuar o tour</p>',
+      '<div class="up-tour-warning">' + icon('close') + '<span>Ocorreu um problema inesperado ao exibir este passo.</span></div>',
+      '<div class="up-tour-footer up-tour-footer-stack">',
+      '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-skip-passo="true">Pular este passo</button>',
+      '<button type="button" class="up-tour-btn up-tour-btn-text" data-up-tour-skip="true">Encerrar tour</button>',
+      '</div>',
+      '</div>',
+    ].join('');
+    try {
+      document.body.appendChild(root);
+      bindTourEvents();
+    } catch (_e) { /* mesmo isso falhando, não há mais nada seguro a tentar aqui */ }
+  }
+
+  function renderTourInterno() {
     var oldRoot = document.getElementById(TOUR_WIDGET_ID);
     if (oldRoot) oldRoot.remove();
 
@@ -2163,7 +2205,7 @@
   function tourKeydown(event) {
     if (event.key !== 'Escape') return;
     if (tourState.tela === 'intro') { tourIntroDispensar(); return; }
-    if (tourState.tela === 'concluido') { finalizarTour(); return; }
+    if (tourState.tela === 'concluido') { finalizarTour('escape_tela_concluido'); return; }
     tourPular();
   }
 
@@ -2182,7 +2224,7 @@
       if (target.closest('[data-up-tour-intro-comecar]')) { event.preventDefault(); tourIntroComecar(); return; }
       if (target.closest('[data-up-tour-intro-dispensar]')) { event.preventDefault(); tourIntroDispensar(); return; }
       if (target.closest('[data-up-tour-intro-nunca-mais]')) { event.preventDefault(); tourPular(); return; }
-      if (target.closest('[data-up-tour-fim-fechar]')) { event.preventDefault(); finalizarTour(); return; }
+      if (target.closest('[data-up-tour-fim-fechar]')) { event.preventDefault(); finalizarTour('usuario_fechou_tela_fim'); return; }
       var feedbackEl = target.closest('[data-up-tour-feedback]');
       if (feedbackEl) { event.preventDefault(); tourFeedback(feedbackEl.getAttribute('data-up-tour-feedback')); return; }
     });
@@ -2236,7 +2278,9 @@
   }
 
   function tourLimparContinuacao() {
-    try { window.sessionStorage.removeItem(TOUR_RESUME_STORAGE_KEY); } catch (_e) {}
+    try {
+      window.sessionStorage.removeItem(TOUR_RESUME_STORAGE_KEY);
+    } catch (_e) {}
   }
 
   // Garante jornadaState.jornadas carregado antes de concluir um tour retomado
@@ -2284,7 +2328,7 @@
         // tourConcluir() — passar por iniciarTour()+irParaPasso() aqui só
         // pra descartar o resultado logo em seguida renderizaria o último
         // passo destacado por um instante à toa antes da tela de conclusão.
-        finalizarTour();
+        finalizarTour('retomada_apos_reload_concluir');
         tourState.tour = tour;
         tourState.ativo = true;
         tourState.indice = tour.passos.length - 1;
@@ -2409,8 +2453,14 @@
     tourState.interacaoTimer = window.setTimeout(function () {
       tourState.interacaoTimer = null;
       if (!tourState.ativo || tourState.elementoAtual !== el) { tourState.suprimirAbandonoNavegacao = false; return; }
-      var ultimo = tourState.indice === tourState.tour.passos.length - 1;
-      if (ultimo) tourConcluir(); else irParaPasso(tourState.indice + 1);
+      // Blindagem: mesmo motivo de irParaPasso()/renderTour() — uma exceção
+      // aqui não pode deixar o tour num estado sem overlay e sem fallback.
+      try {
+        var ultimo = tourState.indice === tourState.tour.passos.length - 1;
+        if (ultimo) tourConcluir(); else irParaPasso(tourState.indice + 1);
+      } catch (erro) {
+        renderTourErroFallback();
+      }
     }, TOUR_INTERACAO_DELAY_MS);
   }
 
@@ -2501,7 +2551,7 @@
     tourState.elementoAtual = null;
 
     var passo = tourState.tour.passos[indice];
-    if (!passo) { finalizarTour(); return; }
+    if (!passo) { finalizarTour('passo_invalido_no_indice_' + indice); return; }
 
     localizarComRetry(passo, 0, function (el) {
       // A partir daqui o próximo passo já foi resolvido (achado ou "não
@@ -2514,17 +2564,25 @@
       tourState.suprimirAbandonoNavegacao = false;
       tourLimparContinuacao();
       if (!tourState.ativo) return; // tour foi encerrado enquanto buscava
-      if (!el) {
-        tourState.naoEncontrado = true;
-        registrarEventoTour('elemento_nao_encontrado', indice);
-        renderTour();
-        return;
+      // Blindagem: qualquer exceção daqui em diante (bindInteracao, DOM do
+      // host se comportando de forma inesperada etc.) não pode deixar o tour
+      // travado num estado sem overlay — cai no mesmo fallback de erro que
+      // renderTour() usa pra falhas na própria renderização.
+      try {
+        if (!el) {
+          tourState.naoEncontrado = true;
+          registrarEventoTour('elemento_nao_encontrado', indice);
+          renderTour();
+          return;
+        }
+        tourState.elementoAtual = el;
+        bindInteracao(el, passo);
+        registrarEventoTour('passo_visualizado', indice);
+        try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_e) {}
+        window.setTimeout(renderTour, 320);
+      } catch (erro) {
+        renderTourErroFallback();
       }
-      tourState.elementoAtual = el;
-      bindInteracao(el, passo);
-      registrarEventoTour('passo_visualizado', indice);
-      try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_e) {}
-      window.setTimeout(renderTour, 320);
     });
   }
 
@@ -2569,7 +2627,11 @@
       tourState.nextClickTimer = window.setTimeout(function () {
         tourState.nextClickTimer = null;
         if (!tourState.ativo) return;
-        irParaPasso(indiceProximo);
+        try {
+          irParaPasso(indiceProximo);
+        } catch (erro) {
+          renderTourErroFallback();
+        }
       }, TOUR_NEXT_CLICK_DELAY_MS);
       return;
     }
@@ -2584,7 +2646,7 @@
   function tourPular() {
     registrarEventoTour('pulado', tourState.indice);
     if (tourState.tour && (!state.config || !state.config.usuario_id)) tourMarkShown(tourState.tour);
-    finalizarTour();
+    finalizarTour('usuario_pulou');
   }
 
   // "Pular este passo" no estado de elemento não encontrado — avança para o
@@ -2623,7 +2685,7 @@
     // recorderState.passos (ver recorderIniciarPreview).
     var indices = recorderState.previewIndices;
     var indiceReal = (indices && indices[tourState.indice] != null) ? indices[tourState.indice] : tourState.indice;
-    finalizarTour();
+    finalizarTour('trocar_elemento_previa');
     recorderIniciarTrocaElemento(indiceReal, 'painel-lateral');
   }
 
@@ -2677,7 +2739,14 @@
     renderTour();
   }
 
-  function finalizarTour() {
+  // motivo (obrigatório em espírito, opcional em runtime): string curta e
+  // estável identificando por que o tour terminou (ex.: "usuario_pulou",
+  // "navegacao_url") — não é usada em nenhuma lógica hoje, só documenta a
+  // intenção de cada chamada (todo call site interno passa um motivo
+  // explícito) pra facilitar diagnosticar um tour que termina de forma
+  // inesperada, sem precisar reinstrumentar o código depois. Nunca quebra se
+  // algum ponto futuro esquecer de passar.
+  function finalizarTour(motivo) {
     limparBuscaTimer();
     limparInteracao();
     limparNextClickTimer();
@@ -2728,7 +2797,7 @@
   // "Não mostrar novamente" (que reaproveita tourPular()), este tour pode
   // voltar a ser avaliado/oferecido numa próxima navegação normalmente.
   function tourIntroDispensar() {
-    finalizarTour();
+    finalizarTour('intro_dispensada');
   }
 
   // pularIntro (opcional, default false) — usado só por recorderTestarPasso
@@ -2755,7 +2824,7 @@
   // pelo passo 0 mesmo).
   function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal, jornadaContexto, indiceInicial) {
     if (!tour || !tour.passos || tour.passos.length === 0) return;
-    finalizarTour();
+    finalizarTour('novo_tour_iniciado');
     ensureStyles();
     tourState.tour = tour;
     tourState.ativo = true;
