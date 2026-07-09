@@ -1720,14 +1720,27 @@
     // idêntica ao que o usuário final vê. Resetado pra false em finalizarTour(),
     // junto com preview.
     previewModoUsuarioFinal: false,
-    // true entre o clique sintético de um passo "clicar_elemento" e a busca do
-    // próximo passo ser resolvida (elemento achado ou "não encontrado" depois
-    // de esgotar os retries) — ver tourProximo()/irParaPasso()/handleUrlChange().
-    // Esse clique costuma navegar de tela (é o próprio propósito da ação), e
-    // sem essa flag o handleUrlChange() tratava essa navegação como abandono
-    // do tour e chamava finalizarTour() no meio da transição, cancelando o
-    // avanço agendado e encerrando o tour sem nenhum aviso.
+    // true entre um avanço de passo causado por clique/interação real (clique
+    // sintético de "clicar_elemento" em tourProximo(), ou qualquer
+    // modo_avanco_interacao não-manual em agendarAvancoInteracao()) e a busca
+    // do próximo passo ser resolvida (elemento achado ou "não encontrado"
+    // depois de esgotar os retries) — ver irParaPasso()/handleUrlChange().
+    // Esses cliques/interações costumam navegar de tela (é o próprio
+    // propósito deles), e sem essa flag o handleUrlChange() tratava essa
+    // navegação como abandono do tour e chamava finalizarTour() no meio da
+    // transição, cancelando o avanço agendado e encerrando o tour sem nenhum
+    // aviso — tanto no runtime real quanto na prévia do gravador (mesmo
+    // código pros dois).
     suprimirAbandonoNavegacao: false,
+    // { jornadaId, blocoId, etapaId, contextoExtra } quando este tour foi
+    // iniciado a partir de uma etapa de Jornada (ver jornadaEtapaClicar) —
+    // null em qualquer outro caso (automático, manual via API, prévia do
+    // gravador). Só usado por tourConcluir() pra marcar a etapa da Jornada
+    // como concluída exatamente quando o tour é concluído de verdade, nunca
+    // antes (ver comentário em jornadaEtapaClicar sobre o MVP anterior, que
+    // marcava concluído já ao iniciar). Resetado em finalizarTour() e
+    // consumido (setado null de volta) em tourConcluir().
+    jornadaContexto: null,
   };
 
   function fetchTour(slug) {
@@ -1904,12 +1917,24 @@
   // clicarem contra, então cada ação mapeia num verbo específico pra esse
   // estado. "Pular este passo" já resolve o caso de ser o último passo
   // (conclui em vez de tentar avançar) — ver tourPularPasso.
+  // Na prévia comum do gravador (preview=true, previewModoUsuarioFinal=false),
+  // "Encerrar tour" vira "Voltar à revisão" — reflete melhor o que a ação
+  // realmente faz nesse contexto (recorderRestaurarAposPreview reabre o
+  // painel lateral, não é o fim de uma experiência real de usuário). Em
+  // "Pré-visualizar como usuário final" mantém "Encerrar tour" de propósito,
+  // igual ao runtime real — é o objetivo desse modo (ver
+  // recorderPreVisualizarComoUsuarioFinal).
+  function tourRotuloEncerrar() {
+    return (tourState.preview && !tourState.previewModoUsuarioFinal) ? 'Voltar à revisão' : 'Encerrar tour';
+  }
+
   function renderTourNaoEncontrado() {
     var passo = tourState.tour.passos[tourState.indice];
     var total = tourState.tour.passos.length;
+    var rotuloEncerrar = tourRotuloEncerrar();
     return [
       '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
-      '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Encerrar tour">' + icon('close') + '</button>',
+      '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="' + rotuloEncerrar + '">' + icon('close') + '</button>',
       '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
       '<p class="up-tour-title">Elemento não encontrado</p>',
       passo.titulo ? '<p class="up-tour-desc" style="font-weight:700;color:#0b1c30">' + escapeHtml(passo.titulo) + '</p>' : '',
@@ -1929,7 +1954,7 @@
         ? '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-trocar-passo="true">Trocar elemento deste passo</button>'
         : ''),
       '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-skip-passo="true">Pular este passo</button>',
-      '<button type="button" class="up-tour-btn up-tour-btn-text" data-up-tour-skip="true">Encerrar tour</button>',
+      '<button type="button" class="up-tour-btn up-tour-btn-text" data-up-tour-skip="true">' + rotuloEncerrar + '</button>',
       '</div>',
       '</div>',
     ].join('');
@@ -2243,9 +2268,14 @@
       if (!reagendar) return;
       window.clearTimeout(tourState.interacaoTimer);
     }
+    // A interação que dispara esse avanço (ex.: modo_avanco_interacao =
+    // "ao_clicar") pode navegar de tela, igual ao clique sintético de
+    // tourProximo() — mesma proteção contra handleUrlChange() encerrar o tour
+    // no meio da transição (ver comentário na declaração de tourState).
+    tourState.suprimirAbandonoNavegacao = true;
     tourState.interacaoTimer = window.setTimeout(function () {
       tourState.interacaoTimer = null;
-      if (!tourState.ativo || tourState.elementoAtual !== el) return;
+      if (!tourState.ativo || tourState.elementoAtual !== el) { tourState.suprimirAbandonoNavegacao = false; return; }
       var ultimo = tourState.indice === tourState.tour.passos.length - 1;
       if (ultimo) tourConcluir(); else irParaPasso(tourState.indice + 1);
     }, TOUR_INTERACAO_DELAY_MS);
@@ -2491,6 +2521,18 @@
     tourState.naoEncontrado = false;
     tourState.tela = 'concluido';
     tourState.feedbackEscolhido = null;
+    tourState.suprimirAbandonoNavegacao = false;
+    // Tour iniciado por uma etapa de Jornada — só agora, com o tour realmente
+    // concluído (não ao meramente iniciar), a etapa é marcada concluída. Ver
+    // jornadaEtapaClicar e a declaração de jornadaContexto em tourState.
+    if (tourState.jornadaContexto) {
+      var jc = tourState.jornadaContexto;
+      tourState.jornadaContexto = null;
+      var jornadaC = jornadaEncontrar(jc.jornadaId);
+      var blocoC = jornadaEncontrarBloco(jornadaC, jc.blocoId);
+      var etapaC = jornadaEncontrarEtapa(blocoC, jc.etapaId);
+      if (jornadaC && blocoC && etapaC) jornadaMarcarConcluida(jornadaC, blocoC, etapaC, jc.contextoExtra);
+    }
     renderTour();
   }
 
@@ -2511,6 +2553,11 @@
     tourState.tela = null;
     tourState.feedbackEscolhido = null;
     tourState.suprimirAbandonoNavegacao = false;
+    // Tour encerrado por qualquer motivo que não seja tourConcluir() (pulado,
+    // fechado, abandonado por navegação genuína) — nunca marca a etapa da
+    // Jornada como concluída (tourConcluir() já consome e zera isso sozinho
+    // quando o tour termina de verdade).
+    tourState.jornadaContexto = null;
     if (tourState.preview) {
       tourState.preview = false;
       tourState.previewModoUsuarioFinal = false;
@@ -2555,7 +2602,7 @@
   // escondidos em qualquer prévia). O disparo real do tour
   // (iniciarTourPublico/avaliarTourAutomatico) nunca passa esses argumentos,
   // então continua com introdução normal e preview/modoUsuarioFinal=false.
-  function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal) {
+  function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal, jornadaContexto) {
     if (!tour || !tour.passos || tour.passos.length === 0) return;
     finalizarTour();
     ensureStyles();
@@ -2563,6 +2610,10 @@
     tourState.ativo = true;
     tourState.preview = Boolean(preview);
     tourState.previewModoUsuarioFinal = Boolean(modoUsuarioFinal);
+    // Setado depois de finalizarTour() acima de propósito — ele zera
+    // jornadaContexto (limpeza do tour anterior), e esse aqui é do tour que
+    // está começando agora.
+    tourState.jornadaContexto = jornadaContexto || null;
     // finalizarTour() acima já reavaliou o FAB com ativo=false (pra limpar um
     // tour anterior, se houver) — agora que o tour novo está de fato ativo,
     // reavalia de novo pra escondê-lo enquanto ele ocupa a tela.
@@ -5449,10 +5500,11 @@
 
   // API pública para disparar um tour manualmente (ex.: botão "Ver tour" no host):
   //   window.UserPulse.iniciarTour('slug-do-tour')
-  function iniciarTourPublico(slug) {
+  // jornadaContexto (opcional, uso interno) — ver jornadaEtapaClicar/tourConcluir.
+  function iniciarTourPublico(slug, jornadaContexto) {
     if (!slug) return;
     fetchTour(slug).then(function (tour) {
-      if (tour) iniciarTour(tour);
+      if (tour) iniciarTour(tour, false, false, false, jornadaContexto);
     }).catch(function () { /* fail silently */ });
   }
 
@@ -5524,6 +5576,14 @@
     if (!jornada || !jornada.blocos) return null;
     for (var i = 0; i < jornada.blocos.length; i++) {
       if (jornada.blocos[i].id === blocoId) return jornada.blocos[i];
+    }
+    return null;
+  }
+
+  function jornadaEncontrarEtapa(bloco, etapaId) {
+    if (!bloco || !bloco.etapas) return null;
+    for (var i = 0; i < bloco.etapas.length; i++) {
+      if (bloco.etapas[i].id === etapaId) return bloco.etapas[i];
     }
     return null;
   }
@@ -6029,11 +6089,14 @@
         fecharJornadaPainel();
         iniciarTourPublico(etapa.tour.slug);
       } else {
-        // MVP: conclui a etapa já ao iniciar o tour pelo checklist — aguardar a
-        // conclusão real do tour (via EventoTour) fica para uma fase seguinte.
-        jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
+        // A etapa só é marcada concluída quando o tour é de fato concluído
+        // (tourConcluir(), via tourState.jornadaContexto) — nunca já ao
+        // iniciar. Encerrar/pular/abandonar o tour no meio não conta como
+        // conclusão da etapa.
         fecharJornadaPainel();
-        iniciarTourPublico(etapa.tour.slug);
+        iniciarTourPublico(etapa.tour.slug, {
+          jornadaId: jornada.id, blocoId: bloco.id, etapaId: etapa.id, contextoExtra: contextoExtra,
+        });
       }
     }
     // tipo === 'campanha': sem ação — botão fica desabilitado (ver renderJornadaEtapaHtml).
