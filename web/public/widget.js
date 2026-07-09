@@ -924,6 +924,9 @@
     if (!shouldAutoOpen(campanha) || wasShown(campanha, config)) return;
     var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
     state.timer = window.setTimeout(function () {
+      // Um tour (retomado após reload/navegação ou automático) já pode ter
+      // ocupado a tela nesse meio-tempo — não compete por cima dele.
+      if (tourState.ativo) return;
       state.open = true;
       markShown(campanha, config);
       if (!state.visualizacaoRegistrada) {
@@ -1692,12 +1695,23 @@
   // ─── Tours guiados ────────────────────────────────────────────────────────
 
   var TOUR_WIDGET_ID = 'userpulse-tour-root';
-  // Espera até ~5s pelo elemento do passo (20 tentativas x 250ms) antes de
-  // cair no fallback "elemento não encontrado" — dá tempo de layouts
-  // assíncronos (painel carregando, navegação recém-concluída etc.) revelarem
-  // o alvo sem precisar de retry manual do usuário.
-  var TOUR_RETRY_MAX = 20;
-  var TOUR_RETRY_INTERVAL_MS = 250;
+  // Espera até ~18s pelo elemento do passo (16 tentativas, backoff progressivo
+  // — ver tourIntervaloRetry) antes de cair no fallback "elemento não
+  // encontrado". Backoff em vez de intervalo fixo: resolve rápido o caso comum
+  // (elemento já existe ou aparece em poucos ms) sem desperdiçar tentativas, e
+  // ainda assim aguenta navegação/carregamento bem mais lento do que os ~5s
+  // fixos de antes — importante logo após um reload completo de página (ver
+  // tourRetomarSeHouver), onde o app real pode levar um tempo variável pra
+  // hidratar até revelar o elemento do passo retomado.
+  var TOUR_RETRY_MAX = 16;
+  var TOUR_RETRY_INTERVAL_MS = 250; // usado só pelo poll de ao_aparecer_elemento/ao_sumir_elemento (bindInteracao) — intervalo fixo faz sentido ali, é uma espera por mudança de estado, não por DOM recém-carregado estabilizar
+
+  function tourIntervaloRetry(tentativa) {
+    var base = 200;
+    var fator = 1.4;
+    var maximo = 1500;
+    return Math.min(base * Math.pow(fator, tentativa), maximo);
+  }
 
   var tourState = {
     tour: null,
@@ -1849,7 +1863,7 @@
     if (tentativa === 0) renderTour();
     tourState.buscaTimer = window.setTimeout(function () {
       localizarComRetry(passo, tentativa + 1, cb);
-    }, TOUR_RETRY_INTERVAL_MS);
+    }, tourIntervaloRetry(tentativa));
   }
 
   function limparBuscaTimer() {
@@ -1946,9 +1960,10 @@
       '<p class="up-tour-title">Elemento não encontrado</p>',
       passo.titulo ? '<p class="up-tour-desc" style="font-weight:700;color:#0b1c30">' + escapeHtml(passo.titulo) + '</p>' : '',
       passo.descricao ? '<p class="up-tour-desc">' + escapeHtml(passo.descricao) + '</p>' : '',
-      '<div class="up-tour-warning">' + icon('close') + '<span>Não encontramos este item na tela. Ele pode estar oculto, indisponível ou você pode estar em outra página.</span></div>',
+      '<div class="up-tour-warning">' + icon('close') + '<span>Elemento não encontrado nesta tela. Ele pode estar oculto, ter mudado ou estar em outra página.</span></div>',
       '<div class="up-tour-footer up-tour-footer-stack">',
       '<button type="button" class="up-tour-btn up-tour-btn-primary" data-up-tour-retry="true">Tentar novamente</button>',
+      '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-back="true"' + (tourState.indice === 0 ? ' disabled' : '') + '>Voltar</button>',
       // Só na prévia do gravador (tourState.preview) e fora do modo "usuário
       // final" (tourState.previewModoUsuarioFinal) — no tour real não faz
       // sentido nem existe recorderIniciarTrocaElemento pra chamar (ver
@@ -2273,6 +2288,10 @@
         concluir: Boolean(concluir),
         jornadaContexto: tourState.jornadaContexto || null,
         savedAt: Date.now(),
+        // true só depois que tourRetomarSeHouver() começa a processar essa
+        // continuação (ver lá) — aqui é sempre uma continuação nova, recém
+        // salva antes do clique arriscado acontecer.
+        retomando: false,
       }));
     } catch (_e) { /* sessionStorage indisponível (modo privado, quota etc.) — sem retomada possível, sem quebrar nada */ }
   }
@@ -2303,31 +2322,61 @@
     }).catch(function () { callback(); });
   }
 
+  // Tenta buscar o tour por slug algumas vezes com backoff antes de desistir
+  // — logo após um reload, a rede/API pode não estar pronta no 1º instante;
+  // uma falha isolada aqui não pode custar a retomada inteira (ver "não
+  // resolver com delay fixo apenas" / "nunca sumir silenciosamente").
+  var TOUR_RESUME_FETCH_TENTATIVAS = 4;
+  function fetchTourComRetry(slug, tentativa, callback) {
+    fetchTour(slug).then(function (tour) {
+      if (tour) { callback(tour); return; }
+      if (tentativa >= TOUR_RESUME_FETCH_TENTATIVAS) { callback(null); return; }
+      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback); }, tourIntervaloRetry(tentativa));
+    }).catch(function () {
+      if (tentativa >= TOUR_RESUME_FETCH_TENTATIVAS) { callback(null); return; }
+      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback); }, tourIntervaloRetry(tentativa));
+    });
+  }
+
   // Chamado no início de init(), antes de avaliarTourAutomatico() (pra evitar
   // os dois disputarem por iniciar um tour ao mesmo tempo — ver chamada em
   // init()). callback() sempre é chamado, com ou sem retomada bem-sucedida.
+  //
+  // Importante: NÃO apaga a continuação ao ler — só marca dados.retomando=true
+  // e regrava. Se outro reload/navegação interromper antes do próximo passo
+  // resolver (achado, fallback "não encontrado", concluído ou encerrado), a
+  // MESMA continuação sobrevive pra essa próxima carga tentar de novo, em vez
+  // de se perder pra sempre logo na 1ª tentativa. A limpeza de fato só
+  // acontece nos pontos que representam um desses desfechos reais:
+  // irParaPasso() (achou ou "não encontrado"), tourConcluir(), finalizarTour()
+  // — e aqui mesmo, só nos casos de dado irrecuperável (expirado, corrompido,
+  // sem slug, tour/índice inválido).
   function tourRetomarSeHouver(callback) {
     var bruto;
     try { bruto = window.sessionStorage.getItem(TOUR_RESUME_STORAGE_KEY); } catch (_e) { callback(); return; }
     if (!bruto) { callback(); return; }
-    // Uso único — lida agora, não deve sobrar pra ser lida de novo depois
-    // (nem em caso de sucesso, nem de falha/expiração/erro de parse).
-    tourLimparContinuacao();
     var dados;
-    try { dados = JSON.parse(bruto); } catch (_e) { callback(); return; }
+    try { dados = JSON.parse(bruto); } catch (_e) { tourLimparContinuacao(); callback(); return; }
     if (!dados || typeof dados !== 'object' || !dados.savedAt || Date.now() - dados.savedAt > TOUR_RESUME_EXPIRY_MS) {
+      tourLimparContinuacao();
       callback();
       return;
     }
+    if (!dados.tourSlug) { tourLimparContinuacao(); callback(); return; }
+
+    dados.retomando = true;
+    try { window.sessionStorage.setItem(TOUR_RESUME_STORAGE_KEY, JSON.stringify(dados)); } catch (_e) {}
+
     var jornadaContexto = dados.jornadaContexto || null;
 
     function prosseguir(tour) {
-      if (!tour || !tour.passos || tour.passos.length === 0) { callback(); return; }
+      if (!tour || !tour.passos || tour.passos.length === 0) { tourLimparContinuacao(); callback(); return; }
       if (dados.concluir) {
         // Monta só o mínimo de tourState necessário e vai direto pra
         // tourConcluir() — passar por iniciarTour()+irParaPasso() aqui só
         // pra descartar o resultado logo em seguida renderizaria o último
         // passo destacado por um instante à toa antes da tela de conclusão.
+        // tourConcluir() já limpa a continuação (ver sua implementação).
         finalizarTour('retomada_apos_reload_concluir');
         tourState.tour = tour;
         tourState.ativo = true;
@@ -2338,7 +2387,9 @@
         return;
       }
       var indice = dados.indiceProximo;
-      if (typeof indice !== 'number' || indice < 0 || indice >= tour.passos.length) { callback(); return; }
+      if (typeof indice !== 'number' || indice < 0 || indice >= tour.passos.length) { tourLimparContinuacao(); callback(); return; }
+      // iniciarTour()->irParaPasso() limpa a continuação assim que o passo
+      // resolver (achado ou "não encontrado") — não antes.
       iniciarTour(tour, true, false, false, jornadaContexto, indice);
       callback();
     }
@@ -2355,11 +2406,10 @@
       }
     }
 
-    if (dados.tourSlug) {
-      fetchTour(dados.tourSlug).then(comTourResolvido).catch(function () { callback(); });
-    } else {
-      callback();
-    }
+    fetchTourComRetry(dados.tourSlug, 0, function (tour) {
+      if (!tour) { tourLimparContinuacao(); callback(); return; }
+      comTourResolvido(tour);
+    });
   }
 
   function isEditableTarget(el) {
