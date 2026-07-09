@@ -1446,7 +1446,14 @@
         .catch(function () {});
     }
 
-    if (normalized.sistema) avaliarTourAutomatico(normalized);
+    // Prioridade sobre o tour automático — se havia uma continuação salva
+    // (reload completo de página no meio de um passo que navega), ela precisa
+    // resolver primeiro; senão os dois disputariam por iniciar um tour ao
+    // mesmo tempo (tourState.ativo de um bloquearia o outro de forma
+    // imprevisível, dependendo de qual promise resolvesse por último).
+    tourRetomarSeHouver(function () {
+      if (normalized.sistema) avaliarTourAutomatico(normalized);
+    });
 
     // Jornadas nunca disparam sozinhas — só reavalia se o botão flutuante deve
     // aparecer (não reabre o painel, mesmo que estivesse aberto antes do init()).
@@ -2189,6 +2196,128 @@
   // delay o tour avança (ou conclui, no último passo).
   var TOUR_INTERACAO_DELAY_MS = 250;
 
+  // ─── Retomada de tour após reload completo de página ──────────────────────
+  // Um passo com acao_ao_avancar="clicar_elemento" ou modo_avanco_interacao
+  // não-manual pode clicar num link real (ex.: item de menu de uma SPA) que
+  // navega via reload de página inteira, não via pushState/SPA — nesse caso
+  // TODO o estado em memória do tour (tourState) é perdido, e a proteção
+  // suprimirAbandonoNavegacao (que só existe em memória) não ajuda em nada.
+  // Por isso, além dela, salva uma "continuação" em sessionStorage bem antes
+  // do clique acontecer — mesmo padrão já usado por RECORDER_STORAGE_KEY
+  // (recorderPersistir) para sobreviver a reload de página. Se a navegação
+  // era só SPA (sem reload), irParaPasso()/tourConcluir() já limpam essa
+  // continuação normalmente no mesmo ciclo — ela só sobra em sessionStorage
+  // pra ser lida de fato quando o reload de fato interrompeu o JS no meio.
+  var TOUR_RESUME_STORAGE_KEY = 'userpulse:tour_resume:v1';
+  // Generoso o bastante pra cobrir uma navegação/carregamento lento de SPA,
+  // mas curto o bastante pra nunca retomar algo que o usuário claramente já
+  // abandonou (aba fechada e reaberta bem depois, por exemplo).
+  var TOUR_RESUME_EXPIRY_MS = 60000;
+
+  // Só persiste pra tours reais (automático, manual via API, iniciado pela
+  // Jornada) — prévia do gravador (tourState.preview) nunca salva: o
+  // gravador já tem sua própria persistência (RECORDER_STORAGE_KEY) pros
+  // passos autorados, que é o que realmente importa preservar num reload;
+  // retomar a PRÉVIA em si exigiria coordenar a visibilidade da barra/painel
+  // do gravador aqui também, sem benefício real (é uma sessão efêmera de
+  // teste, não a experiência final do usuário).
+  function tourSalvarContinuacao(indiceProximo, concluir) {
+    if (tourState.preview || !tourState.tour) return;
+    try {
+      window.sessionStorage.setItem(TOUR_RESUME_STORAGE_KEY, JSON.stringify({
+        v: 1,
+        tourSlug: tourState.tour.slug || null,
+        indiceProximo: concluir ? null : indiceProximo,
+        concluir: Boolean(concluir),
+        jornadaContexto: tourState.jornadaContexto || null,
+        savedAt: Date.now(),
+      }));
+    } catch (_e) { /* sessionStorage indisponível (modo privado, quota etc.) — sem retomada possível, sem quebrar nada */ }
+  }
+
+  function tourLimparContinuacao() {
+    try { window.sessionStorage.removeItem(TOUR_RESUME_STORAGE_KEY); } catch (_e) {}
+  }
+
+  // Garante jornadaState.jornadas carregado antes de concluir um tour retomado
+  // vinculado a uma etapa de Jornada — depois de um reload completo essa lista
+  // está vazia (só é populada quando o usuário abre o painel da Central via
+  // abrirJornadasPublico()), e sem isso jornadaMarcarConcluida() não acharia a
+  // jornada/bloco/etapa pra marcar. Sempre busca de novo (não confia em
+  // jornadaState.jornadas já ter algo) — é um caminho raro, correção importa
+  // mais que evitar uma requisição extra aqui.
+  function jornadaCarregarParaResumo(callback) {
+    var config = state.config;
+    if (!config) { callback(); return; }
+    var contexto = resolveContexto();
+    fetchJornadas(config.sistema, config.tela, config.usuario_id, contexto).then(function (jornadas) {
+      jornadaState.jornadas = (jornadas || []).map(function (j) {
+        j._concluidaRegistrada = Boolean(j.progresso && j.progresso.concluida);
+        return j;
+      });
+      callback();
+    }).catch(function () { callback(); });
+  }
+
+  // Chamado no início de init(), antes de avaliarTourAutomatico() (pra evitar
+  // os dois disputarem por iniciar um tour ao mesmo tempo — ver chamada em
+  // init()). callback() sempre é chamado, com ou sem retomada bem-sucedida.
+  function tourRetomarSeHouver(callback) {
+    var bruto;
+    try { bruto = window.sessionStorage.getItem(TOUR_RESUME_STORAGE_KEY); } catch (_e) { callback(); return; }
+    if (!bruto) { callback(); return; }
+    // Uso único — lida agora, não deve sobrar pra ser lida de novo depois
+    // (nem em caso de sucesso, nem de falha/expiração/erro de parse).
+    tourLimparContinuacao();
+    var dados;
+    try { dados = JSON.parse(bruto); } catch (_e) { callback(); return; }
+    if (!dados || typeof dados !== 'object' || !dados.savedAt || Date.now() - dados.savedAt > TOUR_RESUME_EXPIRY_MS) {
+      callback();
+      return;
+    }
+    var jornadaContexto = dados.jornadaContexto || null;
+
+    function prosseguir(tour) {
+      if (!tour || !tour.passos || tour.passos.length === 0) { callback(); return; }
+      if (dados.concluir) {
+        // Monta só o mínimo de tourState necessário e vai direto pra
+        // tourConcluir() — passar por iniciarTour()+irParaPasso() aqui só
+        // pra descartar o resultado logo em seguida renderizaria o último
+        // passo destacado por um instante à toa antes da tela de conclusão.
+        finalizarTour();
+        tourState.tour = tour;
+        tourState.ativo = true;
+        tourState.indice = tour.passos.length - 1;
+        tourState.jornadaContexto = jornadaContexto;
+        tourConcluir();
+        callback();
+        return;
+      }
+      var indice = dados.indiceProximo;
+      if (typeof indice !== 'number' || indice < 0 || indice >= tour.passos.length) { callback(); return; }
+      iniciarTour(tour, true, false, false, jornadaContexto, indice);
+      callback();
+    }
+
+    function comTourResolvido(tour) {
+      // jornadaContexto presente vale tanto pro caso "concluir" quanto pro
+      // caso "retomou no meio e vai concluir mais adiante, sem outro reload"
+      // — nos dois, jornadaState.jornadas precisa estar carregado quando
+      // tourConcluir() rodar, seja agora ou mais tarde.
+      if (jornadaContexto) {
+        jornadaCarregarParaResumo(function () { prosseguir(tour); });
+      } else {
+        prosseguir(tour);
+      }
+    }
+
+    if (dados.tourSlug) {
+      fetchTour(dados.tourSlug).then(comTourResolvido).catch(function () { callback(); });
+    } else {
+      callback();
+    }
+  }
+
   function isEditableTarget(el) {
     if (!el) return false;
     var tag = el.tagName ? el.tagName.toUpperCase() : '';
@@ -2271,8 +2400,12 @@
     // A interação que dispara esse avanço (ex.: modo_avanco_interacao =
     // "ao_clicar") pode navegar de tela, igual ao clique sintético de
     // tourProximo() — mesma proteção contra handleUrlChange() encerrar o tour
-    // no meio da transição (ver comentário na declaração de tourState).
+    // no meio da transição (ver comentário na declaração de tourState), e
+    // mesma continuação salva em sessionStorage pro caso de reload completo
+    // de página (ver tourSalvarContinuacao).
     tourState.suprimirAbandonoNavegacao = true;
+    var ultimoAoAgendar = tourState.indice === tourState.tour.passos.length - 1;
+    tourSalvarContinuacao(ultimoAoAgendar ? null : tourState.indice + 1, ultimoAoAgendar);
     tourState.interacaoTimer = window.setTimeout(function () {
       tourState.interacaoTimer = null;
       if (!tourState.ativo || tourState.elementoAtual !== el) { tourState.suprimirAbandonoNavegacao = false; return; }
@@ -2374,8 +2507,12 @@
       // A partir daqui o próximo passo já foi resolvido (achado ou "não
       // encontrado") — a navegação que o clique sintético de tourProximo()
       // possa ter causado já cumpriu seu papel, então navegações daqui pra
-      // frente voltam a ser um sinal normal de abandono do tour.
+      // frente voltam a ser um sinal normal de abandono do tour. Isso só roda
+      // se NÃO houve reload de página no meio (senão o JS teria sido
+      // interrompido antes de chegar aqui) — ou seja, a continuação salva
+      // antes do clique não foi necessária e pode ser descartada.
       tourState.suprimirAbandonoNavegacao = false;
+      tourLimparContinuacao();
       if (!tourState.ativo) return; // tour foi encerrado enquanto buscava
       if (!el) {
         tourState.naoEncontrado = true;
@@ -2423,8 +2560,11 @@
       limparInteracao();
       // Esse clique pode navegar de tela — suprime o auto-encerramento do
       // tour por navegação (handleUrlChange) até irParaPasso() resolver o
-      // próximo passo (ver comentário na declaração de tourState acima).
+      // próximo passo (ver comentário na declaração de tourState acima), e
+      // salva uma continuação em sessionStorage pro caso de ser um reload
+      // completo de página, não apenas SPA (ver tourSalvarContinuacao).
       tourState.suprimirAbandonoNavegacao = true;
+      tourSalvarContinuacao(indiceProximo, false);
       try { el.click(); } catch (_e) {}
       tourState.nextClickTimer = window.setTimeout(function () {
         tourState.nextClickTimer = null;
@@ -2522,6 +2662,7 @@
     tourState.tela = 'concluido';
     tourState.feedbackEscolhido = null;
     tourState.suprimirAbandonoNavegacao = false;
+    tourLimparContinuacao();
     // Tour iniciado por uma etapa de Jornada — só agora, com o tour realmente
     // concluído (não ao meramente iniciar), a etapa é marcada concluída. Ver
     // jornadaEtapaClicar e a declaração de jornadaContexto em tourState.
@@ -2553,6 +2694,11 @@
     tourState.tela = null;
     tourState.feedbackEscolhido = null;
     tourState.suprimirAbandonoNavegacao = false;
+    // Cobre o caso raro de abandonar o tour (Encerrar/Pular) bem na janela
+    // entre um clique que salvou continuação e ela ser consumida — sem isso,
+    // uma retomada indevida poderia disparar num carregamento de página
+    // totalmente não relacionado, bem mais tarde.
+    tourLimparContinuacao();
     // Tour encerrado por qualquer motivo que não seja tourConcluir() (pulado,
     // fechado, abandonado por navegação genuína) — nunca marca a etapa da
     // Jornada como concluída (tourConcluir() já consome e zera isso sozinho
@@ -2602,7 +2748,12 @@
   // escondidos em qualquer prévia). O disparo real do tour
   // (iniciarTourPublico/avaliarTourAutomatico) nunca passa esses argumentos,
   // então continua com introdução normal e preview/modoUsuarioFinal=false.
-  function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal, jornadaContexto) {
+  // indiceInicial (opcional, default 0) — usado só por tourRetomarSeHouver()
+  // pra retomar diretamente num passo específico depois de um reload
+  // completo de página, sem passar pelos passos anteriores de novo. Só tem
+  // efeito com pularIntro=true (senão a tela de introdução sempre entra
+  // pelo passo 0 mesmo).
+  function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal, jornadaContexto, indiceInicial) {
     if (!tour || !tour.passos || tour.passos.length === 0) return;
     finalizarTour();
     ensureStyles();
@@ -2621,7 +2772,7 @@
     document.addEventListener('keydown', tourKeydown);
     if (pularIntro) {
       bindTourReposHandlers();
-      irParaPasso(0);
+      irParaPasso(indiceInicial || 0);
       return;
     }
     tourState.tela = 'intro';
