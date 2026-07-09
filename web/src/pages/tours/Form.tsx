@@ -63,8 +63,24 @@ const TOOLTIP_POSICOES = [
 
 const SELETOR_TIPOS = [
   { value: 'data_cy', label: 'data-cy' },
+  { value: 'id', label: 'ID' },
   { value: 'css', label: 'CSS' },
 ]
+
+// Corrige o erro mais comum ao colar um seletor: colar o seletor de atributo
+// completo (ex.: copiado do DevTools) num campo que já espera só o valor cru.
+// Nunca mexe em tipo=css (lá o seletor completo é o esperado).
+function normalizarSeletorInput(tipo: string, valor: string): string {
+  const bruto = valor.trim()
+  if (tipo === 'data_cy') {
+    const m = /^\[data-cy=(["'])(.*)\1\]$/.exec(bruto)
+    if (m) return m[2]
+  }
+  if (tipo === 'id' && bruto.startsWith('#')) {
+    return bruto.slice(1)
+  }
+  return valor
+}
 
 const ACOES_AO_AVANCAR = [
   { value: 'apenas_avancar', label: 'Apenas avançar' },
@@ -106,7 +122,7 @@ function extrairPassosDoJson(texto: string): { passos: PassoState[] } | { erro: 
     return {
       titulo: typeof passo.titulo === 'string' ? passo.titulo : '',
       descricao: typeof passo.descricao === 'string' ? passo.descricao : '',
-      seletor_tipo: passo.seletor_tipo === 'css' ? 'css' : 'data_cy',
+      seletor_tipo: (passo.seletor_tipo === 'css' || passo.seletor_tipo === 'id') ? passo.seletor_tipo : 'data_cy',
       seletor: typeof passo.seletor === 'string' ? passo.seletor : '',
       tooltip_posicao: typeof passo.tooltip_posicao === 'string' ? passo.tooltip_posicao : 'auto',
       acao_ao_avancar: typeof passo.acao_ao_avancar === 'string' ? passo.acao_ao_avancar : 'apenas_avancar',
@@ -273,6 +289,11 @@ function ChecklistCard({ form, passos, numero }: { form: FormState; passos: Pass
 // vazio em tour ativo (handleSubmit), que essas heurísticas não substituem.
 const REGEX_CAMPO_PREENCHIVEL = /input|select|autocomplete|combobox|busca|search|campo|filtro|dropdown|typeahead/i
 const REGEX_BOTAO_OU_ACAO = /bot[aã]o|button|\bbtn\b|a[cç][aã]o|link|clique|click|salvar|confirmar|enviar|cancelar|fechar|remover|excluir/i
+// Classes geradas por framework (Angular, ng-zorro/Ant Design, CSS-in-JS) ou
+// dependência de posição entre elementos — mesmo critério usado pelo gravador
+// (RECORDER_CLASSES_FRAGEIS em widget.js) pra nunca preferir esse tipo de
+// seletor quando há alternativa melhor.
+const REGEX_SELETOR_FRAGIL = /\bng-|ant-|css-\w{4,}|\bsc-\w{4,}|nth-child|nth-of-type/i
 
 function alertasPasso(passo: PassoState): string[] {
   const alertas: string[] = []
@@ -298,7 +319,11 @@ function alertasPasso(passo: PassoState): string[] {
     )
   }
 
-  if (passo.seletor_tipo === 'css' && seletor && !seletor.includes('data-cy')) {
+  if (passo.seletor_tipo === 'css' && seletor && REGEX_SELETOR_FRAGIL.test(seletor)) {
+    alertas.push(
+      'Este seletor parece depender de classes geradas por framework (ng-*, ant-*, css-in-js) ou de posição entre elementos (nth-child) — tende a quebrar com pequenas mudanças de layout. Prefira data-cy, ID ou name se possível.'
+    )
+  } else if (passo.seletor_tipo === 'css' && seletor && !seletor.includes('data-cy')) {
     alertas.push('Seletores CSS podem ser frágeis. Sempre que possível, prefira data-cy.')
   }
 
@@ -1278,10 +1303,19 @@ export function TourForm() {
                         <input
                           required
                           value={passo.seletor}
-                          onChange={e => setPasso(i, 'seletor', e.target.value)}
-                          placeholder={passo.seletor_tipo === 'css' ? '#botao-novo-agendamento' : 'novo-agendamento-btn'}
+                          onChange={e => setPasso(i, 'seletor', normalizarSeletorInput(passo.seletor_tipo, e.target.value))}
+                          placeholder={
+                            passo.seletor_tipo === 'css' ? '#botao-novo-agendamento'
+                              : passo.seletor_tipo === 'id' ? 'novo-agendamento-btn'
+                                : 'novo-agendamento-btn'
+                          }
                           className={`${field} text-[13px] py-2 font-mono`}
                         />
+                        <p className="text-[11px] text-on-surface-variant mt-1">
+                          {passo.seletor_tipo === 'data_cy' && 'Informe apenas o valor do data-cy — ex.: layout-sider-menu-item-link-1 (não cole [data-cy="..."], é normalizado automaticamente).'}
+                          {passo.seletor_tipo === 'id' && 'Informe apenas o valor do id — ex.: novo-agendamento-btn (com ou sem # na frente).'}
+                          {passo.seletor_tipo === 'css' && 'Seletor CSS completo — ex.: #novo-agendamento-btn, button[name="salvar"], .menu-item[href="/app/agenda"].'}
+                        </p>
                         {/* Ações discretas abaixo do input — nunca disputam espaço com
                             ele. Empilham à esquerda no mobile, uma linha à direita a
                             partir de sm. */}

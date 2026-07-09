@@ -1720,6 +1720,12 @@
     elementoAtual: null,
     naoEncontrado: false,
     buscaTimer: null,
+    // MutationObserver ativo durante uma busca de elemento (localizarComRetry)
+    // — detecta o elemento chegando ao DOM antes do próximo retry agendado,
+    // resolvendo mais rápido no caso comum. Desconectado por limparBuscaTimer()
+    // junto com o timer, pra nunca sobrar observando o DOM à toa depois que a
+    // busca termina (achou, esgotou o retry, ou foi cancelada).
+    buscaObserver: null,
     reposTimer: null,
     ativo: false,
     interacaoCleanup: null,
@@ -1834,11 +1840,37 @@
     }).catch(function () { /* fail silently */ });
   }
 
+  // Aceita tanto o valor cru ("meu-valor") quanto colado por engano no formato
+  // de seletor de atributo completo ("[data-cy=\"meu-valor\"]" ou com aspas
+  // simples) — normaliza pro valor cru antes de montar a busca de verdade.
+  function tourNormalizarDataCy(bruto) {
+    var valor = String(bruto == null ? '' : bruto).trim();
+    var m = /^\[data-cy=(["'])(.*)\1\]$/.exec(valor);
+    return m ? m[2] : valor;
+  }
+
+  // Aceita "meu-id" ou "#meu-id".
+  function tourNormalizarId(bruto) {
+    var valor = String(bruto == null ? '' : bruto).trim();
+    return valor.charAt(0) === '#' ? valor.slice(1) : valor;
+  }
+
   function selecionarElementoPasso(passo) {
     try {
-      var el = passo.seletor_tipo === 'css'
-        ? document.querySelector(passo.seletor)
-        : document.querySelector('[data-cy="' + passo.seletor + '"]');
+      var el;
+      if (passo.seletor_tipo === 'css') {
+        el = document.querySelector(passo.seletor);
+      } else if (passo.seletor_tipo === 'id') {
+        var idNormalizado = tourNormalizarId(passo.seletor);
+        el = idNormalizado ? document.getElementById(idNormalizado) : null;
+      } else {
+        // 'data_cy' (default/legado) — cobre também qualquer valor antigo já
+        // salvo sem tipo definido.
+        var dataCyNormalizado = tourNormalizarDataCy(passo.seletor);
+        el = dataCyNormalizado
+          ? document.querySelector('[data-cy="' + dataCyNormalizado.replace(/"/g, '\\"') + '"]')
+          : null;
+      }
       if (!el) return null;
       // Elemento existe no DOM mas está oculto (display:none, etc.) — trata como
       // ainda-não-encontrado para dar tempo do host revelá-lo (ex.: outro passo
@@ -1853,14 +1885,43 @@
 
   function localizarComRetry(passo, tentativa, cb) {
     var el = selecionarElementoPasso(passo);
-    if (el) { cb(el); return; }
-    if (tentativa >= TOUR_RETRY_MAX) { cb(null); return; }
+    if (el) { limparBuscaTimer(); cb(el); return; }
+    if (tentativa >= TOUR_RETRY_MAX) { limparBuscaTimer(); cb(null); return; }
     // Primeira tentativa falhou — troca o tooltip do passo anterior (que ainda
     // estaria na tela) pelo estado discreto "Aguardando", em vez de deixá-lo
     // parado ali até a busca resolver. Só dispara uma vez por passo (tentativa
     // 0): no caso comum em que o elemento já existe, cb(el) acima resolve
     // antes de chegar aqui e esse estado nunca aparece.
     if (tentativa === 0) renderTour();
+
+    // Documento ainda carregando (script rodou antes do DOM terminar de
+    // parsear, comum logo após um reload) — não consome uma tentativa do
+    // orçamento de retry por isso; só espera um instante curto e tenta de
+    // novo no mesmo índice, até o carregamento inicial terminar de verdade.
+    if (document.readyState === 'loading') {
+      tourState.buscaTimer = window.setTimeout(function () {
+        localizarComRetry(passo, tentativa, cb);
+      }, 100);
+      return;
+    }
+
+    // MutationObserver: resolve assim que o elemento chegar ao DOM, sem
+    // esperar o próximo retry agendado (útil pra rotas/paineis que demoram
+    // exatamente entre dois intervalos de backoff) — só um observer por
+    // sessão de busca, reaproveitado entre as chamadas recursivas seguintes
+    // (não recriado a cada tentativa); limparBuscaTimer() desconecta.
+    if (!tourState.buscaObserver && window.MutationObserver) {
+      try {
+        tourState.buscaObserver = new MutationObserver(function () {
+          var achado = selecionarElementoPasso(passo);
+          if (achado) { limparBuscaTimer(); cb(achado); }
+        });
+        tourState.buscaObserver.observe(document.body, { childList: true, subtree: true, attributes: true });
+      } catch (_e) {
+        tourState.buscaObserver = null;
+      }
+    }
+
     tourState.buscaTimer = window.setTimeout(function () {
       localizarComRetry(passo, tentativa + 1, cb);
     }, tourIntervaloRetry(tentativa));
@@ -1870,6 +1931,10 @@
     if (tourState.buscaTimer) {
       window.clearTimeout(tourState.buscaTimer);
       tourState.buscaTimer = null;
+    }
+    if (tourState.buscaObserver) {
+      try { tourState.buscaObserver.disconnect(); } catch (_e) {}
+      tourState.buscaObserver = null;
     }
   }
 
@@ -3130,12 +3195,30 @@
     return String(valor).replace(/([ #.:[\]"'>+~^$|=(),])/g, '\\$1');
   }
 
-  // Fallback quando não há data-cy/id/name/aria-label: tag + primeira classe
-  // + posição entre irmãos do mesmo tipo, só o suficiente pra desambiguar —
-  // de propósito simples (não é um gerador de caminho CSS único robusto).
+  // Nomes de classe conhecidos por serem gerados/instáveis entre builds ou
+  // puramente de biblioteca/framework (Angular, ng-zorro/Ant Design, CSS-in-JS
+  // etc.) — nunca identificam o elemento em si, então nunca são usados no
+  // seletor de fallback, mesmo quando são a única classe presente.
+  var RECORDER_CLASSES_FRAGEIS = /^(ng-|ant-|css-|sc-|jsx-|emotion-|Mui[A-Z])/;
+
+  function recorderClasseEstavel(el) {
+    if (!el.className || typeof el.className !== 'string') return '';
+    var classes = el.className.trim().split(/\s+/).filter(Boolean);
+    for (var i = 0; i < classes.length; i++) {
+      if (!RECORDER_CLASSES_FRAGEIS.test(classes[i])) return classes[i];
+    }
+    return '';
+  }
+
+  // Fallback quando não há data-cy/id/name/aria-label/href: tag + classe
+  // estável (pula classes conhecidas como frágeis — ver
+  // RECORDER_CLASSES_FRAGEIS) + posição entre irmãos do mesmo tipo, só o
+  // suficiente pra desambiguar — de propósito simples (não é um gerador de
+  // caminho CSS único robusto). Último recurso da cadeia de prioridade — ver
+  // recorderGerarSeletor.
   function recorderSeletorFallback(el) {
     var tag = el.tagName ? el.tagName.toLowerCase() : 'div';
-    var classe = (el.className && typeof el.className === 'string') ? el.className.trim().split(/\s+/)[0] : '';
+    var classe = recorderClasseEstavel(el);
     var base = classe ? tag + '.' + recorderCssEscapeSimples(classe) : tag;
     var pai = el.parentElement;
     if (pai) {
@@ -3150,22 +3233,58 @@
     return base;
   }
 
-  // Ordem de preferência pedida: data-cy → id → name → aria-label → fallback CSS.
+  // Ordem de preferência: data-cy/data-testid/data-test/data-qa → id → aria-
+  // label (+ role, se houver) → name → href interno (só <a>) → CSS estrutural
+  // como último recurso (marcado fragil:true — ver recorderRegistrarPasso,
+  // usado só pra avisar na UI do gravador, nunca bloqueia a captura).
   function recorderGerarSeletor(el) {
     try {
       var dataCy = el.getAttribute && el.getAttribute('data-cy');
       if (dataCy) return { seletor_tipo: 'data_cy', seletor: dataCy };
-      if (el.id) return { seletor_tipo: 'css', seletor: '#' + recorderCssEscapeSimples(el.id) };
+
+      // Convenções equivalentes de outros frameworks/times de teste — mesmo
+      // princípio do data-cy (atributo dedicado a automação, não muda com
+      // redesign visual), só com nomes diferentes.
+      var attrsAlternativos = ['data-testid', 'data-test', 'data-qa'];
+      for (var i = 0; i < attrsAlternativos.length; i++) {
+        var valorAlt = el.getAttribute && el.getAttribute(attrsAlternativos[i]);
+        if (valorAlt) {
+          return { seletor_tipo: 'css', seletor: '[' + attrsAlternativos[i] + '="' + recorderCssEscapeAtributo(valorAlt) + '"]' };
+        }
+      }
+
+      if (el.id) return { seletor_tipo: 'id', seletor: el.id };
+
+      var ariaLabel = el.getAttribute && el.getAttribute('aria-label');
+      if (ariaLabel) {
+        var role = el.getAttribute && el.getAttribute('role');
+        var seletorAria = role
+          ? '[role="' + recorderCssEscapeAtributo(role) + '"][aria-label="' + recorderCssEscapeAtributo(ariaLabel) + '"]'
+          : '[aria-label="' + recorderCssEscapeAtributo(ariaLabel) + '"]';
+        return { seletor_tipo: 'css', seletor: seletorAria };
+      }
+
       var name = el.getAttribute && el.getAttribute('name');
       if (name) {
         var tag = el.tagName ? el.tagName.toLowerCase() : '';
-        return { seletor_tipo: 'css', seletor: tag + '[name="' + name.replace(/"/g, '\\"') + '"]' };
+        return { seletor_tipo: 'css', seletor: tag + '[name="' + recorderCssEscapeAtributo(name) + '"]' };
       }
-      var ariaLabel = el.getAttribute && el.getAttribute('aria-label');
-      if (ariaLabel) return { seletor_tipo: 'css', seletor: '[aria-label="' + ariaLabel.replace(/"/g, '\\"') + '"]' };
-      return { seletor_tipo: 'css', seletor: recorderSeletorFallback(el) };
+
+      // Link com destino interno (mesma origem ou caminho relativo) — o href
+      // tende a ser bem mais estável que classes/estrutura, mesmo sem
+      // data-cy/id/name (comum em menus/navegação de SPA).
+      var tagLower = el.tagName ? el.tagName.toLowerCase() : '';
+      if (tagLower === 'a' && el.getAttribute) {
+        var href = el.getAttribute('href');
+        if (href && (href.charAt(0) === '/' || href.indexOf(window.location.origin) === 0)) {
+          var caminho = href.indexOf(window.location.origin) === 0 ? href.slice(window.location.origin.length) : href;
+          return { seletor_tipo: 'css', seletor: 'a[href="' + recorderCssEscapeAtributo(caminho) + '"]' };
+        }
+      }
+
+      return { seletor_tipo: 'css', seletor: recorderSeletorFallback(el), fragil: true };
     } catch (_e) {
-      return { seletor_tipo: 'css', seletor: el.tagName ? el.tagName.toLowerCase() : '*' };
+      return { seletor_tipo: 'css', seletor: el.tagName ? el.tagName.toLowerCase() : '*', fragil: true };
     }
   }
 
@@ -3439,6 +3558,13 @@
     recorderState.elParaIndice.set(el, recorderState.passos.length - 1);
     recorderAtualizarBarra();
     recorderPersistir();
+    // Aviso na hora, quando recorderGerarSeletor() não achou nada melhor que
+    // o fallback estrutural (tag+classe+nth-of-type) — dá a chance de ajustar
+    // o seletor manualmente (painel lateral) ou pelo "Trocar elemento" antes
+    // de seguir gravando. Não bloqueia a captura, só avisa.
+    if (sel.fragil) {
+      recorderMostrarAvisoBarra('Seletor frágil capturado para "' + passo.titulo + '" — considere ajustar manualmente.');
+    }
     // Opcional (desativado por padrão) — painel lateral não-bloqueante:
     // o passo recém capturado fica selecionado automaticamente. Não pausa a
     // captura — o usuário continua clicando normalmente.
@@ -5679,7 +5805,7 @@
     return {
       titulo: titulo,
       descricao: typeof p.descricao === 'string' ? p.descricao : '',
-      seletor_tipo: p.seletor_tipo === 'css' ? 'css' : 'data_cy',
+      seletor_tipo: (p.seletor_tipo === 'css' || p.seletor_tipo === 'id') ? p.seletor_tipo : 'data_cy',
       seletor: typeof p.seletor === 'string' ? p.seletor : '',
       tooltip_posicao: typeof p.tooltip_posicao === 'string' ? p.tooltip_posicao : 'auto',
       acao_ao_avancar: typeof p.acao_ao_avancar === 'string' ? p.acao_ao_avancar : 'apenas_avancar',
