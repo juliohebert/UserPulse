@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 
 const MODOS_IDENTIFICACAO = ['sistema_tela', 'data_cy', 'url_contem']
-const SELETOR_TIPOS = ['data_cy', 'css']
+const SELETOR_TIPOS = ['data_cy', 'id', 'css']
 const TOOLTIP_POSICOES = ['auto', 'top', 'bottom', 'left', 'right']
 const ACOES_AO_AVANCAR = ['apenas_avancar', 'clicar_elemento']
 const MODOS_AVANCO_INTERACAO = ['manual', 'ao_clicar', 'ao_alterar_valor', 'ao_aparecer_elemento', 'ao_sumir_elemento']
