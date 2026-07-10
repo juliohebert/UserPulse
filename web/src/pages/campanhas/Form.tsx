@@ -617,7 +617,7 @@ export function CampanhaForm() {
                   </div>
                   <div>
                     <label className="block text-label-md text-on-surface-variant mb-1.5">URL da Imagem</label>
-                    <input type="url" value={form.imagem_url} onChange={e => set('imagem_url', e.target.value)} placeholder="https://..." className={field} />
+                    <input type="text" value={form.imagem_url} onChange={e => set('imagem_url', e.target.value)} placeholder="https://exemplo.com/imagem.png" className={field} />
                     <p className="mt-1 text-[11px] text-outline">Exibida se não houver vídeo</p>
                   </div>
                   <div>
