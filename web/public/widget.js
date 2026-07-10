@@ -2410,19 +2410,21 @@
     }).catch(function () { callback(); });
   }
 
-  // Tenta buscar o tour por slug algumas vezes com backoff antes de desistir
-  // — logo após um reload, a rede/API pode não estar pronta no 1º instante;
-  // uma falha isolada aqui não pode custar a retomada inteira (ver "não
-  // resolver com delay fixo apenas" / "nunca sumir silenciosamente").
-  var TOUR_RESUME_FETCH_TENTATIVAS = 4;
-  function fetchTourComRetry(slug, tentativa, callback) {
+  // Tenta buscar o tour por slug com backoff até o prazo (mesmo prazo de
+  // expiração da sessão de retomada, dados.savedAt + TOUR_RESUME_EXPIRY_MS)
+  // se esgotar — logo após um reload, a rede/API pode não estar pronta no 1º
+  // instante; uma falha isolada aqui não pode custar a retomada inteira (ver
+  // "manter sessão e tentar novamente até expirar" / "nunca sumir
+  // silenciosamente"). Antes desistia depois de só 4 tentativas (~1.4s no
+  // total) — bem antes da sessão realmente expirar.
+  function fetchTourComRetry(slug, tentativa, callback, prazoLimite) {
     fetchTour(slug).then(function (tour) {
       if (tour) { callback(tour); return; }
-      if (tentativa >= TOUR_RESUME_FETCH_TENTATIVAS) { callback(null); return; }
-      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback); }, tourIntervaloRetry(tentativa));
+      if (Date.now() >= prazoLimite) { callback(null); return; }
+      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback, prazoLimite); }, tourIntervaloRetry(tentativa));
     }).catch(function () {
-      if (tentativa >= TOUR_RESUME_FETCH_TENTATIVAS) { callback(null); return; }
-      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback); }, tourIntervaloRetry(tentativa));
+      if (Date.now() >= prazoLimite) { callback(null); return; }
+      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback, prazoLimite); }, tourIntervaloRetry(tentativa));
     });
   }
 
@@ -2488,7 +2490,7 @@
         callback();
         return;
       }
-      iniciarTour(tourPreview, true, true, modo === 'preview_usuario', null, indicePreview);
+      iniciarTour(tourPreview, true, true, modo === 'preview_usuario', null, indicePreview, true);
       callback();
       return;
     }
@@ -2518,8 +2520,11 @@
       var indice = dados.indiceProximo;
       if (typeof indice !== 'number' || indice < 0 || indice >= tour.passos.length) { tourLimparContinuacao(); callback(); return; }
       // iniciarTour()->irParaPasso() limpa a continuação assim que o passo
-      // resolver (achado ou "não encontrado") — não antes.
-      iniciarTour(tour, true, false, false, jornadaContexto, indice);
+      // resolver (achado ou "não encontrado") — não antes. preservarContinuacao=
+      // true impede que a própria chamada a finalizarTour() dentro de
+      // iniciarTour() (limpeza de um tour anterior, se houver) apague a sessão
+      // prematuramente, antes desse desfecho real acontecer.
+      iniciarTour(tour, true, false, false, jornadaContexto, indice, true);
       callback();
     }
 
@@ -2536,9 +2541,21 @@
     }
 
     fetchTourComRetry(dados.tourSlug, 0, function (tour) {
-      if (!tour) { tourLimparContinuacao(); callback(); return; }
+      if (!tour) {
+        // Esgotou o prazo (até a expiração da própria sessão) sem conseguir
+        // buscar o tour — desfecho real, mas não "sumir silenciosamente":
+        // mostra o mesmo fallback de erro genérico antes de limpar. tourPular()/
+        // tourPularPasso() (únicos botões desse fallback) já lidam com
+        // tourState.tour ainda null com segurança.
+        tourState.ativo = true;
+        tourState.tour = null;
+        renderTourErroFallback();
+        tourLimparContinuacao();
+        callback();
+        return;
+      }
       comTourResolvido(tour);
-    });
+    }, dados.savedAt + TOUR_RESUME_EXPIRY_MS);
   }
 
   function isEditableTarget(el) {
@@ -2848,6 +2865,10 @@
   // como tourPular() faz. Não passa por tourProximo() porque não há elemento
   // real nesse estado para os fluxos de acao_ao_avancar/clique sintético.
   function tourPularPasso() {
+    // Sem tour carregado (fallback de "não foi possível retomar", exibido
+    // quando fetchTourComRetry esgota o prazo em tourRetomarSeHouver) não há
+    // passo nenhum pra pular ou concluir — só encerra.
+    if (!tourState.tour) { finalizarTour('tour_nao_carregado'); return; }
     var total = tourState.tour.passos.length;
     if (tourState.indice >= total - 1) { tourConcluir(); return; }
     irParaPasso(tourState.indice + 1);
@@ -2940,7 +2961,15 @@
   // explícito) pra facilitar diagnosticar um tour que termina de forma
   // inesperada, sem precisar reinstrumentar o código depois. Nunca quebra se
   // algum ponto futuro esquecer de passar.
-  function finalizarTour(motivo) {
+  //
+  // preservarContinuacao (opcional): quando true, pula a limpeza da sessão de
+  // retomada abaixo. Existe só pra iniciarTour() poder chamar finalizarTour()
+  // (limpando DOM/listeners de um tour anterior, se houver) sem apagar a
+  // continuação que tourRetomarSeHouver() acabou de reescrever como
+  // 'retomando' — ver iniciarTour() e o bug que isso causava: a sessão sumia
+  // do sessionStorage assim que a retomada começava, antes de qualquer
+  // desfecho real (passo achado, fallback, conclusão ou abandono).
+  function finalizarTour(motivo, preservarContinuacao) {
     limparBuscaTimer();
     limparInteracao();
     limparNextClickTimer();
@@ -2961,7 +2990,7 @@
     // entre um clique que salvou continuação e ela ser consumida — sem isso,
     // uma retomada indevida poderia disparar num carregamento de página
     // totalmente não relacionado, bem mais tarde.
-    tourLimparContinuacao();
+    if (!preservarContinuacao) tourLimparContinuacao();
     // Tour encerrado por qualquer motivo que não seja tourConcluir() (pulado,
     // fechado, abandonado por navegação genuína) — nunca marca a etapa da
     // Jornada como concluída (tourConcluir() já consome e zera isso sozinho
@@ -3016,9 +3045,15 @@
   // completo de página, sem passar pelos passos anteriores de novo. Só tem
   // efeito com pularIntro=true (senão a tela de introdução sempre entra
   // pelo passo 0 mesmo).
-  function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal, jornadaContexto, indiceInicial) {
+  // preservarContinuacaoAoIniciar (opcional) — repassado pra finalizarTour()
+  // abaixo. Só true quando chamado por tourRetomarSeHouver(): nesse caso a
+  // sessão de retomada já foi regravada como 'retomando' e só deve ser
+  // limpa quando irParaPasso() de fato resolver o próximo passo (achado ou
+  // "não encontrado") — nunca antes, por causa desta limpeza automática de
+  // "tour anterior" que finalizarTour() sempre faz aqui.
+  function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal, jornadaContexto, indiceInicial, preservarContinuacaoAoIniciar) {
     if (!tour || !tour.passos || tour.passos.length === 0) return;
-    finalizarTour('novo_tour_iniciado');
+    finalizarTour('novo_tour_iniciado', preservarContinuacaoAoIniciar);
     ensureStyles();
     tourState.tour = tour;
     tourState.ativo = true;
