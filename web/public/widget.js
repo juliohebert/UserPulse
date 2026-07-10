@@ -1633,6 +1633,19 @@
     jornadaReavaliarAposNavegacao();
   }
 
+  // Ver tourState.avancoResolvidoEm — janela depois de um passo resolver (ou
+  // o tour concluir) durante a qual handleUrlChange() ignora navegação em vez
+  // de tentar retomar ou finalizar. Cobre o delay de renderTour() adiado em
+  // irParaPasso() (320ms) com folga, absorvendo pushStates/replaceStates
+  // secundários que a mesma transição de SPA às vezes dispara (router
+  // normalizando a URL, redirect interno etc.) sem tratá-los como um novo
+  // sinal de retomada — evitava pular um passo inteiro (ver bug de avanço
+  // duplo: passo com clicar_elemento navega, o avanço agendado já resolve
+  // pro passo seguinte e salva a continuação preventiva DO PASSO DEPOIS
+  // DESSE, e um pushState tardio da mesma navegação lia essa continuação já
+  // atualizada e retomava direto nele, pulando o passo intermediário).
+  var TOUR_SPA_ASSENTAMENTO_MS = 500;
+
   function handleUrlChange() {
     var currentUrl = window.location.href;
     if (currentUrl === lastUrl) return;
@@ -1653,7 +1666,9 @@
       // modo_avanco_interacao != manual (agendarAvancoInteracao) não conta como
       // abandono — sem essa checagem, essa navegação encerrava o tour sozinho
       // antes do avanço para o próximo passo sequer acontecer.
-      if (tourState.ativo && !tourState.suprimirAbandonoNavegacao) {
+      var emAssentamento = tourState.avancoResolvidoEm &&
+        (Date.now() - tourState.avancoResolvidoEm < TOUR_SPA_ASSENTAMENTO_MS);
+      if (tourState.ativo && !tourState.suprimirAbandonoNavegacao && !emAssentamento) {
         // Passo com acao_ao_avancar/modo_avanco_interacao default (o caso mais
         // comum) nunca passa por suprimirAbandonoNavegacao — o usuário clica
         // direto no elemento real destacado, e SE isso navegar via SPA
@@ -1793,6 +1808,20 @@
     // aviso — tanto no runtime real quanto na prévia do gravador (mesmo
     // código pros dois).
     suprimirAbandonoNavegacao: false,
+    // Timestamp (Date.now()) de quando o passo atual acabou de resolver
+    // (achado ou "não encontrado") ou o tour concluiu — ver irParaPasso()/
+    // tourConcluir() e o uso em handleUrlChange(). Cobre uma janela curta
+    // logo DEPOIS da resolução, além de suprimirAbandonoNavegacao (que só
+    // cobre ATÉ a resolução): uma navegação SPA disparada por um clique
+    // pode gerar mais de um pushState (o próprio router normalizando a URL,
+    // redirect interno etc.) — o primeiro já é resolvido corretamente pelo
+    // avanço em andamento, mas um segundo pushState um pouco depois podia
+    // chegar em handleUrlChange() já com suprimirAbandonoNavegacao=false
+    // (resolução já tinha zerado) e a continuação já reescrita pro PRÓXIMO
+    // passo (salva preventivamente assim que o passo atual renderiza) —
+    // handleUrlChange tratava isso como um novo sinal de retomada e pulava
+    // um passo inteiro. Ver TOUR_SPA_ASSENTAMENTO_MS.
+    avancoResolvidoEm: 0,
     // { jornadaId, blocoId, etapaId, contextoExtra } quando este tour foi
     // iniciado a partir de uma etapa de Jornada (ver jornadaEtapaClicar) —
     // null em qualquer outro caso (automático, manual via API, prévia do
@@ -2819,6 +2848,7 @@
       // interrompido antes de chegar aqui) — ou seja, a continuação salva
       // antes do clique não foi necessária e pode ser descartada.
       tourState.suprimirAbandonoNavegacao = false;
+      tourState.avancoResolvidoEm = Date.now();
       tourLimparContinuacao();
       if (!tourState.ativo) return; // tour foi encerrado enquanto buscava
       // Blindagem: qualquer exceção daqui em diante (bindInteracao, DOM do
@@ -3000,6 +3030,7 @@
     tourState.tela = 'concluido';
     tourState.feedbackEscolhido = null;
     tourState.suprimirAbandonoNavegacao = false;
+    tourState.avancoResolvidoEm = Date.now();
     tourLimparContinuacao();
     // Tour iniciado por uma etapa de Jornada — só agora, com o tour realmente
     // concluído (não ao meramente iniciar), a etapa é marcada concluída. Ver
@@ -3047,6 +3078,7 @@
     tourState.tela = null;
     tourState.feedbackEscolhido = null;
     tourState.suprimirAbandonoNavegacao = false;
+    tourState.avancoResolvidoEm = 0;
     // Cobre o caso raro de abandonar o tour (Encerrar/Pular) bem na janela
     // entre um clique que salvou continuação e ela ser consumida — sem isso,
     // uma retomada indevida poderia disparar num carregamento de página
