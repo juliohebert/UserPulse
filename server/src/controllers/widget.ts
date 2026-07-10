@@ -49,6 +49,7 @@ async function verificarHistorico(
     politica_reexibicao: string
     reexibir_apos_dias: number | null
     exige_confirmacao_leitura: boolean
+    feedback_habilitado: boolean
   },
   uidStr: string,
   agora: Date
@@ -94,30 +95,41 @@ async function verificarHistorico(
     const dias = campanha.reexibir_apos_dias
     if (!dias || dias <= 0) return { bloqueado: false }
 
-    const [ultimaViz, ultimoFb, ultimaConf] = await Promise.all([
-      prisma.eventoCampanha.findFirst({
+    // A contagem deve reiniciar apenas com uma resposta (feedback/NPS ou confirmação de leitura).
+    // Visualizar, fechar sem responder, clicar no CTA ou disparar um evento genérico não contam.
+    let referencia: Date | null = null
+    let motivoBase = 'Campanha já exibida.'
+
+    if (campanha.exige_confirmacao_leitura) {
+      const ultimaConf = await prisma.confirmacaoLeitura.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        orderBy: { criado_em: 'desc' },
+      })
+      referencia = ultimaConf?.criado_em ?? null
+      motivoBase = 'Campanha já confirmada.'
+    } else if (campanha.feedback_habilitado) {
+      const ultimoFb = await prisma.feedback.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        orderBy: { criado_em: 'desc' },
+      })
+      referencia = ultimoFb?.criado_em ?? null
+      motivoBase = 'Campanha já respondida.'
+    } else {
+      // Campanha sem resposta/confirmação (ex.: comunicado informativo) — usa a última visualização.
+      const ultimaViz = await prisma.eventoCampanha.findFirst({
         where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
         orderBy: { criado_em: 'desc' },
-      }),
-      prisma.feedback.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
-        orderBy: { criado_em: 'desc' },
-      }),
-      prisma.confirmacaoLeitura.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
-        orderBy: { criado_em: 'desc' },
-      }),
-    ])
+      })
+      referencia = ultimaViz?.criado_em ?? null
+    }
 
-    const datas = [ultimaViz?.criado_em, ultimoFb?.criado_em, ultimaConf?.criado_em].filter((d): d is Date => !!d)
-    if (datas.length === 0) return { bloqueado: false }
+    if (!referencia) return { bloqueado: false }
 
-    const maisRecente = new Date(Math.max(...datas.map(d => d.getTime())))
-    const diasDesde = Math.floor((agora.getTime() - maisRecente.getTime()) / 86400000)
+    const diasDesde = Math.floor((agora.getTime() - referencia.getTime()) / 86400000)
     if (diasDesde < dias) {
       return {
         bloqueado: true,
-        motivo: 'Campanha já respondida. Disponível novamente em ' + (dias - diasDesde) + ' dia(s).',
+        motivo: motivoBase + ' Disponível novamente em ' + (dias - diasDesde) + ' dia(s).',
       }
     }
   }
