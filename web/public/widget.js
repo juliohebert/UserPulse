@@ -1649,10 +1649,39 @@
       // pro tour: se ficou ativo e o usuário navegou pra longe dele, encerra.
       if (state.open) doClose();
       // suprimirAbandonoNavegacao: navegação causada pelo próprio clique
-      // sintético de um passo "clicar_elemento" (tourProximo()) não conta como
+      // sintético de um passo "clicar_elemento" (tourProximo()) ou por
+      // modo_avanco_interacao != manual (agendarAvancoInteracao) não conta como
       // abandono — sem essa checagem, essa navegação encerrava o tour sozinho
       // antes do avanço para o próximo passo sequer acontecer.
-      if (tourState.ativo && !tourState.suprimirAbandonoNavegacao) finalizarTour('navegacao_url');
+      if (tourState.ativo && !tourState.suprimirAbandonoNavegacao) {
+        // Passo com acao_ao_avancar/modo_avanco_interacao default (o caso mais
+        // comum) nunca passa por suprimirAbandonoNavegacao — o usuário clica
+        // direto no elemento real destacado, e SE isso navegar via SPA
+        // (pushState, sem reload completo), chegamos aqui com o tour ainda
+        // ativo em memória. Antes disso finalizava incondicionalmente,
+        // apagando a continuação que irParaPasso() tinha acabado de salvar
+        // preventivamente (ver tourSalvarContinuacao ali) — o tour sumia e
+        // nunca retomava no próximo passo. Agora, antes de desistir, confere
+        // se existe uma continuação válida pra ESSE MESMO tour: se houver,
+        // trata como retomada (sem apagar sessionStorage, sem finalizarTour)
+        // em vez de abandono.
+        var retomadaSpa = tourContinuacaoValidaParaSpa();
+        if (retomadaSpa) {
+          if (retomadaSpa.concluir) {
+            tourState.indice = tourState.tour.passos.length - 1;
+            tourConcluir();
+          } else {
+            // irParaPasso() já tem sua própria espera/retry pro elemento
+            // aparecer (localizarComRetry) — cobre o "aguardar rota/DOM
+            // estabilizar" sem precisar de nenhum delay extra aqui. Só limpa
+            // a continuação quando resolver de verdade (achado ou fallback
+            // "não encontrado"), nunca antes.
+            irParaPasso(retomadaSpa.indice);
+          }
+        } else {
+          finalizarTour('navegacao_url');
+        }
+      }
       evaluateUrlCampaigns();
       jornadaReavaliarAposNavegacao();
     }, 200);
@@ -2388,6 +2417,38 @@
     try {
       window.sessionStorage.removeItem(TOUR_RESUME_STORAGE_KEY);
     } catch (_e) {}
+  }
+
+  // Só pro caminho de navegação SPA (handleUrlChange) — diferente de
+  // tourRetomarSeHouver() (que roda depois de um reload completo, sem
+  // tourState vivo, e por isso precisa buscar o tour de novo), aqui o tour
+  // JÁ está ativo em memória (o JS nunca foi destruído): pushState não mata
+  // nada. Então em vez de reler/refetchar, só confirma que a continuação
+  // salva em sessionStorage corresponde ao MESMO tour que já está rodando —
+  // sinal de que essa navegação foi causada pelo próprio passo do tour
+  // (usuário clicou direto no elemento destacado, sem passar por
+  // tourProximo()/agendarAvancoInteracao(), que são os únicos lugares que
+  // setam suprimirAbandonoNavegacao=true). Retorna null se não houver
+  // correspondência válida (aí handleUrlChange trata como abandono de
+  // verdade, igual antes).
+  function tourContinuacaoValidaParaSpa() {
+    if (!tourState.ativo || !tourState.tour) return null;
+    var bruto;
+    try { bruto = window.sessionStorage.getItem(TOUR_RESUME_STORAGE_KEY); } catch (_e) { return null; }
+    if (!bruto) return null;
+    var dados;
+    try { dados = JSON.parse(bruto); } catch (_e) { return null; }
+    if (!dados || typeof dados !== 'object' || !dados.savedAt || Date.now() - dados.savedAt > TOUR_RESUME_EXPIRY_MS) return null;
+    if (dados.modo !== tourModoAtual()) return null;
+    if (dados.modo === 'runtime' || dados.modo === 'jornada') {
+      if (!dados.tourSlug || dados.tourSlug !== tourState.tour.slug) return null;
+    } else if (!tourState.preview) {
+      return null;
+    }
+    if (dados.concluir) return { concluir: true };
+    var indice = dados.indiceProximo;
+    if (typeof indice !== 'number' || indice < 0 || indice >= tourState.tour.passos.length) return null;
+    return { concluir: false, indice: indice };
   }
 
   // Garante jornadaState.jornadas carregado antes de concluir um tour retomado
