@@ -2693,6 +2693,21 @@
         tourState.elementoAtual = el;
         bindInteracao(el, passo);
         registrarEventoTour('passo_visualizado', indice);
+        // Salva a continuação preventivamente, assim que o passo é destacado
+        // com sucesso — ANTES de qualquer clique acontecer, e sem depender de
+        // nenhum handler de clique/interação. O elemento destacado costuma
+        // ser um link/botão real do host: se o usuário clicar nele
+        // diretamente (em vez de "Próximo", e mesmo sem modo_avanco_interacao
+        // configurado), o navegador navega e nosso JS nunca chega a rodar
+        // tourProximo()/agendarAvancoInteracao() — sem isso, a continuação
+        // nunca seria salva a tempo do reload/navegação acontecer. Os pontos
+        // que já salvam no clique (tourProximo/agendarAvancoInteracao)
+        // continuam existindo — eles reescrevem savedAt mais perto do
+        // clique de verdade, então essa cópia preventiva não precisa cobrir
+        // uma janela de expiração maior do que já é (TOUR_RESUME_EXPIRY_MS).
+        var totalPassosAtual = tourState.tour.passos.length;
+        var ultimoPassoAtual = indice === totalPassosAtual - 1;
+        tourSalvarContinuacao(ultimoPassoAtual ? null : indice + 1, ultimoPassoAtual);
         try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_e) {}
         window.setTimeout(renderTour, 320);
       } catch (erro) {
