@@ -419,11 +419,8 @@ export function CampanhaDashboard() {
   const taxaRespostaPorVisualizacao = kpiVisualizacoes > 0
     ? Math.round((kpiTotal / kpiVisualizacoes) * 1000) / 10
     : 0
-  // taxa baseada em usuários (card Respostas) — só faz sentido quando há usuários respondentes identificados
+  // baseado em usuários (card Respostas) — só faz sentido quando há usuários respondentes identificados
   const temRespondentes = kpiRespondentesUnicos > 0
-  const taxaRespostaUsuarios = temRespondentes && kpiVisualizacoesUnicas > 0
-    ? Math.round((kpiRespondentesUnicos / kpiVisualizacoesUnicas) * 1000) / 10
-    : 0
   const mediaRespostasPorUsuario = kpiVisualizacoesUnicas > 0
     ? Math.round((kpiTotal / kpiVisualizacoesUnicas) * 10) / 10
     : null
@@ -569,8 +566,8 @@ export function CampanhaDashboard() {
               icon="forum" iconColor="text-secondary" iconBg="bg-secondary/10"
               label="Respostas" value={kpiTotal.toLocaleString('pt-BR')}
               sub={
-                temRespondentes && taxaRespostaUsuarios <= 100
-                  ? `Taxa: ${taxaRespostaUsuarios.toLocaleString('pt-BR')}%`
+                temRespondentes && kpiVisualizacoesUnicas > 0
+                  ? `${kpiRespondentesUnicos.toLocaleString('pt-BR')} de ${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários responderam`
                   : mediaRespostasPorUsuario !== null
                   ? `Média: ${mediaRespostasPorUsuario.toLocaleString('pt-BR')} respostas/usuário`
                   : 'sem dados de usuário'
@@ -584,7 +581,7 @@ export function CampanhaDashboard() {
             <KpiCard
               icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
               label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
-              sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
+              sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
               subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais da campanha (não por usuários únicos). O cálculo respeita o período selecionado."
             />
             {kpiTotal > 0 ? (() => {
@@ -624,7 +621,7 @@ export function CampanhaDashboard() {
                 label="Visualizações" value={kpiVisualizacoes} pct={100}
                 sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} únicos`}
               />
-              <FunnelArrow label={`${taxaRespostaPorVisualizacao.toLocaleString('pt-BR')}% responderam`} />
+              <FunnelArrow label={`${taxaRespostaPorVisualizacao.toLocaleString('pt-BR')}% das visualizações geraram resposta`} />
               <FunnelStep
                 icon="forum" iconColor="text-tertiary" barColor="bg-tertiary"
                 label="Respostas" value={kpiTotal}
@@ -640,7 +637,7 @@ export function CampanhaDashboard() {
                 icon="ads_click" iconColor="text-secondary" barColor="bg-secondary"
                 label="Cliques CTA" value={kpiCliques}
                 pct={kpiVisualizacoes > 0 ? (kpiCliques / kpiVisualizacoes) * 100 : 0}
-                sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
+                sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
               />
             </div>
           </div>
