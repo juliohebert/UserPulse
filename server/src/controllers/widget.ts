@@ -43,12 +43,55 @@ type HistoricoResult =
   | { bloqueado: false }
   | { bloqueado: true; motivo: string }
 
+// Qual evento serve de referência para a contagem de "reexibir após X dias".
+// A contagem deve reiniciar apenas com uma resposta (feedback/NPS ou confirmação de leitura) —
+// visualizar, fechar sem responder, clicar no CTA ou disparar um evento genérico não contam.
+export type FonteReferenciaReexibicao = 'confirmacao' | 'feedback' | 'visualizacao'
+
+export function fonteReferenciaReexibicao(campanha: {
+  exige_confirmacao_leitura: boolean
+  feedback_habilitado: boolean
+}): FonteReferenciaReexibicao {
+  if (campanha.exige_confirmacao_leitura) return 'confirmacao'
+  if (campanha.feedback_habilitado) return 'feedback'
+  // Campanha sem resposta/confirmação (ex.: comunicado informativo) — usa a última visualização.
+  return 'visualizacao'
+}
+
+const MOTIVO_BASE_REEXIBICAO: Record<FonteReferenciaReexibicao, string> = {
+  confirmacao: 'Campanha já confirmada.',
+  feedback: 'Campanha já respondida.',
+  visualizacao: 'Campanha já exibida.',
+}
+
+// Função pura: decide se a política "reexibir_apos_dias" bloqueia a exibição,
+// dado a referência (data já resolvida pelo caller) e a data atual.
+export function avaliarReexibicaoPorDias(
+  dias: number | null,
+  referencia: Date | null,
+  agora: Date,
+  fonte: FonteReferenciaReexibicao
+): HistoricoResult {
+  if (!dias || dias <= 0) return { bloqueado: false }
+  if (!referencia) return { bloqueado: false }
+
+  const diasDesde = Math.floor((agora.getTime() - referencia.getTime()) / 86400000)
+  if (diasDesde < dias) {
+    return {
+      bloqueado: true,
+      motivo: MOTIVO_BASE_REEXIBICAO[fonte] + ' Disponível novamente em ' + (dias - diasDesde) + ' dia(s).',
+    }
+  }
+  return { bloqueado: false }
+}
+
 async function verificarHistorico(
   campanha: {
     id: string
     politica_reexibicao: string
     reexibir_apos_dias: number | null
     exige_confirmacao_leitura: boolean
+    feedback_habilitado: boolean
   },
   uidStr: string,
   agora: Date
@@ -94,32 +137,30 @@ async function verificarHistorico(
     const dias = campanha.reexibir_apos_dias
     if (!dias || dias <= 0) return { bloqueado: false }
 
-    const [ultimaViz, ultimoFb, ultimaConf] = await Promise.all([
-      prisma.eventoCampanha.findFirst({
+    const fonte = fonteReferenciaReexibicao(campanha)
+    let referencia: Date | null = null
+
+    if (fonte === 'confirmacao') {
+      const ultimaConf = await prisma.confirmacaoLeitura.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        orderBy: { criado_em: 'desc' },
+      })
+      referencia = ultimaConf?.criado_em ?? null
+    } else if (fonte === 'feedback') {
+      const ultimoFb = await prisma.feedback.findFirst({
+        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        orderBy: { criado_em: 'desc' },
+      })
+      referencia = ultimoFb?.criado_em ?? null
+    } else {
+      const ultimaViz = await prisma.eventoCampanha.findFirst({
         where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
         orderBy: { criado_em: 'desc' },
-      }),
-      prisma.feedback.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
-        orderBy: { criado_em: 'desc' },
-      }),
-      prisma.confirmacaoLeitura.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
-        orderBy: { criado_em: 'desc' },
-      }),
-    ])
-
-    const datas = [ultimaViz?.criado_em, ultimoFb?.criado_em, ultimaConf?.criado_em].filter((d): d is Date => !!d)
-    if (datas.length === 0) return { bloqueado: false }
-
-    const maisRecente = new Date(Math.max(...datas.map(d => d.getTime())))
-    const diasDesde = Math.floor((agora.getTime() - maisRecente.getTime()) / 86400000)
-    if (diasDesde < dias) {
-      return {
-        bloqueado: true,
-        motivo: 'Campanha já respondida. Disponível novamente em ' + (dias - diasDesde) + ' dia(s).',
-      }
+      })
+      referencia = ultimaViz?.criado_em ?? null
     }
+
+    return avaliarReexibicaoPorDias(dias, referencia, agora, fonte)
   }
 
   return { bloqueado: false }
