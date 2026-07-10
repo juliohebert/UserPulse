@@ -14,6 +14,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       agregado, porNota, feedbacks_recentes,
       visualizacoes, cliques_cta, total_confirmacoes,
       eventos_recentes, visualizacoesUnicasArr, cliquesUnicosArr,
+      respondentesUnicosArr,
     ] = await Promise.all([
       prisma.feedback.aggregate({
         where: { campanha_id: id },
@@ -50,6 +51,10 @@ export async function buscarDashboard(req: Request, res: Response) {
         by: ['usuario_id'],
         where: { campanha_id: id, tipo_evento: 'clique_cta', usuario_id: { not: null } },
       }),
+      prisma.feedback.groupBy({
+        by: ['usuario_id'],
+        where: { campanha_id: id, usuario_id: { not: null } },
+      }),
     ])
 
     const distribuicao: Record<string, number> = {}
@@ -68,6 +73,7 @@ export async function buscarDashboard(req: Request, res: Response) {
 
     const visualizacoes_unicas = visualizacoesUnicasArr.length
     const cliques_unicos = cliquesUnicosArr.length
+    const respondentes_unicos = respondentesUnicosArr.length
 
     res.json({
       campanha,
@@ -83,6 +89,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       eventos_recentes,
       visualizacoes_unicas,
       cliques_unicos,
+      respondentes_unicos,
     })
   } catch (err) {
     console.error(err)

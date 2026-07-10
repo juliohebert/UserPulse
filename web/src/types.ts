@@ -89,6 +89,7 @@ export interface DashboardData {
   eventos_recentes: EventoCampanha[]
   visualizacoes_unicas: number
   cliques_unicos: number
+  respondentes_unicos: number
 }
 
 export interface TelaCatalogo {

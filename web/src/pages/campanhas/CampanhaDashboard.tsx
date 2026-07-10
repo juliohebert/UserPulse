@@ -364,6 +364,11 @@ export function CampanhaDashboard() {
       }, {})
     : (data?.distribuicao ?? {})
   const kpiTaxaClique = kpiVisualizacoes > 0 ? Math.round((kpiCliques / kpiVisualizacoes) * 1000) / 10 : 0
+  const kpiRespondentesUnicos = periodoAtivo
+    ? new Set(feedbacksPeriodo.filter(f => f.usuario_id).map(f => f.usuario_id)).size
+    : (data?.respondentes_unicos ?? 0)
+  // total real de interações no período (visualizações + cliques, contagens completas do backend)
+  const totalEventosPeriodo = kpiVisualizacoes + kpiCliques
 
   const activeCols = COLUNAS.filter(c => visibleCols.has(c.id))
   const maxDist = Math.max(1, ...Object.values(kpiDistribuicao))
@@ -410,9 +415,18 @@ export function CampanhaDashboard() {
   const pctDetr    = totalNps > 0 ? Math.round((detratores / totalNps) * 100) : 0
   const npsScore   = pctProm - pctDetr
 
-  const taxaResposta = kpiVisualizacoesUnicas > 0
-    ? Math.round((kpiTotal / kpiVisualizacoesUnicas) * 1000) / 10
+  // % de visualizações que resultaram em resposta — usado no funil (Visualizações → Respostas)
+  const taxaRespostaPorVisualizacao = kpiVisualizacoes > 0
+    ? Math.round((kpiTotal / kpiVisualizacoes) * 1000) / 10
     : 0
+  // taxa baseada em usuários (card Respostas) — só faz sentido quando há usuários respondentes identificados
+  const temRespondentes = kpiRespondentesUnicos > 0
+  const taxaRespostaUsuarios = temRespondentes && kpiVisualizacoesUnicas > 0
+    ? Math.round((kpiRespondentesUnicos / kpiVisualizacoesUnicas) * 1000) / 10
+    : 0
+  const mediaRespostasPorUsuario = kpiVisualizacoesUnicas > 0
+    ? Math.round((kpiTotal / kpiVisualizacoesUnicas) * 10) / 10
+    : null
 
   const notaColor = (n: number) => {
     if (n <= 3) return 'bg-error'
@@ -554,14 +568,24 @@ export function CampanhaDashboard() {
             <KpiCard
               icon="forum" iconColor="text-secondary" iconBg="bg-secondary/10"
               label="Respostas" value={kpiTotal.toLocaleString('pt-BR')}
-              sub={`Taxa: ${taxaResposta.toLocaleString('pt-BR')}%`}
-              subTooltip="Taxa de resposta = respostas recebidas ÷ usuários únicos que visualizaram a campanha. O cálculo respeita o período selecionado."
+              sub={
+                temRespondentes && taxaRespostaUsuarios <= 100
+                  ? `Taxa: ${taxaRespostaUsuarios.toLocaleString('pt-BR')}%`
+                  : mediaRespostasPorUsuario !== null
+                  ? `Média: ${mediaRespostasPorUsuario.toLocaleString('pt-BR')} respostas/usuário`
+                  : 'sem dados de usuário'
+              }
+              subTooltip={
+                temRespondentes
+                  ? "Taxa de resposta = usuários que responderam ÷ usuários únicos que visualizaram a campanha. O cálculo respeita o período selecionado."
+                  : "Média de respostas por usuário único que visualizou a campanha (sem usuários respondentes identificados para calcular uma taxa). O cálculo respeita o período selecionado."
+              }
             />
             <KpiCard
               icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
               label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
-              sub={`Taxa: ${kpiTaxaClique.toLocaleString('pt-BR')}%`}
-              subTooltip="Taxa de clique = cliques no CTA ÷ visualizações da campanha. O cálculo respeita o período selecionado."
+              sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
+              subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais da campanha (não por usuários únicos). O cálculo respeita o período selecionado."
             />
             {kpiTotal > 0 ? (() => {
               const zona = npsZona(npsScore)
@@ -600,19 +624,23 @@ export function CampanhaDashboard() {
                 label="Visualizações" value={kpiVisualizacoes} pct={100}
                 sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} únicos`}
               />
-              <FunnelArrow label={`${kpiTaxaClique.toLocaleString('pt-BR')}% clicaram`} />
-              <FunnelStep
-                icon="ads_click" iconColor="text-secondary" barColor="bg-secondary"
-                label="Cliques CTA" value={kpiCliques}
-                pct={kpiVisualizacoes > 0 ? (kpiCliques / kpiVisualizacoes) * 100 : 0}
-                sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} únicos`}
-              />
-              <FunnelArrow label={`${taxaResposta.toLocaleString('pt-BR')}% responderam`} />
+              <FunnelArrow label={`${taxaRespostaPorVisualizacao.toLocaleString('pt-BR')}% responderam`} />
               <FunnelStep
                 icon="forum" iconColor="text-tertiary" barColor="bg-tertiary"
                 label="Respostas" value={kpiTotal}
                 pct={kpiVisualizacoes > 0 ? (kpiTotal / kpiVisualizacoes) * 100 : 0}
                 sub={kpiMedia !== null ? `Média: ${kpiMedia.toFixed(1)}` : 'sem respostas'}
+              />
+            </div>
+            <div className="mt-4 pt-4 border-t border-outline-variant/30">
+              <p className="text-label-md text-outline mb-2">
+                Cliques CTA — métrica paralela (resposta não depende de clicar no CTA)
+              </p>
+              <FunnelStep
+                icon="ads_click" iconColor="text-secondary" barColor="bg-secondary"
+                label="Cliques CTA" value={kpiCliques}
+                pct={kpiVisualizacoes > 0 ? (kpiCliques / kpiVisualizacoes) * 100 : 0}
+                sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
               />
             </div>
           </div>
@@ -688,12 +716,24 @@ export function CampanhaDashboard() {
             <div className="px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-title-md font-bold text-on-surface">
-                  {temFiltros ? `${totalFiltrado} de ${feedbacksPeriodo.length}` : feedbacksPeriodo.length}
+                  {kpiTotal.toLocaleString('pt-BR')}
                 </span>
-                <span className="text-label-md text-outline">
-                  {feedbacksPeriodo.length === 1 ? 'resposta' : 'respostas'}
-                  {temFiltros && ' filtradas'}
+                <span className="text-label-md text-outline flex items-center gap-1">
+                  {kpiTotal === 1 ? 'resposta no período' : 'respostas no período'}
+                  {feedbacksPeriodo.length < kpiTotal && (
+                    <span
+                      className="material-symbols-outlined text-[13px] text-outline/50 cursor-help"
+                      title={`A tabela e os filtros abaixo trabalham sobre as ${feedbacksPeriodo.length.toLocaleString('pt-BR')} respostas mais recentes carregadas.`}
+                    >
+                      info
+                    </span>
+                  )}
                 </span>
+                {temFiltros && (
+                  <span className="text-label-md text-outline">
+                    · {totalFiltrado.toLocaleString('pt-BR')} {totalFiltrado === 1 ? 'filtrada' : 'filtradas'} de {feedbacksPeriodo.length.toLocaleString('pt-BR')} carregadas
+                  </span>
+                )}
                 {temFiltros && mediaFiltrada !== null && (
                   <span className="text-label-md text-outline">· Média {mediaFiltrada.toFixed(1)}</span>
                 )}
@@ -970,8 +1010,8 @@ export function CampanhaDashboard() {
                     tamPagina={tamPagResp}
                     onChange={setPagResp}
                     onChangeTam={t => { setTamPagResp(t); setPagResp(1) }}
-                    unidade="resposta"
-                    unidadePlural="respostas"
+                    unidade={temFiltros ? 'resposta filtrada' : 'resposta carregada'}
+                    unidadePlural={temFiltros ? 'respostas filtradas' : 'respostas carregadas'}
                   />
                 )}
               </>
@@ -985,14 +1025,26 @@ export function CampanhaDashboard() {
 
             {/* Header */}
             <div className="px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-title-md font-bold text-on-surface">
-                  {temFiltroEvento ? `${eventosFiltrados.length} de ${eventosPeriodo.length}` : eventosPeriodo.length}
+                  {totalEventosPeriodo.toLocaleString('pt-BR')}
                 </span>
-                <span className="text-label-md text-outline">
-                  {eventosPeriodo.length === 1 ? 'interação' : 'interações'}
-                  {temFiltroEvento && ' filtradas'}
+                <span className="text-label-md text-outline flex items-center gap-1">
+                  {totalEventosPeriodo === 1 ? 'interação no período' : 'interações no período'}
+                  {eventosPeriodo.length < totalEventosPeriodo && (
+                    <span
+                      className="material-symbols-outlined text-[13px] text-outline/50 cursor-help"
+                      title={`A tabela e os filtros abaixo trabalham sobre as ${eventosPeriodo.length.toLocaleString('pt-BR')} interações mais recentes carregadas.`}
+                    >
+                      info
+                    </span>
+                  )}
                 </span>
+                {temFiltroEvento && (
+                  <span className="text-label-md text-outline">
+                    · {eventosFiltrados.length.toLocaleString('pt-BR')} {eventosFiltrados.length === 1 ? 'filtrada' : 'filtradas'} de {eventosPeriodo.length.toLocaleString('pt-BR')} carregadas
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {temFiltroEvento && (
@@ -1121,8 +1173,8 @@ export function CampanhaDashboard() {
                     tamPagina={tamPagInter}
                     onChange={setPagInter}
                     onChangeTam={t => { setTamPagInter(t); setPagInter(1) }}
-                    unidade="interação"
-                    unidadePlural="interações"
+                    unidade={temFiltroEvento ? 'interação filtrada' : 'interação carregada'}
+                    unidadePlural={temFiltroEvento ? 'interações filtradas' : 'interações carregadas'}
                   />
                 )}
               </>
