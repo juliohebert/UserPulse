@@ -594,9 +594,14 @@ export function CampanhaDashboard() {
                   tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
                   subTooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
                   subExtra={
-                    <span className={`inline-flex text-[11px] font-semibold px-2 py-0.5 rounded-full border ${zona.bg} ${zona.text} ${zona.border}`}>
-                      {zona.nome}
-                    </span>
+                    <div className="flex flex-col gap-1">
+                      <span className={`inline-flex w-fit text-[11px] font-semibold px-2 py-0.5 rounded-full border ${zona.bg} ${zona.text} ${zona.border}`}>
+                        {zona.nome}
+                      </span>
+                      <span className="text-[11px] text-outline">
+                        {pctProm}% promotores − {pctDetr}% detratores
+                      </span>
+                    </div>
                   }
                 />
               )
