@@ -1421,40 +1421,45 @@
 
     ensureStyles();
 
-    if (normalized.slug) {
-      resolveContexto(); // atualiza normalized.contexto via provider, se existir
-      fetchCampaign(normalized)
-        .then(function (campanha) {
-          if (!campanha) return;
-          state.campanha = campanha;
-          resetRoot();
-          render();
-          scheduleAutoOpen(campanha, normalized);
-        })
-        .catch(function () {});
-    } else {
-      var contextoInit = resolveContexto();
-      fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id, contextoInit)
-        .then(function (candidatos) {
-          for (var i = 0; i < candidatos.length; i++) {
-            var c = candidatos[i];
-            if (!checkMode(c, normalized)) continue;
-            state.campanha = c;
+    // Prioridade sobre campanha e tour automático — se havia uma continuação
+    // salva (reload completo de página no meio de um passo que navega), ela
+    // precisa resolver primeiro. Campanha e tour automático abrem/iniciam de
+    // forma assíncrona (fetch + scheduleAutoOpen com atraso) — se rodassem em
+    // paralelo com a retomada, uma campanha elegível podia abrir por cima do
+    // tour ainda retomando (scheduleAutoOpen só checa tourState.ativo no
+    // instante em que o próprio timer dela dispara, não sabe esperar uma
+    // retomada em andamento) — daí o "modal inicial abre de novo"/"tour some"
+    // intermitente relatado. Botando os dois aqui dentro, só rodam depois da
+    // retomada estar decidida (tourState.ativo já correto de um jeito ou de
+    // outro).
+    tourRetomarSeHouver(function () {
+      if (normalized.slug) {
+        resolveContexto(); // atualiza normalized.contexto via provider, se existir
+        fetchCampaign(normalized)
+          .then(function (campanha) {
+            if (!campanha) return;
+            state.campanha = campanha;
             resetRoot();
             render();
-            scheduleAutoOpen(c, normalized);
-            break;
-          }
-        })
-        .catch(function () {});
-    }
-
-    // Prioridade sobre o tour automático — se havia uma continuação salva
-    // (reload completo de página no meio de um passo que navega), ela precisa
-    // resolver primeiro; senão os dois disputariam por iniciar um tour ao
-    // mesmo tempo (tourState.ativo de um bloquearia o outro de forma
-    // imprevisível, dependendo de qual promise resolvesse por último).
-    tourRetomarSeHouver(function () {
+            scheduleAutoOpen(campanha, normalized);
+          })
+          .catch(function () {});
+      } else {
+        var contextoInit = resolveContexto();
+        fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id, contextoInit)
+          .then(function (candidatos) {
+            for (var i = 0; i < candidatos.length; i++) {
+              var c = candidatos[i];
+              if (!checkMode(c, normalized)) continue;
+              state.campanha = c;
+              resetRoot();
+              render();
+              scheduleAutoOpen(c, normalized);
+              break;
+            }
+          })
+          .catch(function () {});
+      }
       if (normalized.sistema) avaliarTourAutomatico(normalized);
     });
 
@@ -2336,27 +2341,45 @@
   // abandonou (aba fechada e reaberta bem depois, por exemplo).
   var TOUR_RESUME_EXPIRY_MS = 60000;
 
-  // Só persiste pra tours reais (automático, manual via API, iniciado pela
-  // Jornada) — prévia do gravador (tourState.preview) nunca salva: o
-  // gravador já tem sua própria persistência (RECORDER_STORAGE_KEY) pros
-  // passos autorados, que é o que realmente importa preservar num reload;
-  // retomar a PRÉVIA em si exigiria coordenar a visibilidade da barra/painel
-  // do gravador aqui também, sem benefício real (é uma sessão efêmera de
-  // teste, não a experiência final do usuário).
+  // Identifica de forma única qual sessão de tour está ativa agora — usado
+  // tanto pra decidir o que persistir (tourSalvarContinuacao) quanto, na
+  // retomada, como reconstituir o mesmo tipo de sessão (ver
+  // tourRetomarSeHouver). 'jornada' tem prioridade sobre só "preview" porque
+  // uma prévia nunca tem jornadaContexto (mutuamente exclusivos por natureza:
+  // jornadaContexto só é setado por jornadaEtapaClicar/iniciarTourPublico,
+  // nunca por recorderIniciarPreview).
+  function tourModoAtual() {
+    if (tourState.jornadaContexto) return 'jornada';
+    if (tourState.preview) return tourState.previewModoUsuarioFinal ? 'preview_usuario' : 'preview_revisao';
+    return 'runtime';
+  }
+
+  // Persiste pra QUALQUER sessão de tour (runtime, jornada e também prévia do
+  // gravador) — prévia usa tourInline (o tour montado em memória, sem slug
+  // real) em vez de tourSlug, e guarda previewContexto (mapeamento de índice
+  // usado por "Trocar elemento") pra restaurar a prévia coerentemente depois
+  // de uma navegação/reload, em vez de deixar a barra/painel do gravador
+  // (que tem sua própria persistência independente, sem noção de "estava numa
+  // prévia") reaparecerem misturados com o que sobrou da prévia — ver
+  // tourRetomarSeHouver.
   function tourSalvarContinuacao(indiceProximo, concluir) {
-    if (tourState.preview || !tourState.tour) return;
+    if (!tourState.tour) return;
     try {
+      var modo = tourModoAtual();
       window.sessionStorage.setItem(TOUR_RESUME_STORAGE_KEY, JSON.stringify({
         v: 1,
+        modo: modo,
         tourSlug: tourState.tour.slug || null,
+        tourInline: tourState.tour.slug ? null : tourState.tour,
+        previewContexto: tourState.preview ? { previewIndices: recorderState.previewIndices || null } : null,
         indiceProximo: concluir ? null : indiceProximo,
         concluir: Boolean(concluir),
         jornadaContexto: tourState.jornadaContexto || null,
         savedAt: Date.now(),
-        // true só depois que tourRetomarSeHouver() começa a processar essa
-        // continuação (ver lá) — aqui é sempre uma continuação nova, recém
-        // salva antes do clique arriscado acontecer.
-        retomando: false,
+        // 'pendente' até tourRetomarSeHouver() começar a processar essa
+        // continuação (ver lá, onde vira 'retomando') — aqui é sempre uma
+        // continuação nova, recém salva antes do clique arriscado acontecer.
+        status: 'pendente',
       }));
     } catch (_e) { /* sessionStorage indisponível (modo privado, quota etc.) — sem retomada possível, sem quebrar nada */ }
   }
@@ -2403,11 +2426,11 @@
     });
   }
 
-  // Chamado no início de init(), antes de avaliarTourAutomatico() (pra evitar
-  // os dois disputarem por iniciar um tour ao mesmo tempo — ver chamada em
-  // init()). callback() sempre é chamado, com ou sem retomada bem-sucedida.
+  // Chamado no início de init(), antes de avaliar campanha/tour automático
+  // (pra evitar disputa por iniciar/abrir algo ao mesmo tempo — ver chamada
+  // em init()). callback() sempre é chamado, com ou sem retomada bem-sucedida.
   //
-  // Importante: NÃO apaga a continuação ao ler — só marca dados.retomando=true
+  // Importante: NÃO apaga a continuação ao ler — só marca status='retomando'
   // e regrava. Se outro reload/navegação interromper antes do próximo passo
   // resolver (achado, fallback "não encontrado", concluído ou encerrado), a
   // MESMA continuação sobrevive pra essa próxima carga tentar de novo, em vez
@@ -2415,7 +2438,7 @@
   // acontece nos pontos que representam um desses desfechos reais:
   // irParaPasso() (achou ou "não encontrado"), tourConcluir(), finalizarTour()
   // — e aqui mesmo, só nos casos de dado irrecuperável (expirado, corrompido,
-  // sem slug, tour/índice inválido).
+  // sem tour pra retomar, índice inválido).
   function tourRetomarSeHouver(callback) {
     var bruto;
     try { bruto = window.sessionStorage.getItem(TOUR_RESUME_STORAGE_KEY); } catch (_e) { callback(); return; }
@@ -2427,12 +2450,53 @@
       callback();
       return;
     }
+    var modo = dados.modo || (dados.tourSlug ? 'runtime' : null);
+    var jornadaContexto = dados.jornadaContexto || null;
+
+    // Prévia do gravador (usuário final ou revisão) — tour vem inline
+    // (tourInline), nunca por slug. Sempre esconde barra/painel do gravador
+    // antes de retomar: recorderRetomarDeSessao() (chamado antes, em
+    // iniciarGravadorSeNecessario) não tem noção de "estava numa prévia" e
+    // pode ter acabado de reexibi-los — sem isso, ficariam misturados com a
+    // prévia retomada (mesmo critério de recorderIniciarPreview, que já
+    // esconde os dois ao iniciar/retomar qualquer prévia).
+    if (modo === 'preview_usuario' || modo === 'preview_revisao') {
+      var tourPreview = dados.tourInline;
+      if (!tourPreview || !tourPreview.passos || tourPreview.passos.length === 0) { tourLimparContinuacao(); callback(); return; }
+      var barPreview = document.getElementById(RECORDER_BAR_ID);
+      if (barPreview) barPreview.style.display = 'none';
+      recorderFecharPainelLateral();
+      if (dados.previewContexto && dados.previewContexto.previewIndices) {
+        recorderState.previewIndices = dados.previewContexto.previewIndices;
+      }
+      dados.status = 'retomando';
+      try { window.sessionStorage.setItem(TOUR_RESUME_STORAGE_KEY, JSON.stringify(dados)); } catch (_e) {}
+      if (dados.concluir) {
+        finalizarTour('retomada_preview_concluir');
+        tourState.tour = tourPreview;
+        tourState.ativo = true;
+        tourState.preview = true;
+        tourState.previewModoUsuarioFinal = modo === 'preview_usuario';
+        tourState.indice = tourPreview.passos.length - 1;
+        tourConcluir();
+        callback();
+        return;
+      }
+      var indicePreview = dados.indiceProximo;
+      if (typeof indicePreview !== 'number' || indicePreview < 0 || indicePreview >= tourPreview.passos.length) {
+        tourLimparContinuacao();
+        callback();
+        return;
+      }
+      iniciarTour(tourPreview, true, true, modo === 'preview_usuario', null, indicePreview);
+      callback();
+      return;
+    }
+
     if (!dados.tourSlug) { tourLimparContinuacao(); callback(); return; }
 
-    dados.retomando = true;
+    dados.status = 'retomando';
     try { window.sessionStorage.setItem(TOUR_RESUME_STORAGE_KEY, JSON.stringify(dados)); } catch (_e) {}
-
-    var jornadaContexto = dados.jornadaContexto || null;
 
     function prosseguir(tour) {
       if (!tour || !tour.passos || tour.passos.length === 0) { tourLimparContinuacao(); callback(); return; }
