@@ -24,22 +24,148 @@ const STATUS_DOT: Record<StatusCampanha, { label: string; dot: string; text: str
 }
 
 function KpiCard({
-  label, icon, iconBg, iconColor, value,
+  label, shortLabel, icon, iconBg, iconColor, value,
 }: {
   label: string
+  shortLabel: string
   icon: string
   iconBg: string
   iconColor: string
   value: string | number
 }) {
   return (
-    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 flex items-center gap-4">
-      <span className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
-        <span className="material-symbols-outlined text-[24px]">{icon}</span>
+    <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-3.5 sm:p-5 flex items-center gap-2.5 sm:gap-4">
+      <span className={`w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
+        <span className="material-symbols-outlined text-[18px] sm:text-[24px]">{icon}</span>
       </span>
       <div className="min-w-0">
-        <p className="text-headline-md font-bold text-on-surface leading-none">{value}</p>
-        <p className="text-label-md font-semibold text-on-surface-variant mt-1.5 truncate">{label}</p>
+        <p className="text-title-lg sm:text-headline-md font-bold text-on-surface leading-none truncate">{value}</p>
+        <p className="text-label-md font-semibold text-on-surface-variant mt-1.5 truncate">
+          <span className="lg:hidden">{shortLabel}</span>
+          <span className="hidden lg:inline">{label}</span>
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// Card de campanha para telas mobile (< md) — substitui a linha da tabela,
+// que fica ilegível e com ações apertadas em telas estreitas.
+function CampanhaCard({
+  c, st, active, copied, navigate, onOpen, onToggle, onCopyEmbed, onInativar, onReativar,
+}: {
+  c: Campanha
+  st: { label: string; dot: string; text: string }
+  active: boolean
+  copied: boolean
+  navigate: ReturnType<typeof useNavigate>
+  onOpen: (c: Campanha) => void
+  onToggle: (c: Campanha) => void
+  onCopyEmbed: (c: Campanha) => void
+  onInativar: (id: string) => void
+  onReativar: (id: string) => void
+}) {
+  const actionBtn = 'flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl active:scale-95 transition-all'
+  return (
+    <div
+      onClick={() => onOpen(c)}
+      className={`p-4 cursor-pointer transition-colors ${!c.ativo ? 'opacity-60' : ''} ${
+        active ? 'bg-primary-fixed/60' : 'hover:bg-surface-container-low/60'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-body-md font-bold text-on-surface truncate">{c.titulo}</p>
+          {c.subtitulo && (
+            <p className="text-[12px] text-on-surface-variant line-clamp-2 mt-0.5">{c.subtitulo}</p>
+          )}
+        </div>
+        <div onClick={e => e.stopPropagation()} className="shrink-0 mt-0.5">
+          <ToggleSwitch checked={c.ativo} onChange={() => onToggle(c)} />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+        <TypeBadge tipo={c.tipo} />
+        {c.categoria && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-secondary/10 text-secondary">
+            {c.categoria}
+          </span>
+        )}
+        {(c.prioridade ?? 0) > 0 && (
+          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-primary/10 text-primary" title="Prioridade">
+            <span className="material-symbols-outlined text-[10px]">arrow_upward</span>
+            {c.prioridade}
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-3 pt-3 border-t border-outline-variant/20 text-[12px]">
+        <span className={`inline-flex items-center gap-1.5 font-semibold ${st.text}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+          {st.label}
+        </span>
+        <span className="inline-flex items-center gap-1 text-on-surface-variant">
+          <span className="material-symbols-outlined text-[14px]">forum</span>
+          {(c._count?.feedbacks ?? 0).toLocaleString('pt-BR')}
+        </span>
+        <span className="ml-auto text-[11px] text-outline">Criada em {formatDateTime(c.criado_em)}</span>
+      </div>
+
+      <div onClick={e => e.stopPropagation()} className="grid grid-cols-5 gap-1 mt-3 pt-3 border-t border-outline-variant/20">
+        <button
+          onClick={() => navigate(`/campanhas/${c.id}/preview`)}
+          title="Preview"
+          className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-primary-fixed`}
+        >
+          <span className="material-symbols-outlined text-[20px]">visibility</span>
+          <span className="text-[9px] font-semibold leading-none">Preview</span>
+        </button>
+        <button
+          onClick={() => onCopyEmbed(c)}
+          title="Copiar embed"
+          className={`${actionBtn} ${
+            copied ? 'text-tertiary bg-tertiary/10' : 'text-on-surface-variant hover:text-primary hover:bg-surface-container-high'
+          }`}
+        >
+          <span className="material-symbols-outlined text-[20px]">{copied ? 'check' : 'integration_instructions'}</span>
+          <span className="text-[9px] font-semibold leading-none">Embed</span>
+        </button>
+        <button
+          onClick={() => navigate(`/campanhas/${c.id}/editar`)}
+          title="Editar"
+          className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-surface-container-high`}
+        >
+          <span className="material-symbols-outlined text-[20px]">edit</span>
+          <span className="text-[9px] font-semibold leading-none">Editar</span>
+        </button>
+        <button
+          onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
+          title="Ver Dashboard"
+          className={`${actionBtn} text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed`}
+        >
+          <span className="material-symbols-outlined text-[20px]">query_stats</span>
+          <span className="text-[9px] font-semibold leading-none">Métricas</span>
+        </button>
+        {c.ativo ? (
+          <button
+            onClick={() => onInativar(c.id)}
+            title="Inativar"
+            className={`${actionBtn} text-on-surface-variant hover:text-error hover:bg-error-container`}
+          >
+            <span className="material-symbols-outlined text-[20px]">block</span>
+            <span className="text-[9px] font-semibold leading-none">Inativar</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => onReativar(c.id)}
+            title="Reativar"
+            className={`${actionBtn} text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10`}
+          >
+            <span className="material-symbols-outlined text-[20px]">check_circle</span>
+            <span className="text-[9px] font-semibold leading-none">Reativar</span>
+          </button>
+        )}
       </div>
     </div>
   )
@@ -172,7 +298,7 @@ export function CampanhasIndex() {
   ]
 
   return (
-    <section className="px-4 lg:px-margin-desktop py-5">
+    <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div className="flex items-start gap-3">
@@ -204,16 +330,16 @@ export function CampanhasIndex() {
 
       {/* KPIs */}
       {!loading && !error && campanhas.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <KpiCard label="Total de Campanhas" icon="list_alt" iconBg="bg-primary/10" iconColor="text-primary" value={campanhas.length} />
-          <KpiCard label="Campanhas Ativas" icon="play_circle" iconBg="bg-tertiary/10" iconColor="text-tertiary" value={ativas} />
-          <KpiCard label="Campanhas Inativas" icon="pause_circle" iconBg="bg-outline-variant/40" iconColor="text-on-surface-variant" value={inativas} />
-          <KpiCard label="Total de Feedbacks" icon="forum" iconBg="bg-secondary/10" iconColor="text-secondary" value={totalFeedbacks.toLocaleString('pt-BR')} />
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+          <KpiCard label="Total de Campanhas" shortLabel="Total" icon="list_alt" iconBg="bg-primary/10" iconColor="text-primary" value={campanhas.length} />
+          <KpiCard label="Campanhas Ativas" shortLabel="Ativas" icon="play_circle" iconBg="bg-tertiary/10" iconColor="text-tertiary" value={ativas} />
+          <KpiCard label="Campanhas Inativas" shortLabel="Inativas" icon="pause_circle" iconBg="bg-outline-variant/40" iconColor="text-on-surface-variant" value={inativas} />
+          <KpiCard label="Total de Feedbacks" shortLabel="Feedbacks" icon="forum" iconBg="bg-secondary/10" iconColor="text-secondary" value={totalFeedbacks.toLocaleString('pt-BR')} />
         </div>
       )}
 
       {/* Filters */}
-      <div className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/30 mb-6 shadow-sm space-y-3">
+      <div className="w-full max-w-full overflow-x-hidden bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 mb-6 shadow-sm space-y-3">
         <p className="flex items-center gap-1.5 text-label-md font-bold text-on-surface-variant uppercase tracking-wide">
           <span className="material-symbols-outlined text-[16px]">filter_alt</span>
           Filtrar campanhas
@@ -243,12 +369,12 @@ export function CampanhasIndex() {
 
         {/* Quick status filters + advanced toggle + clear */}
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1 bg-surface-container p-1 rounded-xl">
+          <div className="flex flex-wrap items-center gap-1 bg-surface-container p-1 rounded-xl max-w-full">
             {STATUS_TABS.map(tab => (
               <button
                 key={tab.key}
                 onClick={() => { setFilterAtivo(tab.key); setPage(1) }}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-label-md font-bold transition-all ${
+                className={`flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-lg text-label-md font-bold transition-all whitespace-nowrap ${
                   filterAtivo === tab.key
                     ? 'bg-surface-bright text-on-surface shadow-sm'
                     : 'text-on-surface-variant hover:text-on-surface'
@@ -370,7 +496,7 @@ export function CampanhasIndex() {
         )}
       </div>
 
-      {/* Table */}
+      {/* Listagem — tabela no desktop/tablet largo, cards no mobile */}
       <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3">
           <span className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -389,9 +515,34 @@ export function CampanhasIndex() {
         {loading && <LoadingSpinner />}
         {error && <ErrorState message={error} onRetry={load} />}
 
-        {!loading && !error && (
+        {!loading && !error && paginated.length === 0 && (
+          <EmptyState
+            icon="campaign"
+            title={hasFilters ? 'Nenhuma campanha encontrada' : 'Nenhuma campanha ainda'}
+            description={
+              filterBusca && !filterTipo && !filterSistema && !filterStatus && !filterCategoria
+                ? `Nenhuma campanha encontrada para a busca "${filterBusca}".`
+                : hasFilters
+                ? 'Ajuste os filtros ou a busca para ver mais resultados.'
+                : 'Crie sua primeira campanha para começar.'
+            }
+            action={
+              !hasFilters ? (
+                <button
+                  onClick={() => navigate('/campanhas/nova')}
+                  className="px-6 py-2.5 bg-primary text-on-primary rounded-xl font-bold text-label-md"
+                >
+                  Nova Campanha
+                </button>
+              ) : undefined
+            }
+          />
+        )}
+
+        {!loading && !error && paginated.length > 0 && (
           <>
-            <div className="overflow-x-auto">
+            {/* Desktop/tablet largo (>= md): tabela */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-surface-container-low/50 border-b border-outline-variant/40">
@@ -405,34 +556,7 @@ export function CampanhasIndex() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant/20">
-                  {paginated.length === 0 ? (
-                    <tr>
-                      <td colSpan={6}>
-                        <EmptyState
-                          icon="campaign"
-                          title={hasFilters ? 'Nenhuma campanha encontrada' : 'Nenhuma campanha ainda'}
-                          description={
-                            filterBusca && !filterTipo && !filterSistema && !filterStatus && !filterCategoria
-                              ? `Nenhuma campanha encontrada para a busca "${filterBusca}".`
-                              : hasFilters
-                              ? 'Ajuste os filtros ou a busca para ver mais resultados.'
-                              : 'Crie sua primeira campanha para começar.'
-                          }
-                          action={
-                            !hasFilters ? (
-                              <button
-                                onClick={() => navigate('/campanhas/nova')}
-                                className="px-6 py-2.5 bg-primary text-on-primary rounded-xl font-bold text-label-md"
-                              >
-                                Nova Campanha
-                              </button>
-                            ) : undefined
-                          }
-                        />
-                      </td>
-                    </tr>
-                  ) : (
-                    paginated.map(c => {
+                  {paginated.map(c => {
                       const status = getStatus(c)
                       const st = STATUS_DOT[status]
                       return (
@@ -574,11 +698,34 @@ export function CampanhasIndex() {
                           </td>
                         </tr>
                       )
-                    })
-                  )}
+                    })}
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile (< md): cards */}
+            <div className="md:hidden divide-y divide-outline-variant/20">
+              {paginated.map(c => {
+                const status = getStatus(c)
+                const st = STATUS_DOT[status]
+                return (
+                  <CampanhaCard
+                    key={c.id}
+                    c={c}
+                    st={st}
+                    active={quickView?.id === c.id}
+                    copied={copiedId === c.id}
+                    navigate={navigate}
+                    onOpen={setQuickView}
+                    onToggle={handleToggle}
+                    onCopyEmbed={handleCopyEmbed}
+                    onInativar={handleInativar}
+                    onReativar={handleReativar}
+                  />
+                )
+              })}
+            </div>
+
             <Pagination page={page} total={filtered.length} perPage={PER_PAGE} onChange={setPage} />
           </>
         )}
