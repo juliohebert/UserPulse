@@ -33,9 +33,9 @@ function KpiCard({
   value: string | number
 }) {
   return (
-    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md transition-shadow p-5 flex items-center gap-4">
-      <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
-        <span className="material-symbols-outlined text-[22px]">{icon}</span>
+    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-5 flex items-center gap-4">
+      <span className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
+        <span className="material-symbols-outlined text-[24px]">{icon}</span>
       </span>
       <div className="min-w-0">
         <p className="text-headline-md font-bold text-on-surface leading-none">{value}</p>
@@ -174,23 +174,28 @@ export function CampanhasIndex() {
   return (
     <section className="px-4 lg:px-margin-desktop py-5">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-        <div>
-          <nav className="flex text-label-md text-outline mb-1 gap-2">
-            <button onClick={() => navigate('/')} className="hover:text-primary transition-colors">UserPulse</button>
-            <span>/</span>
-            <span className="font-bold text-on-surface">Campanhas</span>
-          </nav>
-          <h2 className="text-headline-lg font-bold text-on-surface">Biblioteca de Campanhas</h2>
-          {!loading && !error && (
-            <p className="text-body-md text-on-surface-variant mt-0.5">
-              {campanhas.length} {campanhas.length === 1 ? 'campanha' : 'campanhas'} no total
-            </p>
-          )}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-start gap-3">
+          <span className="hidden sm:flex w-11 h-11 rounded-xl bg-primary/10 text-primary items-center justify-center shrink-0 mt-0.5">
+            <span className="material-symbols-outlined text-[22px]">campaign</span>
+          </span>
+          <div>
+            <nav className="flex text-label-md text-outline mb-1 gap-2">
+              <button onClick={() => navigate('/')} className="hover:text-primary transition-colors">UserPulse</button>
+              <span>/</span>
+              <span className="font-bold text-on-surface">Campanhas</span>
+            </nav>
+            <h2 className="text-headline-lg font-bold text-on-surface leading-tight">Biblioteca de Campanhas</h2>
+            {!loading && !error && (
+              <p className="text-body-md text-on-surface-variant mt-0.5">
+                {campanhas.length} {campanhas.length === 1 ? 'campanha' : 'campanhas'} no total
+              </p>
+            )}
+          </div>
         </div>
         <button
           onClick={() => navigate('/campanhas/nova')}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95"
+          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 hover:opacity-95 transition-all active:scale-95 shrink-0"
         >
           <span className="material-symbols-outlined text-[18px]">add</span>
           Nova Campanha
@@ -199,7 +204,7 @@ export function CampanhasIndex() {
 
       {/* KPIs */}
       {!loading && !error && campanhas.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <KpiCard label="Total de Campanhas" icon="list_alt" iconBg="bg-primary/10" iconColor="text-primary" value={campanhas.length} />
           <KpiCard label="Campanhas Ativas" icon="play_circle" iconBg="bg-tertiary/10" iconColor="text-tertiary" value={ativas} />
           <KpiCard label="Campanhas Inativas" icon="pause_circle" iconBg="bg-outline-variant/40" iconColor="text-on-surface-variant" value={inativas} />
@@ -208,7 +213,12 @@ export function CampanhasIndex() {
       )}
 
       {/* Filters */}
-      <div className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant mb-5 shadow-sm space-y-2.5">
+      <div className="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/30 mb-6 shadow-sm space-y-3">
+        <p className="flex items-center gap-1.5 text-label-md font-bold text-on-surface-variant uppercase tracking-wide">
+          <span className="material-symbols-outlined text-[16px]">filter_alt</span>
+          Filtrar campanhas
+        </p>
+
         {/* Search */}
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline text-[20px] pointer-events-none">
@@ -292,7 +302,7 @@ export function CampanhasIndex() {
 
         {/* Advanced filters — colapsável */}
         {showAvancados && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2 border-t border-outline-variant/30">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 pt-3 border-t border-outline-variant/30">
             <FilterSelect
               label="Todos os tipos"
               value={filterTipo}
@@ -362,13 +372,18 @@ export function CampanhasIndex() {
 
       {/* Table */}
       <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-outline-variant/30">
-          <h3 className="text-title-lg font-bold text-on-surface">Campanhas</h3>
-          <p className="text-label-md text-on-surface-variant mt-0.5">
-            {loading
-              ? 'Carregando campanhas…'
-              : `Mostrando ${filtered.length} ${filtered.length === 1 ? 'campanha' : 'campanhas'} conforme os filtros aplicados`}
-          </p>
+        <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3">
+          <span className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[20px]">list_alt</span>
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-title-lg font-bold text-on-surface">Campanhas</h3>
+            <p className="text-label-md text-on-surface-variant mt-0.5">
+              {loading
+                ? 'Carregando campanhas…'
+                : `Mostrando ${filtered.length} ${filtered.length === 1 ? 'campanha' : 'campanhas'} conforme os filtros aplicados`}
+            </p>
+          </div>
         </div>
 
         {loading && <LoadingSpinner />}
@@ -379,9 +394,9 @@ export function CampanhasIndex() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-outline-variant/40">
+                  <tr className="bg-surface-container-low/50 border-b border-outline-variant/40">
                     {(['Campanha', 'Tipo', 'Sistema / Tela', 'Status', 'Respostas', 'Ações'] as const).map(h => (
-                      <th key={h} className={`px-4 py-3 text-label-md text-on-surface-variant font-semibold whitespace-nowrap${
+                      <th key={h} className={`px-4 py-3 text-[11px] text-on-surface-variant font-bold uppercase tracking-wide whitespace-nowrap${
                         h === 'Ações' ? ' text-right' : h === 'Respostas' ? ' text-center hidden sm:table-cell' : ''
                       }${h === 'Tipo' ? ' hidden md:table-cell' : ''}${h === 'Sistema / Tela' ? ' hidden lg:table-cell' : ''}`}>
                         {h}
@@ -431,7 +446,7 @@ export function CampanhasIndex() {
                           }`}
                         >
                           {/* Campanha */}
-                          <td className="px-4 py-3.5 align-middle max-w-[320px]">
+                          <td className="px-4 py-4 align-middle max-w-[320px]">
                             <p className="text-body-md font-bold text-on-surface truncate">{c.titulo}</p>
                             {c.subtitulo && (
                               <p className="text-[12px] text-on-surface-variant truncate mt-0.5">{c.subtitulo}</p>
@@ -473,18 +488,18 @@ export function CampanhasIndex() {
                           </td>
 
                           {/* Tipo */}
-                          <td className="px-4 py-3.5 align-middle whitespace-nowrap hidden md:table-cell">
+                          <td className="px-4 py-4 align-middle whitespace-nowrap hidden md:table-cell">
                             <TypeBadge tipo={c.tipo} />
                           </td>
 
                           {/* Sistema / Tela */}
-                          <td className="px-4 py-3.5 align-middle hidden lg:table-cell">
+                          <td className="px-4 py-4 align-middle hidden lg:table-cell">
                             <p className="text-body-md text-on-surface">{c.sistema}</p>
                             <p className="text-[12px] text-on-surface-variant">{c.tela}</p>
                           </td>
 
                           {/* Status */}
-                          <td className="px-4 py-3.5 align-middle">
+                          <td className="px-4 py-4 align-middle">
                             <div className="flex items-center gap-2.5">
                               <div onClick={e => e.stopPropagation()}>
                                 <ToggleSwitch checked={c.ativo} onChange={() => handleToggle(c)} />
@@ -497,24 +512,24 @@ export function CampanhasIndex() {
                           </td>
 
                           {/* Respostas */}
-                          <td className="px-4 py-3.5 align-middle text-body-md font-bold text-center hidden sm:table-cell">
+                          <td className="px-4 py-4 align-middle text-body-md font-bold text-center hidden sm:table-cell">
                             {(c._count?.feedbacks ?? 0).toLocaleString('pt-BR')}
                           </td>
 
                           {/* Ações */}
-                          <td className="px-4 py-3.5 align-middle text-right" onClick={e => e.stopPropagation()}>
-                            <div className="flex items-center justify-end gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                          <td className="px-4 py-4 align-middle text-right" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
                               <button
                                 onClick={() => navigate(`/campanhas/${c.id}/preview`)}
                                 title="Preview"
-                                className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded-lg transition-all"
+                                className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded-full transition-all"
                               >
                                 <span className="material-symbols-outlined text-[18px]">visibility</span>
                               </button>
                               <button
                                 onClick={() => handleCopyEmbed(c)}
                                 title="Copiar embed"
-                                className={`p-2 rounded-lg transition-all ${
+                                className={`p-2 rounded-full transition-all ${
                                   copiedId === c.id
                                     ? 'text-tertiary bg-tertiary/10'
                                     : 'text-on-surface-variant hover:text-primary hover:bg-surface-container-high'
@@ -527,14 +542,14 @@ export function CampanhasIndex() {
                               <button
                                 onClick={() => navigate(`/campanhas/${c.id}/editar`)}
                                 title="Editar"
-                                className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-lg transition-all"
+                                className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all"
                               >
                                 <span className="material-symbols-outlined text-[18px]">edit</span>
                               </button>
                               <button
                                 onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
                                 title="Ver Dashboard"
-                                className="p-2 text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed rounded-lg transition-all"
+                                className="p-2 text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed rounded-full transition-all"
                               >
                                 <span className="material-symbols-outlined text-[18px]">query_stats</span>
                               </button>
@@ -542,7 +557,7 @@ export function CampanhasIndex() {
                                 <button
                                   onClick={() => handleInativar(c.id)}
                                   title="Inativar"
-                                  className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-lg transition-all"
+                                  className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-full transition-all"
                                 >
                                   <span className="material-symbols-outlined text-[18px]">block</span>
                                 </button>
@@ -550,7 +565,7 @@ export function CampanhasIndex() {
                                 <button
                                   onClick={() => handleReativar(c.id)}
                                   title="Reativar"
-                                  className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-lg transition-all"
+                                  className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-full transition-all"
                                 >
                                   <span className="material-symbols-outlined text-[18px]">check_circle</span>
                                 </button>
