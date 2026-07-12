@@ -135,7 +135,7 @@ export function CampanhaPreview() {
   }
 
   return (
-    <section className="px-4 lg:px-margin-desktop py-5">
+    <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
           <nav className="flex gap-2 text-label-md text-outline mb-1">
@@ -146,7 +146,7 @@ export function CampanhaPreview() {
           <h2 className="text-headline-lg font-bold text-on-surface">{campanha.titulo}</h2>
           <p className="text-body-md text-on-surface-variant mt-0.5">Modo teste: nenhum feedback será registrado.</p>
         </div>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex flex-wrap gap-2 shrink-0">
           <button
             type="button"
             onClick={resetSimulation}
@@ -312,15 +312,15 @@ export function CampanhaPreview() {
       </div>
 
       {/* Código de integração */}
-      <div className="mt-5 bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-on-surface-variant">code</span>
+      <div className="mt-5 w-full max-w-full bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4 border-b border-outline-variant/30">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="material-symbols-outlined text-on-surface-variant shrink-0">code</span>
             <h3 className="text-title-lg font-bold text-on-surface">Código de integração</h3>
           </div>
           <button
             onClick={copyEmbed}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-label-md font-bold transition-all ${
+            className={`flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-label-md font-bold transition-all w-full sm:w-auto shrink-0 ${
               copied
                 ? 'bg-tertiary/10 text-tertiary'
                 : 'border border-outline-variant text-on-surface-variant hover:bg-surface-container-high'
@@ -340,7 +340,7 @@ export function CampanhaPreview() {
             </p>
           </div>
         )}
-        <div className="bg-inverse-surface p-5 overflow-x-auto">
+        <div className="max-w-full bg-inverse-surface p-5 overflow-x-auto">
           <pre className="text-inverse-on-surface font-mono text-[13px] leading-relaxed whitespace-pre">{initSection}</pre>
         </div>
 
@@ -351,7 +351,7 @@ export function CampanhaPreview() {
                 2 — Disparo do evento <span className="normal-case font-normal">(chame após a ação acontecer)</span>
               </p>
             </div>
-            <div className="bg-inverse-surface p-5 overflow-x-auto">
+            <div className="max-w-full bg-inverse-surface p-5 overflow-x-auto">
               <pre className="text-inverse-on-surface font-mono text-[13px] leading-relaxed whitespace-pre">{embedParts.trackCode}</pre>
             </div>
             <p className="px-5 py-3 text-label-md text-outline border-t border-outline-variant/30">
@@ -368,10 +368,10 @@ export function CampanhaPreview() {
       </div>
 
       {/* ── Teste de elegibilidade ── */}
-      <div className="mt-5 bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-outline-variant/30">
-          <span className="material-symbols-outlined text-on-surface-variant">rule</span>
-          <div>
+      <div className="mt-5 w-full max-w-full bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+        <div className="flex items-start gap-3 px-5 py-4 border-b border-outline-variant/30">
+          <span className="material-symbols-outlined text-on-surface-variant shrink-0 mt-0.5">rule</span>
+          <div className="min-w-0">
             <h3 className="text-title-lg font-bold text-on-surface">Teste de elegibilidade</h3>
             <p className="text-label-md text-outline mt-0.5">Simule se esta campanha seria exibida para um usuário. Nenhum dado é registrado.</p>
           </div>
@@ -472,7 +472,7 @@ export function CampanhaPreview() {
                   {campanha.segmentar_cliente_ids.length > 0 && (
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Cliente ID <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_cliente_ids.join(', ')}]</span>
+                        Cliente ID <span className="text-outline font-normal text-[11px] break-words">[{campanha.segmentar_cliente_ids.join(', ')}]</span>
                       </label>
                       <input
                         value={eligForm.cliente_id}
@@ -485,7 +485,7 @@ export function CampanhaPreview() {
                   {campanha.segmentar_unidade_ids.length > 0 && (
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Unidade ID <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_unidade_ids.join(', ')}]</span>
+                        Unidade ID <span className="text-outline font-normal text-[11px] break-words">[{campanha.segmentar_unidade_ids.join(', ')}]</span>
                       </label>
                       <input
                         value={eligForm.unidade_id}
@@ -498,7 +498,7 @@ export function CampanhaPreview() {
                   {campanha.segmentar_perfis.length > 0 && (
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Perfil <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_perfis.join(', ')}]</span>
+                        Perfil <span className="text-outline font-normal text-[11px] break-words">[{campanha.segmentar_perfis.join(', ')}]</span>
                       </label>
                       <input
                         value={eligForm.perfil}
@@ -511,7 +511,7 @@ export function CampanhaPreview() {
                   {campanha.segmentar_usuario_tipos.length > 0 && (
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Tipo de usuário <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_usuario_tipos.join(', ')}]</span>
+                        Tipo de usuário <span className="text-outline font-normal text-[11px] break-words">[{campanha.segmentar_usuario_tipos.join(', ')}]</span>
                       </label>
                       <input
                         value={eligForm.usuario_tipo}
@@ -524,7 +524,7 @@ export function CampanhaPreview() {
                   {campanha.segmentar_estados.length > 0 && (
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Estado <span className="text-outline font-normal text-[11px]">[{campanha.segmentar_estados.join(', ')}]</span>
+                        Estado <span className="text-outline font-normal text-[11px] break-words">[{campanha.segmentar_estados.join(', ')}]</span>
                       </label>
                       <input
                         value={eligForm.estado}
@@ -546,7 +546,7 @@ export function CampanhaPreview() {
             </p>
           )}
 
-          <div className="flex items-center gap-3 pt-1">
+          <div className="flex flex-wrap items-center gap-3 pt-1">
             <button
               type="submit"
               disabled={eligLoading || !eligForm.sistema.trim()}
@@ -634,8 +634,8 @@ export function CampanhaPreview() {
             {eligResult.campanha_concorrente && (
               <div className="rounded-xl border border-[#ffe082] bg-[#fff8e1] p-4">
                 <p className="text-label-sm text-[#e65100] font-semibold uppercase tracking-wider mb-2">Campanha concorrente com maior prioridade</p>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-body-md font-bold text-on-surface">{eligResult.campanha_concorrente.titulo}</p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="min-w-0 text-body-md font-bold text-on-surface break-words">{eligResult.campanha_concorrente.titulo}</p>
                   <span className="px-2.5 py-0.5 bg-[#ffe082] text-[#e65100] rounded-full text-label-sm font-bold shrink-0">
                     Prioridade {eligResult.campanha_concorrente.prioridade}
                   </span>

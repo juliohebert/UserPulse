@@ -19,7 +19,7 @@ export function Topbar({ collapsed }: Props) {
 
   return (
     <header
-      className={`fixed top-0 right-0 ${collapsed ? 'left-16' : 'left-[248px]'} h-16 bg-surface border-b border-outline-variant/30 flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200`}
+      className={`fixed top-0 right-0 left-16 ${collapsed ? 'md:left-16' : 'md:left-[248px]'} h-16 bg-surface border-b border-outline-variant/30 flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200`}
     >
       <form onSubmit={handleSearch} className="flex items-center flex-1 max-w-lg">
         <div className="relative w-full">
