@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, getBlob } from '../../services/api'
-import type { DashboardData, Feedback } from '../../types'
+import type { DashboardData, EventoCampanha, Feedback } from '../../types'
 import { formatDate, formatDateTime } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
@@ -134,6 +134,12 @@ function npsLabel(nota: number): 'Promotor' | 'Neutro' | 'Detrator' {
   if (nota >= 9) return 'Promotor'
   if (nota >= 7) return 'Neutro'
   return 'Detrator'
+}
+
+function notaColor(n: number): string {
+  if (n <= 3) return 'bg-error'
+  if (n <= 6) return 'bg-yellow-400'
+  return 'bg-tertiary'
 }
 
 function getCellValue(f: Feedback, colId: string): string {
@@ -425,12 +431,6 @@ export function CampanhaDashboard() {
     ? Math.round((kpiTotal / kpiVisualizacoesUnicas) * 10) / 10
     : null
 
-  const notaColor = (n: number) => {
-    if (n <= 3) return 'bg-error'
-    if (n <= 6) return 'bg-yellow-400'
-    return 'bg-tertiary'
-  }
-
   const atalhos = [
     {
       label: 'Todos',
@@ -460,21 +460,26 @@ export function CampanhaDashboard() {
   ]
 
   return (
-    <section className="px-4 lg:px-margin-desktop py-5">
+    <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
 
       {/* ── Cabeçalho ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-        <div>
-          <nav className="flex gap-2 text-label-md text-outline mb-1">
-            <button onClick={() => navigate('/campanhas')} className="hover:text-primary transition-colors">Campanhas</button>
-            <span>/</span>
-            <span className="text-on-surface">Dashboard</span>
-          </nav>
-          <h2 className="text-headline-lg font-bold text-on-surface">
-            {data?.campanha.titulo ?? 'Dashboard da Campanha'}
-          </h2>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-5">
+        <div className="flex items-start gap-3 min-w-0">
+          <span className="hidden sm:flex w-11 h-11 rounded-xl bg-primary/10 text-primary items-center justify-center shrink-0 mt-0.5">
+            <span className="material-symbols-outlined text-[22px]">query_stats</span>
+          </span>
+          <div className="min-w-0">
+            <nav className="flex gap-2 text-label-md text-outline mb-1">
+              <button onClick={() => navigate('/campanhas')} className="hover:text-primary transition-colors">Campanhas</button>
+              <span>/</span>
+              <span className="text-on-surface">Dashboard</span>
+            </nav>
+            <h2 className="text-headline-lg font-bold text-on-surface leading-tight break-words">
+              {data?.campanha.titulo ?? 'Dashboard da Campanha'}
+            </h2>
+          </div>
         </div>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex flex-wrap gap-2 shrink-0">
           <button
             onClick={() => navigate(`/campanhas/${id}/preview`)}
             className="flex items-center gap-1.5 px-4 py-2 border border-primary text-primary rounded-xl text-label-md font-bold hover:bg-primary-fixed transition-all"
@@ -498,7 +503,7 @@ export function CampanhaDashboard() {
       {!loading && !error && data && (
         <>
           {/* ── Meta da campanha ──────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-2 mb-6">
+          <div className="flex flex-wrap items-center gap-2 mb-5">
             <TypeBadge tipo={data.campanha.tipo} />
             {data.campanha.ativo
               ? <span className="text-[12px] font-semibold text-tertiary bg-tertiary/10 px-2.5 py-0.5 rounded-full">Ativa</span>
@@ -509,14 +514,14 @@ export function CampanhaDashboard() {
           </div>
 
           {/* ── Filtro de período ──────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-2 mb-6 p-4 bg-surface-container-lowest rounded-xl border border-outline-variant/50">
-            <span className="material-symbols-outlined text-[16px] text-outline">date_range</span>
-            <span className="text-label-md text-on-surface-variant font-medium mr-1">Período:</span>
+          <div className="w-full max-w-full flex flex-wrap items-center gap-1.5 sm:gap-2 mb-6 p-3.5 sm:p-4 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm">
+            <span className="material-symbols-outlined text-[16px] text-outline shrink-0">date_range</span>
+            <span className="text-label-md text-on-surface-variant font-medium mr-1 shrink-0">Período:</span>
             {(['todo', 'hoje', '7d', '30d', 'mes', 'custom'] as PeriodoOpcao[]).map(op => (
               <button
                 key={op}
                 onClick={() => setPeriodo(p => ({ ...p, opcao: op }))}
-                className={`px-3 py-1.5 rounded-xl text-label-md font-semibold border transition-all ${
+                className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-label-md font-semibold border whitespace-nowrap transition-all ${
                   periodo.opcao === op
                     ? 'bg-primary text-on-primary border-primary'
                     : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary/50 hover:text-primary'
@@ -555,7 +560,7 @@ export function CampanhaDashboard() {
           </div>
 
           {/* ── Cards de métricas principais ──────────────────────────────── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
             <KpiCard
               icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
               label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
@@ -616,10 +621,15 @@ export function CampanhaDashboard() {
           </div>
 
           {/* ── Funil de engajamento ──────────────────────────────────────── */}
-          <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm mb-6 p-5">
-            <h3 className="text-label-md font-bold text-on-surface-variant uppercase tracking-wider mb-4">
-              Funil de engajamento
-            </h3>
+          <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm mb-6 p-4 sm:p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <span className="material-symbols-outlined text-[16px]">filter_alt</span>
+              </span>
+              <h3 className="text-label-md font-bold text-on-surface-variant uppercase tracking-wider">
+                Funil de engajamento
+              </h3>
+            </div>
             <div className="flex items-stretch gap-2 flex-col sm:flex-row">
               <FunnelStep
                 icon="visibility" iconColor="text-primary" barColor="bg-primary"
@@ -651,14 +661,14 @@ export function CampanhaDashboard() {
           <SectionTitle icon="summarize">Resumo</SectionTitle>
 
           {kpiTotal > 0 && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4">
               <KpiCard icon="sentiment_very_satisfied" iconColor="text-tertiary" iconBg="bg-tertiary/10"
                 label="Promotores" value={`${promotores}`} sub={`${pctProm}% do total`} />
               <KpiCard icon="sentiment_neutral" iconColor="text-yellow-600" iconBg="bg-yellow-50"
                 label="Neutros" value={`${neutros}`} sub={`${pctNeut}% do total`} />
               <KpiCard icon="sentiment_dissatisfied" iconColor="text-error" iconBg="bg-error/10"
                 label="Detratores" value={`${detratores}`} sub={`${pctDetr}% do total`} />
-              <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm flex flex-col items-center justify-center text-center gap-1">
+              <div className="min-w-0 bg-surface-container-lowest p-3.5 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm flex flex-col items-center justify-center text-center gap-1">
                 <p className="text-label-md text-outline flex items-center gap-1">
                   NPS
                   <span
@@ -668,7 +678,7 @@ export function CampanhaDashboard() {
                     info
                   </span>
                 </p>
-                <p className={`text-display-sm font-bold leading-none ${npsScore > 0 ? 'text-tertiary' : npsScore < 0 ? 'text-error' : 'text-on-surface'}`}>
+                <p className={`text-title-lg sm:text-display-sm font-bold leading-none ${npsScore > 0 ? 'text-tertiary' : npsScore < 0 ? 'text-error' : 'text-on-surface'}`}>
                   {npsScore > 0 ? '+' : ''}{npsScore}
                 </p>
                 <p className="text-label-md text-outline">%Prom − %Detr</p>
@@ -677,7 +687,7 @@ export function CampanhaDashboard() {
           )}
 
           {data.campanha.exige_confirmacao_leitura && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 mb-4">
               <KpiCard icon="verified" iconColor="text-tertiary" iconBg="bg-tertiary/10"
                 label="Confirmações de leitura" value={data.total_confirmacoes.toLocaleString('pt-BR')}
                 sub="usuários confirmaram" large />
@@ -688,23 +698,25 @@ export function CampanhaDashboard() {
           )}
 
           {kpiTotal > 0 && (
-            <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm mb-6">
-              <h4 className="text-title-md font-bold text-on-surface mb-5">Distribuição de notas</h4>
-              <div className="flex items-end gap-2 h-32">
-                {Array.from({ length: 11 }, (_, i) => {
-                  const count = kpiDistribuicao[String(i)] ?? 0
-                  const height = Math.round((count / maxDist) * 100)
-                  return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                      <span className="text-[10px] text-outline font-bold">{count > 0 ? count : ''}</span>
-                      <div className="w-full flex items-end justify-center" style={{ height: '96px' }}>
-                        <div className={`w-full rounded-t transition-all ${notaColor(i)}`}
-                          style={{ height: `${Math.max(height, count > 0 ? 4 : 0)}%` }} />
+            <div className="w-full max-w-full min-w-0 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm mb-6">
+              <h4 className="text-title-md font-bold text-on-surface mb-4 sm:mb-5">Distribuição de notas</h4>
+              <div className="overflow-x-auto">
+                <div className="flex items-end gap-1.5 sm:gap-2 h-28 sm:h-32 min-w-[380px] sm:min-w-0">
+                  {Array.from({ length: 11 }, (_, i) => {
+                    const count = kpiDistribuicao[String(i)] ?? 0
+                    const height = Math.round((count / maxDist) * 100)
+                    return (
+                      <div key={i} className="flex-1 min-w-[28px] flex flex-col items-center gap-1">
+                        <span className="text-[10px] text-outline font-bold">{count > 0 ? count : ''}</span>
+                        <div className="w-full flex items-end justify-center bg-surface-container-low/70 rounded-t" style={{ height: '96px' }}>
+                          <div className={`w-full rounded-t transition-all ${notaColor(i)}`}
+                            style={{ height: `${Math.max(height, count > 0 ? 4 : 0)}%` }} />
+                        </div>
+                        <span className="text-[11px] text-outline font-bold">{i}</span>
                       </div>
-                      <span className="text-[11px] text-outline font-bold">{i}</span>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
             </div>
           )}
@@ -712,10 +724,10 @@ export function CampanhaDashboard() {
           {/* ── Seção: Respostas ──────────────────────────────────────────── */}
           <SectionTitle icon="forum">Respostas</SectionTitle>
 
-          <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden mb-6">
+          <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden mb-6">
 
             {/* Header */}
-            <div className="px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
+            <div className="px-4 sm:px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-title-md font-bold text-on-surface">
                   {kpiTotal.toLocaleString('pt-BR')}
@@ -808,7 +820,7 @@ export function CampanhaDashboard() {
 
             {/* Filtros — visíveis quando há feedbacks */}
             {data.feedbacks_recentes.length > 0 && (
-              <div className="px-5 py-3 border-b border-outline-variant/30 space-y-2">
+              <div className="px-4 sm:px-5 py-3 border-b border-outline-variant/30 space-y-2">
 
                 {/* Busca */}
                 <div className="relative">
@@ -947,7 +959,8 @@ export function CampanhaDashboard() {
               />
             ) : (
               <>
-                <div className="overflow-x-auto">
+                {/* Desktop/tablet largo (>= md): tabela */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-left">
                     <thead className="bg-surface-container-low border-b border-outline-variant">
                       <tr>
@@ -1005,6 +1018,14 @@ export function CampanhaDashboard() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Mobile (< md): cards */}
+                <div className="md:hidden divide-y divide-outline-variant/20">
+                  {feedbacksPaginados.map(f => (
+                    <RespostaCard key={f.id} f={f} activeCols={activeCols} />
+                  ))}
+                </div>
+
                 {totalPagResp > 1 && (
                   <Paginacao
                     total={feedbacksFiltrados.length}
@@ -1023,10 +1044,10 @@ export function CampanhaDashboard() {
           {/* ── Seção: Interações ─────────────────────────────────────────── */}
           <SectionTitle icon="touch_app">Interações</SectionTitle>
 
-          <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+          <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden">
 
             {/* Header */}
-            <div className="px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
+            <div className="px-4 sm:px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-title-md font-bold text-on-surface">
                   {totalEventosPeriodo.toLocaleString('pt-BR')}
@@ -1048,7 +1069,7 @@ export function CampanhaDashboard() {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {temFiltroEvento && (
                   <button
                     onClick={() => { setFiltroEvento('Todos'); setBuscaEvento('') }}
@@ -1072,7 +1093,7 @@ export function CampanhaDashboard() {
             </div>
 
             {/* Busca e indicadores */}
-            <div className="px-5 py-3 border-b border-outline-variant/30 space-y-2">
+            <div className="px-4 sm:px-5 py-3 border-b border-outline-variant/30 space-y-2">
               <div className="relative">
                 <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-outline pointer-events-none">search</span>
                 <input
@@ -1113,7 +1134,8 @@ export function CampanhaDashboard() {
               />
             ) : (
               <>
-                <div className="overflow-x-auto">
+                {/* Desktop/tablet largo (>= md): tabela */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full text-left">
                     <thead className="bg-surface-container-low border-b border-outline-variant">
                       <tr>
@@ -1168,6 +1190,14 @@ export function CampanhaDashboard() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* Mobile (< md): cards */}
+                <div className="md:hidden divide-y divide-outline-variant/20">
+                  {eventosPaginados.map(e => (
+                    <InteracaoCard key={e.id} e={e} />
+                  ))}
+                </div>
+
                 {totalPagInter > 1 && (
                   <Paginacao
                     total={eventosFiltrados.length}
@@ -1222,11 +1252,11 @@ function Paginacao({ total, pagina, tamPagina, onChange, onChangeTam, unidade, u
   const inicio = Math.min((pagina - 1) * tamPagina + 1, total)
   const fim = Math.min(pagina * tamPagina, total)
   return (
-    <div className="px-5 py-3 border-t border-outline-variant/30 flex flex-wrap items-center justify-between gap-3 bg-surface-container-lowest">
+    <div className="px-4 sm:px-5 py-3 border-t border-outline-variant/30 flex flex-wrap items-center justify-between gap-3 bg-surface-container-lowest">
       <span className="text-label-md text-outline">
         Exibindo {inicio}–{fim} de {total} {total === 1 ? unidade : unidadePlural}
       </span>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1">
           <span className="text-label-md text-outline mr-1">Por página:</span>
           {[10, 25, 50].map(t => (
@@ -1346,16 +1376,16 @@ function FunnelStep({ icon, iconColor, barColor, label, value, pct, sub }: {
 }) {
   const barWidth = Math.min(Math.max(pct, value > 0 ? 4 : 0), 100)
   return (
-    <div className="flex-1 min-w-0 bg-surface-container-low rounded-xl p-4 flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className={`material-symbols-outlined text-[16px] ${iconColor}`}>{icon}</span>
-        <span className="text-label-md text-on-surface-variant font-semibold">{label}</span>
+    <div className="flex-1 min-w-0 bg-surface-container-low rounded-2xl p-3.5 sm:p-4 flex flex-col gap-1.5 sm:gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={`material-symbols-outlined text-[16px] shrink-0 ${iconColor}`}>{icon}</span>
+        <span className="text-label-md text-on-surface-variant font-semibold truncate">{label}</span>
       </div>
-      <p className="text-headline-lg font-bold text-on-surface leading-none">{value.toLocaleString('pt-BR')}</p>
+      <p className="text-title-lg sm:text-headline-lg font-bold text-on-surface leading-none">{value.toLocaleString('pt-BR')}</p>
       <div className="w-full h-1.5 bg-outline-variant/30 rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${barWidth}%` }} />
       </div>
-      <p className="text-label-md text-outline">{sub}</p>
+      <p className="text-label-md text-outline truncate">{sub}</p>
     </div>
   )
 }
@@ -1410,6 +1440,100 @@ function UnidadeCell({ f }: { f: Feedback }) {
     >
       {unidade ?? NI}
     </span>
+  )
+}
+
+// Card de resposta para telas mobile (< md) — substitui a linha da tabela,
+// que fica ilegível e com muitas colunas espremidas em telas estreitas.
+function RespostaCard({ f, activeCols }: { f: Feedback; activeCols: ColDef[] }) {
+  return (
+    <div className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-label-md font-bold text-white shrink-0 ${notaColor(f.nota)}`}>
+            {f.nota}
+          </span>
+          <NpsBadge nota={f.nota} />
+        </div>
+        <span className="text-[11px] text-outline shrink-0">{getCellValue(f, 'data')}</span>
+      </div>
+
+      <div className="mt-2.5">
+        <ObservacaoCell value={getCellValue(f, 'observacao')} />
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-outline-variant/20 grid grid-cols-2 gap-x-3 gap-y-2.5">
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Usuário</p>
+          <UsuarioCellFeedback f={f} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Telefone</p>
+          <CellText value={getCellValue(f, 'telefone')} />
+        </div>
+        <div className="min-w-0 col-span-2">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Unidade</p>
+          <UnidadeCell f={f} />
+        </div>
+        {activeCols.map(col => (
+          <div key={col.id} className="min-w-0">
+            <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5 truncate">{col.label}</p>
+            {col.id === 'perfil_nps'
+              ? <NpsBadge nota={f.nota} />
+              : <CellText value={getCellValue(f, col.id)} />
+            }
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Card de interação para telas mobile (< md) — mesma lógica de substituição da tabela.
+function InteracaoCard({ e }: { e: EventoCampanha }) {
+  const c = (e.contexto ?? {}) as Record<string, string>
+  const nome = c.usuario_nome || e.usuario_id
+  const email = c.usuario_email
+  const unidade = c.unidade_nome || c.clinica_nome
+  return (
+    <div className="p-4">
+      <div className="flex items-center justify-between gap-3">
+        <EventoBadge tipo={e.tipo_evento} />
+        <span className="text-[11px] text-outline shrink-0">{formatDateTime(e.criado_em)}</span>
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-outline-variant/20 grid grid-cols-2 gap-x-3 gap-y-2.5">
+        <div className="min-w-0 col-span-2">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Usuário</p>
+          <span className={`text-[13px] block truncate ${nome ? 'text-on-surface' : 'text-outline italic'}`} title={nome ?? undefined}>
+            {nome ?? NI}
+          </span>
+          {email && (
+            <span className="text-[11px] text-outline block truncate" title={email}>{email}</span>
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Perfil</p>
+          <CellText value={c.usuario_tipo || NI} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Estado</p>
+          <CellText value={c.Estado || NI} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Cliente</p>
+          <span className={`text-[13px] block truncate ${c.cliente_nome ? 'text-on-surface' : 'text-outline italic'}`} title={c.cliente_nome ?? undefined}>
+            {c.cliente_nome ?? NI}
+          </span>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Unidade</p>
+          <span className={`text-[13px] block truncate ${unidade ? 'text-on-surface' : 'text-outline italic'}`} title={unidade ?? undefined}>
+            {unidade ?? NI}
+          </span>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1485,13 +1609,13 @@ interface KpiCardProps {
 
 function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, tooltip, subTooltip, subExtra }: KpiCardProps) {
   return (
-    <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
-          <span className={`material-symbols-outlined ${iconColor} text-[22px]`}>{icon}</span>
+    <div className="min-w-0 bg-surface-container-lowest p-3.5 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm">
+      <div className="flex items-start gap-2.5 sm:gap-3">
+        <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
+          <span className={`material-symbols-outlined ${iconColor} text-[18px] sm:text-[22px]`}>{icon}</span>
         </div>
         <div className="min-w-0">
-          <p className="text-label-md text-outline flex items-center gap-1">
+          <p className="text-label-md text-outline flex items-center gap-1 truncate">
             {label}
             {tooltip && (
               <span className="material-symbols-outlined text-[13px] text-outline/50 cursor-help shrink-0" title={tooltip}>
@@ -1499,7 +1623,7 @@ function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, tooltip, s
               </span>
             )}
           </p>
-          <p className={`font-bold text-on-surface leading-none mt-1 ${large ? 'text-display-sm' : 'text-headline-lg'}`}>
+          <p className={`font-bold text-on-surface leading-none mt-1 truncate ${large ? 'text-title-lg sm:text-display-sm' : 'text-title-lg sm:text-headline-lg'}`}>
             {value}
           </p>
           <p className="text-label-md text-outline mt-1 flex items-center gap-1">
