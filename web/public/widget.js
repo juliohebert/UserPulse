@@ -3861,6 +3861,105 @@
     '.cdk-global-overlay-wrapper',
     '.ant-select-dropdown',
   ];
+  // Regiões típicas de dropdown/lista/autocomplete dinâmica — só um data-cy
+  // indexado DENTRO de uma dessas (ou que seja, ele mesmo, um dos seletores
+  // abaixo) conta como candidato a lista dinâmica com só 1 item visível já
+  // bastando como evidência (ver recorderCandidatoValidoParaListaDinamica).
+  // Fora daqui, precisa de outra evidência (vários irmãos com o mesmo
+  // prefixo) pra não confundir a busca ampla por [data-cy] no documento
+  // inteiro com listas ESTÁTICAS da própria aplicação (menu, sidebar) que
+  // também usam data-cy indexado por convenção, mas não têm nada a ver com
+  // o passo que acabou de ser gravado.
+  var RECORDER_SELETORES_REGIAO_LISTA_DINAMICA = [
+    '.cdk-overlay-container',
+    '.ant-select-dropdown',
+    'nz-auto-option',
+    'nz-option-item',
+    '[role="option"]',
+    '[role="menuitem"]',
+    '.ant-select-dropdown-menu-item',
+  ];
+  // Landmarks estruturais de navegação/layout fixo — regra puramente
+  // estrutural (tags/roles HTML padrão, nenhum nome de componente/sistema),
+  // usada só pra DESCARTAR um candidato de data-cy indexado que não está
+  // dentro de nenhuma região de lista dinâmica conhecida acima (ver
+  // recorderCandidatoValidoParaListaDinamica) — evita sugerir item de
+  // menu/sidebar/header/topbar como se fosse a lista que acabou de abrir.
+  var RECORDER_SELETORES_NAVEGACAO_FIXA = [
+    'nav', 'header', 'aside', '[role="navigation"]', '[role="banner"]', '[role="complementary"]',
+  ];
+
+  function recorderEmRegiaoListaDinamica(el) {
+    try { return Boolean(el.closest && el.closest(RECORDER_SELETORES_REGIAO_LISTA_DINAMICA.join(','))); } catch (_e) { return false; }
+  }
+
+  function recorderEmNavegacaoFixa(el) {
+    try { return Boolean(el.closest && el.closest(RECORDER_SELETORES_NAVEGACAO_FIXA.join(','))); } catch (_e) { return false; }
+  }
+
+  // true quando existe pelo menos mais um elemento visível na tela com o
+  // MESMO prefixo indexado de data-cy que "el" (ex.: junto de
+  // "paciente-option-0" também existe "paciente-option-1" visível) —
+  // evidência estrutural de que isto é de fato uma LISTA (vários itens
+  // irmãos), não um único elemento indexado isolado. Genérico: não depende
+  // do valor do prefixo em si, só de haver mais de um item.
+  function recorderTemIrmaoComMesmoPrefixo(prefixo, elIgnorar) {
+    var seletor;
+    try { seletor = '[data-cy^="' + recorderCssEscapeAtributo(prefixo) + '"]'; } catch (_e) { return false; }
+    var achados;
+    try { achados = document.querySelectorAll(seletor); } catch (_e) { return false; }
+    for (var i = 0; i < achados.length; i++) {
+      if (achados[i] === elIgnorar) continue;
+      if (tourElementoVisivelEInterativo(achados[i])) return true;
+    }
+    return false;
+  }
+
+  // Só aceita um elemento com data-cy indexado como candidato de verdade a
+  // lista dinâmica quando há evidência real (ver ajuste #7): dentro de uma
+  // região de dropdown/lista/autocomplete conhecida (1 item já basta), OU
+  // fora de navegação/layout fixo E com pelo menos mais um irmão visível
+  // compartilhando o mesmo prefixo (cobre listas customizadas, sem nenhuma
+  // das bibliotecas de UI conhecidas). Sem nenhuma das duas evidências, não
+  // é candidato — evita o falso positivo de itens de menu/sidebar/header
+  // que também usam data-cy indexado, mas não são a lista do passo atual.
+  function recorderCandidatoValidoParaListaDinamica(el, prefixo) {
+    if (recorderEmRegiaoListaDinamica(el)) return true;
+    if (recorderEmNavegacaoFixa(el)) return false;
+    return recorderTemIrmaoComMesmoPrefixo(prefixo, el);
+  }
+
+  // Primeiro seletor por prefixo de data-cy indexado válido (ver
+  // recorderCandidatoValidoParaListaDinamica) entre uma lista de candidatos
+  // — reaproveitado tanto pelo escaneamento geral do documento
+  // (recorderEscanearListaDinamica) quanto pela checagem priorizada de nós
+  // recém-inseridos por uma mutação (ver recorderObservarListaDinamica).
+  function recorderMelhorCandidatoDataCyIndexado(candidatos) {
+    for (var c = 0; c < candidatos.length; c++) {
+      var el = candidatos[c];
+      if (!tourElementoVisivelEInterativo(el)) continue;
+      var prefixo = recorderPrefixoDataCyIndexado(el.getAttribute('data-cy'));
+      if (!prefixo) continue;
+      if (!recorderCandidatoValidoParaListaDinamica(el, prefixo)) continue;
+      return '[data-cy^="' + recorderCssEscapeAtributo(prefixo) + '"]';
+    }
+    return null;
+  }
+
+  // Candidatos com data-cy dentro de um nó específico (ele mesmo + seus
+  // descendentes) — usado pra priorizar nós recém-inseridos por uma mutação
+  // (ver recorderObservarListaDinamica/recorderMelhorCandidatoDataCyIndexado)
+  // em vez de escanear o documento inteiro de novo a cada mutação.
+  function recorderCandidatosDataCyEm(no) {
+    var candidatos = [];
+    if (!no || no.nodeType !== 1) return candidatos;
+    try { if (no.matches && no.matches('[data-cy]')) candidatos.push(no); } catch (_e) {}
+    try {
+      var achados = no.querySelectorAll('[data-cy]');
+      for (var i = 0; i < achados.length; i++) candidatos.push(achados[i]);
+    } catch (_e) {}
+    return candidatos;
+  }
 
   // Extrai o prefixo de um data-cy indexado (ex.: "algo-item-0" vira
   // "algo-item-"), removendo só o índice numérico final e preservando o
@@ -3940,26 +4039,21 @@
   // "Detectar lista dinâmica", justamente pra cobrir o caso de a lista já
   // estar aberta na tela ANTES de pedir a detecção (ver
   // recorderObservarListaDinamica). data-cy indexado tem prioridade (vira
-  // seletor por prefixo, o mais estável); na ausência de qualquer data-cy,
-  // cai num dos fallbacks CSS concretos e conhecidos de
-  // RECORDER_SELETORES_FALLBACK_LISTA (menos estável, sinalizado como tal
-  // pro usuário decidir). Retorna { seletor, seletor_tipo, generico } ou
-  // null se nada for achado.
+  // seletor por prefixo, o mais estável) — mas só quando validado como
+  // candidato de verdade a lista dinâmica (dentro de uma região de
+  // dropdown/overlay conhecida, ou com irmãos visíveis de mesmo prefixo
+  // fora de navegação/layout fixo — ver recorderCandidatoValidoParaListaDinamica).
+  // Isso evita o falso positivo de achar QUALQUER data-cy indexado no
+  // documento inteiro, mesmo vindo de menu/sidebar/header estático. Na
+  // ausência de um data-cy válido, cai num dos fallbacks CSS concretos e
+  // conhecidos de RECORDER_SELETORES_FALLBACK_LISTA (menos estável,
+  // sinalizado como tal pro usuário decidir). Retorna
+  // { seletor, seletor_tipo, generico } ou null se nada for achado.
   function recorderEscanearListaDinamica() {
     var achadosDataCy;
     try { achadosDataCy = document.querySelectorAll('[data-cy]'); } catch (_e) { achadosDataCy = []; }
-    for (var i = 0; i < achadosDataCy.length; i++) {
-      var el = achadosDataCy[i];
-      if (!tourElementoVisivelEInterativo(el)) continue;
-      var prefixo = recorderPrefixoDataCyIndexado(el.getAttribute('data-cy'));
-      if (prefixo) {
-        return {
-          seletor: '[data-cy^="' + recorderCssEscapeAtributo(prefixo) + '"]',
-          seletor_tipo: 'css',
-          generico: false,
-        };
-      }
-    }
+    var seletorDataCy = recorderMelhorCandidatoDataCyIndexado(achadosDataCy);
+    if (seletorDataCy) return { seletor: seletorDataCy, seletor_tipo: 'css', generico: false };
     var seletorFallback = recorderMelhorSeletorFallbackLista();
     if (seletorFallback) return { seletor: seletorFallback, seletor_tipo: 'css', generico: true };
     return null;
@@ -4034,7 +4128,22 @@
     if (!window.MutationObserver) return;
     var observer = new MutationObserver(function (mutations) {
       for (var i = 0; i < mutations.length; i++) {
-        if (mutations[i].addedNodes.length === 0) continue;
+        var added = mutations[i].addedNodes;
+        if (added.length === 0) continue;
+        // Prioriza os nós recém-inseridos por ESTA mutação (o que acabou de
+        // aparecer por causa da interação do usuário) antes de cair no
+        // escaneamento geral do documento — mais preciso (evita pegar um
+        // data-cy indexado que já estava na tela o tempo todo, tipo
+        // menu/sidebar) e mais rápido.
+        for (var a = 0; a < added.length; a++) {
+          var seletorNo = recorderMelhorCandidatoDataCyIndexado(recorderCandidatosDataCyEm(added[a]));
+          if (seletorNo) { finalizarComSugestao({ seletor: seletorNo, seletor_tipo: 'css', generico: false }); return; }
+        }
+        // Nada nos nós recém-inseridos — tenta o escaneamento geral (cobre
+        // o fallback CSS genérico e mutações que só revelaram/mudaram
+        // atributos de um item já existente, sem inserir nó novo com o
+        // data-cy em si). Continua protegido pela mesma validação de região/
+        // irmãos (ver recorderEscanearListaDinamica).
         var achado = recorderEscanearListaDinamica();
         if (achado) { finalizarComSugestao(achado); return; }
       }
