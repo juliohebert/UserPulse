@@ -1754,6 +1754,12 @@
   // hidratar até revelar o elemento do passo retomado.
   var TOUR_RETRY_MAX = 16;
   var TOUR_RETRY_INTERVAL_MS = 250; // usado só pelo poll de ao_aparecer_elemento/ao_sumir_elemento (bindInteracao) — intervalo fixo faz sentido ali, é uma espera por mudança de estado, não por DOM recém-carregado estabilizar
+  // Rechecagens curtas agendadas a cada evento de input/change/keyup e a cada
+  // mutação sem sucesso imediato (ver tourAgendarRecheckCurto) — cobrem o
+  // intervalo entre o debounce de uma tela de busca/reflow terminar e o item
+  // da lista realmente virar visível (rect não-zero), sem esperar o próximo
+  // retry do backoff acima (que pode levar até ~1.5s no pior caso).
+  var TOUR_RECHECK_CURTO_MS = [50, 150, 300];
 
   function tourIntervaloRetry(tentativa) {
     var base = 200;
@@ -1775,6 +1781,25 @@
     // junto com o timer, pra nunca sobrar observando o DOM à toa depois que a
     // busca termina (achou, esgotou o retry, ou foi cancelada).
     buscaObserver: null,
+    // Listener de input/change/keyup ativo durante uma busca de elemento
+    // (localizarComRetry) — cobre o caso de passo anterior ser um campo de
+    // busca cuja lista de resultados é renderizada de forma assíncrona
+    // (debounce da própria tela) logo após o usuário digitar: reavalia o
+    // seletor do próximo passo a cada tecla/alteração, sem esperar o próximo
+    // retry agendado nem depender só do MutationObserver (que não cobre, por
+    // ex., o item ainda existir no DOM mas trocar de estado antes do reflow
+    // reportar um tamanho válido). Desconectado por limparBuscaTimer() junto
+    // com o timer e o observer.
+    buscaInteracaoHandler: null,
+    // Timers/frames de rechecagem curta (requestAnimationFrame + setTimeout
+    // 50/150/300ms — ver TOUR_RECHECK_CURTO_MS/tourAgendarRecheckCurto)
+    // agendados pelo listener de input/change/keyup e pelo MutationObserver
+    // quando nenhum dos dois acha o elemento na hora — cobre listas
+    // dinâmicas com debounce/reflow que só terminam de assentar um pouco
+    // depois do evento/mutação. Cada item é { tipo: 'raf'|'timeout', id };
+    // limparBuscaTimer() cancela todos e zera o array, então nunca sobra
+    // timer/frame "zumbi" rodando depois que a busca termina.
+    buscaExtraTimers: [],
     reposTimer: null,
     ativo: false,
     interacaoCleanup: null,
@@ -1946,6 +1971,53 @@
     }
   }
 
+  // Remove uma entrada já disparada de tourState.buscaExtraTimers (limpeza
+  // "ao vivo", pra não deixar o array crescer sem necessidade durante uma
+  // digitação longa) — limparBuscaTimer() ainda cobre cancelar as que não
+  // chegaram a disparar.
+  function tourRemoverBuscaExtraTimer(tipo, id) {
+    var lista = tourState.buscaExtraTimers;
+    for (var i = lista.length - 1; i >= 0; i--) {
+      if (lista[i].tipo === tipo && lista[i].id === id) { lista.splice(i, 1); break; }
+    }
+  }
+
+  // Agenda 1 requestAnimationFrame + setTimeouts em TOUR_RECHECK_CURTO_MS pra
+  // reavaliar o seletor do passo — chamado tanto pelo listener de
+  // input/change/keyup quanto pelo MutationObserver (ver localizarComRetry)
+  // quando a checagem imediata de nenhum dos dois acha o elemento. Cobre o
+  // intervalo entre o evento/mutação acontecer e a lista dinâmica realmente
+  // terminar de assentar (debounce da tela de busca, reflow, animação de
+  // entrada) — sem essas rechecagens curtas, esse intervalo só seria coberto
+  // pelo próximo retry do backoff (tourIntervaloRetry), que pode levar até
+  // ~1.5s no pior caso. Só resolve se achar; senão os retries/observer/
+  // listener normais continuam até TOUR_RETRY_MAX. Todo id agendado aqui vai
+  // pra tourState.buscaExtraTimers — limparBuscaTimer() cancela todos.
+  function tourAgendarRecheckCurto(passo, cb) {
+    function checar() {
+      var achado = selecionarElementoPasso(passo);
+      if (achado) { limparBuscaTimer(); cb(achado); }
+    }
+    if (window.requestAnimationFrame) {
+      try {
+        var rafId = window.requestAnimationFrame(function () {
+          tourRemoverBuscaExtraTimer('raf', rafId);
+          checar();
+        });
+        tourState.buscaExtraTimers.push({ tipo: 'raf', id: rafId });
+      } catch (_e) { /* ambiente sem rAF de verdade — segue só com os setTimeout abaixo */ }
+    }
+    for (var i = 0; i < TOUR_RECHECK_CURTO_MS.length; i++) {
+      (function (ms) {
+        var timeoutId = window.setTimeout(function () {
+          tourRemoverBuscaExtraTimer('timeout', timeoutId);
+          checar();
+        }, ms);
+        tourState.buscaExtraTimers.push({ tipo: 'timeout', id: timeoutId });
+      })(TOUR_RECHECK_CURTO_MS[i]);
+    }
+  }
+
   function localizarComRetry(passo, tentativa, cb) {
     var el = selecionarElementoPasso(passo);
     if (el) { limparBuscaTimer(); cb(el); return; }
@@ -1977,11 +2049,49 @@
       try {
         tourState.buscaObserver = new MutationObserver(function () {
           var achado = selecionarElementoPasso(passo);
-          if (achado) { limparBuscaTimer(); cb(achado); }
+          if (achado) { limparBuscaTimer(); cb(achado); return; }
+          // Mutação aconteceu mas o elemento ainda não passa no check de
+          // visibilidade (rect zerado) — comum quando o item entra no DOM
+          // antes do reflow/animação de entrada assentar. Agenda rechecagens
+          // curtas em vez de só esperar a próxima mutação ou o retry do
+          // backoff (ver tourAgendarRecheckCurto).
+          tourAgendarRecheckCurto(passo, cb);
         });
         tourState.buscaObserver.observe(document.body, { childList: true, subtree: true, attributes: true });
       } catch (_e) {
         tourState.buscaObserver = null;
+      }
+    }
+
+    // input/change/keyup: reavalia o seletor do próximo passo assim que o
+    // usuário digita/altera algo no elemento anterior (ex.: campo de busca
+    // cujo passo seguinte aponta pra um item de lista que só existe depois
+    // da digitação) — mesmo padrão do MutationObserver acima (só resolve se
+    // achar; senão continua até o próximo retry agendado ou o timeout de
+    // TOUR_RETRY_MAX), só que reagindo à interação em si, não à mutação do
+    // DOM — cobre elementos que já existem mas ainda não passam no check de
+    // visibilidade (ver selecionarElementoPasso) no instante exato da
+    // mutação. Delegado em document (capture) porque o elemento que dispara
+    // o evento (o campo do passo anterior) não é o elemento sendo buscado
+    // aqui, e um listener por sessão de busca é suficiente (mesma
+    // justificativa do observer único acima).
+    if (!tourState.buscaInteracaoHandler) {
+      var handlerBuscaInteracao = function () {
+        var achado = selecionarElementoPasso(passo);
+        if (achado) { limparBuscaTimer(); cb(achado); return; }
+        // Ainda não achou no instante do evento — o valor acabou de mudar,
+        // então a lista dinâmica (se depender de debounce da própria tela)
+        // pode aparecer só um pouco depois; agenda rechecagens curtas em vez
+        // de esperar só o próximo retry do backoff.
+        tourAgendarRecheckCurto(passo, cb);
+      };
+      try {
+        document.addEventListener('input', handlerBuscaInteracao, true);
+        document.addEventListener('change', handlerBuscaInteracao, true);
+        document.addEventListener('keyup', handlerBuscaInteracao, true);
+        tourState.buscaInteracaoHandler = handlerBuscaInteracao;
+      } catch (_e) {
+        tourState.buscaInteracaoHandler = null;
       }
     }
 
@@ -1998,6 +2108,24 @@
     if (tourState.buscaObserver) {
       try { tourState.buscaObserver.disconnect(); } catch (_e) {}
       tourState.buscaObserver = null;
+    }
+    if (tourState.buscaInteracaoHandler) {
+      try {
+        document.removeEventListener('input', tourState.buscaInteracaoHandler, true);
+        document.removeEventListener('change', tourState.buscaInteracaoHandler, true);
+        document.removeEventListener('keyup', tourState.buscaInteracaoHandler, true);
+      } catch (_e) {}
+      tourState.buscaInteracaoHandler = null;
+    }
+    if (tourState.buscaExtraTimers.length) {
+      for (var i = 0; i < tourState.buscaExtraTimers.length; i++) {
+        var item = tourState.buscaExtraTimers[i];
+        try {
+          if (item.tipo === 'raf' && window.cancelAnimationFrame) window.cancelAnimationFrame(item.id);
+          else window.clearTimeout(item.id);
+        } catch (_e) {}
+      }
+      tourState.buscaExtraTimers = [];
     }
   }
 
