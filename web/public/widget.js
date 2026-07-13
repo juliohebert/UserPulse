@@ -604,6 +604,14 @@
       '.up-rec-lista-dinamica-titulo{margin:0;font-size:11px;font-weight:700;color:#0058be}',
       '.up-rec-lista-dinamica-linha{margin:4px 0 0;font-size:10.5px;line-height:1.4;color:#0058be;word-break:break-all}',
       '.up-rec-lista-dinamica-linha code{background:rgba(0,88,190,.1);border-radius:4px;padding:1px 4px}',
+      // Selo de estabilidade (ver RECORDER_ESTABILIDADE_ALTA/MEDIA/BAIXA) —
+      // verde pra data-cy (alta), âmbar pra role semântico (média) e laranja
+      // mais forte pra classe de biblioteca (baixa, mesmo tom de aviso já
+      // usado pra "seletor frágil" em outros pontos do gravador).
+      '.up-rec-lista-dinamica-badge{display:inline-block;margin-top:4px;font-size:9.5px;font-weight:700;line-height:1.3;border-radius:10px;padding:1px 7px}',
+      '.up-rec-lista-dinamica-badge-alta{background:rgba(21,128,61,.12);color:#15803d}',
+      '.up-rec-lista-dinamica-badge-media{background:rgba(180,83,9,.12);color:#b45309}',
+      '.up-rec-lista-dinamica-badge-baixa{background:rgba(230,81,0,.12);color:#e65100}',
       '.up-rec-lista-dinamica-aviso{margin:4px 0 0;font-size:10px;line-height:1.3;color:#e65100}',
       '.up-rec-lista-dinamica-acoes{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}',
       '.up-rec-lista-dinamica-acoes .up-rec-btn-icone{padding:4px 8px;font-size:10px;border:1px solid rgba(0,88,190,.15)}',
@@ -3757,12 +3765,14 @@
     pausadoAntesTroca: false,
     // Sugestão de seletor pra lista/dropdown/autocomplete dinâmica detectada
     // depois de capturar um passo (ver recorderObservarListaDinamica) — null
-    // quando nada foi detectado ainda. { indice, seletor, generico, aviso }:
-    // indice é o passo a que a sugestão se refere (só exibida no painel
-    // lateral quando esse é o passo selecionado); generico=true quando não
-    // achou data-cy indexado e caiu num dos fallbacks CSS conhecidos (ver
-    // RECORDER_SELETORES_FALLBACK_LISTA). Nunca aplicada sozinha — só
-    // oferecida como ação no painel lateral.
+    // quando nada foi detectado ainda. { indice, seletor, generico,
+    // estabilidade }: indice é o passo a que a sugestão se refere (só
+    // exibida no painel lateral quando esse é o passo selecionado);
+    // generico=true quando não achou data-cy indexado e caiu num dos
+    // fallbacks CSS conhecidos (ver RECORDER_FALLBACK_LISTA_DINAMICA);
+    // estabilidade é RECORDER_ESTABILIDADE_ALTA/MEDIA/BAIXA, exibida na UI
+    // pra deixar claro o nível de confiança do seletor sugerido. Nunca
+    // aplicada sozinha — só oferecida como ação no painel lateral.
     // Efêmera (não persistida), como trocaIndice/analiseAtiva.
     sugestaoListaDinamica: null,
     // MutationObserver + timer da detecção de lista dinâmica em andamento
@@ -3825,25 +3835,45 @@
   // recorderObservarListaDinamica) — cobre autocompletes que abrem só depois
   // de uma resposta assíncrona (debounce de busca), não só synchronous.
   var RECORDER_LISTA_DINAMICA_JANELA_MS = 4000;
+
+  // Camadas de estabilidade da sugestão — quanto mais um seletor depende de
+  // convenção de automação (data-cy) em vez de detalhe de implementação
+  // (classe de uma lib de UI, que muda entre versões/temas), mais estável
+  // ele é a longo prazo. Usado só pra classificar/exibir a sugestão pro
+  // usuário decidir (nunca muda qual seletor é escolhido em si — a ORDEM de
+  // tentativa já reflete essa mesma prioridade).
+  var RECORDER_ESTABILIDADE_ALTA = 'alta';
+  var RECORDER_ESTABILIDADE_MEDIA = 'media';
+  var RECORDER_ESTABILIDADE_BAIXA = 'baixa';
+  var RECORDER_ESTABILIDADE_LABEL = {
+    alta: 'Alta estabilidade',
+    media: 'Média estabilidade',
+    baixa: 'Baixa estabilidade',
+  };
+
   // Combinações concretas de container+item conhecidas de bibliotecas de UI
   // populares (Angular CDK Overlay, Ant Design, NG-ZORRO) — tentadas nesta
   // ordem quando nenhum item com data-cy indexado é encontrado (ver
-  // recorderEscanearListaDinamica). Cada uma já é um seletor CSS completo,
-  // pronto pra usar; nenhuma delas depende de id (esses são gerados
-  // dinamicamente pelo framework — ver recorderEhIdOverlayDinamico) nem de
-  // nome de campo/sistema específico.
-  var RECORDER_SELETORES_FALLBACK_LISTA = [
-    '.cdk-overlay-container .ant-select-dropdown-menu-item',
-    '.ant-select-dropdown .ant-select-dropdown-menu-item',
-    '.cdk-overlay-container [role="option"]',
-    '.cdk-overlay-container [role="menuitem"]',
-    '.cdk-overlay-container nz-auto-option',
-    '.cdk-overlay-container nz-option-item',
+  // recorderEscanearListaDinamica). Role semântico (ARIA) vem antes de
+  // classe de biblioteca: [role="option"]/[role="menuitem"] tendem a
+  // sobreviver a upgrades/troca de tema da lib, enquanto uma classe como
+  // .ant-select-dropdown-menu-item é um detalhe de implementação que pode
+  // mudar. Cada entrada já é um seletor CSS completo, pronto pra usar;
+  // nenhuma delas depende de id (esses são gerados dinamicamente pelo
+  // framework — ver recorderEhIdOverlayDinamico) nem de nome de campo/
+  // sistema específico.
+  var RECORDER_FALLBACK_LISTA_DINAMICA = [
+    { seletor: '.cdk-overlay-container [role="option"]', estabilidade: RECORDER_ESTABILIDADE_MEDIA },
+    { seletor: '.cdk-overlay-container [role="menuitem"]', estabilidade: RECORDER_ESTABILIDADE_MEDIA },
+    { seletor: '.cdk-overlay-container .ant-select-dropdown-menu-item', estabilidade: RECORDER_ESTABILIDADE_BAIXA },
+    { seletor: '.ant-select-dropdown .ant-select-dropdown-menu-item', estabilidade: RECORDER_ESTABILIDADE_BAIXA },
+    { seletor: '.cdk-overlay-container nz-auto-option', estabilidade: RECORDER_ESTABILIDADE_BAIXA },
+    { seletor: '.cdk-overlay-container nz-option-item', estabilidade: RECORDER_ESTABILIDADE_BAIXA },
   ];
-  // Mesmos itens de RECORDER_SELETORES_FALLBACK_LISTA, mas "soltos" (sem
-  // prefixo de container) — usados por recorderEhItemDropdown pra reconhecer
-  // se UM elemento específico é um item de lista/dropdown dinâmica (ao
-  // contrário da lista acima, que busca no documento inteiro).
+  // Mesmos seletores de item de RECORDER_FALLBACK_LISTA_DINAMICA, mas
+  // "soltos" (sem prefixo de container) — usados por recorderEhItemDropdown
+  // pra reconhecer se UM elemento específico é um item de lista/dropdown
+  // dinâmica (ao contrário da lista acima, que busca no documento inteiro).
   var RECORDER_SELETORES_ITEM_DROPDOWN = [
     '.ant-select-dropdown-menu-item',
     '[role="option"]',
@@ -3961,6 +3991,38 @@
     return candidatos;
   }
 
+  // Mensagem mais clara que "elemento não encontrado" pra quando o passo
+  // aponta pra um item de lista/dropdown/autocomplete temporário — esses só
+  // existem no DOM enquanto a lista está aberta, então "não encontrado"
+  // sozinho é confuso (parece seletor quebrado, quando na verdade é
+  // esperado não achar nada com a lista fechada). Usada em qualquer lugar
+  // do gravador que mostra esse aviso (ver recorderSeletorPareceItemListaDinamica).
+  var RECORDER_MSG_ELEMENTO_TEMPORARIO_LISTA = 'Elemento temporário de lista/dropdown. Ele só aparece quando a lista está aberta.';
+
+  // true quando o seletor de um passo aponta pra um item de lista/dropdown/
+  // autocomplete dinâmica — mesmo com a lista fechada (sem elemento nenhum
+  // na tela pra checar agora), dá pra reconhecer isso pelo PADRÃO do próprio
+  // seletor guardado: [data-cy^="prefixo-"] (sugestão indexada por
+  // prefixo), um data-cy exato que também parece indexado (ex.: capturado
+  // direto de um item clicado, sem passar pela sugestão), ou um dos
+  // seletores CSS concretos conhecidos de RECORDER_FALLBACK_LISTA_DINAMICA/
+  // RECORDER_SELETORES_ITEM_DROPDOWN. Puramente estrutural — nenhum nome de
+  // campo/sistema específico.
+  function recorderSeletorPareceItemListaDinamica(passo) {
+    if (!passo || !passo.seletor) return false;
+    if (passo.seletor_tipo === 'data_cy') return Boolean(recorderPrefixoDataCyIndexado(passo.seletor));
+    if (passo.seletor_tipo !== 'css') return false;
+    var seletor = passo.seletor;
+    if (/^\[data-cy\^=/.test(seletor)) return true;
+    for (var i = 0; i < RECORDER_FALLBACK_LISTA_DINAMICA.length; i++) {
+      if (seletor === RECORDER_FALLBACK_LISTA_DINAMICA[i].seletor) return true;
+    }
+    for (var j = 0; j < RECORDER_SELETORES_ITEM_DROPDOWN.length; j++) {
+      if (seletor.indexOf(RECORDER_SELETORES_ITEM_DROPDOWN[j]) !== -1) return true;
+    }
+    return false;
+  }
+
   // Extrai o prefixo de um data-cy indexado (ex.: "algo-item-0" vira
   // "algo-item-"), removendo só o índice numérico final e preservando o
   // separador antes dele — regra puramente estrutural (nenhuma lista de
@@ -3977,7 +4039,7 @@
   // mudam a cada abertura/sessão/ordem de interação, então nunca são
   // estáveis o bastante pra virar um seletor de automação, mesmo que
   // pareçam "únicos" no momento da gravação. Usado como guarda tanto na
-  // detecção de lista dinâmica (que nunca usa id — RECORDER_SELETORES_FALLBACK_LISTA
+  // detecção de lista dinâmica (que nunca usa id — RECORDER_FALLBACK_LISTA_DINAMICA
   // só tem seletores de classe/role) quanto na geração geral de seletor
   // (recorderGerarSeletor/recorderAncoraAncestral), pra nunca capturar um id
   // assim como seletor principal de um passo, mesmo clicando direto no item.
@@ -4015,19 +4077,21 @@
     return false;
   }
 
-  // Primeiro seletor de RECORDER_SELETORES_FALLBACK_LISTA que tem pelo menos
-  // um item visível/interativo na tela agora, ou null se nenhum bater —
+  // Primeira entrada de RECORDER_FALLBACK_LISTA_DINAMICA que tem pelo menos
+  // um item visível/interativo na tela agora, ou null se nenhuma bater —
   // reaproveitado tanto por recorderEscanearListaDinamica (detecção
   // proativa via o botão "Detectar lista dinâmica") quanto por
   // recorderGerarSeletor (fallback ao capturar um clique direto num item de
-  // dropdown sem data-cy, sem precisar passar pelo botão).
+  // dropdown sem data-cy, sem precisar passar pelo botão). Retorna a entrada
+  // inteira ({ seletor, estabilidade }), não só a string do seletor — quem
+  // só precisa do seletor lê ".seletor" do retorno.
   function recorderMelhorSeletorFallbackLista() {
-    for (var f = 0; f < RECORDER_SELETORES_FALLBACK_LISTA.length; f++) {
-      var seletorFallback = RECORDER_SELETORES_FALLBACK_LISTA[f];
+    for (var f = 0; f < RECORDER_FALLBACK_LISTA_DINAMICA.length; f++) {
+      var entrada = RECORDER_FALLBACK_LISTA_DINAMICA[f];
       var itens;
-      try { itens = document.querySelectorAll(seletorFallback); } catch (_e) { continue; }
+      try { itens = document.querySelectorAll(entrada.seletor); } catch (_e) { continue; }
       for (var it = 0; it < itens.length; it++) {
-        if (tourElementoVisivelEInterativo(itens[it])) return seletorFallback;
+        if (tourElementoVisivelEInterativo(itens[it])) return entrada;
       }
     }
     return null;
@@ -4046,16 +4110,21 @@
   // Isso evita o falso positivo de achar QUALQUER data-cy indexado no
   // documento inteiro, mesmo vindo de menu/sidebar/header estático. Na
   // ausência de um data-cy válido, cai num dos fallbacks CSS concretos e
-  // conhecidos de RECORDER_SELETORES_FALLBACK_LISTA (menos estável,
-  // sinalizado como tal pro usuário decidir). Retorna
-  // { seletor, seletor_tipo, generico } ou null se nada for achado.
+  // conhecidos de RECORDER_FALLBACK_LISTA_DINAMICA (média/baixa
+  // estabilidade, sinalizada pro usuário decidir). Retorna
+  // { seletor, seletor_tipo, generico, estabilidade } ou null se nada for
+  // achado — data-cy indexado é sempre RECORDER_ESTABILIDADE_ALTA.
   function recorderEscanearListaDinamica() {
     var achadosDataCy;
     try { achadosDataCy = document.querySelectorAll('[data-cy]'); } catch (_e) { achadosDataCy = []; }
     var seletorDataCy = recorderMelhorCandidatoDataCyIndexado(achadosDataCy);
-    if (seletorDataCy) return { seletor: seletorDataCy, seletor_tipo: 'css', generico: false };
-    var seletorFallback = recorderMelhorSeletorFallbackLista();
-    if (seletorFallback) return { seletor: seletorFallback, seletor_tipo: 'css', generico: true };
+    if (seletorDataCy) {
+      return { seletor: seletorDataCy, seletor_tipo: 'css', generico: false, estabilidade: RECORDER_ESTABILIDADE_ALTA };
+    }
+    var fallback = recorderMelhorSeletorFallbackLista();
+    if (fallback) {
+      return { seletor: fallback.seletor, seletor_tipo: 'css', generico: true, estabilidade: fallback.estabilidade };
+    }
     return null;
   }
 
@@ -4114,6 +4183,7 @@
         seletor: sugestao.seletor,
         seletor_tipo: sugestao.seletor_tipo,
         generico: sugestao.generico,
+        estabilidade: sugestao.estabilidade,
       };
       // Só re-renderiza agora se o passo detectado ainda é o selecionado no
       // painel — evita reflow indevido se o usuário já mudou de seleção
@@ -4137,7 +4207,10 @@
         // menu/sidebar) e mais rápido.
         for (var a = 0; a < added.length; a++) {
           var seletorNo = recorderMelhorCandidatoDataCyIndexado(recorderCandidatosDataCyEm(added[a]));
-          if (seletorNo) { finalizarComSugestao({ seletor: seletorNo, seletor_tipo: 'css', generico: false }); return; }
+          if (seletorNo) {
+            finalizarComSugestao({ seletor: seletorNo, seletor_tipo: 'css', generico: false, estabilidade: RECORDER_ESTABILIDADE_ALTA });
+            return;
+          }
         }
         // Nada nos nós recém-inseridos — tenta o escaneamento geral (cobre
         // o fallback CSS genérico e mutações que só revelaram/mudaram
@@ -4334,14 +4407,14 @@
       // Item de lista/dropdown/autocomplete conhecido, sem nenhum dos
       // identificadores acima (ex.: item do Ant Design sem data-cy) — usa o
       // mesmo fallback CSS concreto e conhecido da detecção de lista
-      // dinâmica (ver RECORDER_SELETORES_FALLBACK_LISTA/
+      // dinâmica (ver RECORDER_FALLBACK_LISTA_DINAMICA/
       // recorderMelhorSeletorFallbackLista) em vez de cair direto no
       // fallback estrutural genérico (tag+classe+nth-of-type), que tende a
       // ser mais frágil e mais confuso pra esse tipo de elemento.
       if (recorderEhItemDropdown(el)) {
-        var seletorListaFallback = recorderMelhorSeletorFallbackLista();
-        if (seletorListaFallback) {
-          return { seletor_tipo: 'css', seletor: seletorListaFallback, fragil: true };
+        var fallbackListaItem = recorderMelhorSeletorFallbackLista();
+        if (fallbackListaItem) {
+          return { seletor_tipo: 'css', seletor: fallbackListaItem.seletor, fragil: true };
         }
       }
 
@@ -4500,8 +4573,16 @@
   }
 
   // botão/link/menu → ao_clicar; input/textarea/select e autocomplete/combobox
-  // /search/dropdown (por role ou por nome) → ao_alterar_valor.
+  // /search/dropdown (por role ou por nome) → ao_alterar_valor; item de
+  // lista/dropdown/autocomplete (ex.: <li class="ant-select-dropdown-menu-item">)
+  // → ao_clicar, SEMPRE — checado antes da heurística de pistas abaixo, que
+  // testa a própria classe do elemento por "dropdown" e classificaria
+  // erradamente um ITEM da lista (não o campo que abre) como "Preencher
+  // valor" (sua classe geralmente contém a palavra "dropdown" também). Um
+  // item de lista não tem valor nenhum pra preencher — a única interação
+  // que faz sentido nele é clique (ver recorderEhItemDropdown).
   function recorderInferirModo(el) {
+    if (recorderEhItemDropdown(el)) return 'ao_clicar';
     var tag = el.tagName ? el.tagName.toUpperCase() : '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return 'ao_alterar_valor';
     var role = el.getAttribute && el.getAttribute('role');
@@ -4634,7 +4715,12 @@
       seletor_tipo: sel.seletor_tipo,
       seletor: sel.seletor,
       tooltip_posicao: 'auto',
-      acao_ao_avancar: 'apenas_avancar',
+      // Item de lista/dropdown/autocomplete: clicar no elemento destacado é
+      // o único jeito de avançar por ele de verdade (não há "Próximo"
+      // clicável de outra forma, já que o próprio item some assim que a
+      // lista fecha) — mesmo padrão usado por "Criar próximo passo" na
+      // sugestão de lista dinâmica (ver recorderEhItemDropdown).
+      acao_ao_avancar: recorderEhItemDropdown(el) ? 'clicar_elemento' : 'apenas_avancar',
       modo_avanco_interacao: modo,
       seletor_confirmacao: null,
       // Agrupamento visual opcional no painel lateral (ver
@@ -4912,6 +4998,8 @@
         '<div class="up-rec-lista-dinamica-card">',
         '<p class="up-rec-lista-dinamica-titulo">Lista dinâmica detectada</p>',
         '<p class="up-rec-lista-dinamica-linha">Seletor sugerido: <code>' + escapeHtml(sugestao.seletor) + '</code></p>',
+        '<span class="up-rec-lista-dinamica-badge up-rec-lista-dinamica-badge-' + escapeHtml(sugestao.estabilidade) + '">' +
+          escapeHtml(RECORDER_ESTABILIDADE_LABEL[sugestao.estabilidade] || '') + '</span>',
         (sugestao.generico
           ? '<p class="up-rec-lista-dinamica-aviso">Seletor sem data-cy. Para maior estabilidade, adicione data-cy nos itens da lista.</p>'
           : ''),
@@ -4931,7 +5019,7 @@
     try { elementoAtual = selecionarElementoPasso(passo); } catch (_e) { elementoAtual = null; }
     return [
       '<div class="up-rec-lateral-preview-wrap">' + recorderHtmlPreview(passo, indice, total) + '</div>',
-      (elementoAtual ? '' : '<p style="margin:4px 0 0"><span style="display:inline-block;font-size:10px;line-height:1.3;color:#e65100;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:2px 6px">Elemento não encontrado na tela atual.</span></p>'),
+      (elementoAtual ? '' : '<p style="margin:4px 0 0"><span style="display:inline-block;font-size:10px;line-height:1.3;color:#e65100;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:2px 6px">' + (recorderSeletorPareceItemListaDinamica(passo) ? RECORDER_MSG_ELEMENTO_TEMPORARIO_LISTA : 'Elemento não encontrado na tela atual.') + '</span></p>'),
       recorderHtmlAlertaSeletorFragil(passo, elementoAtual),
       recorderHtmlSugestaoListaDinamica(indice),
       '<label class="up-rec-revisao-label-principal">Título</label>',
@@ -5806,7 +5894,9 @@
     var elementoAtual = null;
     try { elementoAtual = selecionarElementoPasso(p); } catch (_e) { elementoAtual = null; }
     if (!elementoAtual) {
-      alertas.push('Elemento não encontrado na tela atual — pode estar oculto, ter sido removido ou você pode estar em outra página. Você ainda pode editar este passo normalmente.');
+      alertas.push(recorderSeletorPareceItemListaDinamica(p)
+        ? RECORDER_MSG_ELEMENTO_TEMPORARIO_LISTA + ' Você ainda pode editar este passo normalmente.'
+        : 'Elemento não encontrado na tela atual — pode estar oculto, ter sido removido ou você pode estar em outra página. Você ainda pode editar este passo normalmente.');
     }
     return alertas;
   }
@@ -6637,7 +6727,9 @@
       '<span class="up-rec-label">Passo ' + (indice + 1) + tituloParte + '</span>',
       '<span class="up-rec-troca-status">' + (elementoEncontrado
         ? 'Elemento destacado na tela.'
-        : 'Elemento não encontrado nesta tela — pode estar oculto ou em outra página.') + '</span>',
+        : (recorderSeletorPareceItemListaDinamica(passo)
+          ? RECORDER_MSG_ELEMENTO_TEMPORARIO_LISTA
+          : 'Elemento não encontrado nesta tela — pode estar oculto ou em outra página.')) + '</span>',
       '<div class="up-rec-actions">',
       '<button type="button" class="up-rec-btn up-rec-btn-primary" data-localizar-voltar>Voltar à revisão</button>',
       '</div>',
