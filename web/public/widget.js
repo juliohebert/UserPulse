@@ -3840,6 +3840,27 @@
     '.cdk-overlay-container nz-auto-option',
     '.cdk-overlay-container nz-option-item',
   ];
+  // Mesmos itens de RECORDER_SELETORES_FALLBACK_LISTA, mas "soltos" (sem
+  // prefixo de container) — usados por recorderEhItemDropdown pra reconhecer
+  // se UM elemento específico é um item de lista/dropdown dinâmica (ao
+  // contrário da lista acima, que busca no documento inteiro).
+  var RECORDER_SELETORES_ITEM_DROPDOWN = [
+    '.ant-select-dropdown-menu-item',
+    '[role="option"]',
+    '[role="menuitem"]',
+    'nz-auto-option',
+    'nz-option-item',
+  ];
+  // Containers/wrappers de overlay do próprio framework — nunca são "o
+  // elemento clicado" de verdade, mesmo que a subida por ancestrais
+  // (recorderLocalizarAlvoRelevante) passe por eles: são só o mecanismo de
+  // posicionamento/empilhamento do dropdown, não um item de lista real (ver
+  // recorderEhContainerOverlayFramework).
+  var RECORDER_SELETORES_CONTAINER_OVERLAY_FRAMEWORK = [
+    '.cdk-overlay-pane',
+    '.cdk-global-overlay-wrapper',
+    '.ant-select-dropdown',
+  ];
 
   // Extrai o prefixo de um data-cy indexado (ex.: "algo-item-0" vira
   // "algo-item-"), removendo só o índice numérico final e preservando o
@@ -3863,6 +3884,54 @@
   // assim como seletor principal de um passo, mesmo clicando direto no item.
   function recorderEhIdOverlayDinamico(valor) {
     return /^cdk-overlay-\d+$/i.test(String(valor == null ? '' : valor).trim());
+  }
+
+  // true quando o elemento é um item de lista/dropdown/autocomplete
+  // conhecido (Ant Design, NG-ZORRO, roles ARIA de menu/option) — usado por
+  // recorderElementoRelevante (reconhece o item como alvo válido de um
+  // passo, mesmo sem tag/role "clássico" de botão/link) e por
+  // recorderGerarSeletor/recorderGerarTitulo (escolhem o fallback e o título
+  // certos pra esse tipo de elemento). Puramente estrutural — nenhum nome de
+  // campo/sistema específico.
+  function recorderEhItemDropdown(el) {
+    if (!el || !el.matches) return false;
+    for (var i = 0; i < RECORDER_SELETORES_ITEM_DROPDOWN.length; i++) {
+      try { if (el.matches(RECORDER_SELETORES_ITEM_DROPDOWN[i])) return true; } catch (_e) {}
+    }
+    return false;
+  }
+
+  // true quando o elemento é um container/wrapper de overlay do próprio
+  // framework (painel do Angular CDK — id dinâmico OU as classes fixas dele
+  // — ou o wrapper do Ant Design) — nunca deve virar "o alvo relevante" de
+  // um clique (ver recorderElementoRelevante), mesmo tendo id/aria-label:
+  // é só o mecanismo de posicionamento do dropdown, não um item real.
+  function recorderEhContainerOverlayFramework(el) {
+    if (!el) return false;
+    if (el.id && recorderEhIdOverlayDinamico(el.id)) return true;
+    if (!el.matches) return false;
+    for (var i = 0; i < RECORDER_SELETORES_CONTAINER_OVERLAY_FRAMEWORK.length; i++) {
+      try { if (el.matches(RECORDER_SELETORES_CONTAINER_OVERLAY_FRAMEWORK[i])) return true; } catch (_e) {}
+    }
+    return false;
+  }
+
+  // Primeiro seletor de RECORDER_SELETORES_FALLBACK_LISTA que tem pelo menos
+  // um item visível/interativo na tela agora, ou null se nenhum bater —
+  // reaproveitado tanto por recorderEscanearListaDinamica (detecção
+  // proativa via o botão "Detectar lista dinâmica") quanto por
+  // recorderGerarSeletor (fallback ao capturar um clique direto num item de
+  // dropdown sem data-cy, sem precisar passar pelo botão).
+  function recorderMelhorSeletorFallbackLista() {
+    for (var f = 0; f < RECORDER_SELETORES_FALLBACK_LISTA.length; f++) {
+      var seletorFallback = RECORDER_SELETORES_FALLBACK_LISTA[f];
+      var itens;
+      try { itens = document.querySelectorAll(seletorFallback); } catch (_e) { continue; }
+      for (var it = 0; it < itens.length; it++) {
+        if (tourElementoVisivelEInterativo(itens[it])) return seletorFallback;
+      }
+    }
+    return null;
   }
 
   // Escaneia o DOM ATUAL (não espera nenhuma mutação) à procura de uma
@@ -3891,16 +3960,8 @@
         };
       }
     }
-    for (var f = 0; f < RECORDER_SELETORES_FALLBACK_LISTA.length; f++) {
-      var seletorFallback = RECORDER_SELETORES_FALLBACK_LISTA[f];
-      var itens;
-      try { itens = document.querySelectorAll(seletorFallback); } catch (_e) { continue; }
-      for (var it = 0; it < itens.length; it++) {
-        if (tourElementoVisivelEInterativo(itens[it])) {
-          return { seletor: seletorFallback, seletor_tipo: 'css', generico: true };
-        }
-      }
-    }
+    var seletorFallback = recorderMelhorSeletorFallbackLista();
+    if (seletorFallback) return { seletor: seletorFallback, seletor_tipo: 'css', generico: true };
     return null;
   }
 
@@ -4161,6 +4222,20 @@
         }
       }
 
+      // Item de lista/dropdown/autocomplete conhecido, sem nenhum dos
+      // identificadores acima (ex.: item do Ant Design sem data-cy) — usa o
+      // mesmo fallback CSS concreto e conhecido da detecção de lista
+      // dinâmica (ver RECORDER_SELETORES_FALLBACK_LISTA/
+      // recorderMelhorSeletorFallbackLista) em vez de cair direto no
+      // fallback estrutural genérico (tag+classe+nth-of-type), que tende a
+      // ser mais frágil e mais confuso pra esse tipo de elemento.
+      if (recorderEhItemDropdown(el)) {
+        var seletorListaFallback = recorderMelhorSeletorFallbackLista();
+        if (seletorListaFallback) {
+          return { seletor_tipo: 'css', seletor: seletorListaFallback, fragil: true };
+        }
+      }
+
       return { seletor_tipo: 'css', seletor: recorderSeletorFallback(el), fragil: true };
     } catch (_e) {
       return { seletor_tipo: 'css', seletor: el.tagName ? el.tagName.toLowerCase() : '*', fragil: true };
@@ -4331,9 +4406,31 @@
     return 'ao_clicar';
   }
 
+  // Acima disso, o texto de um item de lista/dropdown provavelmente não é
+  // mais o rótulo de UM item só (ex.: o alvo capturado acabou sendo um
+  // container com vários itens dentro, cujo textContent concatena o texto
+  // de todos eles) — o título genérico curto é mais seguro que expor esse
+  // texto bruto truncado no meio de uma palavra.
+  var RECORDER_TITULO_ITEM_LISTA_MAX = 40;
+
+  // Título específico pra item de lista/dropdown (ver recorderEhItemDropdown)
+  // — "Selecionar <texto do item>" quando o texto é curto o bastante pra ser
+  // razoavelmente o rótulo de um item só; "Selecionar item da lista" como
+  // fallback curto e genérico caso contrário (sem texto, ou texto longo
+  // demais pra ser um item único). Nunca concatena o texto de vários itens.
+  function recorderGerarTituloItemLista(el) {
+    var texto = (el.textContent || '').trim().replace(/\s+/g, ' ');
+    if (texto && texto.length <= RECORDER_TITULO_ITEM_LISTA_MAX) return 'Selecionar ' + texto;
+    return 'Selecionar item da lista';
+  }
+
   // Só usa texto/atributos estáticos da própria UI (rótulo do botão, placeholder,
   // name) — nunca o valor digitado pelo usuário.
   function recorderGerarTitulo(el) {
+    // Item de lista/dropdown tem uma regra própria e mais curta (ver
+    // recorderGerarTituloItemLista) — checado antes do texto genérico
+    // abaixo, que não tem limite de tamanho pensado pra esse caso.
+    if (recorderEhItemDropdown(el)) return recorderGerarTituloItemLista(el);
     var texto = (el.textContent || '').trim().replace(/\s+/g, ' ');
     if (texto) return texto.length > 60 ? texto.slice(0, 57) + '...' : texto;
     var ariaLabel = el.getAttribute && el.getAttribute('aria-label');
@@ -5291,8 +5388,14 @@
         seletor_tipo: sugNovo.seletor_tipo,
         seletor: sugNovo.seletor,
         tooltip_posicao: 'auto',
-        acao_ao_avancar: 'apenas_avancar',
-        modo_avanco_interacao: 'manual',
+        // O item real só existe depois da lista abrir — faz sentido este
+        // passo avançar quando o usuário clica nele (modo_avanco_interacao)
+        // e, se avançado pelo botão Próximo em vez de um clique direto,
+        // simular esse clique no elemento destacado antes de seguir
+        // (acao_ao_avancar) — mesmo padrão já usado por outros passos
+        // "clicar num elemento real" do gravador.
+        acao_ao_avancar: 'clicar_elemento',
+        modo_avanco_interacao: 'ao_clicar',
         seletor_confirmacao: null,
         secao: passoOrigemNovo.secao || '',
       };
@@ -5344,10 +5447,24 @@
     if (!el || el.nodeType !== 1) return false;
     var tag = el.tagName ? el.tagName.toLowerCase() : '';
     if (RECORDER_TAGS_NUNCA_RELEVANTES.indexOf(tag) !== -1) return false;
+    // Container/wrapper de overlay do próprio framework (painel do CDK, seu
+    // id dinâmico, wrapper do Ant Design) — nunca é o alvo relevante, mesmo
+    // tendo id: é só o mecanismo de posicionamento do dropdown por baixo, e
+    // capturá-lo produz um passo ruim (seletor instável, título com o texto
+    // de TODOS os itens concatenados). Verificado antes de qualquer outro
+    // critério, inclusive antes de tags/roles "clássicos" — um elemento
+    // desses nunca deveria ser considerado relevante por nenhum motivo.
+    if (recorderEhContainerOverlayFramework(el)) return false;
     if (RECORDER_TAGS_RELEVANTES.indexOf(tag) !== -1) return true;
     var role = el.getAttribute && el.getAttribute('role');
     if (role && RECORDER_ROLES_RELEVANTES.indexOf(role) !== -1) return true;
     if (el.getAttribute && (el.getAttribute('data-cy') || el.getAttribute('data-testid') || el.getAttribute('aria-label'))) return true;
+    // Item de lista/dropdown/autocomplete conhecido (ex.: <li
+    // class="ant-select-dropdown-menu-item">) — reconhecido como alvo válido
+    // mesmo sem tag/role "clássico" de botão/link, pra não deixar a subida
+    // por ancestrais continuar até um wrapper qualquer (ver
+    // recorderLocalizarAlvoRelevante/recorderEhItemDropdown).
+    if (recorderEhItemDropdown(el)) return true;
     if (el.id) return true;
     return false;
   }
