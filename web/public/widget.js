@@ -1754,6 +1754,21 @@
   // hidratar até revelar o elemento do passo retomado.
   var TOUR_RETRY_MAX = 16;
   var TOUR_RETRY_INTERVAL_MS = 250; // usado só pelo poll de ao_aparecer_elemento/ao_sumir_elemento (bindInteracao) — intervalo fixo faz sentido ali, é uma espera por mudança de estado, não por DOM recém-carregado estabilizar
+  // Rechecagens curtas agendadas a cada evento de input/change/keyup e a cada
+  // mutação sem sucesso imediato (ver tourAgendarRecheckCurto) — cobrem o
+  // intervalo entre o debounce de uma tela de busca/reflow terminar e o item
+  // da lista realmente virar visível (rect não-zero), sem esperar o próximo
+  // retry do backoff acima (que pode levar até ~1.5s no pior caso).
+  var TOUR_RECHECK_CURTO_MS = [50, 150, 300];
+  // Por quanto tempo, depois do elemento de um passo ser destacado, o
+  // runtime continua vigiando mutação de DOM/input/change/keyup pra
+  // reposicionar o highlight (ver tourIniciarVigiaPosicionamento) — cobre
+  // reflow tardio: campos que terminam de aparecer/animar um pouco depois
+  // do passo já estar em tela (ex.: escolhas anteriores revelando novos
+  // campos de formulário). Scroll/resize continuam cobertos o tempo todo,
+  // sem esse limite, por bindTourReposHandlers (já global pra sessão
+  // inteira do tour).
+  var TOUR_VIGIA_JANELA_MS = 4000;
 
   function tourIntervaloRetry(tentativa) {
     var base = 200;
@@ -1775,6 +1790,61 @@
     // junto com o timer, pra nunca sobrar observando o DOM à toa depois que a
     // busca termina (achou, esgotou o retry, ou foi cancelada).
     buscaObserver: null,
+    // Listener de input/change/keyup ativo durante uma busca de elemento
+    // (localizarComRetry) — cobre o caso de passo anterior ser um campo de
+    // busca cuja lista de resultados é renderizada de forma assíncrona
+    // (debounce da própria tela) logo após o usuário digitar: reavalia o
+    // seletor do próximo passo a cada tecla/alteração, sem esperar o próximo
+    // retry agendado nem depender só do MutationObserver (que não cobre, por
+    // ex., o item ainda existir no DOM mas trocar de estado antes do reflow
+    // reportar um tamanho válido). Desconectado por limparBuscaTimer() junto
+    // com o timer e o observer.
+    buscaInteracaoHandler: null,
+    // Timers/frames de rechecagem curta (requestAnimationFrame + setTimeout
+    // 50/150/300ms — ver TOUR_RECHECK_CURTO_MS/tourAgendarRecheckCurto)
+    // agendados pelo listener de input/change/keyup e pelo MutationObserver
+    // quando nenhum dos dois acha o elemento na hora — cobre listas
+    // dinâmicas com debounce/reflow que só terminam de assentar um pouco
+    // depois do evento/mutação. Cada item é { tipo: 'raf'|'timeout', id };
+    // limparBuscaTimer() cancela todos e zera o array, então nunca sobra
+    // timer/frame "zumbi" rodando depois que a busca termina.
+    buscaExtraTimers: [],
+    // MutationObserver ativo por um curto período depois do elemento do
+    // passo atual ser destacado (ver tourIniciarVigiaPosicionamento) —
+    // diferente de buscaObserver (que só existe enquanto o elemento AINDA
+    // não foi achado), este vigia o elemento JÁ achado, pra reposicionar o
+    // highlight se o layout ao redor dele mudar (novos campos aparecendo,
+    // reflow) depois do passo já estar em tela. Desconectado por
+    // tourLimparVigiaPosicionamento(), chamado ao trocar de passo e ao
+    // encerrar/concluir o tour.
+    vigiaObserver: null,
+    // Mesmo propósito de vigiaObserver, via input/change/keyup delegado em
+    // document — cobre reflow que não passa por mutação observável a tempo
+    // (ou que só se estabiliza de fato depois de uma interação seguinte).
+    vigiaInteracaoHandler: null,
+    // Timer que desliga a vigilância acima depois de TOUR_VIGIA_JANELA_MS —
+    // evita manter observer/listener ativos indefinidamente enquanto o
+    // passo fica em tela (scroll/resize continuam cobertos à parte, sem
+    // esse limite, por bindTourReposHandlers).
+    vigiaJanelaTimer: null,
+    // Timers/frames de rechecagem curta (mesmo padrão de buscaExtraTimers)
+    // usados pela vigilância de reposicionamento acima — cada item é
+    // { tipo: 'raf'|'timeout', id }; tourLimparVigiaPosicionamento() cancela
+    // todos e zera o array.
+    vigiaExtraTimers: [],
+    // requestAnimationFrame pendente de tourAgendarRecomputoVigia() — no
+    // máximo 1 recálculo de posição agendado por vez, não importa quantas
+    // mutações/eventos de input/change/keyup cheguem antes dele disparar
+    // (todos colapsam num recálculo só, no próximo frame). Cancelado por
+    // tourLimparVigiaPosicionamento().
+    vigiaFrameId: null,
+    // Último rect efetivamente usado pra desenhar o passo atual — permite
+    // tourRecomputarPosicaoAtual() pular renderTour() quando o elemento é o
+    // mesmo e a posição não mudou de forma perceptível (ver
+    // tourRectMudouSignificativamente), evitando redesenhar (e, por
+    // consequência, gerar mais mutação de DOM) sem necessidade. Zerado toda
+    // vez que a vigilância de um passo novo começa (tourLimparVigiaPosicionamento).
+    vigiaUltimoRect: null,
     reposTimer: null,
     ativo: false,
     interacaoCleanup: null,
@@ -1918,32 +1988,157 @@
     return valor.charAt(0) === '#' ? valor.slice(1) : valor;
   }
 
+  // Elemento existe no DOM mas está oculto/inativo (display:none,
+  // visibility:hidden, disabled, aria-disabled) — trata como ainda-não-
+  // encontrado/não-candidato, pra dar tempo do host revelá-lo (ex.: outro
+  // passo do tour abriu um painel, um botão que só habilita depois de um
+  // campo válido) antes de cair no estado de erro ou de destacar algo que o
+  // usuário não consegue de fato usar. Genérico — não depende de nenhum
+  // seletor/atributo específico de sistema.
+  function tourElementoVisivelEInterativo(el) {
+    if (!el) return false;
+    try {
+      if (el.hasAttribute && el.hasAttribute('disabled')) return false;
+      if (el.getAttribute && el.getAttribute('aria-disabled') === 'true') return false;
+      var estilo = window.getComputedStyle ? window.getComputedStyle(el) : null;
+      if (estilo && (estilo.display === 'none' || estilo.visibility === 'hidden' || estilo.visibility === 'collapse')) return false;
+      var rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return false;
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  // Dado um NodeList/array de candidatos pro mesmo seletor (caso comum de
+  // seletor CSS por prefixo de atributo, que pode casar com vários itens de
+  // uma lista), escolhe o primeiro que estiver visível/interativo em vez de
+  // simplesmente pegar o primeiro em ordem de documento (que
+  // document.querySelector já fazia) — evita travar em "elemento não
+  // encontrado" só porque o primeiro match é um placeholder/skeleton oculto
+  // ou um item ainda desabilitado, quando já existe um candidato válido mais
+  // à frente na mesma lista.
+  function tourEscolherMelhorCandidato(lista) {
+    for (var i = 0; i < lista.length; i++) {
+      if (tourElementoVisivelEInterativo(lista[i])) return lista[i];
+    }
+    return null;
+  }
+
   function selecionarElementoPasso(passo) {
     try {
       var el;
       if (passo.seletor_tipo === 'css') {
-        el = document.querySelector(passo.seletor);
+        el = tourEscolherMelhorCandidato(document.querySelectorAll(passo.seletor));
       } else if (passo.seletor_tipo === 'id') {
         var idNormalizado = tourNormalizarId(passo.seletor);
-        el = idNormalizado ? document.getElementById(idNormalizado) : null;
+        var elId = idNormalizado ? document.getElementById(idNormalizado) : null;
+        el = tourElementoVisivelEInterativo(elId) ? elId : null;
       } else {
         // 'data_cy' (default/legado) — cobre também qualquer valor antigo já
-        // salvo sem tipo definido.
+        // salvo sem tipo definido. Mesmo tratamento de múltiplos candidatos do
+        // 'css' acima: normalmente um data-cy exato é único na tela, mas nada
+        // impede o host repetir o mesmo valor em mais de um lugar (ex.: versão
+        // mobile/desktop do mesmo componente) — nesse caso, prefere o
+        // candidato visível/interativo em vez do primeiro em ordem de DOM.
         var dataCyNormalizado = tourNormalizarDataCy(passo.seletor);
         el = dataCyNormalizado
-          ? document.querySelector('[data-cy="' + dataCyNormalizado.replace(/"/g, '\\"') + '"]')
+          ? tourEscolherMelhorCandidato(document.querySelectorAll('[data-cy="' + dataCyNormalizado.replace(/"/g, '\\"') + '"]'))
           : null;
       }
-      if (!el) return null;
-      // Elemento existe no DOM mas está oculto (display:none, etc.) — trata como
-      // ainda-não-encontrado para dar tempo do host revelá-lo (ex.: outro passo
-      // do tour abriu um painel) antes de cair no estado de erro.
-      var rect = el.getBoundingClientRect();
-      if (rect.width === 0 && rect.height === 0) return null;
-      return el;
+      return el || null;
     } catch (_e) {
       return null;
     }
+  }
+
+  // Remove uma entrada já disparada de tourState.buscaExtraTimers (limpeza
+  // "ao vivo", pra não deixar o array crescer sem necessidade durante uma
+  // digitação longa) — limparBuscaTimer() ainda cobre cancelar as que não
+  // chegaram a disparar.
+  function tourRemoverBuscaExtraTimer(tipo, id) {
+    var lista = tourState.buscaExtraTimers;
+    for (var i = lista.length - 1; i >= 0; i--) {
+      if (lista[i].tipo === tipo && lista[i].id === id) { lista.splice(i, 1); break; }
+    }
+  }
+
+  // Agenda 1 requestAnimationFrame + setTimeouts em TOUR_RECHECK_CURTO_MS pra
+  // reavaliar o seletor do passo — chamado tanto pelo listener de
+  // input/change/keyup quanto pelo MutationObserver (ver localizarComRetry)
+  // quando a checagem imediata de nenhum dos dois acha o elemento. Cobre o
+  // intervalo entre o evento/mutação acontecer e a lista dinâmica realmente
+  // terminar de assentar (debounce da tela de busca, reflow, animação de
+  // entrada) — sem essas rechecagens curtas, esse intervalo só seria coberto
+  // pelo próximo retry do backoff (tourIntervaloRetry), que pode levar até
+  // ~1.5s no pior caso. Só resolve se achar; senão os retries/observer/
+  // listener normais continuam até TOUR_RETRY_MAX. Todo id agendado aqui vai
+  // pra tourState.buscaExtraTimers — limparBuscaTimer() cancela todos.
+  function tourAgendarRecheckCurto(passo, cb) {
+    function checar() {
+      var achado = selecionarElementoPasso(passo);
+      if (achado) { limparBuscaTimer(); cb(achado); }
+    }
+    if (window.requestAnimationFrame) {
+      try {
+        var rafId = window.requestAnimationFrame(function () {
+          tourRemoverBuscaExtraTimer('raf', rafId);
+          checar();
+        });
+        tourState.buscaExtraTimers.push({ tipo: 'raf', id: rafId });
+      } catch (_e) { /* ambiente sem rAF de verdade — segue só com os setTimeout abaixo */ }
+    }
+    for (var i = 0; i < TOUR_RECHECK_CURTO_MS.length; i++) {
+      (function (ms) {
+        var timeoutId = window.setTimeout(function () {
+          tourRemoverBuscaExtraTimer('timeout', timeoutId);
+          checar();
+        }, ms);
+        tourState.buscaExtraTimers.push({ tipo: 'timeout', id: timeoutId });
+      })(TOUR_RECHECK_CURTO_MS[i]);
+    }
+  }
+
+  // Verifica se um nó é (ou está dentro d)o próprio overlay do tour
+  // (TOUR_WIDGET_ID) — usado pra filtrar mutações que os MutationObserver de
+  // busca/vigilância captam por causa do PRÓPRIO renderTour() (remoção/
+  // recriação do overlay, mudança de estilo do tooltip/spotlight etc.).
+  // Sem esse filtro, observar document.body com subtree:true inclui o
+  // overlay que o próprio runtime desenha — cada renderTour() dispara o
+  // observer de novo, que (se reagir chamando renderTour() outra vez) entra
+  // em loop de alta frequência, travando a aba. Genérico: só depende do id
+  // que o próprio widget já usa pro seu root, sem nenhuma referência a
+  // sistema/campo específico.
+  function tourNoPertenceAoOverlay(node) {
+    if (!node) return false;
+    var el = node.nodeType === 1 ? node : node.parentElement;
+    if (!el) return false;
+    if (el.id === TOUR_WIDGET_ID) return true;
+    try { return Boolean(el.closest && el.closest('#' + TOUR_WIDGET_ID)); } catch (_e) { return false; }
+  }
+
+  // true quando TODAS as mutações de um lote do MutationObserver pertencem
+  // ao próprio overlay do tour (ver tourNoPertenceAoOverlay) — nesse caso o
+  // lote inteiro é ruído do nosso próprio render, não uma mudança real na
+  // tela do host, e deve ser ignorado. Basta um único nó fora do overlay no
+  // mesmo lote (mutação real do host) pra ele deixar de ser ignorado.
+  function tourMutacoesSaoSoDoOverlay(mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      var m = mutations[i];
+      if (m.type === 'childList') {
+        var nos = [];
+        for (var a = 0; a < m.addedNodes.length; a++) nos.push(m.addedNodes[a]);
+        for (var r = 0; r < m.removedNodes.length; r++) nos.push(m.removedNodes[r]);
+        if (nos.length === 0) { if (!tourNoPertenceAoOverlay(m.target)) return false; continue; }
+        for (var n = 0; n < nos.length; n++) {
+          if (!tourNoPertenceAoOverlay(nos[n])) return false;
+        }
+        continue;
+      }
+      // 'attributes' — único outro tipo configurado nos observe() abaixo.
+      if (!tourNoPertenceAoOverlay(m.target)) return false;
+    }
+    return true;
   }
 
   function localizarComRetry(passo, tentativa, cb) {
@@ -1975,13 +2170,55 @@
     // (não recriado a cada tentativa); limparBuscaTimer() desconecta.
     if (!tourState.buscaObserver && window.MutationObserver) {
       try {
-        tourState.buscaObserver = new MutationObserver(function () {
+        tourState.buscaObserver = new MutationObserver(function (mutations) {
+          // Ignora lotes de mutação que são só o próprio overlay do tour se
+          // (re)desenhando (ex.: o estado "Aguardando" renderizado acima) —
+          // nunca uma mudança real no host, então não vale reavaliar nada.
+          if (tourMutacoesSaoSoDoOverlay(mutations)) return;
           var achado = selecionarElementoPasso(passo);
-          if (achado) { limparBuscaTimer(); cb(achado); }
+          if (achado) { limparBuscaTimer(); cb(achado); return; }
+          // Mutação aconteceu mas o elemento ainda não passa no check de
+          // visibilidade (rect zerado) — comum quando o item entra no DOM
+          // antes do reflow/animação de entrada assentar. Agenda rechecagens
+          // curtas em vez de só esperar a próxima mutação ou o retry do
+          // backoff (ver tourAgendarRecheckCurto).
+          tourAgendarRecheckCurto(passo, cb);
         });
         tourState.buscaObserver.observe(document.body, { childList: true, subtree: true, attributes: true });
       } catch (_e) {
         tourState.buscaObserver = null;
+      }
+    }
+
+    // input/change/keyup: reavalia o seletor do próximo passo assim que o
+    // usuário digita/altera algo no elemento anterior (ex.: campo de busca
+    // cujo passo seguinte aponta pra um item de lista que só existe depois
+    // da digitação) — mesmo padrão do MutationObserver acima (só resolve se
+    // achar; senão continua até o próximo retry agendado ou o timeout de
+    // TOUR_RETRY_MAX), só que reagindo à interação em si, não à mutação do
+    // DOM — cobre elementos que já existem mas ainda não passam no check de
+    // visibilidade (ver selecionarElementoPasso) no instante exato da
+    // mutação. Delegado em document (capture) porque o elemento que dispara
+    // o evento (o campo do passo anterior) não é o elemento sendo buscado
+    // aqui, e um listener por sessão de busca é suficiente (mesma
+    // justificativa do observer único acima).
+    if (!tourState.buscaInteracaoHandler) {
+      var handlerBuscaInteracao = function () {
+        var achado = selecionarElementoPasso(passo);
+        if (achado) { limparBuscaTimer(); cb(achado); return; }
+        // Ainda não achou no instante do evento — o valor acabou de mudar,
+        // então a lista dinâmica (se depender de debounce da própria tela)
+        // pode aparecer só um pouco depois; agenda rechecagens curtas em vez
+        // de esperar só o próximo retry do backoff.
+        tourAgendarRecheckCurto(passo, cb);
+      };
+      try {
+        document.addEventListener('input', handlerBuscaInteracao, true);
+        document.addEventListener('change', handlerBuscaInteracao, true);
+        document.addEventListener('keyup', handlerBuscaInteracao, true);
+        tourState.buscaInteracaoHandler = handlerBuscaInteracao;
+      } catch (_e) {
+        tourState.buscaInteracaoHandler = null;
       }
     }
 
@@ -1999,6 +2236,220 @@
       try { tourState.buscaObserver.disconnect(); } catch (_e) {}
       tourState.buscaObserver = null;
     }
+    if (tourState.buscaInteracaoHandler) {
+      try {
+        document.removeEventListener('input', tourState.buscaInteracaoHandler, true);
+        document.removeEventListener('change', tourState.buscaInteracaoHandler, true);
+        document.removeEventListener('keyup', tourState.buscaInteracaoHandler, true);
+      } catch (_e) {}
+      tourState.buscaInteracaoHandler = null;
+    }
+    if (tourState.buscaExtraTimers.length) {
+      for (var i = 0; i < tourState.buscaExtraTimers.length; i++) {
+        var item = tourState.buscaExtraTimers[i];
+        try {
+          if (item.tipo === 'raf' && window.cancelAnimationFrame) window.cancelAnimationFrame(item.id);
+          else window.clearTimeout(item.id);
+        } catch (_e) {}
+      }
+      tourState.buscaExtraTimers = [];
+    }
+  }
+
+  // Cancela toda a vigilância de reposicionamento do passo atual (observer,
+  // listener de interação, timers/frames de rechecagem curta e o timer da
+  // janela) — chamada ao trocar de passo (irParaPasso, antes de resolver o
+  // próximo) e ao encerrar/concluir o tour (finalizarTour/tourConcluir), pra
+  // nunca sobrar observer/listener/timer vigiando o elemento de um passo que
+  // já ficou pra trás.
+  function tourLimparVigiaPosicionamento() {
+    if (tourState.vigiaJanelaTimer) {
+      window.clearTimeout(tourState.vigiaJanelaTimer);
+      tourState.vigiaJanelaTimer = null;
+    }
+    if (tourState.vigiaObserver) {
+      try { tourState.vigiaObserver.disconnect(); } catch (_e) {}
+      tourState.vigiaObserver = null;
+    }
+    if (tourState.vigiaInteracaoHandler) {
+      try {
+        document.removeEventListener('input', tourState.vigiaInteracaoHandler, true);
+        document.removeEventListener('change', tourState.vigiaInteracaoHandler, true);
+        document.removeEventListener('keyup', tourState.vigiaInteracaoHandler, true);
+      } catch (_e) {}
+      tourState.vigiaInteracaoHandler = null;
+    }
+    if (tourState.vigiaExtraTimers.length) {
+      for (var i = 0; i < tourState.vigiaExtraTimers.length; i++) {
+        var item = tourState.vigiaExtraTimers[i];
+        try {
+          if (item.tipo === 'raf' && window.cancelAnimationFrame) window.cancelAnimationFrame(item.id);
+          else window.clearTimeout(item.id);
+        } catch (_e) {}
+      }
+      tourState.vigiaExtraTimers = [];
+    }
+    if (tourState.vigiaFrameId != null) {
+      try { if (window.cancelAnimationFrame) window.cancelAnimationFrame(tourState.vigiaFrameId); } catch (_e) {}
+      tourState.vigiaFrameId = null;
+    }
+    tourState.vigiaUltimoRect = null;
+  }
+
+  // Diferença mínima (px) pra considerar que o rect "mudou de verdade" —
+  // abaixo disso é ruído de subpixel/arredondamento entre leituras
+  // consecutivas de getBoundingClientRect(), não vale redesenhar por isso.
+  var TOUR_RECT_EPSILON_PX = 1;
+
+  function tourRectMudouSignificativamente(a, b) {
+    if (!a || !b) return true;
+    return Math.abs(a.top - b.top) > TOUR_RECT_EPSILON_PX ||
+      Math.abs(a.left - b.left) > TOUR_RECT_EPSILON_PX ||
+      Math.abs(a.width - b.width) > TOUR_RECT_EPSILON_PX ||
+      Math.abs(a.height - b.height) > TOUR_RECT_EPSILON_PX;
+  }
+
+  // Reavalia o elemento do passo ATUAL (já destacado, diferente de
+  // localizarComRetry/selecionarElementoPasso quando ainda procurando) e
+  // reposiciona o highlight — chamada pela vigilância de
+  // tourIniciarVigiaPosicionamento (mutação/input/change/keyup/rechecagens
+  // curtas) e por reposicionarTour (scroll/resize, já existente). Revalida
+  // contra o seletor do passo em vez de só reler o rect do elemento salvo,
+  // pra cobrir tanto reflow simples (mesmo nó, só mudou de posição) quanto
+  // remount (nó antigo trocado por um novo do mesmo seletor — comum em
+  // formulários reativos quando novos campos aparecem acima/abaixo do alvo):
+  // nesse segundo caso, o rect do nó antigo (agora destacado do DOM) não
+  // serve de nada, então rebindar pro nó novo é necessário pra highlight e
+  // avanço por clique/interação continuarem funcionando. Se o elemento e a
+  // posição não mudaram de verdade (ver tourRectMudouSignificativamente),
+  // pula renderTour() — nunca redesenha à toa.
+  function tourRecomputarPosicaoAtual() {
+    if (!tourState.ativo || tourState.naoEncontrado || !tourState.tour || !tourState.elementoAtual) return;
+    var passo = tourState.tour.passos[tourState.indice];
+    if (!passo) return;
+    var revalidado = selecionarElementoPasso(passo);
+    // Alvo não achado neste ciclo (pode ser uma mutação totalmente alheia ao
+    // passo, ou um instante intermediário do reflow) — não derruba o passo
+    // por isso; localizarComRetry/irParaPasso já é o único fluxo responsável
+    // por decidir "elemento não encontrado" de verdade, na troca de passo.
+    if (!revalidado) return;
+    var trocouElemento = revalidado !== tourState.elementoAtual;
+    if (trocouElemento) {
+      limparInteracao();
+      tourState.elementoAtual = revalidado;
+      bindInteracao(revalidado, passo);
+    }
+    var rectNovo = revalidado.getBoundingClientRect();
+    // Mesmo elemento e posição/tamanho praticamente iguais ao último render
+    // — nada mudou de verdade, então não desenha de novo (evita trabalho à
+    // toa e, por consequência, gerar mais mutação de DOM sem necessidade).
+    if (!trocouElemento && !tourRectMudouSignificativamente(rectNovo, tourState.vigiaUltimoRect)) return;
+    tourState.vigiaUltimoRect = rectNovo;
+    renderTour();
+  }
+
+  // Agenda no máximo 1 tourRecomputarPosicaoAtual() por frame — usado pelo
+  // MutationObserver e pelo listener de input/change/keyup da vigilância
+  // (tourIniciarVigiaPosicionamento), que podem disparar várias vezes em
+  // sequência rápida (vários registros no mesmo lote de mutação, várias
+  // teclas seguidas). Chamadas extras enquanto já existe um recálculo
+  // pendente pro próximo frame são ignoradas — todas colapsam num recálculo
+  // só, nunca empilham. Sem requestAnimationFrame disponível, recalcula na
+  // hora (mesmo fallback síncrono usado em outros pontos da vigilância).
+  function tourAgendarRecomputoVigia() {
+    if (tourState.vigiaFrameId != null) return;
+    if (!window.requestAnimationFrame) { tourRecomputarPosicaoAtual(); return; }
+    tourState.vigiaFrameId = window.requestAnimationFrame(function () {
+      tourState.vigiaFrameId = null;
+      tourRecomputarPosicaoAtual();
+    });
+  }
+
+  // Agenda 1 requestAnimationFrame + setTimeouts em TOUR_RECHECK_CURTO_MS
+  // chamando tourRecomputarPosicaoAtual — mesmo padrão de
+  // tourAgendarRecheckCurto (busca), só que pra reposicionamento do elemento
+  // já achado. Cobre o intervalo entre o passo ser destacado/uma mutação
+  // acontecer e o layout realmente terminar de assentar.
+  function tourAgendarVigiaCurta() {
+    if (window.requestAnimationFrame) {
+      try {
+        var rafId = window.requestAnimationFrame(function () {
+          tourRemoverVigiaExtraTimer('raf', rafId);
+          tourRecomputarPosicaoAtual();
+        });
+        tourState.vigiaExtraTimers.push({ tipo: 'raf', id: rafId });
+      } catch (_e) { /* ambiente sem rAF de verdade — segue só com os setTimeout abaixo */ }
+    }
+    for (var i = 0; i < TOUR_RECHECK_CURTO_MS.length; i++) {
+      (function (ms) {
+        var timeoutId = window.setTimeout(function () {
+          tourRemoverVigiaExtraTimer('timeout', timeoutId);
+          tourRecomputarPosicaoAtual();
+        }, ms);
+        tourState.vigiaExtraTimers.push({ tipo: 'timeout', id: timeoutId });
+      })(TOUR_RECHECK_CURTO_MS[i]);
+    }
+  }
+
+  // Remove uma entrada já disparada de tourState.vigiaExtraTimers — mesmo
+  // motivo de tourRemoverBuscaExtraTimer (não deixar o array crescer à toa).
+  function tourRemoverVigiaExtraTimer(tipo, id) {
+    var lista = tourState.vigiaExtraTimers;
+    for (var i = lista.length - 1; i >= 0; i--) {
+      if (lista[i].tipo === tipo && lista[i].id === id) { lista.splice(i, 1); break; }
+    }
+  }
+
+  // Chamada assim que o elemento de um passo é encontrado (irParaPasso) —
+  // rola até ele só se necessário (já visível na viewport não precisa de
+  // scroll/animação nenhuma), depois estabiliza o highlight: agenda
+  // rechecagens curtas (rAF + TOUR_RECHECK_CURTO_MS) que recalculam o rect
+  // real em vez de reaproveitar o rect capturado antes do scroll/reflow
+  // acontecer, e liga uma vigilância por TOUR_VIGIA_JANELA_MS (mutação de
+  // DOM + input/change/keyup) pra continuar reposicionando se o layout ao
+  // redor mudar um pouco depois (ex.: mais campos aparecendo). Scroll/resize
+  // continuam cobertos à parte, sem esse limite, por bindTourReposHandlers.
+  function tourIniciarVigiaPosicionamento(el) {
+    try {
+      var rectAtual = el.getBoundingClientRect();
+      var dentroDaViewport = rectAtual.top >= 0 && rectAtual.left >= 0 &&
+        rectAtual.bottom <= window.innerHeight && rectAtual.right <= window.innerWidth;
+      if (!dentroDaViewport) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } catch (_e) {}
+
+    tourAgendarVigiaCurta();
+
+    if (window.MutationObserver) {
+      try {
+        tourState.vigiaObserver = new MutationObserver(function (mutations) {
+          // Ignora lotes que são só o próprio overlay do tour se
+          // (re)desenhando (spotlight/tooltip do renderTour() anterior) —
+          // sem isso, observar document.body inclui o nosso próprio overlay
+          // e cada renderTour() reagendaria outro recálculo, entrando em
+          // loop de alta frequência (ver tourMutacoesSaoSoDoOverlay).
+          if (tourMutacoesSaoSoDoOverlay(mutations)) return;
+          tourAgendarRecomputoVigia();
+        });
+        tourState.vigiaObserver.observe(document.body, { childList: true, subtree: true, attributes: true });
+      } catch (_e) {
+        tourState.vigiaObserver = null;
+      }
+    }
+
+    var handlerVigiaInteracao = function () { tourAgendarRecomputoVigia(); };
+    try {
+      document.addEventListener('input', handlerVigiaInteracao, true);
+      document.addEventListener('change', handlerVigiaInteracao, true);
+      document.addEventListener('keyup', handlerVigiaInteracao, true);
+      tourState.vigiaInteracaoHandler = handlerVigiaInteracao;
+    } catch (_e) {
+      tourState.vigiaInteracaoHandler = null;
+    }
+
+    tourState.vigiaJanelaTimer = window.setTimeout(function () {
+      tourState.vigiaJanelaTimer = null;
+      tourLimparVigiaPosicionamento();
+    }, TOUR_VIGIA_JANELA_MS);
   }
 
   // Margem mínima entre o tooltip e a borda da viewport — nunca menos que
@@ -2832,6 +3283,11 @@
     limparBuscaTimer();
     limparInteracao();
     limparNextClickTimer();
+    // Cancela a vigilância de reposicionamento do passo anterior (se havia)
+    // ANTES de resolver o novo — nunca reaproveita observer/listener/timer
+    // (nem, por consequência, rect/target visual) de um passo que já ficou
+    // pra trás.
+    tourLimparVigiaPosicionamento();
     tourState.indice = indice;
     tourState.naoEncontrado = false;
     tourState.elementoAtual = null;
@@ -2880,8 +3336,13 @@
         var totalPassosAtual = tourState.tour.passos.length;
         var ultimoPassoAtual = indice === totalPassosAtual - 1;
         tourSalvarContinuacao(ultimoPassoAtual ? null : indice + 1, ultimoPassoAtual);
-        try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_e) {}
-        window.setTimeout(renderTour, 320);
+        // Rola até o elemento só se necessário e estabiliza o highlight com
+        // rechecagens curtas (rAF + timeouts) em vez de um delay fixo — evita
+        // desenhar spotlight/tooltip com o rect capturado antes do
+        // scroll/reflow terminar de assentar. A própria vigilância já
+        // dispara o primeiro render real (via rAF), então não precisa de
+        // outra chamada de renderTour() aqui (ver tourIniciarVigiaPosicionamento).
+        tourIniciarVigiaPosicionamento(el);
       } catch (erro) {
         renderTourErroFallback();
       }
@@ -3024,6 +3485,7 @@
     limparBuscaTimer();
     limparInteracao();
     limparNextClickTimer();
+    tourLimparVigiaPosicionamento();
     unbindTourReposHandlers();
     tourState.elementoAtual = null;
     tourState.naoEncontrado = false;
@@ -3066,6 +3528,7 @@
     limparInteracao();
     limparNextClickTimer();
     limparFimTimer();
+    tourLimparVigiaPosicionamento();
     unbindTourReposHandlers();
     document.removeEventListener('keydown', tourKeydown);
     var oldRoot = document.getElementById(TOUR_WIDGET_ID);
