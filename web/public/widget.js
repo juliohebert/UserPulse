@@ -594,6 +594,19 @@
       '.up-rec-sugestao-item{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10.5px;line-height:1.3;color:#0058be;background:#eff4ff;border-radius:6px;padding:4px 8px}',
       '.up-rec-sugestao-texto{flex:1}',
       '.up-rec-sugestao-texto::before{content:"\\25CF";font-size:7px;margin-right:5px;vertical-align:middle;opacity:.7}',
+      // Bloco "Detectar lista dinâmica" no painel lateral (ver
+      // recorderHtmlSugestaoListaDinamica) — mesma linguagem visual do
+      // cartão de sugestões acima (azul informativo), com aviso em âmbar
+      // (mesmo tom de .up-rec-revisao-alertas) quando o seletor é o
+      // fallback genérico, não um data-cy indexado.
+      '.up-rec-lista-dinamica{margin-top:8px}',
+      '.up-rec-lista-dinamica-card{margin-top:6px;background:#eff4ff;border:1px solid rgba(0,88,190,.15);border-radius:8px;padding:8px}',
+      '.up-rec-lista-dinamica-titulo{margin:0;font-size:11px;font-weight:700;color:#0058be}',
+      '.up-rec-lista-dinamica-linha{margin:4px 0 0;font-size:10.5px;line-height:1.4;color:#0058be;word-break:break-all}',
+      '.up-rec-lista-dinamica-linha code{background:rgba(0,88,190,.1);border-radius:4px;padding:1px 4px}',
+      '.up-rec-lista-dinamica-aviso{margin:4px 0 0;font-size:10px;line-height:1.3;color:#e65100}',
+      '.up-rec-lista-dinamica-acoes{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}',
+      '.up-rec-lista-dinamica-acoes .up-rec-btn-icone{padding:4px 8px;font-size:10px;border:1px solid rgba(0,88,190,.15)}',
       // Mini painel "Escolha o seletor deste passo" (troca de elemento).
       '.up-rec-modal-escolha{max-width:520px}',
       '.up-rec-escolha-lista{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px}',
@@ -3742,6 +3755,22 @@
     // do painel lateral (captura ainda ativa), restaurando o estado correto
     // ao sair (ver recorderIniciarTrocaElemento/recorderPararEscutaTroca).
     pausadoAntesTroca: false,
+    // Sugestão de seletor pra lista/dropdown/autocomplete dinâmica detectada
+    // depois de capturar um passo (ver recorderObservarListaDinamica) — null
+    // quando nada foi detectado ainda. { indice, seletor, generico, aviso }:
+    // indice é o passo a que a sugestão se refere (só exibida no painel
+    // lateral quando esse é o passo selecionado); generico=true quando não
+    // achou data-cy indexado e caiu no fallback por container/role (ver
+    // RECORDER_SELETORES_CONTAINER_LISTA/RECORDER_SELETORES_ITEM_LISTA).
+    // Nunca aplicada sozinha — só oferecida como ação no painel lateral.
+    // Efêmera (não persistida), como trocaIndice/analiseAtiva.
+    sugestaoListaDinamica: null,
+    // MutationObserver + timer da detecção de lista dinâmica em andamento
+    // (ver recorderObservarListaDinamica/recorderPararDeteccaoListaDinamica)
+    // — só uma detecção ativa por vez; capturar um novo passo cancela a
+    // anterior. Desconectados também ao parar a captura (recorderPararCaptura).
+    listaDinamicaObserver: null,
+    listaDinamicaTimer: null,
   };
 
   // Opções editáveis na revisão — mesmos valores aceitos pelo backend/admin
@@ -3782,6 +3811,168 @@
     ao_aparecer_elemento: 'Avança quando outro elemento aparece na tela',
     ao_sumir_elemento: 'Avança quando outro elemento some da tela',
   };
+
+  // ─── Detecção de lista/dropdown/autocomplete dinâmica ─────────────────────
+  // Ajuda a configurar passos que dependem de uma lista que só aparece depois
+  // de interagir com o campo do passo anterior (busca, autocomplete, select
+  // customizado) — sem o usuário precisar abrir o DevTools pra descobrir o
+  // seletor manualmente. Tudo aqui é estrutural (nomes de atributo/role
+  // genéricos de convenções de automação e bibliotecas de UI populares),
+  // nunca depende de nome de campo/sistema específico.
+
+  // Por quanto tempo, depois de capturar um passo, o gravador continua
+  // observando o DOM à procura de uma lista/dropdown relacionada (ver
+  // recorderObservarListaDinamica) — cobre autocompletes que abrem só depois
+  // de uma resposta assíncrona (debounce de busca), não só synchronous.
+  var RECORDER_LISTA_DINAMICA_JANELA_MS = 4000;
+  // Seletores de ITEM comuns em bibliotecas de UI populares (Angular CDK
+  // Overlay, NG-ZORRO) — servem só de sinal adicional de "isto parece um
+  // item de lista/dropdown" quando não há data-cy; nunca a base do seletor
+  // sugerido quando um data-cy indexado é encontrado (esse sempre vence).
+  var RECORDER_SELETORES_ITEM_LISTA = ['[role="option"]', '[role="menuitem"]', 'nz-auto-option'];
+  // Containers comuns onde esses itens costumam aparecer — usados só pra
+  // montar o seletor de FALLBACK genérico (container + item), quando nenhum
+  // item encontrado tem data-cy pra sugerir um seletor por prefixo.
+  var RECORDER_SELETORES_CONTAINER_LISTA = ['.cdk-overlay-container', '.ant-select-dropdown'];
+
+  // Extrai o prefixo de um data-cy indexado (ex.: "algo-item-0" vira
+  // "algo-item-"), removendo só o índice numérico final e preservando o
+  // separador antes dele — regra puramente estrutural (nenhuma lista de
+  // nomes de campo conhecidos), então funciona pra qualquer convenção do
+  // tipo "prefixo-N", em qualquer sistema integrado. Retorna null quando o
+  // valor não termina em dígito (não é indexado, não há prefixo a sugerir).
+  function recorderPrefixoDataCyIndexado(valor) {
+    var m = /^(.*[^0-9])[0-9]+$/.exec(String(valor == null ? '' : valor));
+    return m ? m[1] : null;
+  }
+
+  // Procura, dentro de um nó recém-adicionado ao DOM (e seus descendentes),
+  // um candidato a item de lista/dropdown dinâmica — data-cy indexado tem
+  // prioridade (vira seletor por prefixo, o mais estável); na ausência de
+  // qualquer data-cy, cai num seletor CSS genérico por container/role
+  // conhecido (menos estável, sinalizado como tal pro usuário decidir).
+  // Retorna { seletor, seletor_tipo, generico } ou null se nada for achado.
+  function recorderProcurarItemListaDinamica(node) {
+    if (!node || node.nodeType !== 1) return null;
+    var candidatos = [];
+    if (node.getAttribute && node.getAttribute('data-cy')) candidatos.push(node);
+    if (node.querySelectorAll) {
+      try {
+        var achados = node.querySelectorAll('[data-cy]');
+        for (var i = 0; i < achados.length; i++) candidatos.push(achados[i]);
+      } catch (_e) {}
+    }
+    for (var c = 0; c < candidatos.length; c++) {
+      var el = candidatos[c];
+      if (!tourElementoVisivelEInterativo(el)) continue;
+      var dataCy = el.getAttribute('data-cy');
+      var prefixo = dataCy ? recorderPrefixoDataCyIndexado(dataCy) : null;
+      if (prefixo) {
+        return {
+          seletor: '[data-cy^="' + recorderCssEscapeAtributo(prefixo) + '"]',
+          seletor_tipo: 'css',
+          generico: false,
+        };
+      }
+    }
+    // Nenhum data-cy indexado encontrado — tenta um fallback genérico por
+    // container/role conhecido, avisando que é menos estável (pode casar com
+    // outros overlays da mesma biblioteca de UI, não só o desta lista).
+    for (var g = 0; g < RECORDER_SELETORES_CONTAINER_LISTA.length; g++) {
+      var container = null;
+      try { container = document.querySelector(RECORDER_SELETORES_CONTAINER_LISTA[g]); } catch (_e) { container = null; }
+      if (!container || !tourElementoVisivelEInterativo(container)) continue;
+      for (var it = 0; it < RECORDER_SELETORES_ITEM_LISTA.length; it++) {
+        var qtd = 0;
+        try { qtd = container.querySelectorAll(RECORDER_SELETORES_ITEM_LISTA[it]).length; } catch (_e) { qtd = 0; }
+        if (qtd > 0) {
+          return {
+            seletor: RECORDER_SELETORES_CONTAINER_LISTA[g] + ' ' + RECORDER_SELETORES_ITEM_LISTA[it],
+            seletor_tipo: 'css',
+            generico: true,
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  // Copia texto pra área de transferência — mesma técnica (Clipboard API com
+  // fallback pra execCommand via textarea temporário) já usada pelo "Copiar
+  // JSON" da revisão final, só que autocontida (não depende de um textarea
+  // já visível na tela), pra reaproveitar em "Copiar seletor".
+  function recorderCopiarTexto(texto) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(texto).catch(function () {});
+        return;
+      }
+    } catch (_e) {}
+    try {
+      var temp = document.createElement('textarea');
+      temp.value = texto;
+      temp.style.position = 'fixed';
+      temp.style.opacity = '0';
+      document.body.appendChild(temp);
+      temp.select();
+      document.execCommand('copy');
+      temp.remove();
+    } catch (_e) {}
+  }
+
+  function recorderPararDeteccaoListaDinamica() {
+    if (recorderState.listaDinamicaTimer) {
+      window.clearTimeout(recorderState.listaDinamicaTimer);
+      recorderState.listaDinamicaTimer = null;
+    }
+    if (recorderState.listaDinamicaObserver) {
+      try { recorderState.listaDinamicaObserver.disconnect(); } catch (_e) {}
+      recorderState.listaDinamicaObserver = null;
+    }
+  }
+
+  // Observa o DOM por RECORDER_LISTA_DINAMICA_JANELA_MS à procura de uma
+  // lista/dropdown/autocomplete que apareça relacionada ao passo indicePasso
+  // (chamado logo após capturar um passo — ver recorderRegistrarPasso — ou
+  // manualmente via o botão "Detectar lista dinâmica" no painel lateral).
+  // Só uma detecção ativa por vez (uma nova cancela a anterior). Ao achar um
+  // candidato, guarda a sugestão em recorderState.sugestaoListaDinamica —
+  // nunca aplica nada sozinho, só fica disponível pro usuário agir no
+  // painel lateral (ver recorderHtmlSugestaoListaDinamica).
+  function recorderObservarListaDinamica(indicePasso) {
+    recorderPararDeteccaoListaDinamica();
+    if (!window.MutationObserver) return;
+    function finalizarComSugestao(sugestao) {
+      recorderPararDeteccaoListaDinamica();
+      recorderState.sugestaoListaDinamica = {
+        indice: indicePasso,
+        seletor: sugestao.seletor,
+        seletor_tipo: sugestao.seletor_tipo,
+        generico: sugestao.generico,
+      };
+      // Só re-renderiza agora se o passo detectado ainda é o selecionado no
+      // painel — evita reflow indevido se o usuário já mudou de seleção
+      // enquanto a detecção rodava em background; a sugestão fica guardada e
+      // aparece normalmente quando ele voltar a selecionar esse passo.
+      if (recorderState.painelLateralIndiceSelecionado === indicePasso) recorderRenderPainelLateral();
+    }
+    var observer = new MutationObserver(function (mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var added = mutations[i].addedNodes;
+        for (var a = 0; a < added.length; a++) {
+          var candidato = recorderProcurarItemListaDinamica(added[a]);
+          if (candidato) { finalizarComSugestao(candidato); return; }
+        }
+      }
+    });
+    try {
+      observer.observe(document.body, { childList: true, subtree: true });
+    } catch (_e) {
+      return;
+    }
+    recorderState.listaDinamicaObserver = observer;
+    recorderState.listaDinamicaTimer = window.setTimeout(recorderPararDeteccaoListaDinamica, RECORDER_LISTA_DINAMICA_JANELA_MS);
+  }
 
   // Persistência em sessionStorage — sobrevive a reload/navegação de página
   // inteira na mesma aba (o que uma SPA sem reload já não precisa, resolvido
@@ -4228,6 +4419,12 @@
     recorderState.elParaIndice.set(el, recorderState.passos.length - 1);
     recorderAtualizarBarra();
     recorderPersistir();
+    // Passo acabou de ser capturado num input/select/elemento clicável —
+    // observa por alguns segundos se uma lista/dropdown/autocomplete
+    // relacionada aparece na tela, pra sugerir o seletor do próximo passo
+    // sem o usuário precisar descobrir manualmente no DevTools (ver
+    // recorderObservarListaDinamica). Nunca aplica nada sozinho.
+    recorderObservarListaDinamica(recorderState.passos.length - 1);
     // Aviso na hora, quando recorderGerarSeletor() não achou nada melhor que
     // o fallback estrutural (tag+classe+nth-of-type) — dá a chance de ajustar
     // o seletor manualmente (painel lateral) ou pelo "Trocar elemento" antes
@@ -4473,6 +4670,35 @@
     ].join('');
   }
 
+  // Bloco "Lista dinâmica detectada" no painel lateral — botão pra disparar
+  // a detecção sob demanda (além da automática logo após capturar o passo,
+  // ver recorderObservarListaDinamica) e, quando há sugestão pendente PRA
+  // ESTE passo, o cartão com o seletor sugerido e as ações disponíveis.
+  // Nunca aplica o seletor sozinho — cada ação exige um clique explícito.
+  function recorderHtmlSugestaoListaDinamica(indice) {
+    var sugestao = recorderState.sugestaoListaDinamica;
+    var temSugestao = sugestao && sugestao.indice === indice;
+    return [
+      '<div class="up-rec-lista-dinamica">',
+      '<button type="button" class="up-rec-btn-icone" data-lat-detectar-lista title="Interaja com o campo deste passo na tela real (clique, digite) e clique aqui — observa a tela por alguns segundos à procura de uma lista/dropdown/autocomplete que apareça">Detectar lista dinâmica</button>',
+      (temSugestao ? [
+        '<div class="up-rec-lista-dinamica-card">',
+        '<p class="up-rec-lista-dinamica-titulo">Lista dinâmica detectada</p>',
+        '<p class="up-rec-lista-dinamica-linha">Seletor sugerido: <code>' + escapeHtml(sugestao.seletor) + '</code></p>',
+        (sugestao.generico
+          ? '<p class="up-rec-lista-dinamica-aviso">Para maior estabilidade, adicione data-cy nos itens da lista.</p>'
+          : ''),
+        '<div class="up-rec-lista-dinamica-acoes">',
+        '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-lat-lista-usar-confirmacao title="Usa este seletor como confirmação de que a lista apareceu — o passo passa a avançar automaticamente quando ela surgir">Usar como confirmação</button>',
+        '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-lat-lista-novo-passo title="Cria um novo passo logo em seguida, já com este seletor, pra destacar/clicar num item da lista">Criar próximo passo</button>',
+        '<button type="button" class="up-rec-btn-icone" data-lat-lista-copiar title="Copia o seletor sugerido">Copiar</button>',
+        '</div>',
+        '</div>',
+      ].join('') : ''),
+      '</div>',
+    ].join('');
+  }
+
   function recorderHtmlPainelLateralDetalhe(passo, indice, total) {
     var elementoAtual = null;
     try { elementoAtual = selecionarElementoPasso(passo); } catch (_e) { elementoAtual = null; }
@@ -4480,6 +4706,7 @@
       '<div class="up-rec-lateral-preview-wrap">' + recorderHtmlPreview(passo, indice, total) + '</div>',
       (elementoAtual ? '' : '<p style="margin:4px 0 0"><span style="display:inline-block;font-size:10px;line-height:1.3;color:#e65100;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:2px 6px">Elemento não encontrado na tela atual.</span></p>'),
       recorderHtmlAlertaSeletorFragil(passo, elementoAtual),
+      recorderHtmlSugestaoListaDinamica(indice),
       '<label class="up-rec-revisao-label-principal">Título</label>',
       '<input type="text" class="up-rec-input" data-lat-campo="titulo" value="' + escapeHtml(passo.titulo || '') + '">',
       '<label class="up-rec-revisao-label-principal">Descrição</label>',
@@ -5004,6 +5231,66 @@
       return;
     }
 
+    if (alvo.closest('[data-lat-detectar-lista]')) {
+      var idxDetectar = recorderState.painelLateralIndiceSelecionado;
+      if (idxDetectar == null) return;
+      recorderObservarListaDinamica(idxDetectar);
+      recorderMostrarAvisoBarra('Observando a tela por alguns segundos — interaja com o campo deste passo pra abrir a lista/dropdown.');
+      return;
+    }
+
+    if (alvo.closest('[data-lat-lista-usar-confirmacao]')) {
+      var idxConf = recorderState.painelLateralIndiceSelecionado;
+      var sugConf = recorderState.sugestaoListaDinamica;
+      if (idxConf == null || !sugConf || sugConf.indice !== idxConf) return;
+      var passoConf = recorderState.passos[idxConf];
+      if (!passoConf) return;
+      passoConf.seletor_confirmacao = sugConf.seletor;
+      // Sem um modo_avanco_interacao que use seletor_confirmacao, o campo
+      // fica preenchido mas sem efeito nenhum no runtime (ver
+      // RECORDER_MODOS_AVANCO_COM_CONFIRMACAO) — "ao_aparecer_elemento" é o
+      // padrão que corresponde a "avança quando esta lista aparecer".
+      if (RECORDER_MODOS_AVANCO_COM_CONFIRMACAO.indexOf(passoConf.modo_avanco_interacao) === -1) {
+        passoConf.modo_avanco_interacao = 'ao_aparecer_elemento';
+      }
+      recorderPersistir();
+      recorderRenderPainelLateral();
+      return;
+    }
+
+    if (alvo.closest('[data-lat-lista-novo-passo]')) {
+      var idxNovo = recorderState.painelLateralIndiceSelecionado;
+      var sugNovo = recorderState.sugestaoListaDinamica;
+      if (idxNovo == null || !sugNovo || sugNovo.indice !== idxNovo) return;
+      var passoOrigemNovo = recorderState.passos[idxNovo];
+      if (!passoOrigemNovo) return;
+      var novoPasso = {
+        titulo: 'Selecionar item da lista',
+        descricao: '',
+        seletor_tipo: sugNovo.seletor_tipo,
+        seletor: sugNovo.seletor,
+        tooltip_posicao: 'auto',
+        acao_ao_avancar: 'apenas_avancar',
+        modo_avanco_interacao: 'manual',
+        seletor_confirmacao: null,
+        secao: passoOrigemNovo.secao || '',
+      };
+      recorderState.passos.splice(idxNovo + 1, 0, novoPasso);
+      recorderState.painelLateralIndiceSelecionado = idxNovo + 1;
+      recorderPersistir();
+      recorderAtualizarBarra();
+      recorderRenderPainelLateral();
+      return;
+    }
+
+    if (alvo.closest('[data-lat-lista-copiar]')) {
+      var sugCopiar = recorderState.sugestaoListaDinamica;
+      if (!sugCopiar) return;
+      recorderCopiarTexto(sugCopiar.seletor);
+      recorderMostrarAvisoBarra('Seletor copiado.');
+      return;
+    }
+
     if (alvo.closest('[data-lat-preview]')) {
       recorderPreVisualizarTour();
       return;
@@ -5215,6 +5502,7 @@
       window.clearInterval(recorderState.urlPollTimer);
       recorderState.urlPollTimer = null;
     }
+    recorderPararDeteccaoListaDinamica();
   }
 
   // Botão "Finalizar" da barra: NÃO gera o JSON de imediato — abre o painel de
