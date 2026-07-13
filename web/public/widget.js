@@ -3760,9 +3760,9 @@
     // quando nada foi detectado ainda. { indice, seletor, generico, aviso }:
     // indice é o passo a que a sugestão se refere (só exibida no painel
     // lateral quando esse é o passo selecionado); generico=true quando não
-    // achou data-cy indexado e caiu no fallback por container/role (ver
-    // RECORDER_SELETORES_CONTAINER_LISTA/RECORDER_SELETORES_ITEM_LISTA).
-    // Nunca aplicada sozinha — só oferecida como ação no painel lateral.
+    // achou data-cy indexado e caiu num dos fallbacks CSS conhecidos (ver
+    // RECORDER_SELETORES_FALLBACK_LISTA). Nunca aplicada sozinha — só
+    // oferecida como ação no painel lateral.
     // Efêmera (não persistida), como trocaIndice/analiseAtiva.
     sugestaoListaDinamica: null,
     // MutationObserver + timer da detecção de lista dinâmica em andamento
@@ -3825,15 +3825,21 @@
   // recorderObservarListaDinamica) — cobre autocompletes que abrem só depois
   // de uma resposta assíncrona (debounce de busca), não só synchronous.
   var RECORDER_LISTA_DINAMICA_JANELA_MS = 4000;
-  // Seletores de ITEM comuns em bibliotecas de UI populares (Angular CDK
-  // Overlay, NG-ZORRO) — servem só de sinal adicional de "isto parece um
-  // item de lista/dropdown" quando não há data-cy; nunca a base do seletor
-  // sugerido quando um data-cy indexado é encontrado (esse sempre vence).
-  var RECORDER_SELETORES_ITEM_LISTA = ['[role="option"]', '[role="menuitem"]', 'nz-auto-option'];
-  // Containers comuns onde esses itens costumam aparecer — usados só pra
-  // montar o seletor de FALLBACK genérico (container + item), quando nenhum
-  // item encontrado tem data-cy pra sugerir um seletor por prefixo.
-  var RECORDER_SELETORES_CONTAINER_LISTA = ['.cdk-overlay-container', '.ant-select-dropdown'];
+  // Combinações concretas de container+item conhecidas de bibliotecas de UI
+  // populares (Angular CDK Overlay, Ant Design, NG-ZORRO) — tentadas nesta
+  // ordem quando nenhum item com data-cy indexado é encontrado (ver
+  // recorderEscanearListaDinamica). Cada uma já é um seletor CSS completo,
+  // pronto pra usar; nenhuma delas depende de id (esses são gerados
+  // dinamicamente pelo framework — ver recorderEhIdOverlayDinamico) nem de
+  // nome de campo/sistema específico.
+  var RECORDER_SELETORES_FALLBACK_LISTA = [
+    '.cdk-overlay-container .ant-select-dropdown-menu-item',
+    '.ant-select-dropdown .ant-select-dropdown-menu-item',
+    '.cdk-overlay-container [role="option"]',
+    '.cdk-overlay-container [role="menuitem"]',
+    '.cdk-overlay-container nz-auto-option',
+    '.cdk-overlay-container nz-option-item',
+  ];
 
   // Extrai o prefixo de um data-cy indexado (ex.: "algo-item-0" vira
   // "algo-item-"), removendo só o índice numérico final e preservando o
@@ -3846,27 +3852,37 @@
     return m ? m[1] : null;
   }
 
-  // Procura, dentro de um nó recém-adicionado ao DOM (e seus descendentes),
-  // um candidato a item de lista/dropdown dinâmica — data-cy indexado tem
-  // prioridade (vira seletor por prefixo, o mais estável); na ausência de
-  // qualquer data-cy, cai num seletor CSS genérico por container/role
-  // conhecido (menos estável, sinalizado como tal pro usuário decidir).
-  // Retorna { seletor, seletor_tipo, generico } ou null se nada for achado.
-  function recorderProcurarItemListaDinamica(node) {
-    if (!node || node.nodeType !== 1) return null;
-    var candidatos = [];
-    if (node.getAttribute && node.getAttribute('data-cy')) candidatos.push(node);
-    if (node.querySelectorAll) {
-      try {
-        var achados = node.querySelectorAll('[data-cy]');
-        for (var i = 0; i < achados.length; i++) candidatos.push(achados[i]);
-      } catch (_e) {}
-    }
-    for (var c = 0; c < candidatos.length; c++) {
-      var el = candidatos[c];
+  // Ids gerados dinamicamente pelo Angular CDK Overlay pra cada painel que
+  // abre (autocomplete, select, dropdown, modal) — ex.: "cdk-overlay-3" —
+  // mudam a cada abertura/sessão/ordem de interação, então nunca são
+  // estáveis o bastante pra virar um seletor de automação, mesmo que
+  // pareçam "únicos" no momento da gravação. Usado como guarda tanto na
+  // detecção de lista dinâmica (que nunca usa id — RECORDER_SELETORES_FALLBACK_LISTA
+  // só tem seletores de classe/role) quanto na geração geral de seletor
+  // (recorderGerarSeletor/recorderAncoraAncestral), pra nunca capturar um id
+  // assim como seletor principal de um passo, mesmo clicando direto no item.
+  function recorderEhIdOverlayDinamico(valor) {
+    return /^cdk-overlay-\d+$/i.test(String(valor == null ? '' : valor).trim());
+  }
+
+  // Escaneia o DOM ATUAL (não espera nenhuma mutação) à procura de uma
+  // lista/dropdown/autocomplete visível — usado tanto pela detecção
+  // automática (logo após capturar um passo) quanto pelo botão manual
+  // "Detectar lista dinâmica", justamente pra cobrir o caso de a lista já
+  // estar aberta na tela ANTES de pedir a detecção (ver
+  // recorderObservarListaDinamica). data-cy indexado tem prioridade (vira
+  // seletor por prefixo, o mais estável); na ausência de qualquer data-cy,
+  // cai num dos fallbacks CSS concretos e conhecidos de
+  // RECORDER_SELETORES_FALLBACK_LISTA (menos estável, sinalizado como tal
+  // pro usuário decidir). Retorna { seletor, seletor_tipo, generico } ou
+  // null se nada for achado.
+  function recorderEscanearListaDinamica() {
+    var achadosDataCy;
+    try { achadosDataCy = document.querySelectorAll('[data-cy]'); } catch (_e) { achadosDataCy = []; }
+    for (var i = 0; i < achadosDataCy.length; i++) {
+      var el = achadosDataCy[i];
       if (!tourElementoVisivelEInterativo(el)) continue;
-      var dataCy = el.getAttribute('data-cy');
-      var prefixo = dataCy ? recorderPrefixoDataCyIndexado(dataCy) : null;
+      var prefixo = recorderPrefixoDataCyIndexado(el.getAttribute('data-cy'));
       if (prefixo) {
         return {
           seletor: '[data-cy^="' + recorderCssEscapeAtributo(prefixo) + '"]',
@@ -3875,22 +3891,13 @@
         };
       }
     }
-    // Nenhum data-cy indexado encontrado — tenta um fallback genérico por
-    // container/role conhecido, avisando que é menos estável (pode casar com
-    // outros overlays da mesma biblioteca de UI, não só o desta lista).
-    for (var g = 0; g < RECORDER_SELETORES_CONTAINER_LISTA.length; g++) {
-      var container = null;
-      try { container = document.querySelector(RECORDER_SELETORES_CONTAINER_LISTA[g]); } catch (_e) { container = null; }
-      if (!container || !tourElementoVisivelEInterativo(container)) continue;
-      for (var it = 0; it < RECORDER_SELETORES_ITEM_LISTA.length; it++) {
-        var qtd = 0;
-        try { qtd = container.querySelectorAll(RECORDER_SELETORES_ITEM_LISTA[it]).length; } catch (_e) { qtd = 0; }
-        if (qtd > 0) {
-          return {
-            seletor: RECORDER_SELETORES_CONTAINER_LISTA[g] + ' ' + RECORDER_SELETORES_ITEM_LISTA[it],
-            seletor_tipo: 'css',
-            generico: true,
-          };
+    for (var f = 0; f < RECORDER_SELETORES_FALLBACK_LISTA.length; f++) {
+      var seletorFallback = RECORDER_SELETORES_FALLBACK_LISTA[f];
+      var itens;
+      try { itens = document.querySelectorAll(seletorFallback); } catch (_e) { continue; }
+      for (var it = 0; it < itens.length; it++) {
+        if (tourElementoVisivelEInterativo(itens[it])) {
+          return { seletor: seletorFallback, seletor_tipo: 'css', generico: true };
         }
       }
     }
@@ -3931,17 +3938,20 @@
     }
   }
 
-  // Observa o DOM por RECORDER_LISTA_DINAMICA_JANELA_MS à procura de uma
-  // lista/dropdown/autocomplete que apareça relacionada ao passo indicePasso
-  // (chamado logo após capturar um passo — ver recorderRegistrarPasso — ou
-  // manualmente via o botão "Detectar lista dinâmica" no painel lateral).
-  // Só uma detecção ativa por vez (uma nova cancela a anterior). Ao achar um
-  // candidato, guarda a sugestão em recorderState.sugestaoListaDinamica —
-  // nunca aplica nada sozinho, só fica disponível pro usuário agir no
-  // painel lateral (ver recorderHtmlSugestaoListaDinamica).
+  // Detecta a lista/dropdown/autocomplete relacionada ao passo indicePasso —
+  // chamado logo após capturar um passo (ver recorderRegistrarPasso) ou
+  // manualmente via o botão "Detectar lista dinâmica" no painel lateral. Só
+  // uma detecção ativa por vez (uma nova cancela a anterior). Primeiro
+  // escaneia o DOM JÁ ABERTO na hora (cobre o caso comum de o usuário abrir
+  // a lista manualmente antes de clicar em "Detectar"); se nada for achado
+  // na hora, continua observando por RECORDER_LISTA_DINAMICA_JANELA_MS à
+  // procura de uma que apareça depois (autocompletes com resposta
+  // assíncrona). Ao achar um candidato, guarda a sugestão em
+  // recorderState.sugestaoListaDinamica — nunca aplica nada sozinho, só fica
+  // disponível pro usuário agir no painel lateral (ver
+  // recorderHtmlSugestaoListaDinamica).
   function recorderObservarListaDinamica(indicePasso) {
     recorderPararDeteccaoListaDinamica();
-    if (!window.MutationObserver) return;
     function finalizarComSugestao(sugestao) {
       recorderPararDeteccaoListaDinamica();
       recorderState.sugestaoListaDinamica = {
@@ -3956,13 +3966,16 @@
       // aparece normalmente quando ele voltar a selecionar esse passo.
       if (recorderState.painelLateralIndiceSelecionado === indicePasso) recorderRenderPainelLateral();
     }
+
+    var jaAberto = recorderEscanearListaDinamica();
+    if (jaAberto) { finalizarComSugestao(jaAberto); return; }
+
+    if (!window.MutationObserver) return;
     var observer = new MutationObserver(function (mutations) {
       for (var i = 0; i < mutations.length; i++) {
-        var added = mutations[i].addedNodes;
-        for (var a = 0; a < added.length; a++) {
-          var candidato = recorderProcurarItemListaDinamica(added[a]);
-          if (candidato) { finalizarComSugestao(candidato); return; }
-        }
+        if (mutations[i].addedNodes.length === 0) continue;
+        var achado = recorderEscanearListaDinamica();
+        if (achado) { finalizarComSugestao(achado); return; }
       }
     });
     try {
@@ -4114,7 +4127,12 @@
         }
       }
 
-      if (el.id) return { seletor_tipo: 'id', seletor: el.id };
+      // Ids gerados dinamicamente por overlays de framework (ver
+      // recorderEhIdOverlayDinamico) mudam a cada abertura/sessão — nunca
+      // viram o seletor principal de um passo, mesmo clicando direto no
+      // elemento; cai pras próximas prioridades (aria-label/name/href/
+      // estrutural) como se o elemento não tivesse id nenhum.
+      if (el.id && !recorderEhIdOverlayDinamico(el.id)) return { seletor_tipo: 'id', seletor: el.id };
 
       var ariaLabel = el.getAttribute && el.getAttribute('aria-label');
       if (ariaLabel) {
@@ -4195,7 +4213,10 @@
       if (!ehRaiz) {
         var dataCy = atual.getAttribute && atual.getAttribute('data-cy');
         if (dataCy) return '[data-cy="' + recorderCssEscapeAtributo(dataCy) + '"]';
-        if (atual.id) return '#' + recorderCssEscapeSimples(atual.id);
+        // Mesma guarda de recorderGerarSeletor — nunca usa um id de overlay
+        // dinâmico (ex.: um ancestral que por acaso é o painel de overlay do
+        // framework) como âncora; continua procurando role/aria-label.
+        if (atual.id && !recorderEhIdOverlayDinamico(atual.id)) return '#' + recorderCssEscapeSimples(atual.id);
         var role = atual.getAttribute && atual.getAttribute('role');
         if (role) return '[role="' + recorderCssEscapeAtributo(role) + '"]';
         var ariaLabel = atual.getAttribute && atual.getAttribute('aria-label');
@@ -4686,7 +4707,7 @@
         '<p class="up-rec-lista-dinamica-titulo">Lista dinâmica detectada</p>',
         '<p class="up-rec-lista-dinamica-linha">Seletor sugerido: <code>' + escapeHtml(sugestao.seletor) + '</code></p>',
         (sugestao.generico
-          ? '<p class="up-rec-lista-dinamica-aviso">Para maior estabilidade, adicione data-cy nos itens da lista.</p>'
+          ? '<p class="up-rec-lista-dinamica-aviso">Seletor sem data-cy. Para maior estabilidade, adicione data-cy nos itens da lista.</p>'
           : ''),
         '<div class="up-rec-lista-dinamica-acoes">',
         '<button type="button" class="up-rec-btn-icone up-rec-btn-icone-acento" data-lat-lista-usar-confirmacao title="Usa este seletor como confirmação de que a lista apareceu — o passo passa a avançar automaticamente quando ela surgir">Usar como confirmação</button>',
