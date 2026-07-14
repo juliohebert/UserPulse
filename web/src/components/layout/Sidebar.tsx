@@ -7,6 +7,7 @@ const navItems = [
   { icon: 'map', label: 'Tours Guiados', to: '/tours' },
   { icon: 'route', label: 'Jornadas', to: '/jornadas' },
   { icon: 'grid_view', label: 'Catálogo de Telas', to: '/catalogo-telas' },
+  { icon: 'palette', label: 'Aparência do Widget', to: '/aparencia-widget' },
   { icon: 'integration_instructions', label: 'Integração', to: '/integracao' },
 ]
 

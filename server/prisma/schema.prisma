@@ -111,6 +111,24 @@ model TelaCatalogo {
   @@map("telas_catalogo")
 }
 
+// Aparência visual do widget (cor principal + logo/ícone do runtime de
+// Tours) — uma configuração por sistema/tenant, nunca por tour individual
+// (mesmo padrão de "sistema" já usado em Campanha/TourGuiado/TelaCatalogo,
+// sem precisar de uma tabela de tenants separada). cor_principal/logo_url
+// opcionais: sem registro, ou com os dois vazios, o widget usa o fallback
+// visual atual (cor azul padrão, ícone padrão) — nunca quebra clientes que
+// não configuraram nada.
+model AparenciaWidget {
+  id            String   @id @default(uuid())
+  sistema       String   @unique
+  cor_principal String?
+  logo_url      String?
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  @@map("aparencias_widget")
+}
+
 model EventoCampanha {
   id          String   @id @default(uuid())
   campanha_id String

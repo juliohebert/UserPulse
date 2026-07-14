@@ -626,6 +626,25 @@ export async function buscarTour(req: Request, res: Response) {
   }
 }
 
+// Aparência do widget (cor principal + logo do runtime de Tours) — pública,
+// sem auth, mesmo padrão de buscarTour. Sempre 200, mesmo sem configuração
+// pra esse sistema: o runtime trata { cor_principal: null, logo_url: null }
+// como "sem configuração", caindo no fallback visual atual (nunca quebra um
+// cliente que não configurou nada).
+export async function buscarAparencia(req: Request, res: Response) {
+  try {
+    const { sistema } = req.query
+    if (!sistema) return res.json({ cor_principal: null, logo_url: null })
+    const aparencia = await prisma.aparenciaWidget.findUnique({ where: { sistema: String(sistema) } })
+    res.json({
+      cor_principal: aparencia?.cor_principal ?? null,
+      logo_url: aparencia?.logo_url ?? null,
+    })
+  } catch {
+    res.json({ cor_principal: null, logo_url: null })
+  }
+}
+
 export async function buscarTourCandidatos(req: Request, res: Response) {
   try {
     const { sistema, tela, usuario_id } = req.query

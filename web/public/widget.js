@@ -145,25 +145,41 @@
       // primeira versão pulsava, mas ficou cansativo num tour de vários
       // passos) — só o transition de posição/tamanho abaixo continua
       // responsável por qualquer movimento, no reposicionamento normal.
-      '.up-tour-spotlight{position:fixed;border-radius:12px;box-shadow:0 0 0 9999px rgba(11,28,48,.55),0 0 0 2px #fff,0 0 0 5px #0058be,0 0 16px 3px rgba(0,88,190,.28);pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
+      '.up-tour-spotlight{position:fixed;border-radius:12px;box-shadow:0 0 0 9999px rgba(11,28,48,.55),0 0 0 2px #fff,0 0 0 5px var(--up-primary, #0058be),0 0 16px 3px var(--up-primary-ring, rgba(0,88,190,.28));pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
       '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.5);border-radius:16px;box-shadow:0 1px 3px rgba(11,28,48,.05),0 14px 32px -10px rgba(11,28,48,.28);padding:18px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;animation:up-fade-in .18s ease-out}',
-      '.up-tour-progress{display:inline-flex;align-items:center;font-size:11px;font-weight:800;color:#0058be;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;background:rgba(0,88,190,.1);border-radius:999px;padding:3px 10px}',
+      // As telas centralizadas (intro/conclusão/aguardando/não encontrado/erro)
+      // usam position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)
+      // inline pra centralizar — mas a animação padrão acima (up-fade-in) anima
+      // a própria propriedade transform só com scale(), sem a translação.
+      // Durante os 180ms da animação, o valor animado de transform SUBSTITUI o
+      // inline inteiro (não soma com ele), então o elemento renderizava sem o
+      // translate(-50%,-50%) por um instante — aparecendo deslocado (metade da
+      // largura/altura abaixo e à direita do centro) e só "pulando" pro lugar
+      // certo quando a animação terminava e o inline voltava a valer. Esta
+      // variante (aplicada só nessas 6 telas centralizadas, via classe extra
+      // no markup) já inclui o translate em ambos os keyframes, então a
+      // animação nunca diverge da posição final — sem afetar em nada o
+      // tooltip normal dos passos (esse não usa translate pra se posicionar,
+      // continua com a animação padrão de sempre).
+      '.up-tour-tooltip-central{animation:up-tour-fade-in-central .18s ease-out}',
+      '@keyframes up-tour-fade-in-central{from{opacity:0;transform:translate(-50%,-50%) scale(.96)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}',
+      '.up-tour-progress{display:inline-flex;align-items:center;font-size:11px;font-weight:800;color:var(--up-primary, #0058be);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;background:var(--up-primary-soft, rgba(0,88,190,.1));border-radius:999px;padding:3px 10px}',
       '.up-tour-title{font-size:16px;font-weight:800;color:#0b1c30;margin:0 0 7px;line-height:22px;letter-spacing:-.005em}',
       '.up-tour-desc{font-size:13.5px;line-height:20px;color:#4b5163;margin:0;overflow-wrap:break-word}',
       // ::before em vez de um ícone/marcador no markup — o mesmo <p> de
       // sempre, só com um indicador visual (bolinha pulsante) a mais.
-      '.up-tour-hint{font-size:11px;font-weight:700;color:#0058be;margin-top:10px;display:flex;align-items:center}',
-      '.up-tour-hint::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#0058be;margin-right:7px;flex-shrink:0;animation:up-tour-blink 1.4s ease-in-out infinite}',
+      '.up-tour-hint{font-size:11px;font-weight:700;color:var(--up-primary, #0058be);margin-top:10px;display:flex;align-items:center}',
+      '.up-tour-hint::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--up-primary, #0058be);margin-right:7px;flex-shrink:0;animation:up-tour-blink 1.4s ease-in-out infinite}',
       '@keyframes up-tour-blink{0%,100%{opacity:1}50%{opacity:.35}}',
       '.up-tour-warning{font-size:12px;line-height:17px;color:#ba1a1a;margin-top:12px;display:flex;gap:8px;align-items:flex-start;background:rgba(186,26,26,.07);border:1px solid rgba(186,26,26,.14);border-radius:10px;padding:10px 12px}',
       '.up-tour-warning svg{width:15px;height:15px;flex-shrink:0;margin-top:1px;fill:currentColor}',
       '.up-tour-loading{font-size:12px;line-height:17px;color:#5b6170;margin-top:12px;display:flex;gap:9px;align-items:center;background:#f4f6fb;border:1px solid rgba(194,198,214,.5);border-radius:10px;padding:10px 12px}',
-      '.up-tour-spinner{width:13px;height:13px;flex-shrink:0;border-radius:50%;border:2px solid rgba(0,88,190,.2);border-top-color:#0058be;animation:up-tour-spin .7s linear infinite}',
+      '.up-tour-spinner{width:13px;height:13px;flex-shrink:0;border-radius:50%;border:2px solid var(--up-primary-soft, rgba(0,88,190,.2));border-top-color:var(--up-primary, #0058be);animation:up-tour-spin .7s linear infinite}',
       '@keyframes up-tour-spin{to{transform:rotate(360deg)}}',
       '.up-tour-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:10px;flex-wrap:wrap}',
       '.up-tour-dots{display:flex;gap:5px;align-items:center}',
       '.up-tour-dot{width:6px;height:6px;border-radius:999px;background:#dbdfec;flex-shrink:0;transition:width .2s ease,background-color .2s ease}',
-      '.up-tour-dot-active{background:#0058be;width:16px;border-radius:4px}',
+      '.up-tour-dot-active{background:var(--up-primary, #0058be);width:16px;border-radius:4px}',
       '.up-tour-nav{display:flex;gap:8px}',
       // min-height garante uma área de toque decente em mobile mesmo com
       // texto curto (Voltar/Pular), sem exagerar na altura em telas normais.
@@ -171,19 +187,28 @@
       '.up-tour-btn:hover{opacity:.92;transform:translateY(-1px)}',
       '.up-tour-btn:active{transform:scale(.97) translateY(0)}',
       '.up-tour-btn:disabled{opacity:.35;cursor:not-allowed;transform:none}',
-      '.up-tour-btn:focus-visible{outline:2px solid #0058be;outline-offset:2px}',
+      '.up-tour-btn:focus-visible{outline:2px solid var(--up-primary, #0058be);outline-offset:2px}',
       // Sombra própria no CTA principal — separa ele visualmente do
       // secundário/texto mesmo à distância, sem depender só da cor. Mais
       // discreta que a primeira versão (essa parecia "pesada" demais).
-      '.up-tour-btn-primary{background:#0058be;color:#fff;box-shadow:0 4px 12px -3px rgba(0,88,190,.45)}',
-      '.up-tour-btn-primary:hover{box-shadow:0 6px 16px -3px rgba(0,88,190,.5)}',
+      '.up-tour-btn-primary{background:var(--up-primary, #0058be);color:#fff;box-shadow:0 4px 12px -3px var(--up-primary-ring, rgba(0,88,190,.45))}',
+      '.up-tour-btn-primary:hover{box-shadow:0 6px 16px -3px var(--up-primary-ring, rgba(0,88,190,.5))}',
       '.up-tour-btn-secondary{background:#eff4ff;color:#0058be}',
       '.up-tour-btn-secondary:hover{background:#e2ecff}',
+      // "Voltar" segue a identidade visual da Aparência do Widget (mesma cor
+      // do CTA principal/badge/progresso) — as outras variantes de
+      // .up-tour-btn-secondary (Pular este passo/Trocar elemento) continuam
+      // com o tom neutro de sempre, de propósito: só o botão de navegação
+      // "para trás" precisa acompanhar a cor principal. Fallback idêntico ao
+      // valor hardcoded anterior (#eff4ff/#e2ecff), então sem Aparência
+      // configurada o visual não muda em nada.
+      '.up-tour-btn-secondary[data-up-tour-back]{background:var(--up-primary-soft, #eff4ff);color:var(--up-primary, #0058be)}',
+      '.up-tour-btn-secondary[data-up-tour-back]:hover{background:var(--up-primary-soft, #e2ecff)}',
       '.up-tour-btn-text{background:transparent;color:#6b7180;padding:9px 6px}',
       '.up-tour-btn-text:hover{color:#0b1c30}',
       '.up-tour-close{position:absolute;top:12px;right:12px;border:0;background:transparent;color:#8b91a0;padding:6px;border-radius:8px;cursor:pointer;line-height:0}',
       '.up-tour-close:hover{background:#eff4ff;color:#0b1c30}',
-      '.up-tour-close:focus-visible{outline:2px solid #0058be;outline-offset:2px}',
+      '.up-tour-close:focus-visible{outline:2px solid var(--up-primary, #0058be);outline-offset:2px}',
       '.up-tour-close svg{width:14px;height:14px;fill:currentColor;display:block}',
       // Footer empilhado (introdução / elemento não encontrado) — 3 ações
       // full-width em vez do par Voltar/Próximo lado a lado do footer padrão.
@@ -194,9 +219,21 @@
       // cantos arredondados e gradiente da própria marca, SVG inline (mesmo
       // sistema de ícones já usado no resto do widget, sem asset externo).
       // Modificador -sucesso só troca a cor pro tom de "concluído".
-      '.up-tour-badge-icone{width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#0058be,#2b7bde);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;box-shadow:0 10px 22px -8px rgba(0,88,190,.55)}',
-      '.up-tour-badge-icone svg{width:26px;height:26px;fill:#fff}',
+      '.up-tour-badge-icone{width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,var(--up-primary, #0058be),var(--up-primary-hover, #2b7bde));display:flex;align-items:center;justify-content:center;margin:0 auto 14px;box-shadow:0 10px 22px -8px var(--up-primary-ring, rgba(0,88,190,.55));overflow:hidden}',
+      '.up-tour-badge-icone svg{width:28px;height:28px;fill:#fff;flex-shrink:0}',
       '.up-tour-badge-icone-sucesso{background:linear-gradient(135deg,#0a8a5c,#12b877);box-shadow:0 10px 22px -8px rgba(10,138,92,.5)}',
+      // Variante com logo configurada (URL própria do cliente) — fundo claro
+      // neutro em vez do gradiente da marca, já que a logo carrega sua
+      // própria identidade visual; declarada DEPOIS de -sucesso de propósito
+      // (mesma especificidade de seletor — a ordem no stylesheet decide, e
+      // aqui a logo sempre deve vencer o verde de conclusão quando as duas
+      // classes coexistem no mesmo badge). max-width/max-height (não
+      // width/height:100%) deixam uma margem dentro do container fixo —
+      // "nunca distorce, nunca estoura o container" mesmo com imagens de
+      // proporção bem diferente de 1:1.
+      '.up-tour-badge-icone-logo{background:#fff;border:1px solid rgba(194,198,214,.5);box-shadow:0 6px 18px -8px rgba(11,28,48,.25)}',
+      '.up-tour-badge-logo{max-width:68%;max-height:68%;width:auto;height:auto;object-fit:contain;display:block}',
+      '.up-tour-badge-fallback{width:100%;height:100%;align-items:center;justify-content:center}',
       // Introdução: as ações (Começar/Agora não/Não mostrar novamente) não
       // deveriam ter o mesmo peso visual — sem isso, "Agora não" competia com
       // o CTA principal. Seletor por data-attribute (já existente no
@@ -227,9 +264,9 @@
       '.up-tour-dots-intro{justify-content:center;margin:12px 0 2px}',
       '.up-tour-feedback{display:flex;gap:10px;justify-content:center;margin-top:16px}',
       '.up-tour-feedback-btn{border:1px solid rgba(194,198,214,.5);background:#f8f9ff;border-radius:14px;width:46px;height:46px;font-size:22px;line-height:1;cursor:pointer;transition:transform .15s ease,background .15s ease,border-color .15s ease;display:flex;align-items:center;justify-content:center}',
-      '.up-tour-feedback-btn:hover{background:#eff4ff;border-color:#0058be;transform:scale(1.08) translateY(-1px)}',
+      '.up-tour-feedback-btn:hover{background:var(--up-primary-soft, #eff4ff);border-color:var(--up-primary, #0058be);transform:scale(1.08) translateY(-1px)}',
       '.up-tour-feedback-btn:active{transform:scale(.95)}',
-      '.up-tour-feedback-btn:focus-visible{outline:2px solid #0058be;outline-offset:2px}',
+      '.up-tour-feedback-btn:focus-visible{outline:2px solid var(--up-primary, #0058be);outline-offset:2px}',
       '@media (max-width:480px){.up-tour-tooltip{width:calc(100vw - 24px);padding:16px}}',
       // Telas bem estreitas: em vez de espremer Pular + Voltar + Próximo na
       // mesma linha (risco de quebrar/cortar texto), o par Voltar/Próximo
@@ -1518,6 +1555,21 @@
 
     ensureStyles();
 
+    // Aparência do widget (cor principal + logo do tour) — carregada junto
+    // com o resto da config pública, em paralelo com tudo abaixo (nunca
+    // bloqueia campanha/tour esperando essa resposta). Se ainda não tiver
+    // chegado quando a intro do tour renderizar pela primeira vez, ela usa o
+    // fallback visual padrão e é re-renderizada quando a aparência resolver
+    // (só enquanto ainda estiver na tela de intro — não interrompe um tour
+    // já em andamento nem a tela de conclusão).
+    if (normalized.sistema) {
+      fetchAparencia(normalized.sistema).then(function (aparencia) {
+        tourState.aparencia = aparencia;
+        aplicarAparenciaCss(aparencia);
+        if (tourState.ativo && tourState.tela === 'intro') renderTour();
+      });
+    }
+
     // Prioridade sobre campanha e tour automático — se havia uma continuação
     // salva (reload completo de página no meio de um passo que navega), ela
     // precisa resolver primeiro. Campanha e tour automático abrem/iniciam de
@@ -1876,6 +1928,12 @@
 
   var tourState = {
     tour: null,
+    // { cor_principal, logo_url } vindo de GET /api/widget/aparencia (ver
+    // fetchAparencia/init) — null até resolver (ou se o sistema não tiver
+    // nenhuma configuração salva). Nunca bloqueia a renderização: enquanto
+    // null, badges/botões caem no fallback visual hardcoded de sempre (ver
+    // aplicarAparenciaCss/tourBadgeIcone).
+    aparencia: null,
     indice: 0,
     root: null,
     elementoAtual: null,
@@ -2009,6 +2067,87 @@
       if (!response.ok) return null;
       return response.json();
     });
+  }
+
+  // Aparência (cor principal + logo) é opcional e por sistema — endpoint
+  // sempre responde 200 com { cor_principal: null, logo_url: null } quando
+  // não há configuração salva (ver buscarAparencia no backend), então aqui
+  // basta tratar falha de rede/parse como "sem aparência" (nunca bloqueia o
+  // tour por causa disso).
+  function fetchAparencia(sistema) {
+    var params = new URLSearchParams();
+    params.set('sistema', sistema);
+    return fetch(apiUrl('/api/widget/aparencia?' + params.toString()), {
+      headers: { Accept: 'application/json' },
+    }).then(function (response) {
+      if (!response.ok) return null;
+      return response.json();
+    }).catch(function () { return null; });
+  }
+
+  function hexParaRgbTour(hex) {
+    var limpo = String(hex || '').replace('#', '');
+    if (limpo.length === 3) limpo = limpo.split('').map(function (c) { return c + c; }).join('');
+    var num = parseInt(limpo, 16);
+    if (isNaN(num)) return null;
+    return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+  }
+
+  function corMisturarComBranco(hex, pct) {
+    var rgb = hexParaRgbTour(hex);
+    if (!rgb) return hex;
+    var r = Math.round(rgb.r + (255 - rgb.r) * pct);
+    var g = Math.round(rgb.g + (255 - rgb.g) * pct);
+    var b = Math.round(rgb.b + (255 - rgb.b) * pct);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
+  function corRgbaTour(hex, alpha) {
+    var rgb = hexParaRgbTour(hex);
+    if (!rgb) return null;
+    return 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',' + alpha + ')';
+  }
+
+  // Aplica (ou limpa) as 4 custom properties consumidas pelo CSS de
+  // ensureStyles() — sempre em document.documentElement, nunca no root do
+  // overlay do tour (esse é destruído/recriado a cada renderTour(), o
+  // documentElement não). cor_principal ausente/inválida = removeProperty,
+  // que faz os var(--up-primary, #0058be) do CSS caírem de volta no
+  // fallback hardcoded — mesmo visual de sempre pra quem não configurou nada.
+  function aplicarAparenciaCss(aparencia) {
+    var root = document.documentElement;
+    var hex = aparencia && aparencia.cor_principal;
+    var rgb = hex ? hexParaRgbTour(hex) : null;
+    if (!rgb) {
+      root.style.removeProperty('--up-primary');
+      root.style.removeProperty('--up-primary-hover');
+      root.style.removeProperty('--up-primary-soft');
+      root.style.removeProperty('--up-primary-ring');
+      return;
+    }
+    root.style.setProperty('--up-primary', hex);
+    root.style.setProperty('--up-primary-hover', corMisturarComBranco(hex, 0.22));
+    root.style.setProperty('--up-primary-soft', corRgbaTour(hex, 0.1));
+    root.style.setProperty('--up-primary-ring', corRgbaTour(hex, 0.4));
+  }
+
+  // Badge do topo da intro/conclusão do tour: usa a logo configurada quando
+  // houver, com fallback automático (onerror) pro ícone padrão — nunca
+  // deixa a introdução sem badge nenhum por causa de uma URL quebrada.
+  // classList.remove garante que o fallback também reverte o fundo branco
+  // (up-tour-badge-icone-logo) de volta pro gradiente padrão, senão o ícone
+  // (SVG branco) ficaria invisível sobre fundo branco.
+  function tourBadgeIcone(iconeFallback) {
+    var logo = tourState.aparencia && tourState.aparencia.logo_url;
+    if (!logo) return icon(iconeFallback);
+    return '<img src="' + escapeHtml(logo) + '" alt="" class="up-tour-badge-logo" ' +
+      'onerror="this.style.display=\'none\';var b=this.parentElement;if(b)b.classList.remove(\'up-tour-badge-icone-logo\');' +
+      'var f=this.nextElementSibling;if(f)f.style.display=\'flex\'" />' +
+      '<span class="up-tour-badge-fallback" style="display:none">' + icon(iconeFallback) + '</span>';
+  }
+
+  function tourBadgeClasse() {
+    return (tourState.aparencia && tourState.aparencia.logo_url) ? ' up-tour-badge-icone-logo' : '';
   }
 
   function fetchTourCandidatos(sistema, tela, usuario_id, contexto) {
@@ -2630,7 +2769,7 @@
     var total = tourState.tour.passos.length;
     var rotuloEncerrar = tourRotuloEncerrar();
     return [
-      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
+      '<div class="up-tour-tooltip up-tour-tooltip-central" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
       '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="' + rotuloEncerrar + '">' + icon('close') + '</button>',
       '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
       '<p class="up-tour-title">Elemento não encontrado</p>',
@@ -2667,7 +2806,7 @@
     var total = tourState.tour.passos.length;
     var ultimo = tourState.indice === total - 1;
     return [
-      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
+      '<div class="up-tour-tooltip up-tour-tooltip-central" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
       '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Pular tour">' + icon('close') + '</button>',
       '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
       '<p class="up-tour-title">' + escapeHtml(passo.titulo) + '</p>',
@@ -2715,9 +2854,9 @@
       dots.push('<span class="up-tour-dot' + (i === 0 ? ' up-tour-dot-active' : '') + '"></span>');
     }
     return [
-      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
+      '<div class="up-tour-tooltip up-tour-tooltip-central" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
       '<button type="button" class="up-tour-close" data-up-tour-intro-dispensar="true" aria-label="Fechar">' + icon('close') + '</button>',
-      '<div class="up-tour-badge-icone">' + icon('sparkle') + '</div>',
+      '<div class="up-tour-badge-icone' + tourBadgeClasse() + '">' + tourBadgeIcone('sparkle') + '</div>',
       '<p class="up-tour-title">' + escapeHtml(tour.titulo || 'Novo tour guiado') + '</p>',
       '<p class="up-tour-desc">' + escapeHtml(descricao) + '</p>',
       (total > 1 ? '<div class="up-tour-dots up-tour-dots-intro">' + dots.join('') + '</div>' : ''),
@@ -2737,16 +2876,16 @@
   function renderTourFim() {
     if (tourState.feedbackEscolhido) {
       return [
-        '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
+        '<div class="up-tour-tooltip up-tour-tooltip-central" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
         '<p class="up-tour-title">Obrigado pelo feedback!</p>',
         '<p class="up-tour-desc">Isso nos ajuda a melhorar este tour.</p>',
         '</div>',
       ].join('');
     }
     return [
-      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
+      '<div class="up-tour-tooltip up-tour-tooltip-central" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
       '<button type="button" class="up-tour-close" data-up-tour-fim-fechar="true" aria-label="Fechar">' + icon('close') + '</button>',
-      '<div class="up-tour-badge-icone up-tour-badge-icone-sucesso">' + icon('check') + '</div>',
+      '<div class="up-tour-badge-icone up-tour-badge-icone-sucesso' + tourBadgeClasse() + '">' + tourBadgeIcone('check') + '</div>',
       '<p class="up-tour-title">Tour concluído</p>',
       '<p class="up-tour-desc">Esse tour foi útil pra você?</p>',
       '<div class="up-tour-feedback">',
@@ -2786,7 +2925,7 @@
     root.className = 'up-tour-overlay';
     tourState.root = root;
     root.innerHTML = [
-      '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
+      '<div class="up-tour-tooltip up-tour-tooltip-central" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
       '<button type="button" class="up-tour-close" data-up-tour-skip="true" aria-label="Encerrar tour">' + icon('close') + '</button>',
       '<p class="up-tour-title">Não foi possível continuar o tour</p>',
       '<div class="up-tour-warning">' + icon('close') + '<span>Ocorreu um problema inesperado ao exibir este passo.</span></div>',
@@ -2800,6 +2939,22 @@
       document.body.appendChild(root);
       bindTourEvents();
     } catch (_e) { /* mesmo isso falhando, não há mais nada seguro a tentar aqui */ }
+  }
+
+  // Texto do aviso de avanço por interação (passo.modo_avanco_interacao),
+  // exibido só no passo em si — nunca muda a estrutura do passo, só qual
+  // frase é mostrada. "ao_alterar_valor" é preenchimento de campo, não
+  // clique, então precisa de um texto diferente (senão instrui o usuário a
+  // clicar num input de busca/texto, o que não é o que avança o passo).
+  // "ao_aparecer_elemento"/"ao_sumir_elemento" dependem de uma mudança
+  // indireta na tela (não uma ação direta no elemento destacado) — nenhum
+  // texto genérico descreveria isso sem confundir, então ficam sem aviso
+  // (igual a "manual": só o botão Próximo/Voltar mesmo).
+  function tourHintTexto(passo) {
+    var modo = passo.modo_avanco_interacao;
+    if (modo === 'ao_alterar_valor') return 'Preencha o campo destacado para continuar.';
+    if (modo === 'ao_clicar') return 'Clique no elemento destacado para continuar.';
+    return '';
   }
 
   function renderTourInterno() {
@@ -2859,12 +3014,10 @@
       '<p class="up-tour-progress">Passo ' + (tourState.indice + 1) + ' de ' + total + '</p>',
       '<p class="up-tour-title">' + escapeHtml(passo.titulo) + '</p>',
       passo.descricao ? '<p class="up-tour-desc">' + escapeHtml(passo.descricao) + '</p>' : '',
-      // Passo configurado pra avançar por interação (qualquer modo além de
-      // "manual") — avisa que clicar em "Próximo" não é o único jeito de
-      // continuar; Pular/Fechar continuam disponíveis no footer normal.
-      (passo.modo_avanco_interacao && passo.modo_avanco_interacao !== 'manual')
-        ? '<p class="up-tour-hint">Clique no elemento destacado para continuar.</p>'
-        : '',
+      // Passo configurado pra avançar por interação — avisa que clicar em
+      // "Próximo" não é o único jeito de continuar (texto varia por modo, ver
+      // tourHintTexto); Pular/Fechar continuam disponíveis no footer normal.
+      tourHintTexto(passo) ? '<p class="up-tour-hint">' + tourHintTexto(passo) + '</p>' : '',
       '<div class="up-tour-dots" style="margin-top:10px">' + dots.join('') + '</div>',
       tourFooter(total, ultimo),
       '</div>',
@@ -2914,6 +3067,19 @@
   function bindTourEvents() {
     if (!tourState.root) return;
     tourState.root.addEventListener('click', function (event) {
+      // Sem isso, o clique nos próprios botões do widget (Começar tour,
+      // Próximo, Voltar etc.) borbulha até document/host — em hosts com
+      // listener de clique global (ex.: roteador de SPA interceptando
+      // cliques em document), isso podia disparar uma navegação real da
+      // aplicação por baixo do overlay, derrubando tourState inteiro (tela
+      // branca durante o reload) e fazendo o widget reavaliar do zero ao
+      // reinicializar — reabrindo a introdução em vez de continuar no passo
+      // já resolvido. Mesmo padrão já usado no click handler do widget de
+      // campanhas (ver state.root acima). Só stopPropagation, sem
+      // preventDefault incondicional: os botões individuais abaixo já
+      // chamam preventDefault() quando fazem sentido, sem mudar nenhum
+      // outro comportamento.
+      event.stopPropagation();
       var target = event.target;
       if (!(target instanceof Element)) return;
       if (target.closest('[data-up-tour-back]')) { event.preventDefault(); tourVoltar(); return; }
