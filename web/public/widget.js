@@ -146,7 +146,7 @@
       // passos) — só o transition de posição/tamanho abaixo continua
       // responsável por qualquer movimento, no reposicionamento normal.
       '.up-tour-spotlight{position:fixed;border-radius:12px;box-shadow:0 0 0 9999px rgba(11,28,48,.55),0 0 0 2px #fff,0 0 0 5px var(--up-primary, #0058be),0 0 16px 3px var(--up-primary-ring, rgba(0,88,190,.28));pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
-      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.5);border-radius:16px;box-shadow:0 1px 3px rgba(11,28,48,.05),0 14px 32px -10px rgba(11,28,48,.28);padding:18px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;animation:up-fade-in .18s ease-out}',
+      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:20px;box-shadow:0 1px 2px rgba(11,28,48,.04),0 16px 36px -12px rgba(11,28,48,.22);padding:20px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;animation:up-fade-in .18s ease-out}',
       // As telas centralizadas (intro/conclusão/aguardando/não encontrado/erro)
       // usam position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)
       // inline pra centralizar — mas a animação padrão acima (up-fade-in) anima
@@ -163,9 +163,9 @@
       // continua com a animação padrão de sempre).
       '.up-tour-tooltip-central{animation:up-tour-fade-in-central .18s ease-out}',
       '@keyframes up-tour-fade-in-central{from{opacity:0;transform:translate(-50%,-50%) scale(.96)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}',
-      '.up-tour-progress{display:inline-flex;align-items:center;font-size:11px;font-weight:800;color:var(--up-primary, #0058be);text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;background:var(--up-primary-soft, rgba(0,88,190,.1));border-radius:999px;padding:3px 10px}',
-      '.up-tour-title{font-size:16px;font-weight:800;color:#0b1c30;margin:0 0 7px;line-height:22px;letter-spacing:-.005em}',
-      '.up-tour-desc{font-size:13.5px;line-height:20px;color:#4b5163;margin:0;overflow-wrap:break-word}',
+      '.up-tour-progress{display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;color:var(--up-primary, #0058be);text-transform:uppercase;letter-spacing:.03em;margin:0 0 9px;background:var(--up-primary-soft, rgba(0,88,190,.1));border-radius:999px;padding:2px 9px}',
+      '.up-tour-title{font-size:17px;font-weight:800;color:#0b1c30;margin:0 0 8px;line-height:23px;letter-spacing:-.005em}',
+      '.up-tour-desc{font-size:13.5px;line-height:21px;color:#4b5163;margin:0;overflow-wrap:break-word}',
       // ::before em vez de um ícone/marcador no markup — o mesmo <p> de
       // sempre, só com um indicador visual (bolinha pulsante) a mais.
       '.up-tour-hint{font-size:11px;font-weight:700;color:var(--up-primary, #0058be);margin-top:10px;display:flex;align-items:center}',
@@ -176,14 +176,14 @@
       '.up-tour-loading{font-size:12px;line-height:17px;color:#5b6170;margin-top:12px;display:flex;gap:9px;align-items:center;background:#f4f6fb;border:1px solid rgba(194,198,214,.5);border-radius:10px;padding:10px 12px}',
       '.up-tour-spinner{width:13px;height:13px;flex-shrink:0;border-radius:50%;border:2px solid var(--up-primary-soft, rgba(0,88,190,.2));border-top-color:var(--up-primary, #0058be);animation:up-tour-spin .7s linear infinite}',
       '@keyframes up-tour-spin{to{transform:rotate(360deg)}}',
-      '.up-tour-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:10px;flex-wrap:wrap}',
-      '.up-tour-dots{display:flex;gap:5px;align-items:center}',
-      '.up-tour-dot{width:6px;height:6px;border-radius:999px;background:#dbdfec;flex-shrink:0;transition:width .2s ease,background-color .2s ease}',
-      '.up-tour-dot-active{background:var(--up-primary, #0058be);width:16px;border-radius:4px}',
+      '.up-tour-footer{display:flex;align-items:center;justify-content:space-between;margin-top:16px;gap:10px;flex-wrap:wrap}',
+      '.up-tour-dots{display:flex;gap:6px;align-items:center}',
+      '.up-tour-dot{width:6px;height:6px;border-radius:999px;background:#e3e7f2;flex-shrink:0;transition:width .2s ease,background-color .2s ease}',
+      '.up-tour-dot-active{background:var(--up-primary, #0058be);width:18px;border-radius:4px}',
       '.up-tour-nav{display:flex;gap:8px}',
       // min-height garante uma área de toque decente em mobile mesmo com
       // texto curto (Voltar/Pular), sem exagerar na altura em telas normais.
-      '.up-tour-btn{border:0;border-radius:9px;padding:9px 15px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;line-height:1;min-height:36px;transition:opacity .15s ease,transform .15s ease,box-shadow .15s ease,background-color .15s ease}',
+      '.up-tour-btn{border:0;border-radius:10px;padding:9px 15px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;line-height:1;min-height:36px;transition:opacity .15s ease,transform .15s ease,box-shadow .15s ease,background-color .15s ease}',
       '.up-tour-btn:hover{opacity:.92;transform:translateY(-1px)}',
       '.up-tour-btn:active{transform:scale(.97) translateY(0)}',
       '.up-tour-btn:disabled{opacity:.35;cursor:not-allowed;transform:none}',
@@ -219,7 +219,7 @@
       // cantos arredondados e gradiente da própria marca, SVG inline (mesmo
       // sistema de ícones já usado no resto do widget, sem asset externo).
       // Modificador -sucesso só troca a cor pro tom de "concluído".
-      '.up-tour-badge-icone{width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,var(--up-primary, #0058be),var(--up-primary-hover, #2b7bde));display:flex;align-items:center;justify-content:center;margin:0 auto 14px;box-shadow:0 10px 22px -8px var(--up-primary-ring, rgba(0,88,190,.55));overflow:hidden}',
+      '.up-tour-badge-icone{width:64px;height:64px;border-radius:18px;background:linear-gradient(135deg,var(--up-primary, #0058be),var(--up-primary-hover, #2b7bde));display:flex;align-items:center;justify-content:center;margin:0 auto 16px;box-shadow:0 8px 18px -8px var(--up-primary-ring, rgba(0,88,190,.45));overflow:hidden}',
       '.up-tour-badge-icone svg{width:28px;height:28px;fill:#fff;flex-shrink:0}',
       '.up-tour-badge-icone-sucesso{background:linear-gradient(135deg,#0a8a5c,#12b877);box-shadow:0 10px 22px -8px rgba(10,138,92,.5)}',
       // Variante com logo configurada (URL própria do cliente) — fundo claro
@@ -257,7 +257,7 @@
       // ::before/span (nunca um <input> real: a ação já dispara e fecha o
       // tour num clique só, não existe um estado "marcado" persistente pra
       // refletir depois — ver tourPular()).
-      '.up-tour-intro-opcional{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:14px;padding-top:14px;border:0;border-top:1px solid #edf0f7;background:transparent;color:#9298a6;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;transition:color .15s ease}',
+      '.up-tour-intro-opcional{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:16px;padding-top:16px;border:0;border-top:1px solid #edf0f7;background:transparent;color:#9298a6;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;transition:color .15s ease}',
       '.up-tour-intro-opcional:hover{color:#5b6170}',
       '.up-tour-intro-opcional-caixa{width:13px;height:13px;border-radius:4px;border:1.5px solid #c2c6d6;flex-shrink:0;transition:border-color .15s ease}',
       '.up-tour-intro-opcional:hover .up-tour-intro-opcional-caixa{border-color:#8b91a0}',
