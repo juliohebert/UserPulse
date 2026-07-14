@@ -132,41 +132,111 @@
       '.up-phone-input:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
       '.up-phone-done{margin:0;color:#006947;font-size:13px;line-height:18px;font-weight:600;text-align:center}',
       '.up-tour-overlay{position:fixed;inset:0;z-index:2147483600;pointer-events:none}',
-      '.up-tour-spotlight{position:fixed;border-radius:10px;box-shadow:0 0 0 9999px rgba(11,28,48,.55),0 0 0 3px #0058be,0 0 0 5px rgba(0,88,190,.25);pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
-      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid #c2c6d6;border-radius:14px;box-shadow:0 18px 50px rgba(11,28,48,.3);padding:16px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
-      '.up-tour-progress{font-size:11px;font-weight:800;color:#0058be;text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px}',
-      '.up-tour-title{font-size:15px;font-weight:800;color:#0b1c30;margin:0 0 6px;line-height:20px}',
-      '.up-tour-desc{font-size:13px;line-height:19px;color:#424754;margin:0}',
-      '.up-tour-hint{font-size:11px;font-weight:700;color:#0058be;margin-top:8px}',
-      '.up-tour-warning{font-size:12px;line-height:17px;color:#ba1a1a;margin-top:10px;display:flex;gap:6px;align-items:flex-start;background:rgba(186,26,26,.08);border-radius:8px;padding:8px 10px}',
+      // Sem isso, o runtime do tour (raiz própria, fora de .up-widget-root)
+      // ficava no content-box padrão do navegador — padding/border somados
+      // ao width declarado podiam empurrar o tooltip pra fora da viewport em
+      // telas estreitas (a mesma causa da "faixa branca lateral" no mobile).
+      '.up-tour-overlay, .up-tour-overlay *{box-sizing:border-box}',
+      // Anel branco fino (separação nítida do elemento) + anel azul da marca
+      // + brilho externo suave — no lugar do anel duplo "cru" de antes.
+      // rgba(11,28,48,X) é o mesmo tom escuro já usado no resto do widget
+      // (.up-rec-overlay/.up-widget-overlay), só um pouco mais opaco aqui
+      // pra dar mais contraste ao spotlight. Estático de propósito (a
+      // primeira versão pulsava, mas ficou cansativo num tour de vários
+      // passos) — só o transition de posição/tamanho abaixo continua
+      // responsável por qualquer movimento, no reposicionamento normal.
+      '.up-tour-spotlight{position:fixed;border-radius:12px;box-shadow:0 0 0 9999px rgba(11,28,48,.55),0 0 0 2px #fff,0 0 0 5px #0058be,0 0 16px 3px rgba(0,88,190,.28);pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
+      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.5);border-radius:16px;box-shadow:0 1px 3px rgba(11,28,48,.05),0 14px 32px -10px rgba(11,28,48,.28);padding:18px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;animation:up-fade-in .18s ease-out}',
+      '.up-tour-progress{display:inline-flex;align-items:center;font-size:11px;font-weight:800;color:#0058be;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;background:rgba(0,88,190,.1);border-radius:999px;padding:3px 10px}',
+      '.up-tour-title{font-size:16px;font-weight:800;color:#0b1c30;margin:0 0 7px;line-height:22px;letter-spacing:-.005em}',
+      '.up-tour-desc{font-size:13.5px;line-height:20px;color:#4b5163;margin:0;overflow-wrap:break-word}',
+      // ::before em vez de um ícone/marcador no markup — o mesmo <p> de
+      // sempre, só com um indicador visual (bolinha pulsante) a mais.
+      '.up-tour-hint{font-size:11px;font-weight:700;color:#0058be;margin-top:10px;display:flex;align-items:center}',
+      '.up-tour-hint::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#0058be;margin-right:7px;flex-shrink:0;animation:up-tour-blink 1.4s ease-in-out infinite}',
+      '@keyframes up-tour-blink{0%,100%{opacity:1}50%{opacity:.35}}',
+      '.up-tour-warning{font-size:12px;line-height:17px;color:#ba1a1a;margin-top:12px;display:flex;gap:8px;align-items:flex-start;background:rgba(186,26,26,.07);border:1px solid rgba(186,26,26,.14);border-radius:10px;padding:10px 12px}',
       '.up-tour-warning svg{width:15px;height:15px;flex-shrink:0;margin-top:1px;fill:currentColor}',
-      '.up-tour-loading{font-size:12px;line-height:17px;color:#727785;margin-top:10px;display:flex;gap:8px;align-items:center;background:rgba(114,119,133,.08);border-radius:8px;padding:8px 10px}',
-      '.up-tour-spinner{width:13px;height:13px;flex-shrink:0;border-radius:50%;border:2px solid rgba(114,119,133,.25);border-top-color:#727785;animation:up-tour-spin .7s linear infinite}',
+      '.up-tour-loading{font-size:12px;line-height:17px;color:#5b6170;margin-top:12px;display:flex;gap:9px;align-items:center;background:#f4f6fb;border:1px solid rgba(194,198,214,.5);border-radius:10px;padding:10px 12px}',
+      '.up-tour-spinner{width:13px;height:13px;flex-shrink:0;border-radius:50%;border:2px solid rgba(0,88,190,.2);border-top-color:#0058be;animation:up-tour-spin .7s linear infinite}',
       '@keyframes up-tour-spin{to{transform:rotate(360deg)}}',
-      '.up-tour-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:8px}',
-      '.up-tour-dots{display:flex;gap:4px;align-items:center}',
-      '.up-tour-dot{width:6px;height:6px;border-radius:999px;background:#d8dbe6;flex-shrink:0}',
-      '.up-tour-dot-active{background:#0058be;width:14px;border-radius:4px}',
-      '.up-tour-nav{display:flex;gap:6px}',
-      '.up-tour-btn{border:0;border-radius:9px;padding:8px 13px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;transition:opacity .15s ease,transform .15s ease}',
-      '.up-tour-btn:hover{opacity:.9}',
-      '.up-tour-btn:active{transform:scale(.97)}',
+      '.up-tour-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:10px;flex-wrap:wrap}',
+      '.up-tour-dots{display:flex;gap:5px;align-items:center}',
+      '.up-tour-dot{width:6px;height:6px;border-radius:999px;background:#dbdfec;flex-shrink:0;transition:width .2s ease,background-color .2s ease}',
+      '.up-tour-dot-active{background:#0058be;width:16px;border-radius:4px}',
+      '.up-tour-nav{display:flex;gap:8px}',
+      // min-height garante uma área de toque decente em mobile mesmo com
+      // texto curto (Voltar/Pular), sem exagerar na altura em telas normais.
+      '.up-tour-btn{border:0;border-radius:9px;padding:9px 15px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;line-height:1;min-height:36px;transition:opacity .15s ease,transform .15s ease,box-shadow .15s ease,background-color .15s ease}',
+      '.up-tour-btn:hover{opacity:.92;transform:translateY(-1px)}',
+      '.up-tour-btn:active{transform:scale(.97) translateY(0)}',
       '.up-tour-btn:disabled{opacity:.35;cursor:not-allowed;transform:none}',
-      '.up-tour-btn-primary{background:#0058be;color:#fff}',
+      '.up-tour-btn:focus-visible{outline:2px solid #0058be;outline-offset:2px}',
+      // Sombra própria no CTA principal — separa ele visualmente do
+      // secundário/texto mesmo à distância, sem depender só da cor. Mais
+      // discreta que a primeira versão (essa parecia "pesada" demais).
+      '.up-tour-btn-primary{background:#0058be;color:#fff;box-shadow:0 4px 12px -3px rgba(0,88,190,.45)}',
+      '.up-tour-btn-primary:hover{box-shadow:0 6px 16px -3px rgba(0,88,190,.5)}',
       '.up-tour-btn-secondary{background:#eff4ff;color:#0058be}',
-      '.up-tour-btn-text{background:transparent;color:#727785;padding:8px 4px}',
-      '.up-tour-close{position:absolute;top:10px;right:10px;border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0}',
+      '.up-tour-btn-secondary:hover{background:#e2ecff}',
+      '.up-tour-btn-text{background:transparent;color:#6b7180;padding:9px 6px}',
+      '.up-tour-btn-text:hover{color:#0b1c30}',
+      '.up-tour-close{position:absolute;top:12px;right:12px;border:0;background:transparent;color:#8b91a0;padding:6px;border-radius:8px;cursor:pointer;line-height:0}',
       '.up-tour-close:hover{background:#eff4ff;color:#0b1c30}',
-      '.up-tour-close svg{width:16px;height:16px;fill:currentColor;display:block}',
+      '.up-tour-close:focus-visible{outline:2px solid #0058be;outline-offset:2px}',
+      '.up-tour-close svg{width:14px;height:14px;fill:currentColor;display:block}',
       // Footer empilhado (introdução / elemento não encontrado) — 3 ações
       // full-width em vez do par Voltar/Próximo lado a lado do footer padrão.
-      '.up-tour-footer-stack{flex-direction:column;align-items:stretch}',
+      '.up-tour-footer-stack{flex-direction:column;align-items:stretch;gap:8px}',
       '.up-tour-footer-stack .up-tour-btn{width:100%;text-align:center}',
-      '.up-tour-feedback{display:flex;gap:10px;justify-content:center;margin-top:14px}',
-      '.up-tour-feedback-btn{border:0;background:#f3f5fa;border-radius:12px;width:44px;height:44px;font-size:22px;line-height:1;cursor:pointer;transition:transform .15s ease,background .15s ease;display:flex;align-items:center;justify-content:center}',
-      '.up-tour-feedback-btn:hover{background:#eff4ff;transform:scale(1.08)}',
+      // Badge com ícone no topo da introdução/conclusão (referência visual:
+      // docs/references/tour-runtime-stitch/, não commitado) — quadrado com
+      // cantos arredondados e gradiente da própria marca, SVG inline (mesmo
+      // sistema de ícones já usado no resto do widget, sem asset externo).
+      // Modificador -sucesso só troca a cor pro tom de "concluído".
+      '.up-tour-badge-icone{width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,#0058be,#2b7bde);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;box-shadow:0 10px 22px -8px rgba(0,88,190,.55)}',
+      '.up-tour-badge-icone svg{width:26px;height:26px;fill:#fff}',
+      '.up-tour-badge-icone-sucesso{background:linear-gradient(135deg,#0a8a5c,#12b877);box-shadow:0 10px 22px -8px rgba(10,138,92,.5)}',
+      // Introdução: as ações (Começar/Agora não/Não mostrar novamente) não
+      // deveriam ter o mesmo peso visual — sem isso, "Agora não" competia com
+      // o CTA principal. Seletor por data-attribute (já existente no
+      // markup) pra afetar só a intro, sem mudar "Voltar/Pular/Encerrar" do
+      // estado "elemento não encontrado", que usam as MESMAS classes
+      // genéricas mas continuam precisando parecer ações reais, não um
+      // dispensar sutil. Escopado com .up-tour-btn-secondary (não só o
+      // data-attribute) porque o próprio X de fechar também usa
+      // data-up-tour-intro-dispensar (mesma ação) — sem essa classe junto,
+      // esta regra vazaria pro botão de fechar.
+      '.up-tour-btn-secondary[data-up-tour-intro-dispensar]{background:transparent;color:#6b7180;border:0;box-shadow:none}',
+      '.up-tour-btn-secondary[data-up-tour-intro-dispensar]:hover{background:#f4f6fb;color:#0b1c30}',
+      // CTA com ícone (seta) — só a introdução usa ícone dentro do botão,
+      // por isso o alinhamento flex é escopado ao data-attribute em vez de
+      // ir pra .up-tour-btn-primary em geral (Concluir/Próximo continuam só
+      // texto, sem precisar de nenhum ajuste).
+      '[data-up-tour-intro-comecar]{display:inline-flex;align-items:center;justify-content:center;gap:6px}',
+      '[data-up-tour-intro-comecar] svg{width:15px;height:15px;fill:currentColor}',
+      // "Não mostrar novamente" virou uma opção separada, com divisória
+      // própria (não mais um 3º botão empilhado) — checkbox decorativo via
+      // ::before/span (nunca um <input> real: a ação já dispara e fecha o
+      // tour num clique só, não existe um estado "marcado" persistente pra
+      // refletir depois — ver tourPular()).
+      '.up-tour-intro-opcional{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:14px;padding-top:14px;border:0;border-top:1px solid #edf0f7;background:transparent;color:#9298a6;font-size:11px;font-weight:600;font-family:inherit;cursor:pointer;transition:color .15s ease}',
+      '.up-tour-intro-opcional:hover{color:#5b6170}',
+      '.up-tour-intro-opcional-caixa{width:13px;height:13px;border-radius:4px;border:1.5px solid #c2c6d6;flex-shrink:0;transition:border-color .15s ease}',
+      '.up-tour-intro-opcional:hover .up-tour-intro-opcional-caixa{border-color:#8b91a0}',
+      '.up-tour-dots-intro{justify-content:center;margin:12px 0 2px}',
+      '.up-tour-feedback{display:flex;gap:10px;justify-content:center;margin-top:16px}',
+      '.up-tour-feedback-btn{border:1px solid rgba(194,198,214,.5);background:#f8f9ff;border-radius:14px;width:46px;height:46px;font-size:22px;line-height:1;cursor:pointer;transition:transform .15s ease,background .15s ease,border-color .15s ease;display:flex;align-items:center;justify-content:center}',
+      '.up-tour-feedback-btn:hover{background:#eff4ff;border-color:#0058be;transform:scale(1.08) translateY(-1px)}',
       '.up-tour-feedback-btn:active{transform:scale(.95)}',
-      '@media (max-width:480px){.up-tour-tooltip{width:calc(100vw - 24px)}}',
+      '.up-tour-feedback-btn:focus-visible{outline:2px solid #0058be;outline-offset:2px}',
+      '@media (max-width:480px){.up-tour-tooltip{width:calc(100vw - 24px);padding:16px}}',
+      // Telas bem estreitas: em vez de espremer Pular + Voltar + Próximo na
+      // mesma linha (risco de quebrar/cortar texto), o par Voltar/Próximo
+      // ocupa a linha toda dividido meio a meio, e Pular desce pra uma linha
+      // própria, centralizado — sem precisar reordenar nada no HTML (mesmo
+      // DOM de sempre, só a ordem visual via CSS).
+      '@media (max-width:420px){.up-tour-footer{gap:8px}.up-tour-footer>.up-tour-btn-text{order:3;width:100%;text-align:center;padding:6px}.up-tour-nav{order:2;width:100%}.up-tour-nav .up-tour-btn{flex:1}}',
       // Barra flutuante — fundo sempre escuro de propósito (independente do
       // tema claro/escuro da página host), pra garantir contraste e leitura
       // em qualquer sistema onde o widget for embedado.
@@ -739,6 +809,12 @@
     }
     if (name === 'check') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.55 17.65-5.2-5.2 1.4-1.4 3.8 3.8 8.7-8.7 1.4 1.4-10.1 10.1Z"/></svg>';
+    }
+    if (name === 'sparkle') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8L12 2Zm7.5 11 .9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9 .9-2.6Z"/></svg>';
+    }
+    if (name === 'arrow_forward') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.6 10.6 6l4.9 4.9H4v2h11.5L10.6 18l1.4 1.4 7.4-7.4Z"/></svg>';
     }
     if (name === 'pause') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h3v14H8zm5 0h3v14h-3z"/></svg>';
@@ -2630,16 +2706,26 @@
     var descricao = tour.descricao && tour.descricao.trim()
       ? tour.descricao.trim()
       : 'Vamos te guiar por este recurso em ' + total + ' passo' + (total === 1 ? '' : 's') + '.';
+    // Prévia do progresso (primeiro marcador em destaque) — decorativa, os
+    // mesmos indicadores já usados nos passos (.up-tour-dots/.up-tour-dot),
+    // só pra dar uma noção de "quantos passos" antes de começar. Não lê nem
+    // altera tourState.indice (o tour ainda nem começou de fato).
+    var dots = [];
+    for (var i = 0; i < total; i++) {
+      dots.push('<span class="up-tour-dot' + (i === 0 ? ' up-tour-dot-active' : '') + '"></span>');
+    }
     return [
       '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
       '<button type="button" class="up-tour-close" data-up-tour-intro-dispensar="true" aria-label="Fechar">' + icon('close') + '</button>',
+      '<div class="up-tour-badge-icone">' + icon('sparkle') + '</div>',
       '<p class="up-tour-title">' + escapeHtml(tour.titulo || 'Novo tour guiado') + '</p>',
       '<p class="up-tour-desc">' + escapeHtml(descricao) + '</p>',
+      (total > 1 ? '<div class="up-tour-dots up-tour-dots-intro">' + dots.join('') + '</div>' : ''),
       '<div class="up-tour-footer up-tour-footer-stack">',
-      '<button type="button" class="up-tour-btn up-tour-btn-primary" data-up-tour-intro-comecar="true">Começar tour</button>',
+      '<button type="button" class="up-tour-btn up-tour-btn-primary" data-up-tour-intro-comecar="true">Começar tour' + icon('arrow_forward') + '</button>',
       '<button type="button" class="up-tour-btn up-tour-btn-secondary" data-up-tour-intro-dispensar="true">Agora não</button>',
-      '<button type="button" class="up-tour-btn up-tour-btn-text" data-up-tour-intro-nunca-mais="true">Não mostrar novamente</button>',
       '</div>',
+      '<button type="button" class="up-tour-intro-opcional" data-up-tour-intro-nunca-mais="true"><span class="up-tour-intro-opcional-caixa"></span>Não mostrar novamente</button>',
       '</div>',
     ].join('');
   }
@@ -2660,6 +2746,7 @@
     return [
       '<div class="up-tour-tooltip" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center">',
       '<button type="button" class="up-tour-close" data-up-tour-fim-fechar="true" aria-label="Fechar">' + icon('close') + '</button>',
+      '<div class="up-tour-badge-icone up-tour-badge-icone-sucesso">' + icon('check') + '</div>',
       '<p class="up-tour-title">Tour concluído</p>',
       '<p class="up-tour-desc">Esse tour foi útil pra você?</p>',
       '<div class="up-tour-feedback">',
