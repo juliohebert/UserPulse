@@ -106,6 +106,15 @@ export interface TelaCatalogo {
   atualizado_em: string
 }
 
+export interface AparenciaWidget {
+  id?: string
+  sistema: string
+  cor_principal: string | null
+  logo_url: string | null
+  criado_em?: string
+  atualizado_em?: string
+}
+
 export type StatusCampanha = 'ativa' | 'inativa' | 'agendada' | 'encerrada'
 
 export interface TourPasso {
