@@ -132,41 +132,76 @@
       '.up-phone-input:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
       '.up-phone-done{margin:0;color:#006947;font-size:13px;line-height:18px;font-weight:600;text-align:center}',
       '.up-tour-overlay{position:fixed;inset:0;z-index:2147483600;pointer-events:none}',
-      '.up-tour-spotlight{position:fixed;border-radius:10px;box-shadow:0 0 0 9999px rgba(11,28,48,.55),0 0 0 3px #0058be,0 0 0 5px rgba(0,88,190,.25);pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
-      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid #c2c6d6;border-radius:14px;box-shadow:0 18px 50px rgba(11,28,48,.3);padding:16px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
-      '.up-tour-progress{font-size:11px;font-weight:800;color:#0058be;text-transform:uppercase;letter-spacing:.04em;margin:0 0 6px}',
-      '.up-tour-title{font-size:15px;font-weight:800;color:#0b1c30;margin:0 0 6px;line-height:20px}',
-      '.up-tour-desc{font-size:13px;line-height:19px;color:#424754;margin:0}',
-      '.up-tour-hint{font-size:11px;font-weight:700;color:#0058be;margin-top:8px}',
-      '.up-tour-warning{font-size:12px;line-height:17px;color:#ba1a1a;margin-top:10px;display:flex;gap:6px;align-items:flex-start;background:rgba(186,26,26,.08);border-radius:8px;padding:8px 10px}',
+      // Sem isso, o runtime do tour (raiz própria, fora de .up-widget-root)
+      // ficava no content-box padrão do navegador — padding/border somados
+      // ao width declarado podiam empurrar o tooltip pra fora da viewport em
+      // telas estreitas (a mesma causa da "faixa branca lateral" no mobile).
+      '.up-tour-overlay, .up-tour-overlay *{box-sizing:border-box}',
+      // Anel branco fino (separação nítida do elemento) + anel azul da marca
+      // + brilho externo suave — no lugar do anel duplo "cru" de antes.
+      // rgba(11,28,48,X) é o mesmo tom escuro já usado no resto do widget
+      // (.up-rec-overlay/.up-widget-overlay), só um pouco mais opaco aqui
+      // pra dar mais contraste ao spotlight. O brilho externo pulsa bem
+      // sutilmente (só essa camada, o restante do box-shadow fica fixo) —
+      // decorativo, não interfere no transition de posição/tamanho abaixo,
+      // que continua sendo o único responsável pelo reposicionamento.
+      '.up-tour-spotlight{position:fixed;border-radius:12px;box-shadow:0 0 0 9999px rgba(11,28,48,.6),0 0 0 2px #fff,0 0 0 5px #0058be,0 0 20px 4px rgba(0,88,190,.3);pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease;animation:up-tour-spotlight-pulse 2.4s ease-in-out infinite}',
+      '@keyframes up-tour-spotlight-pulse{0%,100%{box-shadow:0 0 0 9999px rgba(11,28,48,.6),0 0 0 2px #fff,0 0 0 5px #0058be,0 0 16px 3px rgba(0,88,190,.25)}50%{box-shadow:0 0 0 9999px rgba(11,28,48,.6),0 0 0 2px #fff,0 0 0 5px #0058be,0 0 28px 7px rgba(0,88,190,.42)}}',
+      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.55);border-radius:18px;box-shadow:0 2px 6px rgba(11,28,48,.06),0 24px 48px -12px rgba(11,28,48,.38);padding:20px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;animation:up-fade-in .18s ease-out}',
+      '.up-tour-progress{display:inline-flex;align-items:center;font-size:11px;font-weight:800;color:#0058be;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;background:rgba(0,88,190,.1);border-radius:999px;padding:3px 10px}',
+      '.up-tour-title{font-size:16px;font-weight:800;color:#0b1c30;margin:0 0 7px;line-height:22px;letter-spacing:-.005em}',
+      '.up-tour-desc{font-size:13.5px;line-height:20px;color:#4b5163;margin:0;overflow-wrap:break-word}',
+      // ::before em vez de um ícone/marcador no markup — o mesmo <p> de
+      // sempre, só com um indicador visual (bolinha pulsante) a mais.
+      '.up-tour-hint{font-size:11px;font-weight:700;color:#0058be;margin-top:10px;display:flex;align-items:center}',
+      '.up-tour-hint::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#0058be;margin-right:7px;flex-shrink:0;animation:up-tour-blink 1.4s ease-in-out infinite}',
+      '@keyframes up-tour-blink{0%,100%{opacity:1}50%{opacity:.35}}',
+      '.up-tour-warning{font-size:12px;line-height:17px;color:#ba1a1a;margin-top:12px;display:flex;gap:8px;align-items:flex-start;background:rgba(186,26,26,.07);border:1px solid rgba(186,26,26,.14);border-radius:10px;padding:10px 12px}',
       '.up-tour-warning svg{width:15px;height:15px;flex-shrink:0;margin-top:1px;fill:currentColor}',
-      '.up-tour-loading{font-size:12px;line-height:17px;color:#727785;margin-top:10px;display:flex;gap:8px;align-items:center;background:rgba(114,119,133,.08);border-radius:8px;padding:8px 10px}',
-      '.up-tour-spinner{width:13px;height:13px;flex-shrink:0;border-radius:50%;border:2px solid rgba(114,119,133,.25);border-top-color:#727785;animation:up-tour-spin .7s linear infinite}',
+      '.up-tour-loading{font-size:12px;line-height:17px;color:#5b6170;margin-top:12px;display:flex;gap:9px;align-items:center;background:#f4f6fb;border:1px solid rgba(194,198,214,.5);border-radius:10px;padding:10px 12px}',
+      '.up-tour-spinner{width:13px;height:13px;flex-shrink:0;border-radius:50%;border:2px solid rgba(0,88,190,.2);border-top-color:#0058be;animation:up-tour-spin .7s linear infinite}',
       '@keyframes up-tour-spin{to{transform:rotate(360deg)}}',
-      '.up-tour-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;gap:8px}',
-      '.up-tour-dots{display:flex;gap:4px;align-items:center}',
-      '.up-tour-dot{width:6px;height:6px;border-radius:999px;background:#d8dbe6;flex-shrink:0}',
-      '.up-tour-dot-active{background:#0058be;width:14px;border-radius:4px}',
-      '.up-tour-nav{display:flex;gap:6px}',
-      '.up-tour-btn{border:0;border-radius:9px;padding:8px 13px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;transition:opacity .15s ease,transform .15s ease}',
-      '.up-tour-btn:hover{opacity:.9}',
-      '.up-tour-btn:active{transform:scale(.97)}',
+      '.up-tour-footer{display:flex;align-items:center;justify-content:space-between;margin-top:18px;gap:10px;flex-wrap:wrap}',
+      '.up-tour-dots{display:flex;gap:5px;align-items:center}',
+      '.up-tour-dot{width:6px;height:6px;border-radius:999px;background:#dbdfec;flex-shrink:0;transition:width .2s ease,background-color .2s ease}',
+      '.up-tour-dot-active{background:#0058be;width:16px;border-radius:4px}',
+      '.up-tour-nav{display:flex;gap:8px}',
+      // min-height garante uma área de toque confortável em mobile mesmo com
+      // texto curto (Voltar/Pular); padding maior no eixo horizontal do que
+      // antes pra não ficar apertado com o novo raio/peso de fonte.
+      '.up-tour-btn{border:0;border-radius:10px;padding:10px 16px;font-size:12.5px;font-weight:800;cursor:pointer;font-family:inherit;line-height:1;min-height:40px;transition:opacity .15s ease,transform .15s ease,box-shadow .15s ease,background-color .15s ease}',
+      '.up-tour-btn:hover{opacity:.92;transform:translateY(-1px)}',
+      '.up-tour-btn:active{transform:scale(.97) translateY(0)}',
       '.up-tour-btn:disabled{opacity:.35;cursor:not-allowed;transform:none}',
-      '.up-tour-btn-primary{background:#0058be;color:#fff}',
+      '.up-tour-btn:focus-visible{outline:2px solid #0058be;outline-offset:2px}',
+      // Sombra própria no CTA principal — separa ele visualmente do
+      // secundário/texto mesmo à distância, sem depender só da cor.
+      '.up-tour-btn-primary{background:#0058be;color:#fff;box-shadow:0 8px 18px -4px rgba(0,88,190,.5)}',
+      '.up-tour-btn-primary:hover{box-shadow:0 10px 22px -4px rgba(0,88,190,.55)}',
       '.up-tour-btn-secondary{background:#eff4ff;color:#0058be}',
-      '.up-tour-btn-text{background:transparent;color:#727785;padding:8px 4px}',
-      '.up-tour-close{position:absolute;top:10px;right:10px;border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0}',
+      '.up-tour-btn-secondary:hover{background:#e2ecff}',
+      '.up-tour-btn-text{background:transparent;color:#6b7180;padding:10px 6px}',
+      '.up-tour-btn-text:hover{color:#0b1c30}',
+      '.up-tour-close{position:absolute;top:12px;right:12px;border:0;background:transparent;color:#8b91a0;padding:6px;border-radius:8px;cursor:pointer;line-height:0}',
       '.up-tour-close:hover{background:#eff4ff;color:#0b1c30}',
-      '.up-tour-close svg{width:16px;height:16px;fill:currentColor;display:block}',
+      '.up-tour-close:focus-visible{outline:2px solid #0058be;outline-offset:2px}',
+      '.up-tour-close svg{width:15px;height:15px;fill:currentColor;display:block}',
       // Footer empilhado (introdução / elemento não encontrado) — 3 ações
       // full-width em vez do par Voltar/Próximo lado a lado do footer padrão.
-      '.up-tour-footer-stack{flex-direction:column;align-items:stretch}',
+      '.up-tour-footer-stack{flex-direction:column;align-items:stretch;gap:8px}',
       '.up-tour-footer-stack .up-tour-btn{width:100%;text-align:center}',
-      '.up-tour-feedback{display:flex;gap:10px;justify-content:center;margin-top:14px}',
-      '.up-tour-feedback-btn{border:0;background:#f3f5fa;border-radius:12px;width:44px;height:44px;font-size:22px;line-height:1;cursor:pointer;transition:transform .15s ease,background .15s ease;display:flex;align-items:center;justify-content:center}',
-      '.up-tour-feedback-btn:hover{background:#eff4ff;transform:scale(1.08)}',
+      '.up-tour-feedback{display:flex;gap:10px;justify-content:center;margin-top:16px}',
+      '.up-tour-feedback-btn{border:1px solid rgba(194,198,214,.5);background:#f8f9ff;border-radius:14px;width:46px;height:46px;font-size:22px;line-height:1;cursor:pointer;transition:transform .15s ease,background .15s ease,border-color .15s ease;display:flex;align-items:center;justify-content:center}',
+      '.up-tour-feedback-btn:hover{background:#eff4ff;border-color:#0058be;transform:scale(1.08) translateY(-1px)}',
       '.up-tour-feedback-btn:active{transform:scale(.95)}',
-      '@media (max-width:480px){.up-tour-tooltip{width:calc(100vw - 24px)}}',
+      '.up-tour-feedback-btn:focus-visible{outline:2px solid #0058be;outline-offset:2px}',
+      '@media (max-width:480px){.up-tour-tooltip{width:calc(100vw - 24px);padding:16px}}',
+      // Telas bem estreitas: em vez de espremer Pular + Voltar + Próximo na
+      // mesma linha (risco de quebrar/cortar texto), o par Voltar/Próximo
+      // ocupa a linha toda dividido meio a meio, e Pular desce pra uma linha
+      // própria, centralizado — sem precisar reordenar nada no HTML (mesmo
+      // DOM de sempre, só a ordem visual via CSS).
+      '@media (max-width:420px){.up-tour-footer{gap:8px}.up-tour-footer>.up-tour-btn-text{order:3;width:100%;text-align:center;padding:6px}.up-tour-nav{order:2;width:100%}.up-tour-nav .up-tour-btn{flex:1}}',
       // Barra flutuante — fundo sempre escuro de propósito (independente do
       // tema claro/escuro da página host), pra garantir contraste e leitura
       // em qualquer sistema onde o widget for embedado.
