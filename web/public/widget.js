@@ -2000,6 +2000,15 @@
     // consequência, gerar mais mutação de DOM) sem necessidade. Zerado toda
     // vez que a vigilância de um passo novo começa (tourLimparVigiaPosicionamento).
     vigiaUltimoRect: null,
+    // Índice do passo pro qual o DOM atual (spotlight/#up-tour-tooltip-el) foi
+    // de fato construído pela última vez via renderTourInterno() — usado só
+    // por tourAtualizarPosicaoDOM() pra nunca confundir "reposicionar o
+    // mesmo passo" com "root antigo, de um passo anterior, que por
+    // coincidência ainda tem os mesmos seletores" (spotlight/tooltip têm a
+    // mesma estrutura em qualquer passo normal). -1 = nenhum passo normal
+    // renderizado ainda (ou o último render foi de outro estado: intro,
+    // aguardando, não encontrado, concluído) — força renderTour() completo.
+    vigiaRootIndice: -1,
     reposTimer: null,
     ativo: false,
     interacaoCleanup: null,
@@ -2559,6 +2568,51 @@
   // avanço por clique/interação continuarem funcionando. Se o elemento e a
   // posição não mudaram de verdade (ver tourRectMudouSignificativamente),
   // pula renderTour() — nunca redesenha à toa.
+  // Atualiza só a posição do spotlight/tooltip do passo JÁ renderizado (top/
+  // left/width/height via style, direto nos nós existentes) — usada por
+  // reposicionamentos que não mudam de passo nem de tela (vigilância de
+  // mutação/interação, scroll, resize). Nunca toca innerHTML/recria nó
+  // nenhum, então a animação de entrada do tooltip (up-fade-in, ver
+  // ensureStyles) não reinicia. Antes disso existir, qualquer reposição —
+  // inclusive uma mudança de 1px no rect do alvo durante uma tela se
+  // estabilizando (ex.: campo de busca com resultado dinâmico) — chamava
+  // renderTour() inteiro: remove o root, recria do zero, reaplica a
+  // animação — o tooltip literalmente desaparecia e reaparecia (flicker)
+  // toda vez que o alvo se mexia um pouco, mesmo sem trocar de passo.
+  // Retorna false (sinal pra quem chamou cair no renderTour() completo) só
+  // quando o DOM atual não está no estado "passo normal" pra começo de
+  // conversa — spotlight/tooltip do passo só existem nesse estado; qualquer
+  // troca real de tela (entrar num passo pela primeira vez, ir pra
+  // intro/concluído/não-encontrado) continua indo por renderTour() como
+  // sempre, com a animação normal.
+  //
+  // Checar só a PRESENÇA de .up-tour-spotlight/#up-tour-tooltip-el não
+  // bastava: irParaPasso() nunca chama renderTour() diretamente ao entrar
+  // num passo novo (o comentário logo abaixo dele explica — a própria
+  // vigilância dispara o primeiro render de verdade). Isso significa que,
+  // ao trocar de Passo 1 pra Passo 2, tourState.root ainda É o root do
+  // Passo 1 (com spotlight/tooltip válidos, só que com o CONTEÚDO do passo
+  // errado) no instante em que a vigilância do Passo 2 dispara — sem essa
+  // checagem de índice, a troca de passo virava só uma "reposição" do card
+  // antigo, atualizando a posição mas nunca o título/descrição/progresso, e
+  // o passo ficava travado (Próximo parecia não fazer nada). vigiaRootIndice
+  // só é setado quando o DOM atual foi de fato construído pra este índice
+  // (ver renderTourInterno) — só aí a reposição em vez de reconstrução é segura.
+  function tourAtualizarPosicaoDOM(rect, passo) {
+    if (!tourState.root || tourState.vigiaRootIndice !== tourState.indice) return false;
+    var spotlight = tourState.root.querySelector('.up-tour-spotlight');
+    var tooltipEl = tourState.root.querySelector('#up-tour-tooltip-el');
+    if (!spotlight || !tooltipEl) return false;
+    spotlight.style.top = (rect.top - 4) + 'px';
+    spotlight.style.left = (rect.left - 4) + 'px';
+    spotlight.style.width = (rect.width + 8) + 'px';
+    spotlight.style.height = (rect.height + 8) + 'px';
+    var pos = calcularPosicaoTooltip(rect, passo.tooltip_posicao || 'auto', 300, tooltipEl.offsetHeight || 200);
+    tooltipEl.style.top = pos.top + 'px';
+    tooltipEl.style.left = pos.left + 'px';
+    return true;
+  }
+
   function tourRecomputarPosicaoAtual() {
     if (!tourState.ativo || tourState.naoEncontrado || !tourState.tour || !tourState.elementoAtual) return;
     var passo = tourState.tour.passos[tourState.indice];
@@ -2581,7 +2635,7 @@
     // toa e, por consequência, gerar mais mutação de DOM sem necessidade).
     if (!trocouElemento && !tourRectMudouSignificativamente(rectNovo, tourState.vigiaUltimoRect)) return;
     tourState.vigiaUltimoRect = rectNovo;
-    renderTour();
+    if (!tourAtualizarPosicaoDOM(rectNovo, passo)) renderTour();
   }
 
   // Agenda no máximo 1 tourRecomputarPosicaoAtual() por frame — usado pelo
@@ -2965,6 +3019,11 @@
     root.id = TOUR_WIDGET_ID;
     root.className = 'up-tour-overlay';
     tourState.root = root;
+    // Todo renderTourInterno() constrói um DOM novo — o marcador só volta a
+    // apontar pra um índice de verdade (ver tourAtualizarPosicaoDOM) se a
+    // ramificação "passo normal" abaixo rodar até o fim; qualquer outro
+    // estado (intro/concluído/aguardando/não encontrado) sai com -1.
+    tourState.vigiaRootIndice = -1;
 
     if (tourState.tela === 'intro') {
       root.innerHTML = renderTourIntro();
@@ -3025,6 +3084,7 @@
 
     document.body.appendChild(root);
     bindTourEvents();
+    tourState.vigiaRootIndice = tourState.indice;
 
     // Reposiciona com a altura real do tooltip (a estimativa acima evita flash fora da tela)
     var tooltipEl = root.querySelector('#up-tour-tooltip-el');
@@ -3040,7 +3100,16 @@
 
   function reposicionarTour() {
     if (!tourState.ativo || tourState.naoEncontrado || !tourState.elementoAtual) return;
-    window.requestAnimationFrame(renderTour);
+    window.requestAnimationFrame(function () {
+      if (!tourState.ativo || tourState.naoEncontrado || !tourState.elementoAtual) return;
+      var passo = tourState.tour && tourState.tour.passos[tourState.indice];
+      // Mesma lógica de tourRecomputarPosicaoAtual: scroll/resize só reposiciona
+      // o spotlight/tooltip já em tela, sem recriar DOM nem reiniciar a
+      // animação de entrada — só cai no renderTour() completo se o passo não
+      // estiver mais no estado "normal" renderizado (ex.: DOM ainda não tinha
+      // o passo montado por algum outro motivo).
+      if (!passo || !tourAtualizarPosicaoDOM(tourState.elementoAtual.getBoundingClientRect(), passo)) renderTour();
+    });
   }
 
   var tourReposHandlersBound = false;
