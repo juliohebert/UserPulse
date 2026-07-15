@@ -29,6 +29,13 @@
   var lastUrl = '';
   var urlChangeTimer = null;
   var pendingContext = {};
+  // Promise da última busca de aparência (setada em init(), reaproveitada por
+  // toda a sessão da SPA — ver avaliarTourAutomatico/aguardarAparenciaEIniciarTour).
+  // Como o host normalmente chama init() uma única vez e o resto da navegação
+  // acontece via pushState/popstate (bindSpaListeners), essa promise já
+  // resolvida funciona como cache: reavaliações disparadas por handleUrlChange
+  // não geram um novo fetch nem um novo flash, só reaproveitam o resultado.
+  var aparenciaPromise = null;
 
   function escapeHtml(value) {
     return String(value == null ? '' : value)
@@ -1555,18 +1562,36 @@
 
     ensureStyles();
 
-    // Aparência do widget (cor principal + logo do tour) — carregada junto
-    // com o resto da config pública, em paralelo com tudo abaixo (nunca
-    // bloqueia campanha/tour esperando essa resposta). Se ainda não tiver
-    // chegado quando a intro do tour renderizar pela primeira vez, ela usa o
-    // fallback visual padrão e é re-renderizada quando a aparência resolver
-    // (só enquanto ainda estiver na tela de intro — não interrompe um tour
-    // já em andamento nem a tela de conclusão).
-    if (normalized.sistema) {
-      fetchAparencia(normalized.sistema).then(function (aparencia) {
-        tourState.aparencia = aparencia;
-        aplicarAparenciaCss(aparencia);
-        if (tourState.ativo && tourState.tela === 'intro') renderTour();
+    // Aparência do widget (cor principal + logo do tour) — a busca em si roda
+    // em paralelo com tudo abaixo (nunca bloqueia o fetch de campanha/tour
+    // candidatos), mas o PRIMEIRO RENDER de um tour automático espera
+    // aparenciaPromise resolver antes de chamar iniciarTour() (ver
+    // aguardarAparenciaEIniciarTour) — sem isso, o tour podia renderizar a
+    // intro com o visual padrão e só trocar pra cor/logo configurados um
+    // instante depois (flash). fetchAparenciaComTimeout garante um teto de
+    // espera (aparenciaPromise nunca trava além de APARENCIA_TIMEOUT_MS).
+    //
+    // Isso NÃO descarta uma resposta lenta que chega depois do timeout: se
+    // aparenciaFetch.expirouAntesDaResposta() for true quando o fetch de
+    // verdade (aparenciaFetch.real) finalmente resolver, ainda aplica a
+    // cor/logo corretos (e re-renderiza, se a intro do tour ainda estiver na
+    // tela) — melhor uma correção tardia do que ficar preso no fallback
+    // padrão pro resto da sessão só porque a rede estava lenta uma vez.
+    function aplicarEAtualizarAparencia(aparencia) {
+      tourState.aparencia = aparencia;
+      aplicarAparenciaCss(aparencia);
+      if (tourState.ativo && tourState.tela === 'intro') renderTour();
+    }
+    var aparenciaFetch = normalized.sistema ? fetchAparenciaComTimeout(normalized.sistema) : null;
+    aparenciaPromise = aparenciaFetch
+      ? aparenciaFetch.pronta.then(function (aparencia) {
+          aplicarEAtualizarAparencia(aparencia);
+          return aparencia;
+        })
+      : Promise.resolve(null);
+    if (aparenciaFetch) {
+      aparenciaFetch.real.then(function (aparenciaReal) {
+        if (aparenciaFetch.expirouAntesDaResposta()) aplicarEAtualizarAparencia(aparenciaReal);
       });
     }
 
@@ -1848,6 +1873,15 @@
       }
       evaluateUrlCampaigns();
       jornadaReavaliarAposNavegacao();
+      // Reavalia tour automático (ex.: configurado por "Caminho da URL")
+      // depois de uma navegação SPA — sem isso, um tour cuja condição só
+      // passa a bater com a URL nova nunca era oferecido até um reload
+      // completo de página (que é o único outro lugar que chama
+      // avaliarTourAutomatico, dentro de init()). avaliarTourAutomatico já
+      // se protege sozinha contra reabrir/duplicar (tourState.ativo,
+      // jornadaState.aberto, tourWasShown/dedupe do backend), igual ao
+      // comportamento de sempre num reload.
+      if (state.config && state.config.sistema) avaliarTourAutomatico(state.config);
     }, 200);
   }
 
@@ -2092,6 +2126,39 @@
       if (!response.ok) return null;
       return response.json();
     }).catch(function () { return null; });
+  }
+
+  // Espera até APARENCIA_TIMEOUT_MS pela resposta de fetchAparencia antes de
+  // desistir e liberar o chamador com null (mesmo tratamento de "sem
+  // aparência" que fetchAparencia já dá pra erro de rede/parse) — garante que
+  // uma reavaliação que dependa da aparência (ver aguardarAparenciaEIniciarTour)
+  // nunca fique presa indefinidamente esperando uma resposta lenta.
+  //
+  // IMPORTANTE: o timeout só destrava quem está esperando — nunca descarta a
+  // resposta real. `pronta` resolve com o que vier primeiro (like
+  // Promise.race), mas `real` sempre resolve com o resultado de verdade da
+  // API, mesmo que isso aconteça depois do timeout — ver uso em init(), que
+  // usa isso pra corrigir cor/logo se a resposta chegar atrasada (mesmo que
+  // depois de tourState.aparencia já ter caído no fallback padrão).
+  var APARENCIA_TIMEOUT_MS = 1200;
+  function fetchAparenciaComTimeout(sistema) {
+    var expirou = false;
+    var timer;
+    var timeoutPromise = new Promise(function (resolve) {
+      timer = window.setTimeout(function () {
+        expirou = true;
+        resolve(null);
+      }, APARENCIA_TIMEOUT_MS);
+    });
+    var realPromise = fetchAparencia(sistema).then(function (aparencia) {
+      window.clearTimeout(timer);
+      return aparencia;
+    });
+    return {
+      pronta: Promise.race([realPromise, timeoutPromise]),
+      real: realPromise,
+      expirouAntesDaResposta: function () { return expirou; },
+    };
   }
 
   function hexParaRgbTour(hex) {
@@ -3976,8 +4043,9 @@
     renderTour();
   }
 
-  // Avalia automaticamente, no init(), se há um tour guiado elegível para o
-  // contexto atual (mesmo princípio do checkMode usado para campanhas).
+  // Avalia automaticamente, no init() e a cada reavaliação de SPA (ver
+  // handleUrlChange), se há um tour guiado elegível para o contexto atual
+  // (mesmo princípio do checkMode usado para campanhas).
   function avaliarTourAutomatico(config) {
     // Central de ajuda aberta não pode ser coberta por um tour automático —
     // o usuário abriu ela de propósito, então não compete por cima.
@@ -3992,11 +4060,30 @@
           // usuario_id, o servidor não tem como identificar o usuário — cai
           // no fallback localStorage.
           if (!config.usuario_id && tourWasShown(c)) continue;
-          iniciarTour(c);
+          aguardarAparenciaEIniciarTour(c);
           break;
         }
       })
       .catch(function () { /* fail silently */ });
+  }
+
+  // Adia iniciarTour() até a aparência (cor/logo) do sistema atual estar
+  // resolvida (ou desistir pelo timeout de fetchAparenciaComTimeout) — sem
+  // isso, a intro do tour renderizava primeiro com o visual padrão e só
+  // trocava pra cor/logo configurados quando a resposta chegasse (flash).
+  // Roda em paralelo com o fetch de candidatos em avaliarTourAutomatico (não
+  // soma os dois tempos de espera): na prática, na maioria das navegações
+  // essa promise já está resolvida (aparenciaPromise é setada uma vez em
+  // init() e reaproveitada por toda a sessão da SPA), então isso resolve no
+  // mesmo tick, sem atraso perceptível.
+  function aguardarAparenciaEIniciarTour(tour) {
+    var promise = aparenciaPromise || Promise.resolve(null);
+    promise.then(function () {
+      // Reconfere depois da espera: outro tour pode ter iniciado, ou a
+      // Central de Ajuda pode ter sido aberta, nesse meio-tempo.
+      if (tourState.ativo || jornadaState.aberto) return;
+      iniciarTour(tour);
+    });
   }
 
   // ─── Gravador de fluxo (MVP) ──────────────────────────────────────────────
