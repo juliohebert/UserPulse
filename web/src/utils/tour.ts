@@ -31,7 +31,10 @@ export function testEmbedUrl(tour: Pick<TourGuiado, 'slug'>): string {
 // elemento — mesma lógica de seleção usada por selecionarElementoPasso() em
 // widget.js.
 export function comandoTestarSeletor(seletorTipo: string, seletor: string): string {
-  if (seletorTipo === 'css') {
+  // 'area' usa o mesmo formato de seletor CSS do 'css' — só muda o que o
+  // widget faz com o elemento encontrado (destaca o container inteiro em vez
+  // de um único elemento), não como ele é localizado.
+  if (seletorTipo === 'css' || seletorTipo === 'area') {
     return `document.querySelector('${seletor}')`
   }
   return `document.querySelector('[data-cy="${seletor}"]')`

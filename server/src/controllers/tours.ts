@@ -3,7 +3,13 @@ import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 
 const MODOS_IDENTIFICACAO = ['sistema_tela', 'data_cy', 'url_contem']
-const SELETOR_TIPOS = ['data_cy', 'id', 'css']
+// 'area' reaproveita o mesmo mecanismo de localização de 'css' (o runtime do
+// widget trata os dois de forma idêntica ao buscar o elemento — ver
+// selecionarElementoPasso em widget.js) — a diferença é só semântica: o
+// seletor aponta para um container/grupo (ex.: a barra de filtros inteira) em
+// vez de um elemento único, e o spotlight destaca o container inteiro. Não
+// exigiu migration: seletor_tipo já era uma coluna String livre.
+const SELETOR_TIPOS = ['data_cy', 'id', 'css', 'area']
 const TOOLTIP_POSICOES = ['auto', 'top', 'bottom', 'left', 'right']
 const ACOES_AO_AVANCAR = ['apenas_avancar', 'clicar_elemento']
 const MODOS_AVANCO_INTERACAO = ['manual', 'ao_clicar', 'ao_alterar_valor', 'ao_aparecer_elemento', 'ao_sumir_elemento']
