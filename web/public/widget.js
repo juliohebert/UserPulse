@@ -739,6 +739,11 @@
       '.up-rec-escolha-item-recomendado{border-left-color:#006947}',
       '.up-rec-escolha-item-bom{border-left-color:#0058be}',
       '.up-rec-escolha-item-fragil{border-left-color:#e65100}',
+      // Roxo — mesmo tom já usado em .up-action (destino padrão de campanha)
+      // — reservado só pra sugestão de "Área", pra ficar visualmente distinto
+      // das 3 qualidades de seletor único acima (não é "melhor" nem "pior"
+      // que elas, é um modo de alvo diferente).
+      '.up-rec-escolha-item-area{border-left-color:#6b38d4}',
       '.up-rec-escolha-tipo{font-size:11px;font-weight:800;color:#424754;flex-shrink:0;min-width:64px}',
       '.up-rec-escolha-codigo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f8;border:1px solid #dde1ee;border-radius:6px;padding:3px 7px;color:#425066}',
       '.up-rec-escolha-qtd{font-size:10px;color:#7c8595;white-space:nowrap;flex-shrink:0}',
@@ -746,6 +751,7 @@
       '.up-rec-qualidade-recomendado{background:rgba(0,105,71,.1);color:#006947}',
       '.up-rec-qualidade-bom{background:rgba(0,88,190,.1);color:#0058be}',
       '.up-rec-qualidade-fragil{background:rgba(230,81,0,.12);color:#e65100}',
+      '.up-rec-qualidade-area{background:rgba(107,56,212,.12);color:#6b38d4}',
       // Onboarding Guiado (Jornadas) — painel lateral simples + botão flutuante.
       // z-index bem alto e específico pro painel/FAB (maior que o do próprio
       // botão, garantindo que o painel sempre fique por cima dele caso os
@@ -2340,7 +2346,13 @@
   function selecionarElementoPasso(passo) {
     try {
       var el;
-      if (passo.seletor_tipo === 'css') {
+      // 'area' (destaque de grupo/container, ex.: a barra de filtros inteira)
+      // usa exatamente a mesma busca de 'css': o seletor identifica o
+      // container a destacar, e querySelectorAll+tourEscolherMelhorCandidato
+      // já lida bem com isso — spotlight/tooltip não precisam saber a
+      // diferença, os dois só operam sobre o rect do elemento retornado aqui
+      // (maior ou menor, tanto faz).
+      if (passo.seletor_tipo === 'css' || passo.seletor_tipo === 'area') {
         el = tourEscolherMelhorCandidato(document.querySelectorAll(passo.seletor));
       } else if (passo.seletor_tipo === 'id') {
         var idNormalizado = tourNormalizarId(passo.seletor);
@@ -4840,11 +4852,12 @@
   // é mais um rótulo fixo por tipo de atributo, e sim o resultado real da
   // busca: 1 match = bom, mais de 1 = frágil, seletor inválido = descartado.
   //
-  // Compatibilidade: só existem dois seletor_tipo válidos no runtime/formato
-  // do tour — 'data_cy' (valor bruto, sem montar CSS) e 'css' (qualquer outro
-  // candidato, sempre um seletor CSS de verdade, nunca dependente de texto —
-  // CSS não seleciona por conteúdo textual).
-  var RECORDER_TIPOS_SELETOR_VALIDOS = ['data_cy', 'css'];
+  // Compatibilidade: 'data_cy' (valor bruto, sem montar CSS), 'css' (qualquer
+  // outro candidato, sempre um seletor CSS de verdade, nunca dependente de
+  // texto — CSS não seleciona por conteúdo textual) e 'area' (mesmo formato
+  // de seletor do 'css', mas o alvo é um container/grupo — ver candidato
+  // "Área" gerado em recorderGerarCandidatosSeletor).
+  var RECORDER_TIPOS_SELETOR_VALIDOS = ['data_cy', 'css', 'area'];
 
   // Escaping seguro pra valores usados DENTRO de um seletor de atributo entre
   // aspas (ex.: [name="valor"]) — diferente de recorderCssEscapeSimples, que
@@ -4936,13 +4949,18 @@
 
   function recorderGerarCandidatosSeletor(el) {
     var candidatos = [];
+    // Calculado uma vez, fora do if/else de baixo — reaproveitado tanto pra
+    // qualificar seletores CSS ambíguos (ramo 'else' de sempre) quanto pra
+    // sugerir "Área" logo abaixo, que precisa dele mesmo quando o elemento
+    // clicado já tem data-cy próprio (ramo 'if').
+    var ancora = null;
+    try { ancora = recorderAncoraAncestral(el); } catch (_e) { ancora = null; }
     try {
       var dataCy = el.getAttribute && el.getAttribute('data-cy');
       if (dataCy) {
         // data-cy é prioridade máxima — não precisa de alternativas CSS.
         candidatos.push({ rotulo: 'data-cy', seletor_tipo: 'data_cy', seletor: dataCy, qualidade: 'recomendado', quantidade: null });
       } else {
-        var ancora = recorderAncoraAncestral(el);
         var fragmentos = recorderFragmentosLocais(el);
 
         fragmentos.forEach(function (frag) {
@@ -4976,7 +4994,20 @@
       candidatos.push({ rotulo: 'CSS (fallback)', seletor_tipo: 'css', seletor: el.tagName ? el.tagName.toLowerCase() : '*', qualidade: 'fragil', quantidade: null });
     }
 
-    var ORDEM_QUALIDADE = { recomendado: 0, bom: 1, fragil: 2 };
+    // Sugestão de "Área" — destaca o container pai em vez do elemento clicado
+    // sozinho. Útil quando o passo é sobre um GRUPO (ex.: "Use os filtros da
+    // agenda" destacando clínica+convênio+especialidade juntos), não sobre um
+    // campo isolado. Só sugere quando o ancestral resolve pra um único
+    // elemento na tela — um seletor de área ambíguo destacaria o container
+    // errado (ou vários) sem nenhum aviso pro usuário do tour.
+    if (ancora) {
+      var qtdArea = recorderValidarSeletorCss(ancora);
+      if (qtdArea === 1) {
+        candidatos.push({ rotulo: 'Área (contém este elemento)', seletor_tipo: 'area', seletor: ancora, qualidade: 'area', quantidade: qtdArea });
+      }
+    }
+
+    var ORDEM_QUALIDADE = { recomendado: 0, bom: 1, fragil: 2, area: 3 };
     candidatos.sort(function (a, b) { return ORDEM_QUALIDADE[a.qualidade] - ORDEM_QUALIDADE[b.qualidade]; });
     return candidatos;
   }
@@ -7164,6 +7195,7 @@
   function recorderQualidadeLabel(qualidade) {
     if (qualidade === 'recomendado') return 'Recomendado';
     if (qualidade === 'bom') return 'Bom';
+    if (qualidade === 'area') return 'Área';
     return 'Frágil';
   }
 
@@ -7240,8 +7272,9 @@
     // Captura antes de recorderFinalizarTrocaElemento() limpar trocaIndice.
     var passo = recorderState.passos[recorderState.trocaIndice];
     // Defesa extra: só aplica se o candidato tiver um seletor_tipo válido
-    // (data_cy ou css) — recorderGerarCandidatosSeletor já só gera esses dois,
-    // isso só protege contra um candidato inválido chegar aqui por engano.
+    // (data_cy, css ou area) — recorderGerarCandidatosSeletor já só gera
+    // esses três, isso só protege contra um candidato inválido chegar aqui
+    // por engano.
     if (passo && RECORDER_TIPOS_SELETOR_VALIDOS.indexOf(candidato.seletor_tipo) !== -1) {
       passo.seletor_tipo = candidato.seletor_tipo;
       passo.seletor = candidato.seletor;

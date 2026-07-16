@@ -65,6 +65,7 @@ const SELETOR_TIPOS = [
   { value: 'data_cy', label: 'data-cy' },
   { value: 'id', label: 'ID' },
   { value: 'css', label: 'CSS' },
+  { value: 'area', label: 'Área (grupo de elementos)' },
 ]
 
 // Corrige o erro mais comum ao colar um seletor: colar o seletor de atributo
@@ -122,7 +123,7 @@ function extrairPassosDoJson(texto: string): { passos: PassoState[] } | { erro: 
     return {
       titulo: typeof passo.titulo === 'string' ? passo.titulo : '',
       descricao: typeof passo.descricao === 'string' ? passo.descricao : '',
-      seletor_tipo: (passo.seletor_tipo === 'css' || passo.seletor_tipo === 'id') ? passo.seletor_tipo : 'data_cy',
+      seletor_tipo: (passo.seletor_tipo === 'css' || passo.seletor_tipo === 'id' || passo.seletor_tipo === 'area') ? passo.seletor_tipo : 'data_cy',
       seletor: typeof passo.seletor === 'string' ? passo.seletor : '',
       tooltip_posicao: typeof passo.tooltip_posicao === 'string' ? passo.tooltip_posicao : 'auto',
       acao_ao_avancar: typeof passo.acao_ao_avancar === 'string' ? passo.acao_ao_avancar : 'apenas_avancar',
@@ -327,6 +328,24 @@ function alertasPasso(passo: PassoState): string[] {
     alertas.push('Seletores CSS podem ser frágeis. Sempre que possível, prefira data-cy.')
   }
 
+  if (passo.seletor_tipo === 'area' && seletor && REGEX_SELETOR_FRAGIL.test(seletor)) {
+    alertas.push(
+      'Este seletor de área parece depender de classes geradas por framework ou de posição entre elementos — mesmo risco de um seletor CSS frágil. Prefira um container com data-cy ou id próprio.'
+    )
+  }
+
+  if (passo.seletor_tipo === 'area' && passo.acao_ao_avancar === 'clicar_elemento') {
+    alertas.push(
+      "Este passo destaca uma Área (grupo), mas está configurado para clicar automaticamente no elemento ao avançar. Clicar num container geralmente não faz nada — considere usar 'Apenas avançar'."
+    )
+  }
+
+  if (passo.seletor_tipo === 'area' && passo.modo_avanco_interacao === 'ao_alterar_valor') {
+    alertas.push(
+      "Este modo espera que o próprio elemento destacado tenha um valor preenchível. Para uma Área (grupo), o avanço dispara quando QUALQUER campo dentro do container for alterado — confirme se é isso que você quer."
+    )
+  }
+
   return alertas
 }
 
@@ -369,7 +388,24 @@ function PassoPreview({ passo, indice, total }: { passo: PassoState; indice: num
   const descricao = passo.descricao.trim() || 'Descrição do passo (opcional)'
   const ultimo = indice === total - 1
 
-  const elemento = (
+  // Modo "Área" destaca um GRUPO de campos, não um elemento único — o mock
+  // fica mais largo e mostra alguns "campos" internos (ex.: clínica, convênio,
+  // especialidade) pra deixar claro que o spotlight cobre o container inteiro,
+  // não um item isolado.
+  const ehArea = passo.seletor_tipo === 'area'
+  const elemento = ehArea ? (
+    <div
+      key="elemento"
+      className="w-56 h-14 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 flex flex-col items-center justify-center gap-1 shrink-0 px-2"
+    >
+      <span className="text-[9px] font-bold uppercase tracking-wider text-primary/50">área / grupo</span>
+      <div className="flex items-center gap-1 w-full">
+        <span className="h-3 flex-1 rounded bg-primary/15 border border-primary/30" />
+        <span className="h-3 flex-1 rounded bg-primary/15 border border-primary/30" />
+        <span className="h-3 flex-1 rounded bg-primary/15 border border-primary/30" />
+      </div>
+    </div>
+  ) : (
     <div
       key="elemento"
       className="w-20 h-12 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 flex items-center justify-center shrink-0"
@@ -1307,7 +1343,8 @@ export function TourForm() {
                           placeholder={
                             passo.seletor_tipo === 'css' ? '#botao-novo-agendamento'
                               : passo.seletor_tipo === 'id' ? 'novo-agendamento-btn'
-                                : 'novo-agendamento-btn'
+                                : passo.seletor_tipo === 'area' ? '.filtros-agenda'
+                                  : 'novo-agendamento-btn'
                           }
                           className={`${field} text-[13px] py-2 font-mono`}
                         />
@@ -1315,6 +1352,7 @@ export function TourForm() {
                           {passo.seletor_tipo === 'data_cy' && 'Informe apenas o valor do data-cy — ex.: layout-sider-menu-item-link-1 (não cole [data-cy="..."], é normalizado automaticamente).'}
                           {passo.seletor_tipo === 'id' && 'Informe apenas o valor do id — ex.: novo-agendamento-btn (com ou sem # na frente).'}
                           {passo.seletor_tipo === 'css' && 'Seletor CSS completo — ex.: #novo-agendamento-btn, button[name="salvar"], .menu-item[href="/app/agenda"].'}
+                          {passo.seletor_tipo === 'area' && 'Use para destacar um GRUPO de campos juntos (ex.: os filtros de clínica, convênio e especialidade da agenda) em vez de um elemento único. Seletor CSS completo do container que envolve o grupo — ex.: .filtros-agenda, [data-cy="filtros-agenda"], .card-resumo.'}
                         </p>
                         {/* Ações discretas abaixo do input — nunca disputam espaço com
                             ele. Empilham à esquerda no mobile, uma linha à direita a
