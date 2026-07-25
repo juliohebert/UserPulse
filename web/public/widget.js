@@ -37,6 +37,77 @@
   // não geram um novo fetch nem um novo flash, só reaproveitam o resultado.
   var aparenciaPromise = null;
 
+  // ─── Modo debug ───────────────────────────────────────────────────────────
+  // Puramente observacional: nunca altera elegibilidade, exibição ou
+  // comportamento do widget — só loga, no console, o que o runtime já
+  // decidiu por conta própria. Ativado por ?userpulse_debug=1 na URL da
+  // página host (checado uma vez aqui, no carregamento do script) ou a
+  // qualquer momento via window.UserPulse.debug(). Nada é logado por padrão.
+  var debugState = { enabled: false };
+  try {
+    debugState.enabled = /(?:^|[?&])userpulse_debug=1(?:&|$)/.test(window.location.search);
+  } catch (_e) { /* window.location indisponível (ambiente não-browser) */ }
+
+  // Chaves nunca logadas em claro — cobre senha/token/CPF/cartão mesmo em
+  // campos futuros com nomes parecidos (ex.: senha_atual, auth_token).
+  var DEBUG_CHAVE_SENSIVEL_RE = /senha|password|token|cpf|cart[aã]o|card|auth/i;
+  var DEBUG_CHAVE_EMAIL_RE = /email/i;
+
+  function debugMascarar(chave, valor) {
+    if (typeof valor === 'string' && DEBUG_CHAVE_SENSIVEL_RE.test(chave)) return '[redacted]';
+    if (typeof valor === 'string' && DEBUG_CHAVE_EMAIL_RE.test(chave) && valor.indexOf('@') !== -1) {
+      var partes = valor.split('@');
+      return (partes[0].charAt(0) || '*') + '***@' + partes[1];
+    }
+    return valor;
+  }
+
+  // Clone raso/recursivo só para exibição no console — nunca usado para
+  // decidir nada, então um clone "sujeito a falha silenciosa" é aceitável.
+  function debugSanitizar(obj) {
+    if (obj == null || typeof obj !== 'object') return obj;
+    try {
+      var out = Array.isArray(obj) ? [] : {};
+      for (var k in obj) {
+        if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+        var v = obj[k];
+        out[k] = (v && typeof v === 'object') ? debugSanitizar(v) : debugMascarar(k, v);
+      }
+      return out;
+    } catch (_e) {
+      return '[unavailable]';
+    }
+  }
+
+  // Log estruturado opt-in. `detalhes` pode ser um objeto (console.table,
+  // quando array) ou omitido. Nunca lança — um console.* indisponível ou um
+  // dado não serializável não pode derrubar o runtime do widget.
+  function debugLog(categoria, detalhes) {
+    if (!debugState.enabled) return;
+    try {
+      var grupo = console.groupCollapsed ? 'groupCollapsed' : 'log';
+      console[grupo]('[UserPulse debug] ' + categoria);
+      if (detalhes !== undefined) {
+        if (Array.isArray(detalhes) && console.table) console.table(detalhes);
+        else console.log(detalhes);
+      }
+      if (console.groupEnd) console.groupEnd();
+    } catch (_e) { /* console indisponível/instrumentado de forma inesperada — ignora */ }
+  }
+
+  function debugStatusUrl() {
+    try {
+      return {
+        href: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+        hash: window.location.hash,
+      };
+    } catch (_e) {
+      return null;
+    }
+  }
+
   function escapeHtml(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;')
@@ -1537,6 +1608,10 @@
       pendingContext = {};
     }
     state.config = normalized;
+    debugLog('Widget carregado / init()', {
+      config: debugSanitizar(normalized),
+      url: debugStatusUrl(),
+    });
     iniciarGravadorSeNecessario();
     state.campanha = null;
     state.open = false;
@@ -1588,21 +1663,34 @@
     // cor/logo corretos (e re-renderiza, se a intro do tour ainda estiver na
     // tela) — melhor uma correção tardia do que ficar preso no fallback
     // padrão pro resto da sessão só porque a rede estava lenta uma vez.
-    function aplicarEAtualizarAparencia(aparencia) {
+    function aplicarEAtualizarAparencia(aparencia, origemDebug) {
       tourState.aparencia = aparencia;
       aplicarAparenciaCss(aparencia);
+      if (debugState.enabled) {
+        debugLog('Aparência (' + origemDebug + ')', {
+          // fetchAparencia() trata erro de rede/parse do mesmo jeito que "sem
+          // configuração salva" (ambos caem em cor_principal/logo_url nulos) —
+          // não dá pra distinguir os dois casos aqui, só relatar o resultado.
+          status: aparencia && aparencia.cor_principal ? 'carregada' : 'fallback (sem cor_principal configurada, ou erro de rede/parse)',
+          cor_principal: (aparencia && aparencia.cor_principal) || null,
+          logo_url: (aparencia && aparencia.logo_url) || null,
+        });
+      }
       if (tourState.ativo && tourState.tela === 'intro') renderTour();
+    }
+    if (debugState.enabled && !normalized.sistema) {
+      debugLog('Aparência', { status: 'não buscada — init() sem "sistema" (modo slug)' });
     }
     var aparenciaFetch = normalized.sistema ? fetchAparenciaComTimeout(normalized.sistema) : null;
     aparenciaPromise = aparenciaFetch
       ? aparenciaFetch.pronta.then(function (aparencia) {
-          aplicarEAtualizarAparencia(aparencia);
+          aplicarEAtualizarAparencia(aparencia, aparenciaFetch.expirouAntesDaResposta() ? 'timeout, aplicando fallback provisório' : 'resposta a tempo');
           return aparencia;
         })
       : Promise.resolve(null);
     if (aparenciaFetch) {
       aparenciaFetch.real.then(function (aparenciaReal) {
-        if (aparenciaFetch.expirouAntesDaResposta()) aplicarEAtualizarAparencia(aparenciaReal);
+        if (aparenciaFetch.expirouAntesDaResposta()) aplicarEAtualizarAparencia(aparenciaReal, 'correção tardia após timeout');
       });
     }
 
@@ -1622,6 +1710,12 @@
         resolveContexto(); // atualiza normalized.contexto via provider, se existir
         fetchCampaign(normalized)
           .then(function (campanha) {
+            if (debugState.enabled) {
+              debugLog('Campanha por slug', {
+                slug: normalized.slug,
+                resultado: campanha ? 'encontrada, agendando exibição' : 'não encontrada / inativa para este slug',
+              });
+            }
             if (!campanha) return;
             state.campanha = campanha;
             resetRoot();
@@ -1633,14 +1727,28 @@
         var contextoInit = resolveContexto();
         fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id, contextoInit)
           .then(function (candidatos) {
+            var linhasDebug = [];
+            var selecionada = null;
             for (var i = 0; i < candidatos.length; i++) {
               var c = candidatos[i];
-              if (!checkMode(c, normalized)) continue;
-              state.campanha = c;
+              var okModo = checkMode(c, normalized);
+              if (debugState.enabled) {
+                linhasDebug.push({
+                  id: c.id,
+                  titulo: c.titulo || c.slug || null,
+                  modo_identificacao: c.modo_identificacao || 'sistema_tela',
+                  motivo: !okModo ? 'bloqueada: modo_identificacao não corresponde' : (selecionada ? 'elegível, porém outra já selecionada' : 'selecionada'),
+                });
+              }
+              if (!okModo) continue;
+              if (!selecionada) selecionada = c;
+            }
+            if (debugState.enabled) debugLog('Campanhas candidatas (' + (normalized.tela || 'ao_abrir_tela') + ')', linhasDebug);
+            if (selecionada) {
+              state.campanha = selecionada;
               resetRoot();
               render();
-              scheduleAutoOpen(c, normalized);
-              break;
+              scheduleAutoOpen(selecionada, normalized);
             }
           })
           .catch(function () {});
@@ -1679,10 +1787,24 @@
 
     fetchCandidatas(config.sistema, config.tela, 'apos_evento', eventoNome, config.usuario_id, contextoTrack)
       .then(function (candidatos) {
+        var exibida = false;
+        var linhasDebug = [];
         for (var i = 0; i < candidatos.length; i++) {
           var campanha = candidatos[i];
-          if (!checkMode(campanha, config)) continue;
-          if (wasShown(campanha, config)) continue;
+          var okModo = checkMode(campanha, config);
+          var jaVisto = okModo && wasShown(campanha, config);
+          if (debugState.enabled) {
+            linhasDebug.push({
+              id: campanha.id,
+              titulo: campanha.titulo || campanha.slug || null,
+              modo_identificacao: campanha.modo_identificacao || 'sistema_tela',
+              motivo: !okModo ? 'bloqueada: modo_identificacao não corresponde' : (jaVisto ? 'bloqueada: já visto (localStorage)' : (exibida ? 'elegível, porém outra já selecionada' : 'selecionada')),
+            });
+          }
+          if (!okModo) continue;
+          if (jaVisto) continue;
+          if (exibida) continue;
+          exibida = true;
 
           if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
 
@@ -1716,6 +1838,7 @@
           render();
           break;
         }
+        if (debugState.enabled) debugLog('Campanhas candidatas (apos_evento: ' + eventoNome + ')', linhasDebug);
       })
       .catch(function () { /* fail silently */ });
   }
@@ -1728,11 +1851,26 @@
     var contextoUrl = resolveContexto();
     fetchCandidatas(config.sistema, '', 'ao_abrir_tela', null, config.usuario_id, contextoUrl)
       .then(function (candidatos) {
+        var linhasDebug = [];
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
-          if ((c.modo_identificacao || 'sistema_tela') !== 'url_contem') continue;
-          if (!checkMode(c, config)) continue;
-          if (wasShown(c, config)) continue;
+          var modo = c.modo_identificacao || 'sistema_tela';
+          if (modo !== 'url_contem') {
+            if (debugState.enabled) linhasDebug.push({ id: c.id, titulo: c.titulo || c.slug || null, modo_identificacao: modo, motivo: 'ignorada: só avalia modo url_contem aqui' });
+            continue;
+          }
+          var okModo = checkMode(c, config);
+          var jaVisto = okModo && wasShown(c, config);
+          if (debugState.enabled) {
+            linhasDebug.push({
+              id: c.id,
+              titulo: c.titulo || c.slug || null,
+              modo_identificacao: modo,
+              motivo: !okModo ? 'bloqueada: url_contem não corresponde' : (jaVisto ? 'bloqueada: já visto (localStorage)' : 'selecionada'),
+            });
+          }
+          if (!okModo) continue;
+          if (jaVisto) continue;
 
           if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
 
@@ -1755,6 +1893,7 @@
           scheduleAutoOpen(c, config);
           break;
         }
+        if (debugState.enabled) debugLog('Campanhas candidatas (url_contem)', linhasDebug);
       })
       .catch(function () {});
   }
@@ -1769,10 +1908,21 @@
     fetchCandidatas(config.sistema, config.tela, 'ao_abrir_tela', null, config.usuario_id, contexto)
       .then(function (candidatos) {
         if (state.open) return;
+        var linhasDebug = [];
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
-          if (!checkMode(c, config)) continue;
-          if (wasShown(c, config)) continue;
+          var okModo = checkMode(c, config);
+          var jaVisto = okModo && wasShown(c, config);
+          if (debugState.enabled) {
+            linhasDebug.push({
+              id: c.id,
+              titulo: c.titulo || c.slug || null,
+              modo_identificacao: c.modo_identificacao || 'sistema_tela',
+              motivo: !okModo ? 'bloqueada: modo_identificacao não corresponde' : (jaVisto ? 'bloqueada: já visto (localStorage)' : 'selecionada'),
+            });
+          }
+          if (!okModo) continue;
+          if (jaVisto) continue;
           if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
           state.campanha = c;
           state.open = false;
@@ -1792,6 +1942,7 @@
           scheduleAutoOpen(c, config);
           break;
         }
+        if (debugState.enabled) debugLog('Campanhas candidatas (updateContext/evaluateCampaigns, tela: ' + config.tela + ')', linhasDebug);
       })
       .catch(function () {});
   }
@@ -1834,10 +1985,18 @@
   function handleUrlChange() {
     var currentUrl = window.location.href;
     if (currentUrl === lastUrl) return;
+    var urlAnterior = lastUrl;
     lastUrl = currentUrl;
     if (urlChangeTimer) { window.clearTimeout(urlChangeTimer); urlChangeTimer = null; }
     urlChangeTimer = window.setTimeout(function () {
       urlChangeTimer = null;
+      if (debugState.enabled) {
+        debugLog('SPA — navegação detectada', {
+          url_anterior: urlAnterior,
+          url_atual: debugStatusUrl(),
+          tour_ativo_no_momento: tourState.ativo,
+        });
+      }
       // Numa SPA, o usuário pode navegar pra outra tela sem fechar a campanha
       // explicitamente (sem clicar no X) — o modal (position:fixed, cobre a
       // tela toda) não tem nenhuma outra forma de saber que a navegação
@@ -1853,6 +2012,14 @@
       // antes do avanço para o próximo passo sequer acontecer.
       var emAssentamento = tourState.avancoResolvidoEm &&
         (Date.now() - tourState.avancoResolvidoEm < TOUR_SPA_ASSENTAMENTO_MS);
+      if (debugState.enabled && tourState.ativo) {
+        debugLog('SPA — decisão sobre tour ativo', {
+          suprimir_abandono_navegacao: tourState.suprimirAbandonoNavegacao,
+          em_assentamento: Boolean(emAssentamento),
+          motivo: tourState.suprimirAbandonoNavegacao ? 'ignorado: navegação causada pelo próprio avanço do tour'
+            : (emAssentamento ? 'ignorado: dentro da janela de assentamento pós-avanço' : 'será avaliado como possível abandono/retomada'),
+        });
+      }
       if (tourState.ativo && !tourState.suprimirAbandonoNavegacao && !emAssentamento) {
         // Passo com acao_ao_avancar/modo_avanco_interacao default (o caso mais
         // comum) nunca passa por suprimirAbandonoNavegacao — o usuário clica
@@ -2378,6 +2545,38 @@
       return el || null;
     } catch (_e) {
       return null;
+    }
+  }
+
+  // Uso exclusivo do modo debug: diferencia "não existe no DOM" de "existe
+  // mas está oculto/desabilitado" para o passo do tour atual — nunca chamado
+  // pelo fluxo real de resolução de passo (irParaPasso/localizarComRetry),
+  // só para diagnóstico. Duplica a busca crua de selecionarElementoPasso de
+  // propósito, em vez de reaproveitá-la, pra não arriscar mudar o
+  // comportamento de tourEscolherMelhorCandidato/tourElementoVisivelEInterativo
+  // usados no caminho real.
+  function debugStatusSeletorPasso(passo) {
+    try {
+      var candidatos;
+      if (passo.seletor_tipo === 'css' || passo.seletor_tipo === 'area') {
+        candidatos = document.querySelectorAll(passo.seletor);
+      } else if (passo.seletor_tipo === 'id') {
+        var idNormalizado = tourNormalizarId(passo.seletor);
+        var elId = idNormalizado ? document.getElementById(idNormalizado) : null;
+        candidatos = elId ? [elId] : [];
+      } else {
+        var dataCyNormalizado = tourNormalizarDataCy(passo.seletor);
+        candidatos = dataCyNormalizado
+          ? document.querySelectorAll('[data-cy="' + dataCyNormalizado.replace(/"/g, '\\"') + '"]')
+          : [];
+      }
+      if (!candidatos || candidatos.length === 0) return 'nao_encontrado_no_dom';
+      for (var i = 0; i < candidatos.length; i++) {
+        if (tourElementoVisivelEInterativo(candidatos[i])) return 'encontrado_e_visivel';
+      }
+      return 'encontrado_porem_invisivel_ou_desabilitado';
+    } catch (_e) {
+      return 'erro_ao_avaliar_seletor';
     }
   }
 
@@ -3734,6 +3933,13 @@
       tourState.avancoResolvidoEm = Date.now();
       tourLimparContinuacao();
       if (!tourState.ativo) return; // tour foi encerrado enquanto buscava
+      if (debugState.enabled) {
+        debugLog('Tour — passo ' + indice, {
+          seletor_tipo: passo.seletor_tipo || 'data_cy',
+          seletor: passo.seletor,
+          status: el ? 'encontrado_e_visivel' : debugStatusSeletorPasso(passo),
+        });
+      }
       // Blindagem: qualquer exceção daqui em diante (bindInteracao, DOM do
       // host se comportando de forma inesperada etc.) não pode deixar o tour
       // travado num estado sem overlay — cai no mesmo fallback de erro que
@@ -4066,20 +4272,39 @@
   function avaliarTourAutomatico(config) {
     // Central de ajuda aberta não pode ser coberta por um tour automático —
     // o usuário abriu ela de propósito, então não compete por cima.
-    if (tourState.ativo || jornadaState.aberto || !config.sistema) return;
+    if (tourState.ativo || jornadaState.aberto || !config.sistema) {
+      if (debugState.enabled) {
+        debugLog('Tour automático — avaliação pulada', {
+          motivo: tourState.ativo ? 'já há um tour ativo' : (jornadaState.aberto ? 'Central de Jornadas aberta' : 'config sem "sistema"'),
+        });
+      }
+      return;
+    }
     fetchTourCandidatos(config.sistema, config.tela, config.usuario_id, config.contexto)
       .then(function (candidatos) {
         if (tourState.ativo || jornadaState.aberto) return;
+        var selecionado = null;
+        var linhas = [];
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
-          if (!checkMode(c, config)) continue;
+          var okModo = checkMode(c, config);
           // Com usuario_id, confia no backend (já fez dedupe/reexibição). Sem
           // usuario_id, o servidor não tem como identificar o usuário — cai
           // no fallback localStorage.
-          if (!config.usuario_id && tourWasShown(c)) continue;
-          aguardarAparenciaEIniciarTour(c);
-          break;
+          var jaVisto = !config.usuario_id && tourWasShown(c);
+          if (debugState.enabled) {
+            linhas.push({
+              id: c.id,
+              titulo: c.titulo || null,
+              modo_identificacao: c.modo_identificacao || 'sistema_tela',
+              motivo: !okModo ? 'bloqueado: modo_identificacao não corresponde' : (jaVisto ? 'bloqueado: já visto (localStorage)' : (selecionado ? 'elegível, porém outro tour de maior prioridade já selecionado' : 'selecionado')),
+            });
+          }
+          if (!okModo || jaVisto) continue;
+          if (!selecionado) selecionado = c;
         }
+        if (debugState.enabled) debugLog('Tour automático — candidatos (' + config.tela + ')', linhas);
+        if (selecionado) aguardarAparenciaEIniciarTour(selecionado);
       })
       .catch(function () { /* fail silently */ });
   }
@@ -8417,6 +8642,14 @@
       if (meuToken !== jornadaElegibilidadeToken) return;
       jornadaState.fabDisponivel = (jornadas || []).length > 0;
       renderJornadaFab(jornadaState.fabDisponivel);
+      if (debugState.enabled) {
+        debugLog('Jornadas / FAB Ajuda', {
+          fab_disponivel: jornadaState.fabDisponivel,
+          jornadas_elegiveis: (jornadas || []).map(function (j) { return { id: j.id, titulo: j.titulo || null }; }),
+          pode_abrir_central: jornadaPodeAbrirCentral(),
+          motivo_bloqueio_central: jornadaPodeAbrirCentral() ? null : (!jornadaContextoValido() ? 'contexto inválido (sem usuario_id, ou em tela de login)' : (tourState.ativo ? 'tour ativo ocupando a tela' : 'campanha aberta ocupando a tela')),
+        });
+      }
       // Segunda checagem, um instante depois — pega qualquer condição
       // transitória (ex.: outro trecho de código mexendo no DOM bem nesse
       // meio tempo) que tenha impedido o botão de ficar de fato no DOM.
@@ -8425,6 +8658,7 @@
       if (meuToken !== jornadaElegibilidadeToken) return;
       jornadaState.fabDisponivel = false;
       renderJornadaFab(false);
+      if (debugState.enabled) debugLog('Jornadas / FAB Ajuda', { fab_disponivel: false, motivo: 'erro ao buscar jornadas candidatas' });
     });
   }
 
@@ -8483,6 +8717,53 @@
     });
   }
 
+  // Ativa/desativa o modo debug em qualquer momento (window.UserPulse.debug()
+  // ativa; window.UserPulse.debug(false) desativa). Puramente observacional —
+  // nunca muda elegibilidade/exibição, só liga o console.log de debugLog().
+  function debugAtivar(ativar) {
+    debugState.enabled = ativar !== false;
+    try { console.log('[UserPulse debug] modo debug ' + (debugState.enabled ? 'ativado' : 'desativado') + '.'); } catch (_e) {}
+    return debugState.enabled;
+  }
+
+  // window.UserPulse.debugState() — snapshot pontual do estado atual, sempre
+  // logado (independe do modo debug estar ligado). Só leitura: nenhum fetch,
+  // nenhuma mudança de state/tourState/jornadaState.
+  function debugSnapshot() {
+    var config = state.config;
+    var passoAtual = null;
+    if (tourState.ativo && tourState.tour && tourState.tour.passos) {
+      var p = tourState.tour.passos[tourState.indice];
+      if (p) {
+        passoAtual = {
+          ordem: tourState.indice,
+          seletor_tipo: p.seletor_tipo || 'data_cy',
+          seletor: p.seletor,
+          status: tourState.naoEncontrado ? 'nao_encontrado' : debugStatusSeletorPasso(p),
+        };
+      }
+    }
+    var snapshot = {
+      config: debugSanitizar(config),
+      url: debugStatusUrl(),
+      aparencia: tourState.aparencia
+        ? { cor_principal: tourState.aparencia.cor_principal || null, logo_url: tourState.aparencia.logo_url || null }
+        : null,
+      campanha_atual: state.campanha ? { id: state.campanha.id, slug: state.campanha.slug || null, aberta: state.open } : null,
+      tour_ativo: tourState.ativo
+        ? { id: tourState.tour && tourState.tour.id, titulo: tourState.tour && tourState.tour.titulo, tela: tourState.tela, passo_atual: passoAtual }
+        : null,
+      jornada_fab_disponivel: Boolean(jornadaState.fabDisponivel),
+      jornada_painel_aberto: Boolean(jornadaState.aberto),
+    };
+    try {
+      console.groupCollapsed('[UserPulse debug] snapshot');
+      console.log(snapshot);
+      console.groupEnd();
+    } catch (_e) { /* console indisponível — snapshot ainda é retornado normalmente */ }
+    return snapshot;
+  }
+
   // Drain any calls queued by widget-loader.js before this script finished loading
   var _q = window.UserPulse && window.UserPulse._q;
   window.UserPulse = window.UserPulse || {};
@@ -8491,6 +8772,8 @@
   window.UserPulse.updateContext = updateContext;
   window.UserPulse.iniciarTour = iniciarTourPublico;
   window.UserPulse.abrirJornadas = abrirJornadasPublico;
+  window.UserPulse.debug = debugAtivar;
+  window.UserPulse.debugState = debugSnapshot;
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
     for (var _qi = 0; _qi < _q.length; _qi++) {
@@ -8500,6 +8783,7 @@
       else if (_qc[0] === 'updateContext') updateContext.apply(null, _qc[1]);
       else if (_qc[0] === 'iniciarTour') iniciarTourPublico.apply(null, _qc[1]);
       else if (_qc[0] === 'abrirJornadas') abrirJornadasPublico.apply(null, _qc[1]);
+      else if (_qc[0] === 'debug') debugAtivar.apply(null, _qc[1]);
     }
   }
 })();
