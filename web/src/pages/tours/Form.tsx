@@ -62,11 +62,21 @@ const TOOLTIP_POSICOES = [
 ]
 
 const SELETOR_TIPOS = [
-  { value: 'data_cy', label: 'data-cy' },
-  { value: 'id', label: 'ID' },
-  { value: 'css', label: 'CSS' },
-  { value: 'area', label: 'Área (grupo de elementos)' },
+  { value: 'data_cy', label: 'data-cy — elemento único' },
+  { value: 'id', label: 'ID — elemento único' },
+  { value: 'css', label: 'CSS — elemento único' },
+  { value: 'area', label: 'Área — grupo de elementos' },
 ]
+
+// Legenda curta abaixo do Select de tipo, reforçando a diferença entre
+// destacar UM elemento (a maioria dos passos) e destacar um GRUPO/container
+// inteiro (passo "Área") — complementa, não substitui, o texto de ajuda por
+// tipo já exibido junto ao campo Seletor logo abaixo.
+function legendaTipoSeletor(tipo: string): string {
+  return tipo === 'area'
+    ? 'Modo Área: o tour destaca um GRUPO de elementos dentro de um container — use quando o passo é sobre vários campos juntos, não um só.'
+    : 'Modo Elemento único: o tour destaca um único elemento na tela.'
+}
 
 // Corrige o erro mais comum ao colar um seletor: colar o seletor de atributo
 // completo (ex.: copiado do DevTools) num campo que já espera só o valor cru.
@@ -404,6 +414,11 @@ function PassoPreview({ passo, indice, total }: { passo: PassoState; indice: num
         <span className="h-3 flex-1 rounded bg-primary/15 border border-primary/30" />
         <span className="h-3 flex-1 rounded bg-primary/15 border border-primary/30" />
       </div>
+      {passo.seletor.trim() && (
+        <span className="text-[8px] font-mono text-primary/60 truncate max-w-full" title={passo.seletor}>
+          {passo.seletor}
+        </span>
+      )}
     </div>
   ) : (
     <div
@@ -1331,6 +1346,7 @@ export function TourForm() {
                           options={SELETOR_TIPOS}
                           size="sm"
                         />
+                        <p className="text-[11px] text-on-surface-variant mt-1">{legendaTipoSeletor(passo.seletor_tipo)}</p>
                       </div>
                       <div>
                         <label className="block text-label-sm text-on-surface-variant mb-1">
@@ -1373,14 +1389,21 @@ export function TourForm() {
                             type="button"
                             onClick={() => copiarComandoTeste(i)}
                             disabled={!passo.seletor.trim()}
+                            title="Copia um comando de diagnóstico para colar no console da tela real: mostra se o elemento foi encontrado, se há mais de um resultado, se está visível e o tamanho aproximado, além de destacar o alvo por alguns segundos."
                             className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-on-surface-variant hover:bg-surface-container-high hover:text-primary transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
                           >
                             <span className="material-symbols-outlined text-[13px]">
                               {copiadoPasso?.index === i && copiadoPasso.tipo === 'comando' ? 'check' : 'terminal'}
                             </span>
-                            {copiadoPasso?.index === i && copiadoPasso.tipo === 'comando' ? 'Copiado!' : 'Copiar comando'}
+                            {copiadoPasso?.index === i && copiadoPasso.tipo === 'comando' ? 'Copiado!' : 'Testar seletor'}
                           </button>
                         </div>
+                        {passo.seletor.trim() && (
+                          <p className="text-[10px] text-on-surface-variant mt-1 text-right">
+                            "Testar seletor" copia um comando para o console da tela real — informa encontrado/não
+                            encontrado/múltiplos resultados, visibilidade e tamanho aproximado, e destaca o alvo.
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="max-w-xs">

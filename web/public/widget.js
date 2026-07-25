@@ -744,6 +744,11 @@
       // das 3 qualidades de seletor único acima (não é "melhor" nem "pior"
       // que elas, é um modo de alvo diferente).
       '.up-rec-escolha-item-area{border-left-color:#6b38d4}',
+      // Badge fixo "Elemento"/"Área" — categoria de alto nível do candidato,
+      // separado do rótulo específico (id, name, container pai...) ao lado.
+      '.up-rec-escolha-categoria{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;padding:2px 6px;border-radius:5px;white-space:nowrap;flex-shrink:0}',
+      '.up-rec-categoria-elemento{background:rgba(66,71,84,.08);color:#424754}',
+      '.up-rec-categoria-area{background:rgba(107,56,212,.12);color:#6b38d4}',
       '.up-rec-escolha-tipo{font-size:11px;font-weight:800;color:#424754;flex-shrink:0;min-width:64px}',
       '.up-rec-escolha-codigo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#eef1f8;border:1px solid #dde1ee;border-radius:6px;padding:3px 7px;color:#425066}',
       '.up-rec-escolha-qtd{font-size:10px;color:#7c8595;white-space:nowrap;flex-shrink:0}',
@@ -4880,26 +4885,65 @@
     }
   }
 
+  // Ids/tags de containers-raiz conhecidos que nunca fazem sentido como
+  // âncora de "Área" — costumam envolver a aplicação inteira (ex.: <app-root>
+  // do Angular, <main> semântico, #root do React), não um grupo específico
+  // de campos. Comparação de id é case-insensitive porque frameworks variam
+  // a caixa (ex.: "App" vs "app-root").
+  var RECORDER_IDS_RAIZ_INADEQUADOS = /^(app-root|app|root|main|application|__next)$/i;
+  var RECORDER_TAGS_RAIZ_INADEQUADAS = { MAIN: true, HTML: true, BODY: true };
+
+  // Um ancestral que cobre quase a viewport inteira (largura E altura) não é
+  // um "grupo" útil pra destacar — é a página toda. Limiar de 90% em vez de
+  // 100% pra cobrir containers com scroll/overflow que arredondam o rect.
+  function recorderContainerEnorme(el) {
+    try {
+      var r = el.getBoundingClientRect();
+      var larguraJanela = window.innerWidth;
+      var alturaJanela = window.innerHeight;
+      if (!larguraJanela || !alturaJanela) return false;
+      return r.width >= larguraJanela * 0.9 && r.height >= alturaJanela * 0.9;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function recorderAncoraInadequada(el) {
+    var tag = el.tagName ? el.tagName.toUpperCase() : '';
+    if (RECORDER_TAGS_RAIZ_INADEQUADAS[tag]) return true;
+    if (el.id && RECORDER_IDS_RAIZ_INADEQUADOS.test(el.id)) return true;
+    return recorderContainerEnorme(el);
+  }
+
   // Sobe no máximo 5 níveis a partir do pai do elemento clicado procurando um
-  // ancestral "estável" (data-cy > id > role > aria-label, nessa ordem de
-  // prioridade) pra qualificar seletores ambíguos — nunca usa <html>/<body>
-  // como âncora, mesmo que estejam dentro do limite de níveis.
+  // ancestral "estável" (data-cy > id > aria-label > role > classe estável,
+  // nessa ordem de prioridade) pra qualificar seletores ambíguos e sugerir
+  // "Área" — nunca usa <html>/<body>/<main>, containers-raiz conhecidos
+  // (ver RECORDER_IDS_RAIZ_INADEQUADOS) ou um container que cobre quase toda
+  // a viewport (ver recorderContainerEnorme) como âncora, mesmo dentro do
+  // limite de níveis: continua subindo em vez de parar neles.
   function recorderAncoraAncestral(el) {
     var atual = el.parentElement;
     var niveis = 0;
     while (atual && niveis < 5) {
-      var ehRaiz = atual === document.body || atual === document.documentElement;
-      if (!ehRaiz) {
+      var inadequado = atual === document.body || atual === document.documentElement || recorderAncoraInadequada(atual);
+      if (!inadequado) {
         var dataCy = atual.getAttribute && atual.getAttribute('data-cy');
         if (dataCy) return '[data-cy="' + recorderCssEscapeAtributo(dataCy) + '"]';
         // Mesma guarda de recorderGerarSeletor — nunca usa um id de overlay
         // dinâmico (ex.: um ancestral que por acaso é o painel de overlay do
-        // framework) como âncora; continua procurando role/aria-label.
+        // framework) como âncora; continua procurando aria-label/role/classe.
         if (atual.id && !recorderEhIdOverlayDinamico(atual.id)) return '#' + recorderCssEscapeSimples(atual.id);
-        var role = atual.getAttribute && atual.getAttribute('role');
-        if (role) return '[role="' + recorderCssEscapeAtributo(role) + '"]';
         var ariaLabel = atual.getAttribute && atual.getAttribute('aria-label');
         if (ariaLabel) return '[aria-label="' + recorderCssEscapeAtributo(ariaLabel) + '"]';
+        var role = atual.getAttribute && atual.getAttribute('role');
+        if (role) return '[role="' + recorderCssEscapeAtributo(role) + '"]';
+        // Último recurso antes de subir mais um nível: uma classe própria
+        // não gerada por framework (ver RECORDER_CLASSES_FRAGEIS) — só
+        // qualifica como âncora se a busca a seguir (recorderGerarCandidatosSeletor)
+        // confirmar que ela resolve pra um único elemento na página.
+        var classeEstavel = recorderClasseEstavel(atual);
+        if (classeEstavel) return '.' + recorderCssEscapeSimples(classeEstavel);
       }
       atual = atual.parentElement;
       niveis++;
@@ -5003,9 +5047,15 @@
     if (ancora) {
       var qtdArea = recorderValidarSeletorCss(ancora);
       if (qtdArea === 1) {
-        candidatos.push({ rotulo: 'Área (contém este elemento)', seletor_tipo: 'area', seletor: ancora, qualidade: 'area', quantidade: qtdArea });
+        candidatos.push({ rotulo: 'container pai', seletor_tipo: 'area', seletor: ancora, qualidade: 'area', quantidade: qtdArea });
       }
     }
+
+    // Categoria de alto nível pra rotular cada candidato na UI de escolha
+    // (ver recorderHtmlEscolhaSeletor) — só existem essas duas: 'area' é o
+    // container pai gerado acima, todo o resto é sempre o próprio elemento
+    // clicado, qualquer que seja o atributo usado pra localizá-lo.
+    candidatos.forEach(function (c) { c.categoria = c.seletor_tipo === 'area' ? 'area' : 'elemento'; });
 
     var ORDEM_QUALIDADE = { recomendado: 0, bom: 1, fragil: 2, area: 3 };
     candidatos.sort(function (a, b) { return ORDEM_QUALIDADE[a.qualidade] - ORDEM_QUALIDADE[b.qualidade]; });
@@ -5070,6 +5120,37 @@
     var name = el.getAttribute && el.getAttribute('name');
     if (name) return 'Campo: ' + name;
     return 'Interaja com ' + (el.tagName ? el.tagName.toLowerCase() : 'elemento');
+  }
+
+  // ─── Sugestões simples de descrição (sem IA externa) ──────────────────────
+  // Heurística por palavra-chave nos mesmos atributos estáticos já usados
+  // pra gerar seletor/título (data-cy, id, classe, aria-label, placeholder) —
+  // nunca lê texto digitado pelo usuário. Só preenche um ponto de partida
+  // pro admin editar depois (ver uso em recorderRegistrarPasso/
+  // recorderAplicarNovoSeletor, que nunca sobrescrevem descrição já
+  // preenchida) — não pretende ser a frase final do passo.
+  var RECORDER_SUGESTAO_FILTRO = /filtro|filter/i;
+  var RECORDER_SUGESTAO_BUSCA = /busca|pesquis|search/i;
+  var RECORDER_SUGESTAO_BOTAO = /bot[aã]o|button|\bbtn\b|a[cç][aã]o|salvar|confirmar|enviar|executar/i;
+
+  function recorderSugerirDescricao(el, categoria) {
+    var pistas = [
+      el.getAttribute && el.getAttribute('data-cy'),
+      el.id,
+      (el.className && typeof el.className === 'string') ? el.className : '',
+      el.getAttribute && el.getAttribute('aria-label'),
+      el.getAttribute && el.getAttribute('placeholder'),
+    ].filter(Boolean).join(' ');
+
+    // Filtro/busca valem tanto pro elemento único quanto pra área que os
+    // envolve (ex.: "Área (contém este elemento)" ancorada num container de
+    // filtros) — checados antes da checagem de categoria.
+    if (RECORDER_SUGESTAO_FILTRO.test(pistas)) return 'Use os filtros';
+    if (RECORDER_SUGESTAO_BUSCA.test(pistas)) return 'Pesquise registros';
+    if (categoria === 'area') return 'Conheça esta área';
+    var tag = el.tagName ? el.tagName.toUpperCase() : '';
+    if (tag === 'BUTTON' || RECORDER_SUGESTAO_BOTAO.test(pistas)) return 'Execute a ação';
+    return '';
   }
 
   // Resumo curto do passo (só o título, truncado) — usado na barra pra
@@ -5151,7 +5232,9 @@
     var sel = recorderGerarSeletor(el);
     var passo = {
       titulo: recorderGerarTitulo(el),
-      descricao: '',
+      // Ponto de partida simples (ver recorderSugerirDescricao) — o admin
+      // sempre pode editar/apagar na revisão; nunca é a frase final.
+      descricao: recorderSugerirDescricao(el, 'elemento'),
       seletor_tipo: sel.seletor_tipo,
       seletor: sel.seletor,
       tooltip_posicao: 'auto',
@@ -7199,6 +7282,10 @@
     return 'Frágil';
   }
 
+  function recorderCategoriaLabel(categoria) {
+    return categoria === 'area' ? 'Área' : 'Elemento';
+  }
+
   function recorderHtmlEscolhaSeletor(candidatos) {
     var itens = candidatos.map(function (c, i) {
       var qtdTexto = typeof c.quantidade === 'number' && c.quantidade > 0
@@ -7206,6 +7293,7 @@
         : '';
       return [
         '<button type="button" class="up-rec-escolha-item up-rec-escolha-item-' + c.qualidade + '" data-esc-escolher data-esc-index="' + i + '">',
+        '<span class="up-rec-escolha-categoria up-rec-categoria-' + c.categoria + '">' + recorderCategoriaLabel(c.categoria) + '</span>',
         '<span class="up-rec-escolha-tipo">' + escapeHtml(c.rotulo) + '</span>',
         '<code class="up-rec-escolha-codigo" title="' + escapeHtml(c.seletor) + '">' + escapeHtml(c.seletor) + '</code>',
         (qtdTexto ? '<span class="up-rec-escolha-qtd">' + escapeHtml(qtdTexto) + '</span>' : ''),
@@ -7279,6 +7367,11 @@
       passo.seletor_tipo = candidato.seletor_tipo;
       passo.seletor = candidato.seletor;
       if (!passo.titulo || !passo.titulo.trim()) passo.titulo = recorderGerarTitulo(el);
+      // Mesma regra do título — só sugere quando ainda está vazio, nunca
+      // sobrescreve o que o admin já escreveu (ver recorderSugerirDescricao).
+      if (!passo.descricao || !passo.descricao.trim()) {
+        passo.descricao = recorderSugerirDescricao(el, candidato.categoria);
+      }
       recorderPersistir();
     }
     recorderFinalizarTrocaElemento();
