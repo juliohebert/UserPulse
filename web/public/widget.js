@@ -1684,13 +1684,55 @@
     var aparenciaFetch = normalized.sistema ? fetchAparenciaComTimeout(normalized.sistema) : null;
     aparenciaPromise = aparenciaFetch
       ? aparenciaFetch.pronta.then(function (aparencia) {
-          aplicarEAtualizarAparencia(aparencia, aparenciaFetch.expirouAntesDaResposta() ? 'timeout, aplicando fallback provisório' : 'resposta a tempo');
+          var origemDebug = aparenciaFetch.veioDoCacheLocal()
+            ? 'cache local aplicado imediatamente, confirmando em segundo plano'
+            : (aparenciaFetch.duracaoMs() === null ? 'timeout, aplicando fallback provisório' : 'resposta a tempo');
+          aplicarEAtualizarAparencia(aparencia, origemDebug);
           return aparencia;
         })
       : Promise.resolve(null);
     if (aparenciaFetch) {
-      aparenciaFetch.real.then(function (aparenciaReal) {
-        if (aparenciaFetch.expirouAntesDaResposta()) aplicarEAtualizarAparencia(aparenciaReal, 'correção tardia após timeout');
+      // Encadeado depois de aparenciaPromise (não direto em
+      // aparenciaFetch.real) de propósito: no caminho sem cache com resposta
+      // rápida, `pronta` e `real` resolvem quase no mesmo instante — anexar
+      // os dois handlers direto em promises "irmãs" deixa a ordem de
+      // execução das microtasks correr o risco de comparar aqui embaixo
+      // ANTES de aplicarEAtualizarAparencia() (disparado pelo .then() de
+      // aparenciaPromise) ter atualizado tourState.aparencia, gerando uma
+      // "correção tardia" falsa mesmo sem nada de errado. Esperar
+      // aparenciaPromise primeiro garante que a aplicação "pronta" (cache ou
+      // timeout) já rodou antes desta comparação.
+      aparenciaPromise.then(function () {
+        return aparenciaFetch.real;
+      }).then(function (aparenciaReal) {
+        // fetchAparencia() devolve null tanto pra "sem configuração salva"
+        // quanto pra falha de rede/parse (ver comentário nela) — só o
+        // segundo caso chega aqui como null de verdade, já que o endpoint
+        // sempre responde 200 com objeto (mesmo com campos nulos) quando não
+        // há aparência configurada. Por isso `aparenciaReal &&` abaixo: uma
+        // falha pontual nunca deve APAGAR um cache local válido que já está
+        // na tela, só uma resposta de verdade (sucesso, mesmo que "vazia")
+        // pode corrigir o que foi aplicado.
+        var corrigiu = Boolean(aparenciaReal) && !aparenciaValoresIguais(aparenciaReal, tourState.aparencia);
+        // Sempre loga a duração real da requisição (independente de ter
+        // disparado correção visual ou não) — é o dado que falta hoje pra
+        // saber se /api/widget/aparencia está genuinamente lento ou se foi
+        // só uma variação pontual.
+        if (debugState.enabled) {
+          debugLog('Aparência — requisição real concluída', {
+            duracao_ms: aparenciaFetch.duracaoMs(),
+            demorou_mais_que_o_timeout: aparenciaFetch.demorouMaisQueOTimeout(),
+            veio_do_cache_local: aparenciaFetch.veioDoCacheLocal(),
+            corrigiu_o_que_estava_aplicado: corrigiu,
+          });
+        }
+        // Só reaplica/re-renderiza se o valor de verdade for diferente do que
+        // já está na tela — com cache local, na prática o valor "provisório"
+        // já bate quase sempre, e recarregar o tooltip do tour de novo com o
+        // MESMO visual seria um flash desnecessário, não uma correção.
+        if (corrigiu) {
+          aplicarEAtualizarAparencia(aparenciaReal, 'correção tardia após timeout');
+        }
       });
     }
 
@@ -2306,36 +2348,92 @@
     }).catch(function () { return null; });
   }
 
-  // Espera até APARENCIA_TIMEOUT_MS pela resposta de fetchAparencia antes de
-  // desistir e liberar o chamador com null (mesmo tratamento de "sem
-  // aparência" que fetchAparencia já dá pra erro de rede/parse) — garante que
-  // uma reavaliação que dependa da aparência (ver aguardarAparenciaEIniciarTour)
-  // nunca fique presa indefinidamente esperando uma resposta lenta.
+  // Cache local (localStorage) do último valor conhecido de aparência por
+  // sistema — só uma otimização de exibição, nunca a fonte de verdade (a
+  // requisição de verdade sempre roda em paralelo pra confirmar/corrigir,
+  // ver fetchAparenciaComTimeout). Existe pra reduzir o "flash" quando
+  // /api/widget/aparencia demora mais que APARENCIA_TIMEOUT_MS: em vez de
+  // esperar o timeout inteiro e mostrar as cores padrão primeiro pra depois
+  // corrigir, quem já visitou antes aplica o último valor conhecido quase
+  // instantaneamente.
+  var APARENCIA_CACHE_PREFIX = 'userpulse:aparencia:';
+
+  function lerAparenciaCache(sistema) {
+    try {
+      var raw = window.localStorage.getItem(APARENCIA_CACHE_PREFIX + sistema);
+      if (!raw) return null;
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return null;
+      return { cor_principal: parsed.cor_principal || null, logo_url: parsed.logo_url || null };
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function salvarAparenciaCache(sistema, aparencia) {
+    try {
+      window.localStorage.setItem(APARENCIA_CACHE_PREFIX + sistema, JSON.stringify({
+        cor_principal: (aparencia && aparencia.cor_principal) || null,
+        logo_url: (aparencia && aparencia.logo_url) || null,
+      }));
+    } catch (_e) { /* localStorage indisponível/cheio — cache é só otimização, nunca obrigatório */ }
+  }
+
+  function aparenciaValoresIguais(a, b) {
+    var corA = (a && a.cor_principal) || null;
+    var corB = (b && b.cor_principal) || null;
+    var logoA = (a && a.logo_url) || null;
+    var logoB = (b && b.logo_url) || null;
+    return corA === corB && logoA === logoB;
+  }
+
+  // Resolve `pronta` com o que houver disponível mais rápido pra exibir,
+  // sem nunca esperar a rede indefinidamente:
+  //   - com cache local: aplica ele NA HORA (Promise.resolve, sem corrida
+  //     nenhuma) — decidido assim de propósito, e não com um
+  //     Promise.race([real, cache]) tipo o caminho sem cache abaixo, porque
+  //     uma falha rápida de rede (fetchAparencia resolve com null em poucos
+  //     ms num erro) podia "vencer" a corrida e aplicar o fallback padrão
+  //     por cima de um cache válido só por coincidência de timing.
+  //   - sem cache (ex.: primeira visita a este sistema neste navegador):
+  //     mesmo comportamento de sempre — espera até APARENCIA_TIMEOUT_MS pela
+  //     resposta de verdade antes de desistir e liberar com null (fallback).
   //
-  // IMPORTANTE: o timeout só destrava quem está esperando — nunca descarta a
-  // resposta real. `pronta` resolve com o que vier primeiro (like
-  // Promise.race), mas `real` sempre resolve com o resultado de verdade da
-  // API, mesmo que isso aconteça depois do timeout — ver uso em init(), que
-  // usa isso pra corrigir cor/logo se a resposta chegar atrasada (mesmo que
-  // depois de tourState.aparencia já ter caído no fallback padrão).
+  // IMPORTANTE: nenhum dos dois caminhos descarta a resposta real. `real`
+  // sempre resolve com o resultado de verdade da API (sucesso ou null em
+  // caso de erro/timeout), mesmo que isso aconteça depois de `pronta` — ver
+  // uso em init(), que usa isso pra confirmar/corrigir cor/logo depois (e
+  // salvar/atualizar o cache local pra próxima visita).
   var APARENCIA_TIMEOUT_MS = 1200;
   function fetchAparenciaComTimeout(sistema) {
-    var expirou = false;
-    var timer;
-    var timeoutPromise = new Promise(function (resolve) {
-      timer = window.setTimeout(function () {
-        expirou = true;
-        resolve(null);
-      }, APARENCIA_TIMEOUT_MS);
-    });
+    var cacheLocal = lerAparenciaCache(sistema);
+    var inicioMs = Date.now();
+    var duracaoMs = null;
     var realPromise = fetchAparencia(sistema).then(function (aparencia) {
-      window.clearTimeout(timer);
+      duracaoMs = Date.now() - inicioMs;
+      if (aparencia) salvarAparenciaCache(sistema, aparencia);
       return aparencia;
     });
+
+    var prontaPromise;
+    if (cacheLocal) {
+      prontaPromise = Promise.resolve(cacheLocal);
+    } else {
+      prontaPromise = new Promise(function (resolve) {
+        var timer = window.setTimeout(function () { resolve(null); }, APARENCIA_TIMEOUT_MS);
+        realPromise.then(function (aparencia) {
+          window.clearTimeout(timer);
+          resolve(aparencia);
+        });
+      });
+    }
+
     return {
-      pronta: Promise.race([realPromise, timeoutPromise]),
+      pronta: prontaPromise,
       real: realPromise,
-      expirouAntesDaResposta: function () { return expirou; },
+      veioDoCacheLocal: function () { return Boolean(cacheLocal); },
+      duracaoMs: function () { return duracaoMs; },
+      demorouMaisQueOTimeout: function () { return duracaoMs != null && duracaoMs > APARENCIA_TIMEOUT_MS; },
     };
   }
 
