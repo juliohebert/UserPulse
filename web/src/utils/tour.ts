@@ -26,18 +26,46 @@ export function testEmbedUrl(tour: Pick<TourGuiado, 'slug'>): string {
   return `${WIDGET_ORIGIN}/test-embed.html?${params.toString()}`
 }
 
-// Comando para colar no console do navegador (na página real do sistema
-// integrado, não aqui no admin) e conferir se o seletor configurado acha o
-// elemento — mesma lógica de seleção usada por selecionarElementoPasso() em
-// widget.js.
+// Comando de diagnóstico para colar no console do navegador — na página real
+// do sistema integrado, não aqui no admin, já que o dashboard roda em outra
+// origem e não enxerga o DOM da aplicação hospedeira. Mesma lógica de busca
+// usada por selecionarElementoPasso() em widget.js, mas reportando TODOS os
+// resultados (não só "o melhor candidato") para expor ambiguidade — e
+// destaca temporariamente o alvo encontrado por alguns segundos.
 export function comandoTestarSeletor(seletorTipo: string, seletor: string): string {
+  const valorEscapado = seletor.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
   // 'area' usa o mesmo formato de seletor CSS do 'css' — só muda o que o
   // widget faz com o elemento encontrado (destaca o container inteiro em vez
   // de um único elemento), não como ele é localizado.
+  let expressaoBusca: string
   if (seletorTipo === 'css' || seletorTipo === 'area') {
-    return `document.querySelector('${seletor}')`
+    expressaoBusca = `document.querySelectorAll('${valorEscapado}')`
+  } else if (seletorTipo === 'id') {
+    expressaoBusca = `(function(){var v='${valorEscapado}'.replace(/^#/,'');var e=document.getElementById(v);return e?[e]:[];})()`
+  } else {
+    expressaoBusca = `document.querySelectorAll('[data-cy="${valorEscapado}"]')`
   }
-  return `document.querySelector('[data-cy="${seletor}"]')`
+  return [
+    '(function(){',
+    `  var els = Array.prototype.slice.call(${expressaoBusca});`,
+    '  if (els.length === 0) { console.log("%c[UserPulse] Seletor NÃO encontrado", "color:#c62828;font-weight:bold"); return; }',
+    '  if (els.length > 1) console.log("%c[UserPulse] " + els.length + " elementos encontrados (seletor ambíguo)", "color:#e65100;font-weight:bold", els);',
+    '  var el = els[0];',
+    '  var r = el.getBoundingClientRect();',
+    '  var estilo = window.getComputedStyle(el);',
+    '  var invisivel = r.width === 0 || r.height === 0 || estilo.visibility === "hidden" || estilo.display === "none" || Number(estilo.opacity) === 0;',
+    '  console.log(',
+    '    "%c[UserPulse] " + (els.length === 1 ? "Elemento encontrado" : "1º elemento de " + els.length) + (invisivel ? " — mas está INVISÍVEL" : " — visível") + " — aprox. " + Math.round(r.width) + "x" + Math.round(r.height) + "px",',
+    '    "color:" + (invisivel ? "#e65100" : "#006947") + ";font-weight:bold",',
+    '    el',
+    '  );',
+    '  var outlineAntes = el.style.outline, offsetAntes = el.style.outlineOffset;',
+    '  el.style.outline = "3px solid #6b38d4";',
+    '  el.style.outlineOffset = "2px";',
+    '  el.scrollIntoView({ block: "center", behavior: "smooth" });',
+    '  setTimeout(function(){ el.style.outline = outlineAntes; el.style.outlineOffset = offsetAntes; }, 2500);',
+    '})();',
+  ].join('\n')
 }
 
 // ─── Gravador de fluxo (MVP) ────────────────────────────────────────────────
