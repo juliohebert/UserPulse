@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { TourGuiado } from '../../types'
+import type { TourGuiado, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
@@ -107,6 +107,34 @@ const MODOS_AVANCO_INTERACAO = [
 ]
 
 const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
+
+// ─── Segmentação por contexto (MVP) ────────────────────────────────────────
+// Lista fixa validada também no backend (ver CAMPOS_SEGMENTACAO em
+// server/src/controllers/tours.ts) — os valores vêm do contexto que o widget
+// já recebe via init()/updateContext() ou de campos próprios da chamada
+// (usuario_id, usuario_email, sistema, tela).
+const CAMPOS_SEGMENTACAO: { value: CampoSegmentacaoTour; label: string }[] = [
+  { value: 'cliente_id', label: 'Cliente ID' },
+  { value: 'unidade_id', label: 'Unidade ID' },
+  { value: 'organizacao_id', label: 'Organização ID' },
+  { value: 'clinica_id', label: 'Clínica ID' },
+  { value: 'usuario_tipo', label: 'Tipo de usuário' },
+  { value: 'perfil', label: 'Perfil' },
+  { value: 'estado', label: 'Estado' },
+  { value: 'usuario_id', label: 'Usuário ID' },
+  { value: 'usuario_email', label: 'E-mail do usuário' },
+  { value: 'tela', label: 'Tela' },
+  { value: 'sistema', label: 'Sistema' },
+]
+
+const OPERADORES_SEGMENTACAO: { value: OperadorSegmentacaoTour; label: string; placeholder: string }[] = [
+  { value: 'igual', label: 'é igual a', placeholder: 'Valor exato' },
+  { value: 'diferente', label: 'é diferente de', placeholder: 'Valor exato' },
+  { value: 'contem', label: 'contém', placeholder: 'Trecho do valor' },
+  { value: 'em_lista', label: 'está em lista', placeholder: 'valor1, valor2, valor3' },
+]
+
+const REGRA_SEGMENTACAO_VAZIA: RegraSegmentacaoTour = { campo: '', operador: 'igual', valor: '' }
 
 // ─── Colar passos do Gravador de Fluxo ─────────────────────────────────────
 // Lê o mesmo JSON "userpulse.tour.v1" que o widget.js gera ao finalizar uma
@@ -510,6 +538,10 @@ export function TourForm() {
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [passos, setPassos] = useState<PassoState[]>([{ ...PASSO_VAZIO }])
+  // [] = sem segmentação (todos os contextos elegíveis) — o "modo" (Todos vs
+  // Apenas quando...) é derivado disso, não um campo separado (ver
+  // segmentado abaixo, mesmo padrão de isSegmented em campanhas/Form.tsx).
+  const [regrasSegmentacao, setRegrasSegmentacao] = useState<RegraSegmentacaoTour[]>([])
   const [loadingTour, setLoadingTour] = useState(isEdit)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -571,6 +603,7 @@ export function TourForm() {
               }))
             : [{ ...PASSO_VAZIO }]
         )
+        setRegrasSegmentacao(t.segmentacao_regras ?? [])
       })
       .catch(() => setError('Tour guiado não encontrado.'))
       .finally(() => setLoadingTour(false))
@@ -578,6 +611,27 @@ export function TourForm() {
 
   const set = (key: keyof FormState, value: string | boolean) =>
     setForm(prev => ({ ...prev, [key]: value }))
+
+  // ─── Segmentação por contexto ──────────────────────────────────────────
+  const segmentado = regrasSegmentacao.length > 0
+
+  const ativarSegmentacao = () => setRegrasSegmentacao([{ ...REGRA_SEGMENTACAO_VAZIA }])
+  const desativarSegmentacao = () => setRegrasSegmentacao([])
+
+  const adicionarRegraSegmentacao = () =>
+    setRegrasSegmentacao(prev => [...prev, { ...REGRA_SEGMENTACAO_VAZIA }])
+
+  const atualizarRegraSegmentacao = (index: number, patch: Partial<RegraSegmentacaoTour>) =>
+    setRegrasSegmentacao(prev => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
+
+  const removerRegraSegmentacao = (index: number) =>
+    setRegrasSegmentacao(prev => {
+      const proxima = prev.filter((_, i) => i !== index)
+      // Sem regra nenhuma sobrando, volta pro modo "Todos os usuários" em vez
+      // de deixar o modo "restrito" selecionado com uma lista vazia (que já
+      // vale como "sem segmentação" pro backend, mas confundiria a UI).
+      return proxima
+    })
 
   // Só disponível na criação (isEdit é sempre false aqui, ver render abaixo).
   // Preenche apenas título, descrição e passos base — sistema, modo de
@@ -772,6 +826,10 @@ export function TourForm() {
       setError('Para ativar o tour, os passos com avanço "quando outro elemento aparecer/sumir" precisam do seletor de confirmação.')
       return
     }
+    if (segmentado && regrasSegmentacao.some(r => !r.campo || !r.valor.trim())) {
+      setError('Toda regra de segmentação precisa de campo e valor preenchidos.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     setSuccess(false)
@@ -783,6 +841,9 @@ export function TourForm() {
         data_cy: form.modo_identificacao === 'data_cy' ? form.data_cy : null,
         url_contem: form.modo_identificacao === 'url_contem' ? form.url_contem : null,
         prioridade: Number(form.prioridade || 0),
+        segmentacao_regras: segmentado
+          ? regrasSegmentacao.map(r => ({ campo: r.campo, operador: r.operador, valor: r.valor.trim() }))
+          : null,
         passos: passos.map(p => ({
           titulo: p.titulo.trim(),
           descricao: p.descricao.trim() || null,
@@ -1509,6 +1570,88 @@ export function TourForm() {
                   <span className="ml-3 text-body-md text-on-surface">{form.ativo ? 'Ativo' : 'Inativo'}</span>
                 </label>
               </div>
+            </div>
+          </div>
+
+          {/* Segmentação por contexto */}
+          <div className={card}>
+            <CardHeader
+              number={nextStep()}
+              icon="target"
+              iconBg="bg-secondary-fixed"
+              iconColor="text-secondary"
+              title="Segmentação"
+              description="Opcional — restrinja este tour a contextos específicos enviados pelo widget (init/updateContext)."
+            />
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${!segmentado ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-bright hover:border-primary/50'}`}>
+                  <input type="radio" name="modo_segmentacao" checked={!segmentado} onChange={desativarSegmentacao} className="mt-0.5 text-primary focus:ring-primary shrink-0" />
+                  <div>
+                    <p className={`text-body-md font-semibold ${!segmentado ? 'text-primary' : 'text-on-surface'}`}>Todos os usuários/contextos</p>
+                    <p className="text-[11px] text-on-surface-variant mt-0.5">Comportamento atual — elegível pra qualquer contexto.</p>
+                  </div>
+                </label>
+                <label className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${segmentado ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-bright hover:border-primary/50'}`}>
+                  <input type="radio" name="modo_segmentacao" checked={segmentado} onChange={ativarSegmentacao} className="mt-0.5 text-primary focus:ring-primary shrink-0" />
+                  <div>
+                    <p className={`text-body-md font-semibold ${segmentado ? 'text-primary' : 'text-on-surface'}`}>Apenas quando o contexto atender às regras</p>
+                    <p className="text-[11px] text-on-surface-variant mt-0.5">O tour só é elegível se TODAS as regras abaixo baterem.</p>
+                  </div>
+                </label>
+              </div>
+
+              {segmentado && (
+                <div className="space-y-2 pt-1">
+                  {regrasSegmentacao.map((regra, index) => (
+                    <div key={index} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center bg-surface-bright border border-outline-variant rounded-lg p-2.5">
+                      <div className="sm:w-48 shrink-0">
+                        <Select
+                          size="sm"
+                          value={regra.campo}
+                          options={CAMPOS_SEGMENTACAO}
+                          onChange={v => atualizarRegraSegmentacao(index, { campo: v as CampoSegmentacaoTour })}
+                          placeholder="Campo…"
+                        />
+                      </div>
+                      <div className="sm:w-52 shrink-0">
+                        <Select
+                          size="sm"
+                          value={regra.operador}
+                          options={OPERADORES_SEGMENTACAO}
+                          onChange={v => atualizarRegraSegmentacao(index, { operador: v as OperadorSegmentacaoTour })}
+                        />
+                      </div>
+                      <input
+                        value={regra.valor}
+                        onChange={e => atualizarRegraSegmentacao(index, { valor: e.target.value })}
+                        placeholder={OPERADORES_SEGMENTACAO.find(o => o.value === regra.operador)?.placeholder}
+                        className={`${field} flex-1`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removerRegraSegmentacao(index)}
+                        className="shrink-0 p-2 text-outline hover:text-error transition-colors self-end sm:self-center"
+                        title="Remover regra"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={adicionarRegraSegmentacao}
+                    className="inline-flex items-center gap-1.5 text-label-md text-primary hover:text-primary/80 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">add</span>
+                    Adicionar regra
+                  </button>
+                  <p className="text-[11px] text-amber-700 flex items-center gap-1.5 bg-amber-50 border border-amber-100 px-3 py-2 rounded-lg">
+                    <span className="material-symbols-outlined text-[14px] shrink-0">info</span>
+                    Para "está em lista", separe os valores por vírgula (ex.: RN, SP, MG).
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

@@ -158,6 +158,20 @@ model TourGuiado {
   url_contem         String?
   prioridade         Int      @default(0)
   ativo              Boolean  @default(true)
+  // Segmentação por contexto (MVP) — lista de regras simples avaliada pelo
+  // widget (ver avaliarSegmentacaoTour em widget.js), formato:
+  //   [{ campo: 'cliente_id'|'unidade_id'|'organizacao_id'|'clinica_id'|
+  //             'usuario_tipo'|'perfil'|'estado'|'usuario_id'|'usuario_email'|
+  //             'tela'|'sistema',
+  //      operador: 'igual'|'diferente'|'contem'|'em_lista',
+  //      valor: string }]
+  // null ou [] = sem segmentação, comportamento idêntico a antes desta coluna
+  // existir (todos os contextos elegíveis, como qualquer tour já era). Um
+  // JSON livre em vez de colunas/tabela própria (como Campanha/Jornada usam
+  // para os 5 campos fixos de segmentar_*) de propósito: aqui o objetivo é
+  // permitir qualquer campo de contexto + operador com o menor impacto de
+  // schema, não uma segmentação estruturalmente idêntica à de Campanha.
+  segmentacao_regras Json?
   criado_em          DateTime @default(now())
   atualizado_em      DateTime @updatedAt
 

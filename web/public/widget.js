@@ -1419,6 +1419,84 @@
     return false;
   }
 
+  // ─── Segmentação de Tours por contexto (MVP) ───────────────────────────────
+  // Só Tours usam isso — Campanha/Jornada já têm sua própria segmentação por
+  // listas fixas (segmentar_cliente_ids etc.), avaliada no servidor, e nada
+  // aqui mexe nelas. Resolve o valor atual de um "campo" a partir do config
+  // já normalizado (init/updateContext) — mesmos nomes de campo aceitos e
+  // validados no admin/backend (ver CAMPOS_SEGMENTACAO em
+  // server/src/controllers/tours.ts).
+  function tourSegmentacaoResolverCampo(campo, config) {
+    switch (campo) {
+      case 'usuario_id': return config.usuario_id || null;
+      case 'usuario_email': return config.usuario_email || null;
+      case 'sistema': return config.sistema || null;
+      case 'tela': return config.tela || null;
+      case 'cliente_id': return (config.contexto && config.contexto.cliente_id) || null;
+      case 'unidade_id': return (config.contexto && config.contexto.unidade_id) || null;
+      case 'organizacao_id': return (config.contexto && config.contexto.organizacao_id) || null;
+      case 'clinica_id': return (config.contexto && config.contexto.clinica_id) || null;
+      case 'usuario_tipo': return (config.contexto && config.contexto.usuario_tipo) || null;
+      // Perfil/Estado — mesma grafia (maiúscula) usada pelo init()/CONTEXT_KEYS.
+      case 'perfil': return (config.contexto && config.contexto.Perfil) || null;
+      case 'estado': return (config.contexto && config.contexto.Estado) || null;
+      default: return null;
+    }
+  }
+
+  // Uma única regra: campo/operador/valor. Nunca lança — regra malformada
+  // (campo desconhecido, operador desconhecido) conta como "não bateu" em vez
+  // de derrubar a avaliação do tour inteiro.
+  function tourSegmentacaoAvaliarRegra(regra, config) {
+    var valorRecebido = tourSegmentacaoResolverCampo(regra.campo, config);
+    var valorEsperado = regra.valor;
+    var ok;
+    if (regra.operador === 'igual') {
+      ok = valorRecebido !== null && valorRecebido === valorEsperado;
+    } else if (regra.operador === 'diferente') {
+      // Contexto ausente é, por definição, diferente de qualquer valor
+      // esperado — não é um caso especial, é a mesma comparação de sempre.
+      ok = valorRecebido !== valorEsperado;
+    } else if (regra.operador === 'contem') {
+      ok = valorRecebido !== null && String(valorRecebido).indexOf(valorEsperado) !== -1;
+    } else if (regra.operador === 'em_lista') {
+      var lista = String(valorEsperado || '').split(',').map(function (v) { return v.trim(); }).filter(Boolean);
+      ok = valorRecebido !== null && lista.indexOf(valorRecebido) !== -1;
+    } else {
+      ok = false;
+    }
+    return { ok: ok, valorRecebido: valorRecebido };
+  }
+
+  // Todas as regras precisam bater (AND) — sem regras (null/[]) é sempre
+  // elegível, exatamente o comportamento de um tour antes desta feature
+  // existir. Retorna motivo pronto pro modo debug, sem nunca expor valor
+  // completo de campo sensível (reaproveita debugMascarar, mesma máscara
+  // usada pra config/contexto no resto do modo debug).
+  function avaliarSegmentacaoTour(tour, config) {
+    var regras = tour.segmentacao_regras;
+    if (!Array.isArray(regras) || regras.length === 0) {
+      return { ok: true, motivo: 'sem_segmentacao', regraFalhou: null };
+    }
+    for (var i = 0; i < regras.length; i++) {
+      var regra = regras[i];
+      var resultado = tourSegmentacaoAvaliarRegra(regra, config);
+      if (!resultado.ok) {
+        return {
+          ok: false,
+          motivo: 'bloqueado',
+          regraFalhou: {
+            campo: regra.campo,
+            operador: regra.operador,
+            valor_esperado: debugMascarar(regra.campo, regra.valor),
+            valor_recebido: debugMascarar(regra.campo, resultado.valorRecebido),
+          },
+        };
+      }
+    }
+    return { ok: true, motivo: 'atendida', regraFalhou: null };
+  }
+
   function submitFeedback() {
     var campanha = state.campanha;
     var config = state.config;
@@ -2009,6 +2087,14 @@
     // por esse caminho, e o FAB "Ajuda" podia ficar preso no valor da
     // primeira checagem pra sempre.
     jornadaReavaliarAposNavegacao();
+    // Reavalia tour automático com o contexto novo — sem isso, um tour com
+    // segmentação (ver avaliarSegmentacaoTour) só passava a considerar o
+    // contexto atualizado no próximo reload de página completo ou próxima
+    // navegação SPA (handleUrlChange), nunca só por causa de um
+    // updateContext() isolado. avaliarTourAutomatico já se protege sozinha
+    // contra reabrir/duplicar (tourState.ativo, jornadaState.aberto), mesmo
+    // comportamento de sempre.
+    if (state.config.sistema) avaliarTourAutomatico(state.config);
   }
 
   // Ver tourState.avancoResolvidoEm — janela depois de um passo resolver (ou
@@ -4386,19 +4472,27 @@
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
           var okModo = checkMode(c, config);
+          var seg = avaliarSegmentacaoTour(c, config);
           // Com usuario_id, confia no backend (já fez dedupe/reexibição). Sem
           // usuario_id, o servidor não tem como identificar o usuário — cai
           // no fallback localStorage.
           var jaVisto = !config.usuario_id && tourWasShown(c);
           if (debugState.enabled) {
+            var motivo;
+            if (!okModo) motivo = 'bloqueado: modo_identificacao não corresponde';
+            else if (!seg.ok) motivo = 'bloqueado por segmentação';
+            else if (jaVisto) motivo = 'bloqueado: já visto (localStorage)';
+            else motivo = selecionado ? 'elegível, porém outro tour de maior prioridade já selecionado' : 'selecionado';
             linhas.push({
               id: c.id,
               titulo: c.titulo || null,
               modo_identificacao: c.modo_identificacao || 'sistema_tela',
-              motivo: !okModo ? 'bloqueado: modo_identificacao não corresponde' : (jaVisto ? 'bloqueado: já visto (localStorage)' : (selecionado ? 'elegível, porém outro tour de maior prioridade já selecionado' : 'selecionado')),
+              segmentacao: seg.motivo,
+              regra_que_falhou: seg.regraFalhou,
+              motivo: motivo,
             });
           }
-          if (!okModo || jaVisto) continue;
+          if (!okModo || !seg.ok || jaVisto) continue;
           if (!selecionado) selecionado = c;
         }
         if (debugState.enabled) debugLog('Tour automático — candidatos (' + config.tela + ')', linhas);
@@ -8872,6 +8966,11 @@
   window.UserPulse.abrirJornadas = abrirJornadasPublico;
   window.UserPulse.debug = debugAtivar;
   window.UserPulse.debugState = debugSnapshot;
+  // Não é API pública (mesma convenção de _q/_up_ready acima) — só existe
+  // pra permitir testar avaliarSegmentacaoTour (função pura, sem DOM/rede)
+  // diretamente em server/src/widgetTourSegmentacao.test.ts, sem precisar
+  // simular fetch/candidatos/tour completo. Nunca documentado pro host.
+  window.UserPulse._internal = { avaliarSegmentacaoTour: avaliarSegmentacaoTour };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
     for (var _qi = 0; _qi < _q.length; _qi++) {

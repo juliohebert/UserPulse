@@ -5,7 +5,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "tsx --test src/controllers/widget.test.ts",
+    "test": "tsx --test src/controllers/widget.test.ts src/controllers/tours.test.ts src/widgetTourSegmentacao.test.ts",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:generate": "prisma generate",

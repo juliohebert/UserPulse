@@ -16,6 +16,54 @@ const MODOS_AVANCO_INTERACAO = ['manual', 'ao_clicar', 'ao_alterar_valor', 'ao_a
 const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
 const TIPOS_EVENTO_TOUR = ['inicio', 'passo_visualizado', 'elemento_nao_encontrado', 'pulado', 'concluido']
 
+// Segmentação por contexto (MVP) — ver comentário de segmentacao_regras em
+// schema.prisma e avaliarSegmentacaoTour em widget.js (avaliação de verdade
+// acontece no client, com o contexto que o widget tem na hora; aqui só
+// validamos o formato antes de persistir).
+const CAMPOS_SEGMENTACAO = [
+  'cliente_id', 'unidade_id', 'organizacao_id', 'clinica_id',
+  'usuario_tipo', 'perfil', 'estado', 'usuario_id', 'usuario_email',
+  'tela', 'sistema',
+]
+const OPERADORES_SEGMENTACAO = ['igual', 'diferente', 'contem', 'em_lista']
+
+export interface RegraSegmentacaoInput {
+  campo?: string
+  operador?: string
+  valor?: string
+}
+
+// null (ou lista vazia) = sem segmentação — preserva o comportamento atual de
+// qualquer tour existente (todos os contextos elegíveis). Retorna null tanto
+// para "não informado" quanto para "lista vazia informada", nunca [].
+// Exportada (mesmo padrão de avaliarReexibicaoPorDias em widget.ts) para ser
+// testada diretamente em tours.test.ts, sem precisar de servidor HTTP nem
+// banco — é a única peça de lógica de segmentação que vive no backend (a
+// avaliação de verdade, contra o contexto do usuário, acontece no client, em
+// avaliarSegmentacaoTour dentro de widget.js).
+export function validarSegmentacaoRegras(regras: unknown): { erro: string | null; lista: RegraSegmentacaoInput[] | null } {
+  if (regras === undefined || regras === null) return { erro: null, lista: null }
+  if (!Array.isArray(regras)) return { erro: 'segmentacao_regras deve ser uma lista de regras.', lista: null }
+  if (regras.length === 0) return { erro: null, lista: null }
+  const lista: RegraSegmentacaoInput[] = []
+  for (const [i, r] of (regras as RegraSegmentacaoInput[]).entries()) {
+    const campo = r?.campo?.trim()
+    const operador = r?.operador?.trim()
+    const valor = r?.valor?.trim()
+    if (!campo || !CAMPOS_SEGMENTACAO.includes(campo)) {
+      return { erro: `Regra de segmentação ${i + 1}: campo inválido.`, lista: null }
+    }
+    if (!operador || !OPERADORES_SEGMENTACAO.includes(operador)) {
+      return { erro: `Regra de segmentação ${i + 1}: operador inválido.`, lista: null }
+    }
+    if (!valor) {
+      return { erro: `Regra de segmentação ${i + 1}: valor é obrigatório.`, lista: null }
+    }
+    lista.push({ campo, operador, valor })
+  }
+  return { erro: null, lista }
+}
+
 interface PassoInput {
   titulo?: string
   descricao?: string
@@ -121,7 +169,7 @@ export async function buscarPorId(req: Request, res: Response) {
 
 export async function criar(req: Request, res: Response) {
   try {
-    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos } = req.body
+    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras } = req.body
 
     if (!titulo?.trim() || !sistema?.trim()) {
       return res.status(400).json({ erro: 'titulo e sistema são obrigatórios.' })
@@ -142,6 +190,9 @@ export async function criar(req: Request, res: Response) {
     const { erro: erroPassos, lista: listaPassos } = validarPassos(passos, ativoBool)
     if (erroPassos) return res.status(400).json({ erro: erroPassos })
 
+    const { erro: erroSegmentacao, lista: listaSegmentacao } = validarSegmentacaoRegras(segmentacao_regras)
+    if (erroSegmentacao) return res.status(400).json({ erro: erroSegmentacao })
+
     const slug = await slugUnico(gerarSlugBase(titulo))
 
     const tour = await prisma.tourGuiado.create({
@@ -156,6 +207,9 @@ export async function criar(req: Request, res: Response) {
         url_contem: url_contem?.trim() || null,
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
         ativo: ativoBool,
+        // Omitido (não Prisma.DbNull) quando não há regras — deixa a coluna
+        // no default (NULL), igual a um tour criado antes desta feature existir.
+        ...(listaSegmentacao && { segmentacao_regras: listaSegmentacao as unknown as Prisma.InputJsonValue }),
         passos: {
           create: listaPassos.map((p, i) => ({
             ordem: i,
@@ -190,7 +244,7 @@ export async function atualizar(req: Request, res: Response) {
     })
     if (!existente) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
 
-    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos } = req.body
+    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras } = req.body
 
     const modo = (modo_identificacao !== undefined ? modo_identificacao?.trim() : existente.modo_identificacao) as string
     if (!MODOS_IDENTIFICACAO.includes(modo)) {
@@ -218,6 +272,18 @@ export async function atualizar(req: Request, res: Response) {
       }
     }
 
+    // undefined = campo não enviado, não mexe no que já está salvo (mesmo
+    // padrão de titulo/descricao/etc. acima). Enviado (mesmo como null ou
+    // []) = atualiza pra "sem segmentação" ou pra lista nova validada.
+    let segmentacaoInformada = false
+    let listaSegmentacao: RegraSegmentacaoInput[] | null = null
+    if (segmentacao_regras !== undefined) {
+      const { erro: erroSegmentacao, lista } = validarSegmentacaoRegras(segmentacao_regras)
+      if (erroSegmentacao) return res.status(400).json({ erro: erroSegmentacao })
+      segmentacaoInformada = true
+      listaSegmentacao = lista
+    }
+
     let slug = existente.slug
     if (titulo && titulo.trim() !== existente.titulo) {
       slug = await slugUnico(gerarSlugBase(titulo.trim()), id)
@@ -239,6 +305,7 @@ export async function atualizar(req: Request, res: Response) {
           ...(url_contem !== undefined && { url_contem: url_contem?.trim() || null }),
           ...(prioridade !== undefined && { prioridade: Number(prioridade) }),
           ...(ativo !== undefined && { ativo: Boolean(ativo) }),
+          ...(segmentacaoInformada && { segmentacao_regras: (listaSegmentacao as unknown as Prisma.InputJsonValue) ?? Prisma.DbNull }),
           ...(listaPassos && {
             passos: {
               create: listaPassos.map((p, i) => ({
@@ -328,6 +395,7 @@ export async function duplicar(req: Request, res: Response) {
         url_contem: original.url_contem,
         prioridade: original.prioridade,
         ativo: false,
+        ...(original.segmentacao_regras !== null && { segmentacao_regras: original.segmentacao_regras as Prisma.InputJsonValue }),
         passos: {
           create: original.passos.map(p => ({
             ordem: p.ordem,
@@ -377,6 +445,7 @@ export async function exportar(req: Request, res: Response) {
         data_cy: tour.data_cy,
         url_contem: tour.url_contem,
         prioridade: tour.prioridade,
+        segmentacao_regras: tour.segmentacao_regras,
         passos: tour.passos.map(p => ({
           titulo: p.titulo,
           descricao: p.descricao,
@@ -406,7 +475,7 @@ export async function importar(req: Request, res: Response) {
     }
     const dados = (body.tour && typeof body.tour === 'object') ? body.tour : body
 
-    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, passos } = dados
+    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, passos, segmentacao_regras } = dados
 
     if (!titulo?.trim() || !sistema?.trim()) {
       return res.status(400).json({ erro: 'titulo e sistema são obrigatórios no JSON importado.' })
@@ -427,6 +496,11 @@ export async function importar(req: Request, res: Response) {
     const { erro: erroPassos, lista: listaPassos } = validarPassos(passos, false)
     if (erroPassos) return res.status(400).json({ erro: erroPassos })
 
+    // Campo opcional — JSON exportado antes desta feature existir não tem
+    // segmentacao_regras, e isso é válido (nasce sem segmentação).
+    const { erro: erroSegmentacao, lista: listaSegmentacao } = validarSegmentacaoRegras(segmentacao_regras)
+    if (erroSegmentacao) return res.status(400).json({ erro: `${erroSegmentacao} (JSON importado)` })
+
     const slug = await slugUnico(gerarSlugBase(titulo))
 
     const tour = await prisma.tourGuiado.create({
@@ -441,6 +515,7 @@ export async function importar(req: Request, res: Response) {
         url_contem: url_contem?.trim() || null,
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
         ativo: false,
+        ...(listaSegmentacao && { segmentacao_regras: listaSegmentacao as unknown as Prisma.InputJsonValue }),
         passos: {
           create: listaPassos.map((p, i) => ({
             ordem: i,
