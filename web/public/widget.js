@@ -2278,6 +2278,21 @@
     root: null,
     elementoAtual: null,
     naoEncontrado: false,
+    // URL (window.location.href) onde cada índice de passo foi efetivamente
+    // buscado da última vez, indexado por número (ver irParaPasso) — nunca
+    // apagado quando ausente, só quando o tour reinicia (finalizarTour).
+    // Usado por tourVoltar() pra saber se o passo anterior fica noutra
+    // página/tela e precisa navegar antes de procurar o seletor (ver
+    // tourVoltarNavegar). Índices nunca visitados nesta sessão (ex.: tour
+    // retomado direto num passo do meio após reload) simplesmente não têm
+    // entrada — tratado como "sem URL conhecida", mesmo comportamento de
+    // antes desta função existir.
+    urlPorPasso: {},
+    // Timer do fallback de tourVoltarNavegar() — ver TOUR_VOLTAR_FALLBACK_MS.
+    // Também funciona como guarda contra clicar "Voltar" várias vezes
+    // enquanto uma navegação já está em andamento (mesmo padrão de
+    // nextClickTimer).
+    voltarFallbackTimer: null,
     buscaTimer: null,
     // MutationObserver ativo durante uma busca de elemento (localizarComRetry)
     // — detecta o elemento chegando ao DOM antes do próximo retry agendado,
@@ -3972,6 +3987,22 @@
     }
   }
 
+  // Espera até esse tanto por um popstate (ver tourVoltarNavegar/history.back())
+  // antes de desistir de navegar e tentar localizar o passo anterior na
+  // própria página atual mesmo assim — cobre o caso raro de não haver
+  // entrada anterior no histórico (ou a SPA ignorar o evento). Não é uma
+  // espera pelo ELEMENTO aparecer (localizarComRetry, chamado depois, já tem
+  // seu próprio backoff de até ~18s pra isso) — só pela navegação em si
+  // começar a acontecer.
+  var TOUR_VOLTAR_FALLBACK_MS = 1500;
+
+  function limparVoltarFallback() {
+    if (tourState.voltarFallbackTimer) {
+      window.clearTimeout(tourState.voltarFallbackTimer);
+      tourState.voltarFallbackTimer = null;
+    }
+  }
+
   // Agenda o avanço do passo atual — usado por todos os modos de
   // modo_avanco_interacao. Vai direto para irParaPasso/tourConcluir (não passa
   // por tourProximo) porque o usuário já completou a interação real com o
@@ -4093,6 +4124,7 @@
     limparBuscaTimer();
     limparInteracao();
     limparNextClickTimer();
+    limparVoltarFallback();
     // Cancela a vigilância de reposicionamento do passo anterior (se havia)
     // ANTES de resolver o novo — nunca reaproveita observer/listener/timer
     // (nem, por consequência, rect/target visual) de um passo que já ficou
@@ -4101,6 +4133,11 @@
     tourState.indice = indice;
     tourState.naoEncontrado = false;
     tourState.elementoAtual = null;
+    // Registra em que URL este passo está sendo buscado AGORA — usado só por
+    // tourVoltar() num passo futuro, pra saber se precisa navegar de volta
+    // pra cá. Sobrescreve sempre (não só na primeira vez): se o passo for
+    // revisitado numa URL diferente da anterior, a mais recente é a correta.
+    try { tourState.urlPorPasso[indice] = window.location.href; } catch (_e) {}
 
     var passo = tourState.tour.passos[indice];
     if (!passo) { finalizarTour('passo_invalido_no_indice_' + indice); return; }
@@ -4219,8 +4256,88 @@
     irParaPasso(indiceProximo);
   }
 
+  // Tour multipágina: o passo anterior pode ter sido encontrado numa URL
+  // diferente da atual (ver gravação em irParaPasso). Nesse caso, só voltar
+  // o índice (comportamento antigo) não adianta — o seletor não existe na
+  // página atual. Se soubermos a URL de lá, navega pra ela primeiro (ver
+  // tourVoltarNavegar); sem URL conhecida ou na mesma página, comportamento
+  // idêntico a antes desta função existir.
   function tourVoltar() {
-    if (tourState.indice > 0) irParaPasso(tourState.indice - 1);
+    if (tourState.indice <= 0) return;
+    var indiceAlvo = tourState.indice - 1;
+    var urlRegistrada = tourState.urlPorPasso[indiceAlvo] || null;
+    var urlAtual = window.location.href;
+    var precisaNavegar = Boolean(urlRegistrada) && urlRegistrada !== urlAtual;
+
+    if (debugState.enabled) {
+      debugLog('Tour — clique em Voltar', {
+        passo_atual: tourState.indice,
+        passo_anterior: indiceAlvo,
+        url_atual: debugStatusUrl(),
+        url_esperada_passo_anterior: urlRegistrada,
+        vai_navegar: precisaNavegar,
+      });
+    }
+
+    if (!precisaNavegar) {
+      irParaPasso(indiceAlvo);
+      return;
+    }
+    tourVoltarNavegar(indiceAlvo);
+  }
+
+  // Navega de volta pra URL onde o passo indiceAlvo foi encontrado da última
+  // vez, e só então tenta localizá-lo — reaproveita o MESMO mecanismo já
+  // usado pra sobreviver à navegação de "Próximo" (tourSalvarContinuacao +
+  // tourContinuacaoValidaParaSpa, consumida em handleUrlChange), só que
+  // apontando pra um índice ANTERIOR em vez do próximo. history.back() (não
+  // pushState/location.href) de propósito: é a única forma de "desfazer"
+  // uma navegação que funciona igual não importa o roteador (React
+  // Router/Angular/etc. todos reagem a popstate, é o próprio botão Voltar
+  // do navegador) e nunca cria entrada nova no histórico.
+  function tourVoltarNavegar(indiceAlvo) {
+    // Já há uma navegação de Voltar em andamento — ignora cliques extras em
+    // vez de empilhar múltiplos history.back() (cada um voltaria uma entrada
+    // a mais do que o pretendido).
+    if (tourState.voltarFallbackTimer) return;
+
+    // Garante que a flag está limpa (não deveria haver nenhuma navegação de
+    // avanço pendente nesse momento, mas se houver, uma sobra de
+    // suprimirAbandonoNavegacao=true faria handleUrlChange pular o bloco
+    // inteiro — inclusive a retomada via tourContinuacaoValidaParaSpa que
+    // acabamos de agendar abaixo).
+    tourState.suprimirAbandonoNavegacao = false;
+    tourSalvarContinuacao(indiceAlvo, false);
+
+    try {
+      window.history.back();
+    } catch (_e) {
+      // Ambiente sem history navegável (raríssimo) — desiste de navegar e
+      // cai no fallback de sempre (busca na página atual).
+      tourLimparContinuacao();
+      irParaPasso(indiceAlvo);
+      return;
+    }
+
+    // Fallback: se popstate não disparar (sem entrada anterior no
+    // histórico) ou handleUrlChange não resolver por qualquer outro motivo
+    // dentro do prazo, desiste de esperar e tenta localizar o passo na
+    // página em que estivermos agora mesmo — nunca fica travado esperando
+    // indefinidamente, e nunca vira um loop (é um timer único, não
+    // reagendado por si mesmo).
+    tourState.voltarFallbackTimer = window.setTimeout(function () {
+      tourState.voltarFallbackTimer = null;
+      if (!tourState.ativo) return; // usuário fechou/pulou o tour enquanto esperava — não reabre sozinho
+      if (tourState.indice === indiceAlvo) return; // handleUrlChange já resolveu
+      if (debugState.enabled) {
+        debugLog('Tour — Voltar: navegação não ocorreu a tempo, buscando na página atual', {
+          passo_anterior: indiceAlvo,
+          url_atual: debugStatusUrl(),
+        });
+      }
+      tourLimparContinuacao();
+      irParaPasso(indiceAlvo);
+    }, TOUR_VOLTAR_FALLBACK_MS);
   }
 
   function tourPular() {
@@ -4344,6 +4461,7 @@
     limparBuscaTimer();
     limparInteracao();
     limparNextClickTimer();
+    limparVoltarFallback();
     limparFimTimer();
     tourLimparVigiaPosicionamento();
     unbindTourReposHandlers();
@@ -4359,6 +4477,12 @@
     tourState.feedbackEscolhido = null;
     tourState.suprimirAbandonoNavegacao = false;
     tourState.avancoResolvidoEm = 0;
+    // Fechar/pular/concluir o tour aqui (não em iniciarTour(), que também
+    // passa por finalizarTour() pra limpar uma sessão anterior) já cobre os
+    // dois casos que importam: encerrar de vez OU zerar antes do tour
+    // seguinte começar do zero — nunca faz sentido carregar URLs de passos
+    // de uma sessão pra outra.
+    tourState.urlPorPasso = {};
     // Cobre o caso raro de abandonar o tour (Encerrar/Pular) bem na janela
     // entre um clique que salvou continuação e ela ser consumida — sem isso,
     // uma retomada indevida poderia disparar num carregamento de página
@@ -8967,10 +9091,24 @@
   window.UserPulse.debug = debugAtivar;
   window.UserPulse.debugState = debugSnapshot;
   // Não é API pública (mesma convenção de _q/_up_ready acima) — só existe
-  // pra permitir testar avaliarSegmentacaoTour (função pura, sem DOM/rede)
-  // diretamente em server/src/widgetTourSegmentacao.test.ts, sem precisar
-  // simular fetch/candidatos/tour completo. Nunca documentado pro host.
-  window.UserPulse._internal = { avaliarSegmentacaoTour: avaliarSegmentacaoTour };
+  // pra permitir testar funções internas sem precisar simular fetch/DOM real
+  // completo. Nunca documentado pro host.
+  //   - avaliarSegmentacaoTour: função pura, sem DOM/rede — ver
+  //     server/src/widgetTourSegmentacao.test.ts.
+  //   - tourState: referência direta (não cópia) ao estado interno do tour —
+  //     permite montar cenários (indice/urlPorPasso/ativo) sem rodar um tour
+  //     completo de verdade, e inspecionar o resultado (ex.: voltarFallbackTimer
+  //     como sinal de "navegação pendente"). Só leitura/setup em teste; nunca
+  //     mutado pelo próprio runtime através deste objeto.
+  //   - tourVoltar/finalizarTour: mesmas funções do runtime, chamadas direto
+  //     pra testar a decisão de navegação do "Voltar" — ver
+  //     server/src/widgetTourVoltar.test.ts.
+  window.UserPulse._internal = {
+    avaliarSegmentacaoTour: avaliarSegmentacaoTour,
+    tourState: tourState,
+    tourVoltar: tourVoltar,
+    finalizarTour: finalizarTour,
+  };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
     for (var _qi = 0; _qi < _q.length; _qi++) {
