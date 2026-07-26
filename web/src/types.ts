@@ -134,6 +134,26 @@ export interface TourPasso {
   atualizado_em: string
 }
 
+// Segmentação por contexto (MVP) — regras avaliadas pelo widget usando o
+// contexto atual (init/updateContext). campo/operador seguem a mesma lista
+// fixa validada no backend (ver CAMPOS_SEGMENTACAO/OPERADORES_SEGMENTACAO em
+// server/src/controllers/tours.ts). Para 'em_lista', valor é uma lista
+// separada por vírgula (ex.: "RN,SP,MG"), igual ao ChipInput de Campanha,
+// só que como texto simples em vez de chips — decisão de MVP para não
+// precisar de um componente por operador.
+export type CampoSegmentacaoTour =
+  | 'cliente_id' | 'unidade_id' | 'organizacao_id' | 'clinica_id'
+  | 'usuario_tipo' | 'perfil' | 'estado' | 'usuario_id' | 'usuario_email'
+  | 'tela' | 'sistema'
+
+export type OperadorSegmentacaoTour = 'igual' | 'diferente' | 'contem' | 'em_lista'
+
+export interface RegraSegmentacaoTour {
+  campo: CampoSegmentacaoTour | ''
+  operador: OperadorSegmentacaoTour
+  valor: string
+}
+
 export interface TourGuiado {
   id: string
   slug: string
@@ -146,6 +166,9 @@ export interface TourGuiado {
   url_contem: string | null
   prioridade: number
   ativo: boolean
+  // null/ausente = sem segmentação (todos os contextos elegíveis, mesmo
+  // comportamento de qualquer tour criado antes desta feature existir).
+  segmentacao_regras: RegraSegmentacaoTour[] | null
   criado_em: string
   atualizado_em: string
   passos?: TourPasso[]
@@ -174,6 +197,7 @@ export interface TourExportData {
   data_cy: string | null
   url_contem: string | null
   prioridade: number
+  segmentacao_regras: RegraSegmentacaoTour[] | null
   passos: TourExportPasso[]
 }
 
