@@ -8178,7 +8178,12 @@
     return {
       titulo: titulo,
       descricao: typeof p.descricao === 'string' ? p.descricao : '',
-      seletor_tipo: (p.seletor_tipo === 'css' || p.seletor_tipo === 'id') ? p.seletor_tipo : 'data_cy',
+      // 'area' precisa ser aceito aqui igual a 'css'/'id' — é um tipo válido
+      // de passo (destaca um grupo/container, ver selecionarElementoPasso),
+      // não só um rótulo de UI do admin. Sem isso, um passo tipo Área perdia
+      // o tipo (virava data_cy) ao ser carregado no gravador via "Editar
+      // fluxo no sistema" (up_rec_passos), mesmo sem o usuário mexer em nada.
+      seletor_tipo: (p.seletor_tipo === 'css' || p.seletor_tipo === 'id' || p.seletor_tipo === 'area') ? p.seletor_tipo : 'data_cy',
       seletor: typeof p.seletor === 'string' ? p.seletor : '',
       tooltip_posicao: typeof p.tooltip_posicao === 'string' ? p.tooltip_posicao : 'auto',
       acao_ao_avancar: typeof p.acao_ao_avancar === 'string' ? p.acao_ao_avancar : 'apenas_avancar',
@@ -9113,6 +9118,12 @@
   //     PÚBLICO, rodando no browser do cliente — recorderGetTestSnapshot()
   //     devolve só { ativo, pausado, totalPassos }, nunca a lista de passos
   //     em si.
+  //   - recorderSanitizarPassoInicial: função pura (só recebe um objeto solto
+  //     e devolve outro sanitizado, nunca toca em recorderState) usada por
+  //     recorderLerPassosIniciais pra validar cada passo de up_rec_passos —
+  //     testa diretamente que seletor_tipo 'area' (e demais tipos válidos)
+  //     sobrevivem à sanitização, e que um tipo inválido cai no fallback
+  //     data_cy — ver server/src/widgetRecorderPause.test.ts.
   window.UserPulse._internal = {
     avaliarSegmentacaoTour: avaliarSegmentacaoTour,
     tourState: tourState,
@@ -9123,6 +9134,7 @@
     recorderPausarOuContinuar: recorderPausarOuContinuar,
     recorderPrepararTesteCaptura: recorderPrepararTesteCaptura,
     recorderGetTestSnapshot: recorderGetTestSnapshot,
+    recorderSanitizarPassoInicial: recorderSanitizarPassoInicial,
   };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
