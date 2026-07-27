@@ -1684,6 +1684,7 @@
       url: debugStatusUrl(),
     });
     iniciarGravadorSeNecessario();
+    iniciarPreviewSeNecessario();
     state.campanha = null;
     state.open = false;
     state.nota = null;
@@ -8193,13 +8194,16 @@
     };
   }
 
-  // Lê up_rec_passos para pré-carregar o gravador com os passos já
-  // cadastrados do tour (modo edição — ver "Editar fluxo no sistema" em
-  // Form.tsx). Qualquer falha (parâmetro ausente, base64/JSON inválido,
-  // formato inesperado) retorna [] em silêncio: o gravador segue funcionando
-  // normalmente, só começa vazio, como já fazia antes desta função existir.
-  function recorderLerPassosIniciais(params) {
-    var bruto = params.get('up_rec_passos');
+  // Lê up_rec_passos (ou, via nomeParam, um parâmetro equivalente — ver
+  // up_preview_passos em iniciarPreviewSeNecessario) pra decodificar uma
+  // lista de passos vinda da URL, já sanitizados um a um. Usada tanto pra
+  // pré-carregar o gravador com os passos já cadastrados do tour (modo
+  // edição — ver "Editar fluxo no sistema" em Form.tsx) quanto pelo preview
+  // de passos colados (sem gravador nenhum envolvido). Qualquer falha
+  // (parâmetro ausente, base64/JSON inválido, formato inesperado) retorna []
+  // em silêncio: quem chama decide o que fazer com uma lista vazia.
+  function recorderLerPassosIniciais(params, nomeParam) {
+    var bruto = params.get(nomeParam || 'up_rec_passos');
     if (!bruto) return [];
     try {
       var texto = recorderDecodificarBase64Url(bruto);
@@ -8270,6 +8274,47 @@
       recorderPersistir();
       recorderRenderPainelLateral();
     }
+  }
+
+  // Ativado quando a URL tem ?userpulse_preview=1 (aberta pelo admin em
+  // "Colar passos gravados" → "Testar estes passos", ver buildPreviewUrl em
+  // web/src/utils/tour.ts) — roda os passos colados como um Tour temporário,
+  // só em memória, sem nenhuma escrita no banco: iniciarTour() aqui recebe um
+  // objeto solto (id: null), nunca um tour buscado por slug/id via API.
+  //
+  // Deliberadamente PARALELO ao gravador, não uma variação dele: não ativa
+  // recorderState (sem captura, sem barra, sem pausa, sem persistência em
+  // sessionStorage), e preview=true em iniciarTour já suprime
+  // registrarEventoTour/tourMarkShown sozinho (ver definições) — sem
+  // precisar de nenhuma checagem extra aqui pra "não trackear".
+  //
+  // Precedência: o gravador sempre vence se os dois parâmetros aparecerem
+  // juntos por engano. iniciarGravadorSeNecessario() já rodou antes desta
+  // função (chamada logo em seguida, em init()) — se ele ativou
+  // recorderState (novo ou retomado de uma sessão persistida), a checagem
+  // abaixo já é suficiente pra nunca iniciar um preview por cima. A checagem
+  // explícita de userpulse_recorder=1 é redundante com a de
+  // recorderState.ativo na maioria dos casos, mas cobre o cenário em que os
+  // dois parâmetros vêm juntos numa URL nova (sem sessão persistida) —
+  // preferimos nunca iniciar preview nesse caso, mesmo que por algum motivo
+  // futuro o gravador viesse a não ativar de fato.
+  function iniciarPreviewSeNecessario() {
+    if (recorderState.ativo || tourState.ativo) return;
+    var params;
+    try { params = new URLSearchParams(window.location.search); } catch (_e) { return; }
+    if (params.get('userpulse_recorder') === '1') return;
+    if (params.get('userpulse_preview') !== '1') return;
+
+    var passos = recorderLerPassosIniciais(params, 'up_preview_passos');
+    if (passos.length === 0) return;
+
+    var tourPreview = {
+      id: null,
+      titulo: params.get('up_preview_titulo') || 'Pré-visualização',
+      descricao: '',
+      passos: passos,
+    };
+    iniciarTour(tourPreview, false, true);
   }
 
   // API pública para disparar um tour manualmente (ex.: botão "Ver tour" no host):
@@ -9124,6 +9169,15 @@
   //     testa diretamente que seletor_tipo 'area' (e demais tipos válidos)
   //     sobrevivem à sanitização, e que um tipo inválido cai no fallback
   //     data_cy — ver server/src/widgetRecorderPause.test.ts.
+  //   - iniciarPreviewSeNecessario: só orquestra funções puras/já expostas
+  //     (recorderLerPassosIniciais + iniciarTour) a partir de
+  //     window.location.search — nenhum estado novo exposto por causa dela;
+  //     o teste confere o resultado via tourState/recorderGetTestSnapshot já
+  //     expostos acima — ver server/src/widgetRecorderPause.test.ts.
+  //   - iniciarGravadorSeNecessario: mesma função real chamada em init(),
+  //     logo antes de iniciarPreviewSeNecessario — exposta só pra testar a
+  //     precedência real entre os dois (gravador sempre vence quando os dois
+  //     parâmetros aparecem juntos), na mesma ordem de chamada de init().
   window.UserPulse._internal = {
     avaliarSegmentacaoTour: avaliarSegmentacaoTour,
     tourState: tourState,
@@ -9135,6 +9189,8 @@
     recorderPrepararTesteCaptura: recorderPrepararTesteCaptura,
     recorderGetTestSnapshot: recorderGetTestSnapshot,
     recorderSanitizarPassoInicial: recorderSanitizarPassoInicial,
+    iniciarPreviewSeNecessario: iniciarPreviewSeNecessario,
+    iniciarGravadorSeNecessario: iniciarGravadorSeNecessario,
   };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {

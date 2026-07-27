@@ -114,11 +114,12 @@ export interface GravadorUrlResultado {
   status: 'sem_passos' | 'incluido' | 'excedeu_limite'
 }
 
-// Limite conservador pro parâmetro up_rec_passos codificado: URLs muito
+// Limite conservador pro parâmetro up_rec_passos (ou up_preview_passos, ver
+// buildPreviewUrl abaixo — mesmo limite, mesmo motivo) codificado: URLs muito
 // longas podem estourar limites do navegador ou do servidor do sistema
 // hospedeiro (ex.: nginx costuma limitar ~8KB de header por padrão, em vários
-// buffers). Preferimos abrir o gravador vazio e cair no fallback já existente
-// a arriscar uma URL que alguns hosts rejeitam silenciosamente.
+// buffers). Preferimos abrir o gravador/preview vazio e cair no fallback já
+// existente a arriscar uma URL que alguns hosts rejeitam silenciosamente.
 const UP_REC_PASSOS_MAX_LEN = 8000
 
 // Remove do payload os campos que já correspondem ao default aplicado por
@@ -178,6 +179,58 @@ export function buildGravadorUrl(params: GravadorParams): GravadorUrlResultado {
         `${UP_REC_PASSOS_MAX_LEN} para enviar ao gravador pela URL — abrindo o gravador assim ` +
         'começaria vazio. Edite os passos existentes diretamente na lista abaixo, ou copie-os como JSON ' +
         'antes de gravar um fluxo novo.'
+      )
+    }
+  }
+
+  return { url: url.toString(), status }
+}
+
+// ─── Testar passos colados (preview sem persistência) ──────────────────────
+// Mesmo mecanismo de URL/compactação de buildGravadorUrl acima, só que com
+// parâmetros próprios (userpulse_preview/up_preview_passos/up_preview_titulo)
+// — nunca reaproveita userpulse_recorder/up_rec_passos, pra não arriscar o
+// widget confundir "abrir o gravador" com "só rodar um preview": ver
+// iniciarPreviewSeNecessario em widget.js, que dá precedência ao gravador se
+// os dois parâmetros aparecerem juntos por engano.
+export interface PreviewParams {
+  urlInicial: string
+  // Opcional — só o título mostrado na intro do tour temporário; sem
+  // sistema/descrição/prioridade, porque nada disso é salvo em lugar nenhum.
+  titulo?: string
+  passos: GravadorPassoPayload[]
+}
+
+export interface PreviewUrlResultado {
+  url: string
+  // 'sem_passos': lista vazia — quem chama decide como avisar (não deveria
+  //   nem tentar abrir a aba nesse caso).
+  // 'incluido': passos couberam em UP_REC_PASSOS_MAX_LEN e foram embutidos.
+  // 'excedeu_limite': passos existem, mas não couberam na URL — up_preview_passos
+  //   foi omitido, e abrir `url` faria o widget não iniciar preview nenhum
+  //   (iniciarPreviewSeNecessario não age sem passos). Quem chama NÃO deve
+  //   abrir `url` automaticamente nesse caso — mesmo padrão de
+  //   'excedeu_limite' em buildGravadorUrl.
+  status: 'sem_passos' | 'incluido' | 'excedeu_limite'
+}
+
+export function buildPreviewUrl(params: PreviewParams): PreviewUrlResultado {
+  const url = new URL(params.urlInicial)
+  url.searchParams.set('userpulse_preview', '1')
+  if (params.titulo && params.titulo.trim()) url.searchParams.set('up_preview_titulo', params.titulo.trim())
+
+  let status: PreviewUrlResultado['status'] = 'sem_passos'
+  if (params.passos.length > 0) {
+    const encoded = encodePassosBase64Url(params.passos)
+    if (encoded.length <= UP_REC_PASSOS_MAX_LEN) {
+      url.searchParams.set('up_preview_passos', encoded)
+      status = 'incluido'
+    } else {
+      status = 'excedeu_limite'
+      console.warn(
+        `[UserPulse] Passos colados (${encoded.length} caracteres codificados) excedem o limite de ` +
+        `${UP_REC_PASSOS_MAX_LEN} para testar pela URL — abrir o preview assim não iniciaria nada. ` +
+        'Use "Editar fluxo no sistema" e "Pré-visualizar tour" dentro do gravador para testar um fluxo grande.'
       )
     }
   }

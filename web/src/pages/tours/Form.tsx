@@ -6,7 +6,7 @@ import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
-import { buildGravadorUrl, comandoTestarSeletor, type GravadorUrlResultado } from '../../utils/tour'
+import { buildGravadorUrl, buildPreviewUrl, comandoTestarSeletor, type GravadorUrlResultado, type PreviewUrlResultado } from '../../utils/tour'
 
 interface PassoState {
   id?: string
@@ -571,6 +571,10 @@ export function TourForm() {
   const [atualizandoTour, setAtualizandoTour] = useState(false)
   const [erroAtualizarTour, setErroAtualizarTour] = useState<string | null>(null)
   const [tourAtualizadoOk, setTourAtualizadoOk] = useState(false)
+  // "Testar estes passos" (testarPassosColados) — preview sem persistência,
+  // não mexe em erroColar/erroAtualizarTour (ações independentes).
+  const [erroTestarPassos, setErroTestarPassos] = useState<string | null>(null)
+  const [urlPreviewGerada, setUrlPreviewGerada] = useState<string | null>(null)
   // null = ainda não tentou abrir o gravador nesta visita à página.
   const [statusGravador, setStatusGravador] = useState<GravadorUrlResultado['status'] | null>(null)
   // Guarda a URL calculada quando status é 'excedeu_limite' — não é aberta
@@ -781,8 +785,8 @@ export function TourForm() {
   // Mesmo formato usado tanto pra montar up_rec_passos (buildGravadorUrl)
   // quanto pro botão "Copiar passos atuais (JSON)" abaixo — um só lugar pra
   // não desalinhar os dois.
-  const passosParaGravadorPayload = () =>
-    passos
+  const passosParaGravadorPayload = (lista: PassoState[] = passos) =>
+    lista
       .filter(p => p.titulo.trim())
       .map(p => ({
         titulo: p.titulo,
@@ -944,6 +948,50 @@ export function TourForm() {
     } finally {
       setAtualizandoTour(false)
     }
+  }
+
+  // "Testar estes passos" — preview real do JSON colado, sem salvar nada em
+  // lugar nenhum (nem aqui no admin, nem no banco). Mesmo mecanismo de
+  // URL/compactação de abrirGravador (buildPreviewUrl reaproveita
+  // encodePassosBase64Url), só que com parâmetros próprios
+  // (userpulse_preview/up_preview_passos) que widget.js reconhece como "só
+  // rode este tour temporário em memória" — nunca ativa o gravador, nunca
+  // persiste em sessionStorage, nunca gera evento (tourState.preview=true
+  // suprime isso sozinho, ver iniciarPreviewSeNecessario em widget.js). Não
+  // chama setPassos em nenhum momento — o estado atual do formulário nunca
+  // muda só por testar.
+  const testarPassosColados = () => {
+    setErroTestarPassos(null)
+    setUrlPreviewGerada(null)
+    const resultado = extrairPassosDoJson(jsonColadoTexto)
+    if ('erro' in resultado) {
+      setErroTestarPassos(resultado.erro)
+      return
+    }
+    if (!urlInicialGravador.trim()) {
+      setErroTestarPassos('Informe a URL inicial — a página real do sistema onde este tour começa — antes de testar.')
+      return
+    }
+    let previewResultado: PreviewUrlResultado
+    try {
+      previewResultado = buildPreviewUrl({
+        urlInicial: urlInicialGravador.trim(),
+        titulo: form.titulo,
+        passos: passosParaGravadorPayload(resultado.passos),
+      })
+    } catch {
+      setErroTestarPassos('URL inicial inválida — use uma URL completa, ex: https://meusistema.com/app/agenda')
+      return
+    }
+    if (previewResultado.status === 'excedeu_limite') {
+      setErroTestarPassos(
+        `Os ${resultado.passos.length} passo(s) colados são grandes demais para testar pela URL. ` +
+        'Use "Editar fluxo no sistema" acima e "Pré-visualizar tour" dentro do gravador para testar um fluxo grande.'
+      )
+      return
+    }
+    setUrlPreviewGerada(previewResultado.url)
+    window.open(previewResultado.url, '_blank', 'noopener')
   }
 
   // Ações discretas por passo — só copiam para a área de transferência, não
@@ -1501,7 +1549,33 @@ export function TourForm() {
                       Tour atualizado com sucesso.
                     </div>
                   )}
+                  {erroTestarPassos && (
+                    <div className="mt-2 p-3 bg-error-container text-on-error-container rounded-xl text-body-sm flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[16px]">error</span>
+                      {erroTestarPassos}
+                    </div>
+                  )}
+                  {urlPreviewGerada && (
+                    <div className="mt-2 p-3 bg-tertiary/10 rounded-xl text-body-sm text-tertiary flex items-start gap-2">
+                      <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">check_circle</span>
+                      <span>
+                        Teste iniciado numa nova aba — nada foi salvo. Se o navegador bloqueou o pop-up, abra
+                        manualmente:{' '}
+                        <a href={urlPreviewGerada} target="_blank" rel="noreferrer" className="underline break-all">{urlPreviewGerada}</a>
+                      </span>
+                    </div>
+                  )}
                   <div className="flex flex-wrap justify-end gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={testarPassosColados}
+                      disabled={!jsonColadoTexto.trim()}
+                      title="Roda os passos colados como um tour temporário na URL informada acima, direto no sistema real — sem salvar nada aqui nem no banco."
+                      className="flex items-center gap-1.5 px-4 py-2 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-all disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">play_circle</span>
+                      Testar estes passos
+                    </button>
                     <button
                       type="button"
                       onClick={atualizarTourComPassosColados}
