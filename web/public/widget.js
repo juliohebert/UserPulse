@@ -4669,6 +4669,12 @@
     passos: [],
     navegacoes: [],
     meta: null,
+    // null (padrão) = gravador aberto pra um Tour novo (TourGravador.tsx) ou
+    // sem contexto especial. 'editar_tour_existente' = aberto via "Editar
+    // fluxo no sistema" de um Tour já existente (Form.tsx, up_rec_context na
+    // URL) — só ajusta textos/CTA do painel final (recorderRenderPainelFinal);
+    // nunca decide nada de captura, persistência ou dado em si.
+    contexto: null,
     ultimoEl: null,
     ultimoElTimestamp: 0,
     ultimaUrl: '',
@@ -5207,6 +5213,7 @@
         ativo: true,
         pausado: recorderState.pausado,
         meta: recorderState.meta,
+        contexto: recorderState.contexto,
         passos: recorderState.passos,
         navegacoes: recorderState.navegacoes,
         revisarCadaPasso: recorderState.revisarCadaPasso,
@@ -6845,6 +6852,10 @@
       ativo: recorderState.ativo,
       pausado: recorderState.pausado,
       totalPassos: recorderState.passos.length,
+      // null ou 'editar_tour_existente' — nunca id/token/dado do tour em si,
+      // só o rótulo que controla texto do painel final (ver
+      // recorderTextosPainelFinal).
+      contexto: recorderState.contexto,
     };
   }
 
@@ -7926,11 +7937,51 @@
   // segundo caminho de finalização, reaproveite esta função em vez de
   // duplicar o footer — um footer divergente sem Copiar/Baixar já causou
   // confusão no ambiente de testes (só "Fechar" aparecendo).
+  // Função pura (sem DOM, sem recorderState) — separada de
+  // recorderRenderPainelFinal só pra poder testar "contexto muda os textos
+  // certos" direto, sem precisar montar um DOM completo. paraTourExistente
+  // vem de recorderState.contexto === 'editar_tour_existente' (ver
+  // iniciarGravadorSeNecessario); totalPassos vem de recorderMontarJson().
+  function recorderTextosPainelFinal(paraTourExistente, totalPassos) {
+    return {
+      titulo: paraTourExistente
+        ? 'Passos prontos para atualizar o Tour — ' + totalPassos + ' passo(s)'
+        : 'Tour gravado — ' + totalPassos + ' passo(s)',
+      subtitulo: paraTourExistente
+        ? 'Este JSON serve para ATUALIZAR o Tour existente no UserPulse — ele não cria um Tour novo.'
+        : 'Revise os passos, copie ou baixe o JSON e importe pela tela de Tours Guiados (Importar JSON).',
+      instrucaoAtualizarHtml: paraTourExistente
+        ? '<p class="up-rec-modal-sub">Depois de copiar, volte para a aba do UserPulse, cole em "Colar passos gravados" e clique em "Atualizar Tour existente".</p>'
+        : '',
+      textoBotaoCopiar: paraTourExistente ? 'Copiar JSON para atualizar Tour existente' : 'Copiar JSON',
+      classeBotaoCopiar: paraTourExistente ? 'up-rec-btn up-rec-btn-primary' : 'up-rec-btn up-rec-btn-secondary',
+      // "Copiar e abrir importação" leva pra tela que CRIA um Tour novo — não
+      // faz sentido oferecer isso quando o objetivo é atualizar um já
+      // existente, então some do painel nesse contexto (em vez de só mudar o
+      // texto, pra não sugerir criar um Tour novo por engano).
+      mostrarBotaoImportar: !paraTourExistente,
+      classeBotaoFechar: paraTourExistente ? 'up-rec-btn up-rec-btn-secondary' : 'up-rec-btn up-rec-btn-primary',
+    };
+  }
+
   function recorderRenderPainelFinal() {
     var json = recorderMontarJson();
     var texto = JSON.stringify(json, null, 2);
     var copiarTimer = null;
     var importarTimer = null;
+
+    // Aberto via "Editar fluxo no sistema" de um Tour existente
+    // (recorderState.contexto, ver iniciarGravadorSeNecessario) — painel final
+    // orientado a ATUALIZAR aquele Tour, não a criar um novo. Só muda texto/
+    // CTA (recorderTextosPainelFinal); a lista de passos, o JSON gerado e o
+    // restante do fluxo (Copiar JSON, Baixar JSON, Fechar) continuam
+    // idênticos.
+    var paraTourExistente = recorderState.contexto === 'editar_tour_existente';
+    var textos = recorderTextosPainelFinal(paraTourExistente, json.tour.passos.length);
+    var textoBotaoCopiar = textos.textoBotaoCopiar;
+    var botaoImportarHtml = textos.mostrarBotaoImportar
+      ? '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-up-rec-importar>Copiar e abrir importação</button>'
+      : '';
 
     var avisoNavegacao = recorderState.navegacoes.length > 0
       ? '<p class="up-rec-modal-sub">' + recorderState.navegacoes.length + ' navegação(ões) de URL detectada(s) durante a gravação — não viraram passo (sem elemento associado); o tour usa a URL onde a gravação começou.</p>'
@@ -7941,15 +7992,16 @@
     root.className = 'up-rec-overlay';
     root.innerHTML = [
       '<div class="up-rec-modal">',
-      '<h3 class="up-rec-modal-title">Tour gravado — ' + json.tour.passos.length + ' passo(s)</h3>',
-      '<p class="up-rec-modal-sub">Revise os passos, copie ou baixe o JSON e importe pela tela de Tours Guiados (Importar JSON).</p>',
+      '<h3 class="up-rec-modal-title">' + textos.titulo + '</h3>',
+      '<p class="up-rec-modal-sub">' + textos.subtitulo + '</p>',
+      textos.instrucaoAtualizarHtml,
       avisoNavegacao,
       '<textarea class="up-rec-textarea" readonly data-up-rec-json>' + escapeHtml(texto) + '</textarea>',
       '<div class="up-rec-modal-actions">',
-      '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-up-rec-copiar>Copiar JSON</button>',
+      '<button type="button" class="' + textos.classeBotaoCopiar + '" data-up-rec-copiar>' + textoBotaoCopiar + '</button>',
       '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-up-rec-baixar>Baixar JSON</button>',
-      '<button type="button" class="up-rec-btn up-rec-btn-secondary" data-up-rec-importar>Copiar e abrir importação</button>',
-      '<button type="button" class="up-rec-btn up-rec-btn-primary" data-up-rec-fechar>Fechar</button>',
+      botaoImportarHtml,
+      '<button type="button" class="' + textos.classeBotaoFechar + '" data-up-rec-fechar>Fechar</button>',
       '</div>',
       '</div>',
     ].join('');
@@ -7969,7 +8021,7 @@
           botaoCopiar.textContent = 'Copiado!';
           copiarTimer = window.setTimeout(function () {
             copiarTimer = null;
-            botaoCopiar.textContent = 'Copiar JSON';
+            botaoCopiar.textContent = textoBotaoCopiar;
           }, RECORDER_COPIAR_FEEDBACK_MS);
         };
         try {
@@ -8129,6 +8181,7 @@
     recorderState.passos = Array.isArray(dados.passos) ? dados.passos : [];
     recorderState.navegacoes = Array.isArray(dados.navegacoes) ? dados.navegacoes : [];
     recorderState.meta = dados.meta || { titulo: '', descricao: '', sistema: '', prioridade: 0, url_contem: window.location.pathname };
+    recorderState.contexto = dados.contexto || null;
     recorderState.revisarCadaPasso = Boolean(dados.revisarCadaPasso);
     recorderState.revisarTempoReal = Boolean(dados.revisarTempoReal);
     recorderState.ultimoEl = null;
@@ -8260,6 +8313,12 @@
       prioridade: Number(params.get('up_rec_prioridade') || 0),
       url_contem: window.location.pathname,
     };
+    // up_rec_context é opcional, mesmo padrão de up_rec_passos acima — só
+    // presente quando "Editar fluxo no sistema" é aberto a partir de um Tour
+    // já existente (Form.tsx). Nunca contém id/token/dado sensível, só ajusta
+    // texto do painel final (ver recorderRenderPainelFinal) — nunca decide
+    // nada de captura ou persistência.
+    recorderState.contexto = params.get('up_rec_context') || null;
 
     recorderIniciarCaptura();
     recorderPersistir();
@@ -9161,8 +9220,8 @@
   //     em cópia): ele guarda título/seletor/descrição de cada passo já
   //     capturado no fluxo que o admin está gravando, e este é o widget
   //     PÚBLICO, rodando no browser do cliente — recorderGetTestSnapshot()
-  //     devolve só { ativo, pausado, totalPassos }, nunca a lista de passos
-  //     em si.
+  //     devolve só { ativo, pausado, totalPassos, contexto }, nunca a lista
+  //     de passos em si.
   //   - recorderSanitizarPassoInicial: função pura (só recebe um objeto solto
   //     e devolve outro sanitizado, nunca toca em recorderState) usada por
   //     recorderLerPassosIniciais pra validar cada passo de up_rec_passos —
@@ -9178,6 +9237,11 @@
   //     logo antes de iniciarPreviewSeNecessario — exposta só pra testar a
   //     precedência real entre os dois (gravador sempre vence quando os dois
   //     parâmetros aparecem juntos), na mesma ordem de chamada de init().
+  //   - recorderTextosPainelFinal: função pura (sem DOM, sem recorderState —
+  //     só título/subtítulo/CTA calculados a partir de paraTourExistente +
+  //     totalPassos) usada por recorderRenderPainelFinal — testa que
+  //     contexto='editar_tour_existente' troca os textos certos, e que sem
+  //     contexto o texto antigo (orientado a criar/importar) continua igual.
   window.UserPulse._internal = {
     avaliarSegmentacaoTour: avaliarSegmentacaoTour,
     tourState: tourState,
@@ -9191,6 +9255,7 @@
     recorderSanitizarPassoInicial: recorderSanitizarPassoInicial,
     iniciarPreviewSeNecessario: iniciarPreviewSeNecessario,
     iniciarGravadorSeNecessario: iniciarGravadorSeNecessario,
+    recorderTextosPainelFinal: recorderTextosPainelFinal,
   };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {

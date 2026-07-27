@@ -84,6 +84,13 @@ export interface GravadorParams {
   // passos já cadastrados do tour (ver recorderLerPassosIniciais em
   // widget.js). Omitido na criação (TourGravador), que sempre abre vazio.
   passos?: GravadorPassoPayload[]
+  // true só quando aberto via "Editar fluxo no sistema" de um Tour já
+  // existente (Form.tsx, sempre em modo edição) — nunca enviado por
+  // TourGravador.tsx (criação de Tour novo). Vira up_rec_context na URL;
+  // widget.js usa isso só pra ajustar texto/CTA do painel final
+  // (recorderRenderPainelFinal), nunca pra decidir captura/persistência.
+  // Deliberadamente não envia tour_id nem nenhum outro dado — só esse rótulo.
+  tourExistente?: boolean
 }
 
 export interface GravadorPassoPayload {
@@ -165,6 +172,7 @@ export function buildGravadorUrl(params: GravadorParams): GravadorUrlResultado {
   if (params.descricao.trim()) url.searchParams.set('up_rec_descricao', params.descricao.trim())
   if (params.sistema.trim()) url.searchParams.set('up_rec_sistema', params.sistema.trim())
   if (params.prioridade) url.searchParams.set('up_rec_prioridade', String(params.prioridade))
+  if (params.tourExistente) url.searchParams.set('up_rec_context', 'editar_tour_existente')
 
   let status: GravadorUrlResultado['status'] = 'sem_passos'
   if (params.passos && params.passos.length > 0) {

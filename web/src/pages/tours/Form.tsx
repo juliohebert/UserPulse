@@ -831,6 +831,13 @@ export function TourForm() {
         sistema: form.sistema,
         prioridade: Number(form.prioridade || 0),
         passos: passosParaGravadorPayload(),
+        // abrirGravador só existe dentro da seção "Editar fluxo no sistema",
+        // que só aparece quando isEdit — ou seja, sempre a partir de um Tour
+        // já existente. Não confundir com "tinha passos": um Tour existente
+        // recém-criado, ainda sem nenhum passo salvo, também é edição de Tour
+        // existente (o painel final do gravador deve orientar "atualizar",
+        // não "criar novo", mesmo nesse caso).
+        tourExistente: true,
       })
     } catch {
       setErroGravador('URL inicial inválida — use uma URL completa, ex: https://meusistema.com/app/agenda')
