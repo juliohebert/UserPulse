@@ -565,6 +565,12 @@ export function TourForm() {
   const [erroColar, setErroColar] = useState<string | null>(null)
   const [avisoColar, setAvisoColar] = useState<string | null>(null)
   const [substituidoOk, setSubstituidoOk] = useState(false)
+  // "Atualizar Tour existente" (atualizarTourComPassosColados) — estado
+  // separado de erroColar/substituidoOk (que são só do "Substituir passos"
+  // local) porque esta ação chama o backend de verdade.
+  const [atualizandoTour, setAtualizandoTour] = useState(false)
+  const [erroAtualizarTour, setErroAtualizarTour] = useState<string | null>(null)
+  const [tourAtualizadoOk, setTourAtualizadoOk] = useState(false)
   // null = ainda não tentou abrir o gravador nesta visita à página.
   const [statusGravador, setStatusGravador] = useState<GravadorUrlResultado['status'] | null>(null)
   // Guarda a URL calculada quando status é 'excedeu_limite' — não é aberta
@@ -893,6 +899,53 @@ export function TourForm() {
     window.setTimeout(() => setSubstituidoOk(false), 3000)
   }
 
+  // "Atualizar Tour existente" — MVP pra fechar o ciclo do gravador sem
+  // depender de "Substituir passos" (que só mexe no estado local) + "Salvar"
+  // (lá em cima) como dois passos manuais separados. Faz as duas coisas de
+  // uma vez a partir do MESMO JSON colado: valida (extrairPassosDoJson, igual
+  // a substituirPassosDoJson acima), pede confirmação simples (window.confirm
+  // — o usuário já viu o JSON no textarea antes disso, então a confirmação é
+  // só a última checagem, não a única exposição ao conteúdo) e envia direto
+  // pro PUT autenticado que o admin já usa (mesmo endpoint/token de sempre —
+  // nada de nova rota nem de o gravador falar com o backend). título,
+  // sistema, tela, prioridade, ativo e segmentação vêm do estado atual do
+  // formulário (montarPayloadTour) — só a lista de passos é trocada. Se o PUT
+  // falhar, não mexe em `passos` nem em `jsonColadoTexto`: nada capturado é
+  // perdido, o usuário pode tentar de novo.
+  //
+  // Deliberadamente NÃO usa postMessage/window.opener a partir do gravador:
+  // ver comentário em "Copiar e abrir importação" no widget.js — mensagens
+  // cross-origin vindas da página do sistema cliente exigiriam confiar que
+  // aquela página não está comprometida, e essa confiança não existe hoje em
+  // nenhum outro ponto do fluxo. O JSON sempre passa primeiro pela área de
+  // transferência e pelo textarea, sob o controle da própria aba do admin.
+  const atualizarTourComPassosColados = async () => {
+    setErroAtualizarTour(null)
+    setTourAtualizadoOk(false)
+    const resultado = extrairPassosDoJson(jsonColadoTexto)
+    if ('erro' in resultado) {
+      setErroAtualizarTour(resultado.erro)
+      return
+    }
+    const confirmado = window.confirm(
+      `Atualizar este tour com os ${resultado.passos.length} passo(s) colados? ` +
+      'Isso substitui a lista de passos atual. Título, sistema, prioridade e demais configurações continuam como estão.'
+    )
+    if (!confirmado) return
+    setAtualizandoTour(true)
+    try {
+      await put<TourGuiado>(`/tours/${id}`, montarPayloadTour(resultado.passos))
+      setPassos(resultado.passos)
+      setJsonColadoTexto('')
+      setTourAtualizadoOk(true)
+      window.setTimeout(() => setTourAtualizadoOk(false), 4000)
+    } catch (e) {
+      setErroAtualizarTour(e instanceof Error ? e.message : 'Não foi possível atualizar o tour. Tente novamente.')
+    } finally {
+      setAtualizandoTour(false)
+    }
+  }
+
   // Ações discretas por passo — só copiam para a área de transferência, não
   // validam nada. O elemento real só existe na aplicação integrada.
   const copiarSeletor = (index: number) => {
@@ -914,6 +967,34 @@ export function TourForm() {
       setCopiadoPasso(prev => (prev?.index === index && prev.tipo === 'comando' ? null : prev))
     }, 2000)
   }
+
+  // Mesmo payload usado pelo "Salvar" normal (handleSubmit) e pela ação
+  // rápida "Atualizar Tour existente" (atualizarTourComPassosColados, na
+  // seção "Editar fluxo no sistema") — só os passos mudam entre os dois;
+  // título, sistema, tela, prioridade, ativo e segmentação sempre vêm do
+  // estado atual do formulário (form/regrasSegmentacao), nunca do gravador.
+  const montarPayloadTour = (passosParaEnviar: PassoState[]) => ({
+    ...form,
+    descricao: form.descricao || null,
+    tela: form.modo_identificacao === 'sistema_tela' ? form.tela : '',
+    data_cy: form.modo_identificacao === 'data_cy' ? form.data_cy : null,
+    url_contem: form.modo_identificacao === 'url_contem' ? form.url_contem : null,
+    prioridade: Number(form.prioridade || 0),
+    segmentacao_regras: segmentado
+      ? regrasSegmentacao.map(r => ({ campo: r.campo, operador: r.operador, valor: r.valor.trim() }))
+      : null,
+    passos: passosParaEnviar.map(p => ({
+      titulo: p.titulo.trim(),
+      descricao: p.descricao.trim() || null,
+      seletor_tipo: p.seletor_tipo,
+      seletor: p.seletor.trim(),
+      tooltip_posicao: p.tooltip_posicao,
+      acao_ao_avancar: p.acao_ao_avancar,
+      modo_avanco_interacao: p.modo_avanco_interacao,
+      seletor_confirmacao: p.seletor_confirmacao.trim() || null,
+      secao: p.secao.trim() || null,
+    })),
+  })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -939,28 +1020,7 @@ export function TourForm() {
     setError(null)
     setSuccess(false)
     try {
-      const payload = {
-        ...form,
-        descricao: form.descricao || null,
-        tela: form.modo_identificacao === 'sistema_tela' ? form.tela : '',
-        data_cy: form.modo_identificacao === 'data_cy' ? form.data_cy : null,
-        url_contem: form.modo_identificacao === 'url_contem' ? form.url_contem : null,
-        prioridade: Number(form.prioridade || 0),
-        segmentacao_regras: segmentado
-          ? regrasSegmentacao.map(r => ({ campo: r.campo, operador: r.operador, valor: r.valor.trim() }))
-          : null,
-        passos: passos.map(p => ({
-          titulo: p.titulo.trim(),
-          descricao: p.descricao.trim() || null,
-          seletor_tipo: p.seletor_tipo,
-          seletor: p.seletor.trim(),
-          tooltip_posicao: p.tooltip_posicao,
-          acao_ao_avancar: p.acao_ao_avancar,
-          modo_avanco_interacao: p.modo_avanco_interacao,
-          seletor_confirmacao: p.seletor_confirmacao.trim() || null,
-          secao: p.secao.trim() || null,
-        })),
-      }
+      const payload = montarPayloadTour(passos)
       const saved = isEdit
         ? await put<TourGuiado>(`/tours/${id}`, payload)
         : await post<TourGuiado>('/tours', payload)
@@ -1429,7 +1489,29 @@ export function TourForm() {
                       {erroColar}
                     </div>
                   )}
-                  <div className="flex justify-end mt-2">
+                  {erroAtualizarTour && (
+                    <div className="mt-2 p-3 bg-error-container text-on-error-container rounded-xl text-body-sm flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[16px]">error</span>
+                      {erroAtualizarTour}
+                    </div>
+                  )}
+                  {tourAtualizadoOk && (
+                    <div className="mt-2 p-3 bg-tertiary/10 rounded-xl text-body-sm text-tertiary flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                      Tour atualizado com sucesso.
+                    </div>
+                  )}
+                  <div className="flex flex-wrap justify-end gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={atualizarTourComPassosColados}
+                      disabled={!jsonColadoTexto.trim() || atualizandoTour}
+                      title="Salva os passos colados direto neste tour, sem precisar clicar em Salvar lá em cima. Título, sistema, prioridade e demais configurações não mudam."
+                      className="flex items-center gap-1.5 px-4 py-2 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-all disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">cloud_upload</span>
+                      {atualizandoTour ? 'Atualizando…' : 'Atualizar Tour existente'}
+                    </button>
                     <button
                       type="button"
                       onClick={substituirPassosDoJson}
