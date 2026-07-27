@@ -25,6 +25,17 @@ interface Snapshot {
   ativo: boolean
   pausado: boolean
   totalPassos: number
+  contexto: string | null
+}
+
+interface TextosPainelFinal {
+  titulo: string
+  subtitulo: string
+  instrucaoAtualizarHtml: string
+  textoBotaoCopiar: string
+  classeBotaoCopiar: string
+  mostrarBotaoImportar: boolean
+  classeBotaoFechar: string
 }
 
 interface PassoInicialSanitizado {
@@ -55,6 +66,7 @@ interface Internos {
   iniciarPreviewSeNecessario: () => void
   iniciarGravadorSeNecessario: () => void
   tourState: TourPreviewState
+  recorderTextosPainelFinal: (paraTourExistente: boolean, totalPassos: number) => TextosPainelFinal
 }
 
 function makeStyleStub() {
@@ -409,5 +421,57 @@ describe('iniciarPreviewSeNecessario — preview de passos colados, sem gravador
     const snapshot = internos.recorderGetTestSnapshot()
     assert.equal(snapshot.ativo, false, 'recorderState.ativo precisa continuar false — preview nunca é gravador')
     assert.equal(snapshot.totalPassos, 0, 'nenhum passo deveria ter ido pro recorderState')
+  })
+})
+
+// up_rec_context / recorderState.contexto — "Editar fluxo no sistema" de um
+// Tour existente (Form.tsx) manda up_rec_context=editar_tour_existente na
+// URL do gravador; iniciarGravadorSeNecessario lê isso pro estado, e
+// recorderRenderPainelFinal usa recorderTextosPainelFinal pra trocar
+// título/subtítulo/CTA do painel final. Gravador de criação (TourGravador.tsx)
+// nunca envia esse parâmetro — precisa manter o texto de sempre.
+describe('up_rec_context — painel final orientado a atualizar Tour existente', () => {
+  test('up_rec_context=editar_tour_existente é lido pra recorderState.contexto', () => {
+    const search = '?userpulse_recorder=1&up_rec_context=editar_tour_existente'
+    const internos = criarInstancia(search)
+
+    internos.iniciarGravadorSeNecessario()
+
+    assert.equal(internos.recorderGetTestSnapshot().contexto, 'editar_tour_existente')
+  })
+
+  test('sem up_rec_context (gravador de criação, ex.: TourGravador.tsx) — contexto continua null', () => {
+    const internos = criarInstancia('?userpulse_recorder=1')
+
+    internos.iniciarGravadorSeNecessario()
+
+    assert.equal(internos.recorderGetTestSnapshot().contexto, null)
+  })
+
+  test('recorderTextosPainelFinal(true, N) — textos orientados a ATUALIZAR o Tour existente', () => {
+    const textos = criarInstancia().recorderTextosPainelFinal(true, 3)
+
+    assert.match(textos.titulo, /atualizar/i)
+    assert.match(textos.subtitulo, /ATUALIZAR/, 'precisa deixar claro que não cria um Tour novo')
+    assert.match(textos.subtitulo, /não cria um Tour novo/i)
+    assert.notEqual(textos.instrucaoAtualizarHtml, '', 'precisa ter a instrução de colar em "Colar passos gravados" e clicar em "Atualizar Tour existente"')
+    assert.match(textos.instrucaoAtualizarHtml, /Colar passos gravados/)
+    assert.match(textos.instrucaoAtualizarHtml, /Atualizar Tour existente/)
+    assert.equal(textos.textoBotaoCopiar, 'Copiar JSON para atualizar Tour existente')
+    assert.match(textos.classeBotaoCopiar, /up-rec-btn-primary/, 'botão de copiar vira o CTA principal nesse contexto')
+    assert.equal(textos.mostrarBotaoImportar, false, '"Copiar e abrir importação" (cria Tour novo) não deveria aparecer')
+    assert.match(textos.classeBotaoFechar, /up-rec-btn-secondary/)
+  })
+
+  test('recorderTextosPainelFinal(false, N) — mantém o texto antigo (gravador de criação/sem contexto)', () => {
+    const textos = criarInstancia().recorderTextosPainelFinal(false, 3)
+
+    assert.equal(textos.titulo, 'Tour gravado — 3 passo(s)')
+    assert.match(textos.subtitulo, /Importar JSON/)
+    assert.equal(textos.instrucaoAtualizarHtml, '')
+    assert.equal(textos.textoBotaoCopiar, 'Copiar JSON')
+    assert.match(textos.classeBotaoCopiar, /up-rec-btn-secondary/)
+    assert.equal(textos.mostrarBotaoImportar, true, 'gravador de criação continua oferecendo "Copiar e abrir importação"')
+    assert.match(textos.classeBotaoFechar, /up-rec-btn-primary/, 'Fechar continua sendo o CTA principal quando não há contexto de atualização')
   })
 })
