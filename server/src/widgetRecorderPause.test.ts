@@ -39,6 +39,12 @@ interface PassoInicialSanitizado {
   secao: string
 }
 
+interface TourPreviewState {
+  ativo: boolean
+  preview: boolean
+  tour: { titulo: string; passos: Array<{ seletor_tipo: string; titulo: string }> } | null
+}
+
 interface Internos {
   recorderCapturarClique: (event: { target: unknown }) => void
   recorderCapturarValor: (event: { target: unknown; type: 'input' | 'change' }) => void
@@ -46,6 +52,9 @@ interface Internos {
   recorderPrepararTesteCaptura: () => void
   recorderGetTestSnapshot: () => Snapshot
   recorderSanitizarPassoInicial: (p: unknown) => PassoInicialSanitizado | null
+  iniciarPreviewSeNecessario: () => void
+  iniciarGravadorSeNecessario: () => void
+  tourState: TourPreviewState
 }
 
 function makeStyleStub() {
@@ -102,7 +111,16 @@ function makeFakeElement(ElementCtor: new () => object, tag: string, attrs: Reco
 
 class ElementStub {}
 
-function criarInstancia() {
+// Codifica passos exatamente como buildPreviewUrl/buildGravadorUrl fazem no
+// admin (web/src/utils/tour.ts) — base64url de JSON.stringify(passos), sem
+// a compactação de campos default (não é preciso replicar aqui: o widget só
+// decodifica, quem gera a URL de verdade decide o que compactar).
+function encodeBase64UrlPassos(passos: unknown[]): string {
+  const base64 = Buffer.from(JSON.stringify(passos), 'utf8').toString('base64')
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function criarInstancia(search = '') {
   const sessionStorageMap = new Map<string, string>()
   const sessionStorageStub = {
     getItem: (k: string) => (sessionStorageMap.has(k) ? sessionStorageMap.get(k)! : null),
@@ -136,9 +154,14 @@ function criarInstancia() {
     document: documentStub,
     Element: ElementStub,
     MutationObserver: MutationObserverStub,
+    // recorderDecodificarBase64Url (up_rec_passos/up_preview_passos) usa
+    // TextDecoder global — API WHATWG, não builtin de ECMAScript, então não
+    // existe sozinha dentro de um contexto vm novo (ao contrário de
+    // Uint8Array/JSON, que são core JS e já funcionam sem isso).
+    TextDecoder,
   }
   sandbox.window = {
-    location: { href: 'http://host/pagina', pathname: '/pagina', search: '', hash: '', origin: 'http://host' },
+    location: { href: 'http://host/pagina' + search, pathname: '/pagina', search: search, hash: '', origin: 'http://host' },
     history: { pushState() {}, replaceState() {}, back() {} },
     localStorage: localStorageStub,
     sessionStorage: sessionStorageStub,
@@ -147,6 +170,13 @@ function criarInstancia() {
     removeEventListener() {},
     setTimeout,
     clearTimeout,
+    // Stub, não o setInterval real do Node — recorderIniciarPollUrl (poll de
+    // navegação do gravador) só precisa de uma função que não quebre; um
+    // interval de verdade nunca seria limpo neste harness (nenhum teste roda
+    // o event loop até ele disparar) e travaria o processo do test runner
+    // esperando o loop esvaziar.
+    setInterval: () => 0,
+    clearInterval: () => {},
     requestAnimationFrame: (cb: () => void) => setTimeout(cb, 16),
     getComputedStyle: () => ({ display: 'block', visibility: 'visible' }),
     MutationObserver: MutationObserverStub,
@@ -154,6 +184,12 @@ function criarInstancia() {
     Element: ElementStub,
     URL,
     URLSearchParams,
+    // recorderDecodificarBase64Url (up_rec_passos/up_preview_passos) precisa
+    // de atob de verdade — sem isso falha em silêncio (capturado pelo
+    // try/catch de recorderLerPassosIniciais) e os testes de preview
+    // pareciam "sem passos válidos" mesmo com um payload correto.
+    atob,
+    btoa,
   }
   vm.createContext(sandbox)
   const codigo = fs.readFileSync(
@@ -296,5 +332,82 @@ describe('recorderSanitizarPassoInicial — preserva seletor_tipo válido, cai n
     const internos = criarInstancia()
     assert.equal(internos.recorderSanitizarPassoInicial({ ...passoBruto('area'), titulo: '' }), null)
     assert.equal(internos.recorderSanitizarPassoInicial(null), null)
+  })
+})
+
+// iniciarPreviewSeNecessario — "Testar estes passos" (Form.tsx): roda os
+// passos colados como um Tour temporário 100% em memória, sem tocar
+// recorderState (sem gravador, sem barra, sem captura, sem persistência) e
+// sem gerar evento (tourState.preview=true já suprime registrarEventoTour/
+// tourMarkShown — ver definições em widget.js). Mesmo harness/vm de cima,
+// só variando window.location.search por instância.
+describe('iniciarPreviewSeNecessario — preview de passos colados, sem gravador/sem tracking', () => {
+  test('userpulse_preview=1 com up_preview_passos válidos inicia o Tour em modo preview', () => {
+    const passos = [
+      { titulo: 'Abrir filtros', seletor_tipo: 'area', seletor: '.filtros-agenda' },
+    ]
+    const search = '?userpulse_preview=1&up_preview_titulo=Teste%20de%20passos&up_preview_passos=' + encodeBase64UrlPassos(passos)
+    const internos = criarInstancia(search)
+
+    internos.iniciarPreviewSeNecessario()
+
+    assert.equal(internos.tourState.ativo, true, 'deveria ter iniciado um tour')
+    assert.equal(internos.tourState.preview, true, 'precisa estar marcado como preview (suprime tracking)')
+    assert.equal(internos.tourState.tour?.titulo, 'Teste de passos')
+    assert.equal(internos.tourState.tour?.passos.length, 1)
+  })
+
+  test('preview usa os passos já sanitizados (reaproveita recorderSanitizarPassoInicial)', () => {
+    const passos = [
+      { titulo: 'Passo com tipo válido', seletor_tipo: 'area', seletor: '.grupo' },
+      { titulo: 'Passo com tipo inválido', seletor_tipo: 'tipo_que_nao_existe', seletor: '#x' },
+    ]
+    const internos = criarInstancia('?userpulse_preview=1&up_preview_passos=' + encodeBase64UrlPassos(passos))
+
+    internos.iniciarPreviewSeNecessario()
+
+    const passosNoTour = internos.tourState.tour?.passos ?? []
+    assert.equal(passosNoTour.length, 2)
+    assert.equal(passosNoTour[0].seletor_tipo, 'area', "'area' precisa sobreviver à sanitização, igual ao gravador")
+    assert.equal(passosNoTour[1].seletor_tipo, 'data_cy', 'tipo inválido cai no mesmo fallback de sempre')
+  })
+
+  test('não inicia preview sem passos válidos (up_preview_passos ausente, vazio ou só com passos sem título)', () => {
+    const semParametro = criarInstancia('?userpulse_preview=1')
+    semParametro.iniciarPreviewSeNecessario()
+    assert.equal(semParametro.tourState.ativo, false, 'sem up_preview_passos não deveria iniciar nada')
+
+    const listaVazia = criarInstancia('?userpulse_preview=1&up_preview_passos=' + encodeBase64UrlPassos([]))
+    listaVazia.iniciarPreviewSeNecessario()
+    assert.equal(listaVazia.tourState.ativo, false, 'lista vazia não deveria iniciar nada')
+
+    const soInvalidos = criarInstancia('?userpulse_preview=1&up_preview_passos=' + encodeBase64UrlPassos([{ seletor_tipo: 'css' }]))
+    soInvalidos.iniciarPreviewSeNecessario()
+    assert.equal(soInvalidos.tourState.ativo, false, 'passo sem título é descartado pelo sanitizador — nenhum passo válido sobra')
+  })
+
+  test('userpulse_recorder=1 junto com userpulse_preview=1 — gravador vence, preview não inicia', () => {
+    const passos = [{ titulo: 'Passo', seletor_tipo: 'css', seletor: '#x' }]
+    const search = '?userpulse_recorder=1&userpulse_preview=1&up_preview_passos=' + encodeBase64UrlPassos(passos)
+    const internos = criarInstancia(search)
+
+    // Mesma ordem de chamada de init() no widget real: gravador primeiro.
+    internos.iniciarGravadorSeNecessario()
+    internos.iniciarPreviewSeNecessario()
+
+    assert.equal(internos.recorderGetTestSnapshot().ativo, true, 'gravador deveria ter ativado normalmente')
+    assert.equal(internos.tourState.ativo, false, 'preview não deveria iniciar com o gravador já ativo')
+  })
+
+  test('preview nunca ativa recorderState (sem gravador, sem barra, sem captura)', () => {
+    const passos = [{ titulo: 'Passo', seletor_tipo: 'css', seletor: '#x' }]
+    const internos = criarInstancia('?userpulse_preview=1&up_preview_passos=' + encodeBase64UrlPassos(passos))
+
+    internos.iniciarPreviewSeNecessario()
+
+    assert.equal(internos.tourState.ativo, true, 'pré-condição: preview iniciou')
+    const snapshot = internos.recorderGetTestSnapshot()
+    assert.equal(snapshot.ativo, false, 'recorderState.ativo precisa continuar false — preview nunca é gravador')
+    assert.equal(snapshot.totalPassos, 0, 'nenhum passo deveria ter ido pro recorderState')
   })
 })
