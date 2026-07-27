@@ -100,11 +100,18 @@ export interface GravadorPassoPayload {
 
 export interface GravadorUrlResultado {
   url: string
-  // false quando não havia passos pra enviar OU quando o payload codificado
-  // excedeu UP_REC_PASSOS_MAX_LEN (ver aviso em console.warn) — nesse caso o
-  // gravador abre vazio e o fallback "Colar passos gravados" continua sendo
-  // o caminho pra trazer os passos de volta.
-  passosIncluidos: boolean
+  // 'sem_passos': não havia passos pra enviar (tour novo, ou nenhum passo com
+  //   título ainda) — comportamento normal, o gravador abre vazio de
+  //   propósito, sem exigir nenhum aviso.
+  // 'incluido': os passos existentes couberam em UP_REC_PASSOS_MAX_LEN e
+  //   foram embutidos em up_rec_passos — o gravador abre pré-carregado.
+  // 'excedeu_limite': havia passos, mas o payload codificado passou de
+  //   UP_REC_PASSOS_MAX_LEN (ver aviso em console.warn) — up_rec_passos foi
+  //   omitido pra não arriscar uma URL rejeitada pelo host, e `url` abriria o
+  //   gravador vazio mesmo o tour tendo passos salvos. Quem chama NÃO deve
+  //   abrir `url` automaticamente nesse caso — precisa avisar antes (ver
+  //   Form.tsx, seção "Editar fluxo no sistema").
+  status: 'sem_passos' | 'incluido' | 'excedeu_limite'
 }
 
 // Limite conservador pro parâmetro up_rec_passos codificado: URLs muito
@@ -158,22 +165,24 @@ export function buildGravadorUrl(params: GravadorParams): GravadorUrlResultado {
   if (params.sistema.trim()) url.searchParams.set('up_rec_sistema', params.sistema.trim())
   if (params.prioridade) url.searchParams.set('up_rec_prioridade', String(params.prioridade))
 
-  let passosIncluidos = false
+  let status: GravadorUrlResultado['status'] = 'sem_passos'
   if (params.passos && params.passos.length > 0) {
     const encoded = encodePassosBase64Url(params.passos)
     if (encoded.length <= UP_REC_PASSOS_MAX_LEN) {
       url.searchParams.set('up_rec_passos', encoded)
-      passosIncluidos = true
+      status = 'incluido'
     } else {
+      status = 'excedeu_limite'
       console.warn(
         `[UserPulse] Passos atuais do tour (${encoded.length} caracteres codificados) excedem o limite de ` +
-        `${UP_REC_PASSOS_MAX_LEN} para enviar ao gravador pela URL — abrindo gravador vazio. ` +
-        'Use "Colar passos gravados" ao finalizar a gravação para trazê-los de volta.'
+        `${UP_REC_PASSOS_MAX_LEN} para enviar ao gravador pela URL — abrindo o gravador assim ` +
+        'começaria vazio. Edite os passos existentes diretamente na lista abaixo, ou copie-os como JSON ' +
+        'antes de gravar um fluxo novo.'
       )
     }
   }
 
-  return { url: url.toString(), passosIncluidos }
+  return { url: url.toString(), status }
 }
 
 // Baixa um objeto como arquivo .json — mesmo padrão de download client-side

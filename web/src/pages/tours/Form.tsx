@@ -6,7 +6,7 @@ import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
-import { buildGravadorUrl, comandoTestarSeletor } from '../../utils/tour'
+import { buildGravadorUrl, comandoTestarSeletor, type GravadorUrlResultado } from '../../utils/tour'
 
 interface PassoState {
   id?: string
@@ -566,7 +566,13 @@ export function TourForm() {
   const [avisoColar, setAvisoColar] = useState<string | null>(null)
   const [substituidoOk, setSubstituidoOk] = useState(false)
   // null = ainda não tentou abrir o gravador nesta visita à página.
-  const [passosIncluidosGravador, setPassosIncluidosGravador] = useState<boolean | null>(null)
+  const [statusGravador, setStatusGravador] = useState<GravadorUrlResultado['status'] | null>(null)
+  // Guarda a URL calculada quando status é 'excedeu_limite' — não é aberta
+  // automaticamente (abriria o gravador vazio sem aviso), mas fica pronta
+  // pro botão "Abrir mesmo assim" caso o usuário prefira gravar um fluxo novo
+  // em vez de editar os passos existentes diretamente na lista abaixo.
+  const [urlGravadorPendente, setUrlGravadorPendente] = useState<string | null>(null)
+  const [copiadoPassosGravador, setCopiadoPassosGravador] = useState(false)
 
   // Feedback de "salvo com sucesso" sobrevive ao redirecionamento pós-criação
   // (de /tours/novo para /tours/:id/editar) via router state, em vez de um
@@ -766,23 +772,47 @@ export function TourForm() {
     })
   }
 
+  // Mesmo formato usado tanto pra montar up_rec_passos (buildGravadorUrl)
+  // quanto pro botão "Copiar passos atuais (JSON)" abaixo — um só lugar pra
+  // não desalinhar os dois.
+  const passosParaGravadorPayload = () =>
+    passos
+      .filter(p => p.titulo.trim())
+      .map(p => ({
+        titulo: p.titulo,
+        descricao: p.descricao || null,
+        seletor_tipo: p.seletor_tipo,
+        seletor: p.seletor,
+        tooltip_posicao: p.tooltip_posicao,
+        acao_ao_avancar: p.acao_ao_avancar,
+        modo_avanco_interacao: p.modo_avanco_interacao,
+        seletor_confirmacao: p.seletor_confirmacao || null,
+        secao: p.secao || null,
+      }))
+
   // Abre o gravador de fluxo (mesma URL/mecanismo de TourGravador.tsx) numa
   // nova aba, levando titulo/descricao/sistema/prioridade + os passos atuais
   // do tour (up_rec_passos) — o gravador (widget.js/recorderLerPassosIniciais)
-  // pré-carrega a lista lateral com eles em vez de iniciar vazio. Se o
-  // payload for grande demais, buildGravadorUrl avisa via console.warn e abre
-  // vazio mesmo assim; refletimos isso na UI (passosIncluidosGravador) e o
-  // fallback "Colar passos gravados" abaixo continua disponível de qualquer
-  // forma.
+  // pré-carrega a lista lateral com eles em vez de iniciar vazio.
+  //
+  // Quando o payload dos passos existentes é grande demais pra caber na URL
+  // (status 'excedeu_limite'), NÃO abrimos a aba automaticamente — abriria o
+  // gravador vazio sem nenhum aviso, dando a impressão de que os passos
+  // salvos sumiram. Em vez disso guardamos a URL em urlGravadorPendente e
+  // mostramos um aviso explicando a situação, com duas saídas: editar os
+  // passos existentes direto na lista "Passos do tour" abaixo (não precisa do
+  // gravador pra isso), ou abrir o gravador vazio mesmo assim pra gravar um
+  // fluxo novo (botão "Abrir mesmo assim" no aviso).
   const abrirGravador = () => {
     setErroGravador(null)
     setUrlGravadorGerada(null)
-    setPassosIncluidosGravador(null)
+    setUrlGravadorPendente(null)
+    setStatusGravador(null)
     if (!urlInicialGravador.trim()) {
       setErroGravador('Informe a URL inicial — a página real do sistema onde o fluxo deste tour começa.')
       return
     }
-    let resultado: ReturnType<typeof buildGravadorUrl>
+    let resultado: GravadorUrlResultado
     try {
       resultado = buildGravadorUrl({
         urlInicial: urlInicialGravador.trim(),
@@ -790,27 +820,38 @@ export function TourForm() {
         descricao: form.descricao,
         sistema: form.sistema,
         prioridade: Number(form.prioridade || 0),
-        passos: passos
-          .filter(p => p.titulo.trim())
-          .map(p => ({
-            titulo: p.titulo,
-            descricao: p.descricao || null,
-            seletor_tipo: p.seletor_tipo,
-            seletor: p.seletor,
-            tooltip_posicao: p.tooltip_posicao,
-            acao_ao_avancar: p.acao_ao_avancar,
-            modo_avanco_interacao: p.modo_avanco_interacao,
-            seletor_confirmacao: p.seletor_confirmacao || null,
-            secao: p.secao || null,
-          })),
+        passos: passosParaGravadorPayload(),
       })
     } catch {
       setErroGravador('URL inicial inválida — use uma URL completa, ex: https://meusistema.com/app/agenda')
       return
     }
+    setStatusGravador(resultado.status)
+    if (resultado.status === 'excedeu_limite') {
+      setUrlGravadorPendente(resultado.url)
+      return
+    }
     setUrlGravadorGerada(resultado.url)
-    setPassosIncluidosGravador(resultado.passosIncluidos)
     window.open(resultado.url, '_blank', 'noopener')
+  }
+
+  // Só usado a partir do aviso de "excedeu o limite" — o usuário decidiu
+  // conscientemente abrir mesmo sabendo que o gravador começa vazio.
+  const abrirGravadorMesmoAssim = () => {
+    if (!urlGravadorPendente) return
+    setUrlGravadorGerada(urlGravadorPendente)
+    window.open(urlGravadorPendente, '_blank', 'noopener')
+  }
+
+  // Alternativa segura ao gravador quando os passos não couberam na URL: os
+  // passos atuais nunca são alterados por essa ação, só copiados — mesmo
+  // envelope "userpulse.tour.v1" aceito por "Colar passos gravados" abaixo,
+  // pra poder reimportar (aqui ou em outro tour) sem reescrever nada à mão.
+  const copiarPassosAtuaisGravador = () => {
+    const payload = { formato: 'userpulse.tour.v1', tour: { passos: passosParaGravadorPayload() } }
+    navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).catch(() => {})
+    setCopiadoPassosGravador(true)
+    window.setTimeout(() => setCopiadoPassosGravador(false), 2000)
   }
 
   // "Colar da área de transferência": só lê o clipboard e preenche o
@@ -1279,23 +1320,54 @@ export function TourForm() {
 
                 <div className="flex items-start gap-2 p-3 bg-surface-container-low rounded-xl text-[11px] text-on-surface-variant">
                   <span className="material-symbols-outlined text-[15px] shrink-0 mt-0.5">info</span>
-                  {passosIncluidosGravador === false ? (
-                    <span>
-                      Os {passos.length} passo{passos.length === 1 ? '' : 's'} atuais são grandes demais para enviar
-                      pela URL — o gravador abriu vazio desta vez (detalhes no console do navegador). Grave o fluxo,
-                      clique em "Copiar JSON" ao finalizar e cole abaixo em "Colar passos gravados".
-                    </span>
-                  ) : (
-                    <span>
-                      Ao clicar em "Editar fluxo no sistema", os {passos.length} passo{passos.length === 1 ? '' : 's'}{' '}
-                      já cadastrado{passos.length === 1 ? '' : 's'} deste tour são enviados junto — o gravador abre já
-                      com eles na lista lateral, prontos para editar, remover ou completar com novos passos. Ao
-                      finalizar, clique em "Copiar JSON" na aba do gravador e cole abaixo em "Colar passos gravados"
-                      para trazer o resultado de volta. Os passos atuais deste formulário só mudam quando você colar e
-                      clicar em "Substituir passos".
-                    </span>
-                  )}
+                  <span>
+                    Ao clicar em "Editar fluxo no sistema", os {passos.length} passo{passos.length === 1 ? '' : 's'}{' '}
+                    já cadastrado{passos.length === 1 ? '' : 's'} deste tour são enviados junto — o gravador abre já
+                    com eles na lista lateral, prontos para editar, remover ou completar com novos passos. Ao
+                    finalizar, clique em "Copiar JSON" na aba do gravador e cole abaixo em "Colar passos gravados"
+                    para trazer o resultado de volta. Os passos atuais deste formulário só mudam quando você colar e
+                    clicar em "Substituir passos".
+                  </span>
                 </div>
+
+                {statusGravador === 'excedeu_limite' && (
+                  <div className="p-3 bg-[#fff8e1] border border-[#ffe082] rounded-xl text-body-sm text-[#e65100] flex items-start gap-2">
+                    <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">warning</span>
+                    <div className="space-y-2">
+                      <p>
+                        Este tour tem {passos.length} passo{passos.length === 1 ? '' : 's'} salvo{passos.length === 1 ? '' : 's'}, mas
+                        eles excederam o limite seguro de tamanho da URL do gravador. Abrir o gravador agora faria ele
+                        começar <strong>vazio</strong> — os passos salvos não seriam perdidos (continuam intactos
+                        abaixo, em "Passos do tour"), só não apareceriam pré-carregados na lista lateral do gravador.
+                      </p>
+                      <p>
+                        Você pode editar os passos existentes diretamente na lista "Passos do tour" logo abaixo (não
+                        precisa do gravador pra isso), copiá-los agora como JSON antes de gravar um fluxo novo, ou
+                        abrir o gravador mesmo assim sabendo que ele vai começar vazio.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={copiarPassosAtuaisGravador}
+                          className="flex items-center gap-1 px-3 py-1.5 bg-surface-bright border border-[#ffe082] rounded-lg text-label-sm font-bold text-[#e65100] hover:bg-[#fff3d6] transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">
+                            {copiadoPassosGravador ? 'check' : 'content_copy'}
+                          </span>
+                          {copiadoPassosGravador ? 'Copiado!' : 'Copiar passos atuais (JSON)'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={abrirGravadorMesmoAssim}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-label-sm font-bold text-[#e65100] hover:bg-[#fff3d6] transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[15px]">videocam</span>
+                          Abrir gravador mesmo assim (vazio)
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {erroGravador && (
                   <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md flex items-center gap-2">
