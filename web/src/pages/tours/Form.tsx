@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
 import type { TourGuiado, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour } from '../../types'
-import { LoadingSpinner } from '../../components/ui/EmptyState'
+import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
@@ -543,6 +543,14 @@ export function TourForm() {
   // segmentado abaixo, mesmo padrão de isSegmented em campanhas/Form.tsx).
   const [regrasSegmentacao, setRegrasSegmentacao] = useState<RegraSegmentacaoTour[]>([])
   const [loadingTour, setLoadingTour] = useState(isEdit)
+  // Separado de `error` (usado só para validação/erro de salvar) de
+  // propósito — sem essa separação, uma falha no GET /tours/:id ainda
+  // renderizava o formulário normalmente, caindo no PASSO_VAZIO default (só
+  // 1 passo em branco) e parecendo "os passos não carregaram" mesmo que o
+  // tour real tivesse vários — e "Salvar" nesse estado substituiria os
+  // passos existentes pelo que estivesse preenchido ali. Ver render mais
+  // abaixo: com loadError, o formulário nem chega a aparecer.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -572,10 +580,21 @@ export function TourForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit, location.state])
 
-  useEffect(() => {
-    if (!id) return
-    get<TourGuiado>(`/tours/${id}`)
+  // Extraída (não só um corpo de useEffect) pra poder ser chamada de novo
+  // pelo botão "Tentar novamente" do ErrorState, sem duplicar a lógica.
+  const carregarTour = useCallback((tourId: string, sinal: { cancelado: boolean }) => {
+    setLoadingTour(true)
+    setLoadError(null)
+    get<TourGuiado>(`/tours/${tourId}`)
       .then(t => {
+        // Guarda contra resposta desatualizada: se o id mudou (ex.: usuário
+        // navegou de uma edição pra outra sem a página recarregar — mesmo
+        // componente reaproveitado pelo React Router) ou o componente já
+        // desmontou antes desta resposta chegar, uma requisição antiga nunca
+        // deve sobrescrever o formulário com dados de outro tour, nem apagar
+        // visualmente os passos já preenchidos por uma resposta mais nova
+        // que chegou primeiro.
+        if (sinal.cancelado) return
         setForm({
           titulo: t.titulo,
           descricao: t.descricao ?? '',
@@ -587,6 +606,10 @@ export function TourForm() {
           prioridade: String(t.prioridade ?? 0),
           ativo: t.ativo,
         })
+        // Preserva a ordem já retornada pela API (buscarPorId ordena por
+        // `ordem` — ver include em tours.ts) e o id de cada passo existente
+        // (usado só pra exibir/copiar; o PUT sempre substitui a lista
+        // inteira, não casa por id — ver handleSubmit).
         setPassos(
           (t.passos ?? []).length > 0
             ? t.passos!.map(p => ({
@@ -605,9 +628,24 @@ export function TourForm() {
         )
         setRegrasSegmentacao(t.segmentacao_regras ?? [])
       })
-      .catch(() => setError('Tour guiado não encontrado.'))
-      .finally(() => setLoadingTour(false))
-  }, [id])
+      .catch(e => {
+        if (sinal.cancelado) return
+        // Mensagem real do erro (ver services/api.ts) em vez de um texto fixo
+        // de "não encontrado" — um erro de rede/servidor não é a mesma coisa
+        // que o tour genuinamente não existir.
+        setLoadError(e instanceof Error ? e.message : 'Não foi possível carregar o tour guiado.')
+      })
+      .finally(() => {
+        if (!sinal.cancelado) setLoadingTour(false)
+      })
+  }, [])
+
+  useEffect(() => {
+    if (!id) return
+    const sinal = { cancelado: false }
+    carregarTour(id, sinal)
+    return () => { sinal.cancelado = true }
+  }, [id, carregarTour])
 
   const set = (key: keyof FormState, value: string | boolean) =>
     setForm(prev => ({ ...prev, [key]: value }))
@@ -877,6 +915,19 @@ export function TourForm() {
   }
 
   if (loadingTour) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+
+  // Nunca renderiza o formulário (nem o fallback de "nenhum passo
+  // preenchido ainda") se o GET por id falhou — sem essa checagem, um erro
+  // de carregamento e um tour genuinamente sem passos pareciam a MESMA
+  // tela, e "Salvar" nesse estado substituiria os passos reais (ainda
+  // salvos no banco, só não exibidos) pelo que estivesse preenchido ali.
+  if (isEdit && loadError) {
+    return (
+      <div className="px-4 lg:px-margin-desktop py-stack-md">
+        <ErrorState message={loadError} onRetry={() => id && carregarTour(id, { cancelado: false })} />
+      </div>
+    )
+  }
 
   // Numeração das seções — dinâmica porque o card de modelo só existe na
   // criação (some na edição), sem furar a sequência.
