@@ -408,13 +408,6 @@
       // do botão Continuar.
       '.up-rec-bar-pausado .up-rec-dot{background:#ff9f43;animation:none}',
       '.up-rec-bar-pausado .up-rec-label{color:#ffc48a}',
-      // Card central "Gravação pausada" — só um indicador, nunca bloqueia a
-      // página (pointer-events:none) nem escurece a tela inteira (sem
-      // overlay full-screen, só o card em si).
-      '.up-rec-pausa-card{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:2147483610;display:flex;align-items:center;gap:10px;background:rgba(11,28,48,.9);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);color:#fff;padding:12px 20px;border-radius:14px;box-shadow:0 18px 44px rgba(11,28,48,.35);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;font-weight:700;pointer-events:none;animation:up-rec-pausa-surgir .18s ease}',
-      '@keyframes up-rec-pausa-surgir{from{opacity:0;transform:translate(-50%,-50%) scale(.94)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}',
-      '.up-rec-pausa-card-icone{width:30px;height:30px;flex-shrink:0;border-radius:50%;border:2px solid #ff9f43;color:#ff9f43;display:flex;align-items:center;justify-content:center}',
-      '.up-rec-pausa-card-icone svg{width:15px;height:15px;fill:currentColor}',
       '.up-rec-bar-linha-opcao{gap:2px;margin-top:1px;padding-top:4px;border-top:1px solid rgba(255,255,255,.1)}',
       '.up-rec-bar-linha-opcao .up-rec-toggle{opacity:.9;font-size:11px}',
       '.up-rec-bar-linha-opcao .up-rec-toggle-hint{font-size:9.5px}',
@@ -4664,7 +4657,6 @@
   var RECORDER_LOCALIZAR_BAR_ID = 'userpulse-recorder-localizar-bar';
   var RECORDER_MINI_REVISAO_ID = 'userpulse-recorder-mini-revisao';
   var RECORDER_PAINEL_LATERAL_ID = 'userpulse-recorder-painel-lateral';
-  var RECORDER_PAUSA_CARD_ID = 'userpulse-recorder-pausa-card';
   var RECORDER_INPUT_DEBOUNCE_MS = 500;
   var RECORDER_CLIQUE_DEDUPE_MS = 600;
   var RECORDER_URL_POLL_MS = 500;
@@ -5247,7 +5239,7 @@
   function recorderElementoNaBarra(el) {
     if (!el || !el.closest) return false;
     try {
-      return Boolean(el.closest('#' + RECORDER_BAR_ID + ', #' + RECORDER_PAINEL_ID + ', #' + RECORDER_TROCA_BAR_ID + ', #' + RECORDER_LOCALIZAR_BAR_ID + ', #' + RECORDER_MINI_REVISAO_ID + ', #' + RECORDER_PAINEL_LATERAL_ID + ', #' + RECORDER_PAUSA_CARD_ID));
+      return Boolean(el.closest('#' + RECORDER_BAR_ID + ', #' + RECORDER_PAINEL_ID + ', #' + RECORDER_TROCA_BAR_ID + ', #' + RECORDER_LOCALIZAR_BAR_ID + ', #' + RECORDER_MINI_REVISAO_ID + ', #' + RECORDER_PAINEL_LATERAL_ID));
     } catch (_e) {
       return false;
     }
@@ -5726,12 +5718,14 @@
       ultimoEl.textContent = ultimoPasso ? ('· Último: ' + recorderResumoPasso(ultimoPasso)) : '';
     }
     // Estado pausado precisa ficar óbvio de relance (bolinha/rótulo mudam de
-    // cor — CSS via .up-rec-bar-pausado; card central — ver
-    // recorderMostrarCardPausado/recorderEsconderCardPausado) e o botão
-    // Pausar/Continuar precisa virar a ação em destaque (ícone+texto+cor
-    // primária) quando pausado. Texto sempre visível nos botões (nunca só
-    // title) — evita o tooltip nativo do navegador aparecendo por cima da
-    // toolbar ao passar o mouse.
+    // cor — CSS via .up-rec-bar-pausado) e o botão Pausar/Continuar precisa
+    // virar a ação em destaque (ícone+texto+cor primária) quando pausado.
+    // Texto sempre visível nos botões (nunca só title) — evita o tooltip
+    // nativo do navegador aparecendo por cima da toolbar ao passar o mouse.
+    // Só a barra flutuante (sempre no rodapé, nunca centralizada) indica o
+    // estado pausado — sem card/overlay extra no centro da tela, que só
+    // atrapalharia a navegação no sistema hospedeiro sem agregar informação
+    // que a barra já não mostrasse.
     bar.classList.toggle('up-rec-bar-pausado', recorderState.pausado);
     var labelEl = bar.querySelector('[data-up-rec-status-label]');
     if (labelEl) labelEl.textContent = recorderState.pausado ? 'Pausado' : 'Gravando Tour';
@@ -5744,7 +5738,6 @@
     }
     var botaoDesfazer = bar.querySelector('[data-up-rec-undo]');
     if (botaoDesfazer) botaoDesfazer.disabled = recorderState.passos.length === 0;
-    if (recorderState.pausado) recorderMostrarCardPausado(); else recorderEsconderCardPausado();
   }
 
   // Aviso discreto e temporário na própria barra flutuante (ex.: tentar
@@ -6815,34 +6808,43 @@
     recorderRenderPainelLateral(); // sem efeito se revisarTempoReal estiver desligado
   }
 
-  // Card central "Gravação pausada" — só um indicador visual, nunca um
-  // modal: pointer-events:none garante que ele nunca intercepta clique
-  // nenhum (a página real continua totalmente visível e "clicável" por
-  // baixo dele; não é isso que impede captura enquanto pausado — quem faz
-  // isso é o guard de recorderState.pausado já existente em
-  // recorderCapturarClique/recorderCapturarValor). Mostrado/escondido a
-  // partir de recorderAtualizarBarra, sempre em sincronia com o estado real.
-  function recorderMostrarCardPausado() {
-    if (document.getElementById(RECORDER_PAUSA_CARD_ID)) return;
-    var card = document.createElement('div');
-    card.id = RECORDER_PAUSA_CARD_ID;
-    card.className = 'up-rec-pausa-card';
-    card.innerHTML = [
-      '<span class="up-rec-pausa-card-icone">' + icon('pause') + '</span>',
-      '<span class="up-rec-pausa-card-texto">Gravação pausada</span>',
-    ].join('');
-    document.body.appendChild(card);
-  }
-
-  function recorderEsconderCardPausado() {
-    var card = document.getElementById(RECORDER_PAUSA_CARD_ID);
-    if (card) card.remove();
-  }
-
   function recorderPausarOuContinuar() {
     recorderState.pausado = !recorderState.pausado;
     recorderAtualizarBarra();
     recorderPersistir();
+  }
+
+  // ─── Suporte a teste (window.UserPulse._internal) ─────────────────────────
+  // Nunca chamadas pelo runtime real — só existem pra
+  // server/src/widgetRecorderPause.test.ts conseguir exercitar os guards de
+  // captura/pausa sem depender de query params de URL nem dos efeitos
+  // colaterais de iniciarGravadorSeNecessario (render da barra, persistência,
+  // injeção de CSS). recorderState em si NUNCA é exposto em _internal — só
+  // estas duas funções, pra não vazar títulos/seletores/descrições/contexto
+  // dos passos já capturados pro browser do cliente (mesmo widget público).
+
+  // Estado mínimo pra recorderCapturarClique/recorderCapturarValor terem o
+  // que testar (ativo=true é obrigatório — sem isso os guards de captura já
+  // retornam cedo demais pra distinguir "ignorado por estar pausado" de
+  // "ignorado por nunca ter iniciado").
+  function recorderPrepararTesteCaptura() {
+    recorderState.ativo = true;
+    recorderState.pausado = false;
+    recorderState.passos = [];
+    recorderState.elParaIndice = new WeakMap();
+    recorderState.inputTimers = new WeakMap();
+    recorderState.ultimoEl = null;
+    recorderState.ultimoElTimestamp = 0;
+  }
+
+  // Snapshot deliberadamente mínimo: só contagem de passos, nunca a lista em
+  // si (título/seletor/descrição/seletor_confirmacao/secao de cada um).
+  function recorderGetTestSnapshot() {
+    return {
+      ativo: recorderState.ativo,
+      pausado: recorderState.pausado,
+      totalPassos: recorderState.passos.length,
+    };
   }
 
   // Só informativo (mostrado no painel final) — trocas de URL em SPA (via
@@ -6938,7 +6940,6 @@
     var painel = document.getElementById(RECORDER_PAINEL_ID);
     if (painel) painel.remove();
     recorderFecharPainelLateral();
-    recorderEsconderCardPausado();
   }
 
   // ─── Painel de revisão (antes de gerar o JSON) ────────────────────────────
@@ -7265,7 +7266,6 @@
     recorderState.ativo = false;
     recorderPararCaptura();
     recorderLimparPersistencia();
-    recorderEsconderCardPausado();
     recorderRenderPainelFinal();
   }
 
@@ -9103,11 +9103,26 @@
   //   - tourVoltar/finalizarTour: mesmas funções do runtime, chamadas direto
   //     pra testar a decisão de navegação do "Voltar" — ver
   //     server/src/widgetTourVoltar.test.ts.
+  //   - recorderCapturarClique/recorderCapturarValor/recorderPausarOuContinuar/
+  //     recorderPrepararTesteCaptura/recorderGetTestSnapshot: pra testar que
+  //     o estado pausado do Gravador de Tours realmente ignora clique/input
+  //     — ver server/src/widgetRecorderPause.test.ts. Ao contrário de
+  //     tourState acima, recorderState NUNCA é exposto aqui (nem direto nem
+  //     em cópia): ele guarda título/seletor/descrição de cada passo já
+  //     capturado no fluxo que o admin está gravando, e este é o widget
+  //     PÚBLICO, rodando no browser do cliente — recorderGetTestSnapshot()
+  //     devolve só { ativo, pausado, totalPassos }, nunca a lista de passos
+  //     em si.
   window.UserPulse._internal = {
     avaliarSegmentacaoTour: avaliarSegmentacaoTour,
     tourState: tourState,
     tourVoltar: tourVoltar,
     finalizarTour: finalizarTour,
+    recorderCapturarClique: recorderCapturarClique,
+    recorderCapturarValor: recorderCapturarValor,
+    recorderPausarOuContinuar: recorderPausarOuContinuar,
+    recorderPrepararTesteCaptura: recorderPrepararTesteCaptura,
+    recorderGetTestSnapshot: recorderGetTestSnapshot,
   };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
