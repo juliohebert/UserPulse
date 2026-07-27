@@ -27,12 +27,25 @@ interface Snapshot {
   totalPassos: number
 }
 
+interface PassoInicialSanitizado {
+  titulo: string
+  descricao: string
+  seletor_tipo: string
+  seletor: string
+  tooltip_posicao: string
+  acao_ao_avancar: string
+  modo_avanco_interacao: string
+  seletor_confirmacao: string | null
+  secao: string
+}
+
 interface Internos {
   recorderCapturarClique: (event: { target: unknown }) => void
   recorderCapturarValor: (event: { target: unknown; type: 'input' | 'change' }) => void
   recorderPausarOuContinuar: () => void
   recorderPrepararTesteCaptura: () => void
   recorderGetTestSnapshot: () => Snapshot
+  recorderSanitizarPassoInicial: (p: unknown) => PassoInicialSanitizado | null
 }
 
 function makeStyleStub() {
@@ -213,5 +226,75 @@ describe('Gravador de Tours — captura ignora clique/input enquanto pausado', (
     internos.recorderCapturarClique({ target: terceiroBotao })
 
     assert.equal(internos.recorderGetTestSnapshot().totalPassos, 2, 'retomar deveria voltar a permitir captura, preservando o passo anterior à pausa (por contagem)')
+  })
+})
+
+// recorderSanitizarPassoInicial é a função pura usada por
+// recorderLerPassosIniciais pra validar cada item de up_rec_passos ao abrir o
+// gravador a partir de um Tour existente ("Editar fluxo no sistema") — nunca
+// toca em recorderState, só transforma o objeto recebido. Cobre o bug
+// corrigido nesta tarefa: seletor_tipo 'area' virava 'data_cy' por não estar
+// na lista de tipos aceitos (só 'css'/'id' eram reconhecidos).
+describe('recorderSanitizarPassoInicial — preserva seletor_tipo válido, cai no fallback pra inválido', () => {
+  function passoBruto(seletorTipo: unknown) {
+    return {
+      titulo: 'Passo de teste',
+      descricao: 'Descrição',
+      seletor_tipo: seletorTipo,
+      seletor: '.filtros-agenda',
+      tooltip_posicao: 'top',
+      acao_ao_avancar: 'clicar_elemento',
+      modo_avanco_interacao: 'ao_clicar',
+      seletor_confirmacao: null,
+      secao: 'Filtros',
+    }
+  }
+
+  test("seletor_tipo 'area' é preservado (bug corrigido)", () => {
+    const internos = criarInstancia()
+    const resultado = internos.recorderSanitizarPassoInicial(passoBruto('area'))
+    assert.equal(resultado?.seletor_tipo, 'area')
+  })
+
+  test("seletor_tipo 'data_cy' é preservado", () => {
+    const internos = criarInstancia()
+    const resultado = internos.recorderSanitizarPassoInicial(passoBruto('data_cy'))
+    assert.equal(resultado?.seletor_tipo, 'data_cy')
+  })
+
+  test("seletor_tipo 'id' é preservado", () => {
+    const internos = criarInstancia()
+    const resultado = internos.recorderSanitizarPassoInicial(passoBruto('id'))
+    assert.equal(resultado?.seletor_tipo, 'id')
+  })
+
+  test("seletor_tipo 'css' é preservado", () => {
+    const internos = criarInstancia()
+    const resultado = internos.recorderSanitizarPassoInicial(passoBruto('css'))
+    assert.equal(resultado?.seletor_tipo, 'css')
+  })
+
+  test('seletor_tipo inválido/ausente cai no fallback data_cy (comportamento já existente, preservado)', () => {
+    const internos = criarInstancia()
+    assert.equal(internos.recorderSanitizarPassoInicial(passoBruto('tipo_que_nao_existe'))?.seletor_tipo, 'data_cy')
+    assert.equal(internos.recorderSanitizarPassoInicial(passoBruto(undefined))?.seletor_tipo, 'data_cy')
+    assert.equal(internos.recorderSanitizarPassoInicial(passoBruto(123))?.seletor_tipo, 'data_cy')
+  })
+
+  test('demais campos do passo continuam sanitizados normalmente (sem regressão ao redor do fix)', () => {
+    const internos = criarInstancia()
+    const resultado = internos.recorderSanitizarPassoInicial(passoBruto('area'))
+    assert.equal(resultado?.titulo, 'Passo de teste')
+    assert.equal(resultado?.seletor, '.filtros-agenda')
+    assert.equal(resultado?.tooltip_posicao, 'top')
+    assert.equal(resultado?.acao_ao_avancar, 'clicar_elemento')
+    assert.equal(resultado?.modo_avanco_interacao, 'ao_clicar')
+    assert.equal(resultado?.secao, 'Filtros')
+  })
+
+  test('passo sem título retorna null (comportamento já existente, preservado)', () => {
+    const internos = criarInstancia()
+    assert.equal(internos.recorderSanitizarPassoInicial({ ...passoBruto('area'), titulo: '' }), null)
+    assert.equal(internos.recorderSanitizarPassoInicial(null), null)
   })
 })
