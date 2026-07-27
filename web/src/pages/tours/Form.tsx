@@ -595,32 +595,6 @@ export function TourForm() {
         // visualmente os passos já preenchidos por uma resposta mais nova
         // que chegou primeiro.
         if (sinal.cancelado) return
-        // DIAGNÓSTICO TEMPORÁRIO — investigação de tours com muitos passos
-        // (ver tarefa "fix/tour-edit-load-steps-many-steps"). Remover antes
-        // do commit assim que a causa real for confirmada. Não loga nada
-        // sensível: só metadados estruturais do tour (títulos, seletores,
-        // contagens) — nada de dados de usuário final.
-        // eslint-disable-next-line no-console
-        console.warn('[DIAG tours/Form] GET /tours/:id — resposta recebida (chegou aqui = status ok, senão cairia no .catch abaixo)', {
-          tourId,
-          titulo_tour: t.titulo,
-          tem_campo_passos: 'passos' in t,
-          passos_e_array: Array.isArray(t.passos),
-          passos_recebidos: Array.isArray(t.passos) ? t.passos.length : null,
-          primeiro_passo_bruto: Array.isArray(t.passos) ? t.passos[0] ?? null : null,
-          ultimo_passo_bruto: Array.isArray(t.passos) ? t.passos[t.passos.length - 1] ?? null : null,
-          passos_resumo: Array.isArray(t.passos)
-            ? t.passos.map(p => ({
-                id: p.id,
-                ordem: p.ordem,
-                titulo: p.titulo,
-                seletor_tipo: p.seletor_tipo,
-                seletor: p.seletor,
-                modo_avanco_interacao: p.modo_avanco_interacao,
-                acao_ao_avancar: p.acao_ao_avancar,
-              }))
-            : null,
-        })
         setForm({
           titulo: t.titulo,
           descricao: t.descricao ?? '',
@@ -642,13 +616,8 @@ export function TourForm() {
         // inesperado (dado legado, campo em formato diferente) não pode
         // descartar TODOS os outros só porque um deles falhou.
         const passosRecebidos = t.passos ?? []
-        // DIAGNÓSTICO TEMPORÁRIO — ver comentário acima. Acumula o motivo de
-        // cada passo descartado na normalização (índice na resposta bruta +
-        // mensagem do erro), pra distinguir "API não mandou nada" de "API
-        // mandou mas o formato não bateu com o esperado".
-        const descartados: Array<{ indice: number; motivo: string }> = []
         const passosTransformados = passosRecebidos
-          .map((p, indice): PassoState | null => {
+          .map((p): PassoState | null => {
             try {
               return {
                 id: p.id,
@@ -664,20 +633,12 @@ export function TourForm() {
               }
             } catch (erroPasso) {
               const motivo = erroPasso instanceof Error ? erroPasso.message : String(erroPasso)
-              descartados.push({ indice, motivo })
               // eslint-disable-next-line no-console
-              console.error('[tours/Form] passo descartado por formato inesperado', { tourId, indice, passo: p, motivo })
+              console.error('[tours/Form] passo descartado por formato inesperado', { tourId, passo: p, motivo })
               return null
             }
           })
           .filter((p): p is PassoState => p !== null)
-        // DIAGNÓSTICO TEMPORÁRIO — ver comentário acima.
-        // eslint-disable-next-line no-console
-        console.warn('[DIAG tours/Form] normalização concluída', {
-          passos_recebidos: passosRecebidos.length,
-          passos_apos_normalizacao: passosTransformados.length,
-          descartados,
-        })
         // Só cai no fallback de "nenhum passo preenchido ainda" quando a API
         // de fato não devolveu nenhum passo — se ela devolveu passos mas
         // TODOS falharam a transformação (formato inesperado em massa), isso
@@ -685,29 +646,16 @@ export function TourForm() {
         // vazio (que o usuário poderia salvar por cima, apagando os
         // originais de verdade).
         if (passosRecebidos.length > 0 && passosTransformados.length === 0) {
-          // eslint-disable-next-line no-console
-          console.warn('[DIAG tours/Form] loadError acionado — API retornou passos mas todos falharam a normalização', { tourId, passos_recebidos: passosRecebidos.length })
           setLoadError('Os passos deste tour vieram em um formato inesperado e não puderam ser carregados. Nenhuma alteração foi salva — contate o suporte antes de tentar editar este tour.')
           return
         }
         const caiuEmPassoVazio = passosTransformados.length === 0
-        // eslint-disable-next-line no-console
-        console.warn('[DIAG tours/Form] setPassos final', {
-          caiu_em_passo_vazio: caiuEmPassoVazio,
-          motivo_passo_vazio: caiuEmPassoVazio
-            ? 'API retornou 0 passos para este tour (tour genuinamente sem passos, não é descarte por erro — esse caso já teria retornado antes)'
-            : null,
-          total_definido: caiuEmPassoVazio ? 1 : passosTransformados.length,
-        })
         setPassos(caiuEmPassoVazio ? [{ ...PASSO_VAZIO }] : passosTransformados)
         setRegrasSegmentacao(t.segmentacao_regras ?? [])
       })
       .catch(e => {
         if (sinal.cancelado) return
         const mensagem = e instanceof Error ? e.message : 'Não foi possível carregar o tour guiado.'
-        // DIAGNÓSTICO TEMPORÁRIO — ver comentário acima.
-        // eslint-disable-next-line no-console
-        console.warn('[DIAG tours/Form] GET /tours/:id — falhou, loadError acionado', { tourId, mensagem })
         // Mensagem real do erro (ver services/api.ts) em vez de um texto fixo
         // de "não encontrado" — um erro de rede/servidor não é a mesma coisa
         // que o tour genuinamente não existir.
@@ -724,22 +672,6 @@ export function TourForm() {
     carregarTour(id, sinal)
     return () => { sinal.cancelado = true }
   }, [id, carregarTour])
-
-  // DIAGNÓSTICO TEMPORÁRIO — investigação de tours com muitos passos (ver
-  // tarefa "fix/tour-edit-load-steps-many-steps"). Remover antes do commit.
-  // Dispara sempre que o estado "passos" muda, por qualquer motivo (carga
-  // inicial, template, colar JSON, adicionar/remover/reordenar passo à mão).
-  // Serve pra confirmar se algum efeito reseta "passos" depois da carga
-  // inicial sem uma ação explícita do usuário — nesse caso, esse log
-  // apareceria de novo com uma contagem menor logo após o primeiro,
-  // sem nenhuma interação do usuário entre os dois.
-  useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.warn('[DIAG tours/Form] estado "passos" mudou', {
-      total: passos.length,
-      titulos: passos.map(p => p.titulo),
-    })
-  }, [passos])
 
   const set = (key: keyof FormState, value: string | boolean) =>
     setForm(prev => ({ ...prev, [key]: value }))

@@ -109,17 +109,41 @@ export interface GravadorUrlResultado {
 
 // Limite conservador pro parâmetro up_rec_passos codificado: URLs muito
 // longas podem estourar limites do navegador ou do servidor do sistema
-// hospedeiro (ex.: nginx costuma limitar ~8KB de header por padrão). Preferimos
-// abrir o gravador vazio e cair no fallback já existente a arriscar uma URL
-// que alguns hosts rejeitam silenciosamente.
-const UP_REC_PASSOS_MAX_LEN = 4000
+// hospedeiro (ex.: nginx costuma limitar ~8KB de header por padrão, em vários
+// buffers). Preferimos abrir o gravador vazio e cair no fallback já existente
+// a arriscar uma URL que alguns hosts rejeitam silenciosamente.
+const UP_REC_PASSOS_MAX_LEN = 8000
+
+// Remove do payload os campos que já correspondem ao default aplicado por
+// recorderSanitizarPassoInicial em widget.js quando a chave está ausente —
+// preserva o valor de volta na hora de decodificar, só evita gastar bytes na
+// URL com o que já seria o valor implícito. Tours reais tendem a ter a
+// maioria dos passos com descrição/seção/confirmação vazias e usando os
+// defaults de tooltip/avanço, então isso reduz bastante o tamanho codificado
+// sem mudar o resultado final (ver bug: tour com 15 passos e algumas
+// descrições preenchidas gerava ~5600 caracteres codificados e estourava o
+// limite anterior de 4000, abrindo o gravador com "Passos capturados 0").
+function compactarPassoParaUrl(p: GravadorPassoPayload): Partial<GravadorPassoPayload> {
+  const compacto: Partial<GravadorPassoPayload> = {
+    titulo: p.titulo,
+    seletor_tipo: p.seletor_tipo,
+    seletor: p.seletor,
+  }
+  if (p.descricao) compacto.descricao = p.descricao
+  if (p.tooltip_posicao && p.tooltip_posicao !== 'auto') compacto.tooltip_posicao = p.tooltip_posicao
+  if (p.acao_ao_avancar && p.acao_ao_avancar !== 'apenas_avancar') compacto.acao_ao_avancar = p.acao_ao_avancar
+  if (p.modo_avanco_interacao && p.modo_avanco_interacao !== 'manual') compacto.modo_avanco_interacao = p.modo_avanco_interacao
+  if (p.seletor_confirmacao) compacto.seletor_confirmacao = p.seletor_confirmacao
+  if (p.secao) compacto.secao = p.secao
+  return compacto
+}
 
 // btoa não lida com UTF-8 fora do range Latin1 (títulos/descrições em
 // português têm acento) — por isso passa por TextEncoder antes, e o
 // resultado vira base64url (sem +/=) pra ir de forma segura dentro de uma
 // query string. Contraparte em widget.js: recorderDecodificarBase64Url.
 function encodePassosBase64Url(passos: GravadorPassoPayload[]): string {
-  const bytes = new TextEncoder().encode(JSON.stringify(passos))
+  const bytes = new TextEncoder().encode(JSON.stringify(passos.map(compactarPassoParaUrl)))
   let binary = ''
   bytes.forEach(b => { binary += String.fromCharCode(b) })
   const base64 = btoa(binary)
