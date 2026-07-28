@@ -50,10 +50,18 @@ interface PassoInicialSanitizado {
   secao: string
 }
 
-interface TourPreviewState {
+interface TourSnapshot {
   ativo: boolean
   preview: boolean
-  tour: { titulo: string; passos: Array<{ seletor_tipo: string; titulo: string }> } | null
+  feedbackEscolhido: string | null
+  indice: number
+  voltarFallbackTimerAtivo: boolean
+}
+
+interface TourStepSnapshot {
+  tourTitulo: string | null
+  totalPassos: number
+  seletorTipos: string[]
 }
 
 interface Internos {
@@ -65,7 +73,8 @@ interface Internos {
   recorderSanitizarPassoInicial: (p: unknown) => PassoInicialSanitizado | null
   iniciarPreviewSeNecessario: () => void
   iniciarGravadorSeNecessario: () => void
-  tourState: TourPreviewState
+  tourGetTestSnapshot: () => TourSnapshot
+  tourGetTestStepSnapshot: () => TourStepSnapshot
   recorderTextosPainelFinal: (paraTourExistente: boolean, totalPassos: number) => TextosPainelFinal
 }
 
@@ -216,6 +225,10 @@ function criarInstancia(search = '') {
     Object.prototype.hasOwnProperty.call(internos, 'recorderState'), false,
     'recorderState não deveria estar exposto em _internal (dados capturados do fluxo)'
   )
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(internos, 'tourState'), false,
+    'tourState (objeto inteiro por referência — tour/passos, aparencia, urlPorPasso) não deveria estar exposto em _internal'
+  )
   return internos as Internos
 }
 
@@ -363,10 +376,12 @@ describe('iniciarPreviewSeNecessario — preview de passos colados, sem gravador
 
     internos.iniciarPreviewSeNecessario()
 
-    assert.equal(internos.tourState.ativo, true, 'deveria ter iniciado um tour')
-    assert.equal(internos.tourState.preview, true, 'precisa estar marcado como preview (suprime tracking)')
-    assert.equal(internos.tourState.tour?.titulo, 'Teste de passos')
-    assert.equal(internos.tourState.tour?.passos.length, 1)
+    const snap = internos.tourGetTestSnapshot()
+    assert.equal(snap.ativo, true, 'deveria ter iniciado um tour')
+    assert.equal(snap.preview, true, 'precisa estar marcado como preview (suprime tracking)')
+    const stepSnap = internos.tourGetTestStepSnapshot()
+    assert.equal(stepSnap.tourTitulo, 'Teste de passos')
+    assert.equal(stepSnap.totalPassos, 1)
   })
 
   test('preview usa os passos já sanitizados (reaproveita recorderSanitizarPassoInicial)', () => {
@@ -378,24 +393,24 @@ describe('iniciarPreviewSeNecessario — preview de passos colados, sem gravador
 
     internos.iniciarPreviewSeNecessario()
 
-    const passosNoTour = internos.tourState.tour?.passos ?? []
-    assert.equal(passosNoTour.length, 2)
-    assert.equal(passosNoTour[0].seletor_tipo, 'area', "'area' precisa sobreviver à sanitização, igual ao gravador")
-    assert.equal(passosNoTour[1].seletor_tipo, 'data_cy', 'tipo inválido cai no mesmo fallback de sempre')
+    const stepSnap = internos.tourGetTestStepSnapshot()
+    assert.equal(stepSnap.totalPassos, 2)
+    assert.equal(stepSnap.seletorTipos[0], 'area', "'area' precisa sobreviver à sanitização, igual ao gravador")
+    assert.equal(stepSnap.seletorTipos[1], 'data_cy', 'tipo inválido cai no mesmo fallback de sempre')
   })
 
   test('não inicia preview sem passos válidos (up_preview_passos ausente, vazio ou só com passos sem título)', () => {
     const semParametro = criarInstancia('?userpulse_preview=1')
     semParametro.iniciarPreviewSeNecessario()
-    assert.equal(semParametro.tourState.ativo, false, 'sem up_preview_passos não deveria iniciar nada')
+    assert.equal(semParametro.tourGetTestSnapshot().ativo, false, 'sem up_preview_passos não deveria iniciar nada')
 
     const listaVazia = criarInstancia('?userpulse_preview=1&up_preview_passos=' + encodeBase64UrlPassos([]))
     listaVazia.iniciarPreviewSeNecessario()
-    assert.equal(listaVazia.tourState.ativo, false, 'lista vazia não deveria iniciar nada')
+    assert.equal(listaVazia.tourGetTestSnapshot().ativo, false, 'lista vazia não deveria iniciar nada')
 
     const soInvalidos = criarInstancia('?userpulse_preview=1&up_preview_passos=' + encodeBase64UrlPassos([{ seletor_tipo: 'css' }]))
     soInvalidos.iniciarPreviewSeNecessario()
-    assert.equal(soInvalidos.tourState.ativo, false, 'passo sem título é descartado pelo sanitizador — nenhum passo válido sobra')
+    assert.equal(soInvalidos.tourGetTestSnapshot().ativo, false, 'passo sem título é descartado pelo sanitizador — nenhum passo válido sobra')
   })
 
   test('userpulse_recorder=1 junto com userpulse_preview=1 — gravador vence, preview não inicia', () => {
@@ -408,7 +423,7 @@ describe('iniciarPreviewSeNecessario — preview de passos colados, sem gravador
     internos.iniciarPreviewSeNecessario()
 
     assert.equal(internos.recorderGetTestSnapshot().ativo, true, 'gravador deveria ter ativado normalmente')
-    assert.equal(internos.tourState.ativo, false, 'preview não deveria iniciar com o gravador já ativo')
+    assert.equal(internos.tourGetTestSnapshot().ativo, false, 'preview não deveria iniciar com o gravador já ativo')
   })
 
   test('preview nunca ativa recorderState (sem gravador, sem barra, sem captura)', () => {
@@ -417,7 +432,7 @@ describe('iniciarPreviewSeNecessario — preview de passos colados, sem gravador
 
     internos.iniciarPreviewSeNecessario()
 
-    assert.equal(internos.tourState.ativo, true, 'pré-condição: preview iniciou')
+    assert.equal(internos.tourGetTestSnapshot().ativo, true, 'pré-condição: preview iniciou')
     const snapshot = internos.recorderGetTestSnapshot()
     assert.equal(snapshot.ativo, false, 'recorderState.ativo precisa continuar false — preview nunca é gravador')
     assert.equal(snapshot.totalPassos, 0, 'nenhum passo deveria ter ido pro recorderState')

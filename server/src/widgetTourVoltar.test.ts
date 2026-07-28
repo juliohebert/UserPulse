@@ -13,21 +13,32 @@ import vm from 'node:vm'
 // nota no final deste arquivo.
 //
 // Carrega o widget.js real via vm (mesmo padrão de
-// widgetTourSegmentacao.test.ts) e usa window.UserPulse._internal (tourState,
-// tourVoltar, finalizarTour) pra montar o cenário direto no estado interno,
-// sem precisar rodar iniciarTour()/irParaPasso() de ponta a ponta com DOM
-// verdadeiro — só o suficiente pra exercitar a decisão em si.
+// widgetTourSegmentacao.test.ts) e usa window.UserPulse._internal
+// (tourSetTestState, tourGetTestSnapshot, tourVoltar, finalizarTour) pra
+// montar o cenário direto no estado interno, sem precisar rodar
+// iniciarTour()/irParaPasso() de ponta a ponta com DOM verdadeiro — só o
+// suficiente pra exercitar a decisão em si. _internal.tourState NÃO existe
+// mais (removido por expor o estado inteiro do tour por referência); os
+// helpers acima substituem cada uso que este arquivo fazia dele.
 
-interface TourStateParaTeste {
+interface TourTestStateParcial {
+  ativo?: boolean
+  tour?: { id: string; slug: string; passos: unknown[] } | null
+  indice?: number
+  urlPorPasso?: Record<number, string>
+}
+
+interface Snapshot {
   ativo: boolean
-  tour: { id: string; slug: string; passos: unknown[] } | null
+  preview: boolean
+  feedbackEscolhido: string | null
   indice: number
-  urlPorPasso: Record<number, string>
-  voltarFallbackTimer: unknown
+  voltarFallbackTimerAtivo: boolean
 }
 
 interface Internos {
-  tourState: TourStateParaTeste
+  tourSetTestState: (parcial: TourTestStateParcial) => void
+  tourGetTestSnapshot: () => Snapshot
   tourVoltar: () => void
   finalizarTour: (motivo: string) => void
 }
@@ -174,11 +185,12 @@ function tourFake() {
 describe('tourVoltar — decisão de navegação (widget.js)', () => {
   test('passo anterior na mesma URL não navega (comportamento atual preservado)', () => {
     const inst = criarInstancia('http://host/pagina-a')
-    const ts = inst.internos.tourState
-    ts.ativo = true
-    ts.tour = tourFake()
-    ts.indice = 1
-    ts.urlPorPasso = { 0: 'http://host/pagina-a', 1: 'http://host/pagina-a' }
+    inst.internos.tourSetTestState({
+      ativo: true,
+      tour: tourFake(),
+      indice: 1,
+      urlPorPasso: { 0: 'http://host/pagina-a', 1: 'http://host/pagina-a' },
+    })
 
     inst.internos.tourVoltar()
 
@@ -192,11 +204,12 @@ describe('tourVoltar — decisão de navegação (widget.js)', () => {
 
   test('sem URL registrada pro passo anterior (ex.: tour retomado no meio) não navega', () => {
     const inst = criarInstancia('http://host/pagina-a')
-    const ts = inst.internos.tourState
-    ts.ativo = true
-    ts.tour = tourFake()
-    ts.indice = 1
-    ts.urlPorPasso = { 1: 'http://host/pagina-a' } // índice 0 nunca foi visitado nesta sessão
+    inst.internos.tourSetTestState({
+      ativo: true,
+      tour: tourFake(),
+      indice: 1,
+      urlPorPasso: { 1: 'http://host/pagina-a' }, // índice 0 nunca foi visitado nesta sessão
+    })
 
     inst.internos.tourVoltar()
 
@@ -207,19 +220,21 @@ describe('tourVoltar — decisão de navegação (widget.js)', () => {
 
   test('passo anterior em URL diferente navega (history.back) e marca navegação pendente', () => {
     const inst = criarInstancia('http://host/pagina-b')
-    const ts = inst.internos.tourState
-    ts.ativo = true
-    ts.tour = tourFake()
-    ts.indice = 1
-    ts.urlPorPasso = { 0: 'http://host/pagina-a', 1: 'http://host/pagina-b' }
+    inst.internos.tourSetTestState({
+      ativo: true,
+      tour: tourFake(),
+      indice: 1,
+      urlPorPasso: { 0: 'http://host/pagina-a', 1: 'http://host/pagina-b' },
+    })
 
     inst.internos.tourVoltar()
 
     assert.equal(inst.historyBackChamadas(), 1, 'deveria chamar history.back() exatamente uma vez')
-    assert.notEqual(ts.voltarFallbackTimer, null, 'deveria marcar uma navegação pendente (voltarFallbackTimer)')
+    let snap = inst.internos.tourGetTestSnapshot()
+    assert.equal(snap.voltarFallbackTimerAtivo, true, 'deveria marcar uma navegação pendente (voltarFallbackTimer)')
     // Não resolve o índice sincronamente — só depois que a navegação de
     // verdade acontecer (via handleUrlChange) ou o fallback expirar.
-    assert.equal(ts.indice, 1, 'não deveria já ter avançado o índice antes da navegação resolver')
+    assert.equal(snap.indice, 1, 'não deveria já ter avançado o índice antes da navegação resolver')
 
     // Limpa o timer de fallback pendente (1.5s) — sem isso o processo de
     // teste fica vivo esperando ele expirar à toa, só deixando a suíte mais
@@ -229,11 +244,12 @@ describe('tourVoltar — decisão de navegação (widget.js)', () => {
 
   test('navegação pendente não entra em loop — clique repetido não chama history.back() de novo', () => {
     const inst = criarInstancia('http://host/pagina-b')
-    const ts = inst.internos.tourState
-    ts.ativo = true
-    ts.tour = tourFake()
-    ts.indice = 1
-    ts.urlPorPasso = { 0: 'http://host/pagina-a', 1: 'http://host/pagina-b' }
+    inst.internos.tourSetTestState({
+      ativo: true,
+      tour: tourFake(),
+      indice: 1,
+      urlPorPasso: { 0: 'http://host/pagina-a', 1: 'http://host/pagina-b' },
+    })
 
     inst.internos.tourVoltar()
     inst.internos.tourVoltar()
@@ -246,19 +262,21 @@ describe('tourVoltar — decisão de navegação (widget.js)', () => {
 
   test('fechar o tour durante navegação pendente cancela o fallback (não reabre sozinho depois)', () => {
     const inst = criarInstancia('http://host/pagina-b')
-    const ts = inst.internos.tourState
-    ts.ativo = true
-    ts.tour = tourFake()
-    ts.indice = 1
-    ts.urlPorPasso = { 0: 'http://host/pagina-a', 1: 'http://host/pagina-b' }
+    inst.internos.tourSetTestState({
+      ativo: true,
+      tour: tourFake(),
+      indice: 1,
+      urlPorPasso: { 0: 'http://host/pagina-a', 1: 'http://host/pagina-b' },
+    })
 
     inst.internos.tourVoltar()
-    assert.notEqual(ts.voltarFallbackTimer, null, 'pré-condição: navegação pendente marcada')
+    assert.equal(inst.internos.tourGetTestSnapshot().voltarFallbackTimerAtivo, true, 'pré-condição: navegação pendente marcada')
 
     inst.internos.finalizarTour('usuario_fechou')
 
-    assert.equal(ts.ativo, false)
-    assert.equal(ts.voltarFallbackTimer, null, 'finalizarTour deve cancelar o timer de fallback pendente')
+    const snap = inst.internos.tourGetTestSnapshot()
+    assert.equal(snap.ativo, false)
+    assert.equal(snap.voltarFallbackTimerAtivo, false, 'finalizarTour deve cancelar o timer de fallback pendente')
   })
 })
 
