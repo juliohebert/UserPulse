@@ -544,6 +544,128 @@ export async function importar(req: Request, res: Response) {
   }
 }
 
+export interface FunilPassoItem {
+  passo_ordem: number
+  passo_titulo: string
+  visualizacoes: number
+  elemento_nao_encontrado: number
+  // null só no último passo — não existe "próximo passo" pra medir avanço.
+  proximo_passo_visualizacoes: number | null
+  // Estimativa, não avanço real: o widget não registra um evento de "saiu do
+  // passo N pro passo N+1" — só passo_visualizado por passo e concluido no
+  // fim. avancos_estimados assume que quem visualizou o próximo passo (ou,
+  // no último passo, quem concluiu o tour) necessariamente avançou a partir
+  // daqui, o que é razoável (não há como ver o passo seguinte sem passar por
+  // este) mas ignora quem saiu e voltou depois por outro caminho. Sempre
+  // limitado a no máximo `visualizacoes`, pra nunca sugerir mais de 100% de
+  // continuidade.
+  avancos_estimados: number
+  abandonos_estimados: number
+  // null quando visualizacoes=0 (sem base pra calcular percentual)
+  taxa_continuidade: number | null
+  taxa_queda: number | null
+  ultimo_passo: boolean
+}
+
+// Agrega passo_visualizado/elemento_nao_encontrado (já contados por
+// passo_ordem via groupBy) e concluidos (contagem já calculada pros cards)
+// num funil por passo — função pura, sem Prisma/HTTP, pra poder ser testada
+// direto (mesmo padrão de validarSegmentacaoRegras acima).
+export function montarFunilPorPasso(
+  passos: Array<{ ordem: number; titulo: string }>,
+  visualizacoesPorPasso: Record<number, number>,
+  naoEncontradoPorPasso: Record<number, number>,
+  concluidos: number,
+): FunilPassoItem[] {
+  return passos.map((passo, i) => {
+    const ultimo = i === passos.length - 1
+    const visualizacoes = visualizacoesPorPasso[passo.ordem] ?? 0
+    const elemento_nao_encontrado = naoEncontradoPorPasso[passo.ordem] ?? 0
+    const proximoOrdem = ultimo ? null : passos[i + 1].ordem
+    const proximo_passo_visualizacoes = proximoOrdem != null ? (visualizacoesPorPasso[proximoOrdem] ?? 0) : null
+
+    const avancosBruto = ultimo ? concluidos : (proximo_passo_visualizacoes ?? 0)
+    const avancos_estimados = Math.min(avancosBruto, visualizacoes)
+    const abandonos_estimados = Math.max(visualizacoes - avancos_estimados, 0)
+
+    const taxa_continuidade = visualizacoes > 0 ? Math.round((avancos_estimados / visualizacoes) * 1000) / 10 : null
+    const taxa_queda = taxa_continuidade != null ? Math.round((100 - taxa_continuidade) * 10) / 10 : null
+
+    return {
+      passo_ordem: passo.ordem,
+      passo_titulo: passo.titulo,
+      visualizacoes,
+      elemento_nao_encontrado,
+      proximo_passo_visualizacoes,
+      avancos_estimados,
+      abandonos_estimados,
+      taxa_continuidade,
+      taxa_queda,
+      ultimo_passo: ultimo,
+    }
+  })
+}
+
+export type CategoriaFeedbackTour = 'positivo' | 'neutro' | 'negativo'
+
+export interface FeedbackPorValorItem {
+  valor: string
+  label: string
+  emoji: string
+  categoria: CategoriaFeedbackTour
+  total: number
+}
+
+export interface ResumoFeedbackTour {
+  total: number
+  positivos: number
+  neutros: number
+  negativos: number
+  por_valor: FeedbackPorValorItem[]
+}
+
+// Mesmos 3 valores/labels/emojis de TOUR_FEEDBACK_INFO em widget.js — mantidos
+// em sincronia manualmente (não há módulo compartilhado entre widget e
+// server). label/emoji vêm daqui, nunca do contexto bruto salvo no evento:
+// o valor em si (feedback_valor) já valida contra essa lista fixa, então o
+// rótulo exibido é sempre um destes 3, nunca texto arbitrário do evento.
+const FEEDBACK_TOUR_INFO: Record<string, { label: string; emoji: string; categoria: CategoriaFeedbackTour }> = {
+  muito_util: { label: 'Muito útil', emoji: '🤩', categoria: 'positivo' },
+  ajudou: { label: 'Ajudou', emoji: '🙂', categoria: 'neutro' },
+  nao_ajudou: { label: 'Não ajudou', emoji: '😕', categoria: 'negativo' },
+}
+
+// Agrega eventos feedback_tour (só o contexto de cada um) por feedback_valor
+// — função pura, sem Prisma/HTTP. Só lê contexto.feedback_valor (nunca outro
+// campo do contexto), e só conta: nunca devolve o contexto bruto nem qualquer
+// dado de usuário/cliente/unidade que possa estar no mesmo evento.
+export function montarResumoFeedback(eventos: Array<{ contexto: unknown }>): ResumoFeedbackTour {
+  const contagem: Record<string, number> = {}
+  for (const ev of eventos) {
+    const contexto = (ev.contexto && typeof ev.contexto === 'object' && !Array.isArray(ev.contexto))
+      ? ev.contexto as Record<string, unknown>
+      : null
+    const valor = contexto?.feedback_valor
+    if (typeof valor !== 'string' || !FEEDBACK_TOUR_INFO[valor]) continue
+    contagem[valor] = (contagem[valor] ?? 0) + 1
+  }
+
+  const por_valor: FeedbackPorValorItem[] = Object.keys(FEEDBACK_TOUR_INFO)
+    .filter(valor => contagem[valor] > 0)
+    .map(valor => ({ valor, total: contagem[valor], ...FEEDBACK_TOUR_INFO[valor] }))
+
+  let positivos = 0
+  let neutros = 0
+  let negativos = 0
+  for (const item of por_valor) {
+    if (item.categoria === 'positivo') positivos += item.total
+    else if (item.categoria === 'neutro') neutros += item.total
+    else negativos += item.total
+  }
+
+  return { total: positivos + neutros + negativos, positivos, neutros, negativos, por_valor }
+}
+
 export async function buscarDashboard(req: Request, res: Response) {
   try {
     const id = req.params.id as string
@@ -692,7 +814,10 @@ export async function buscarDashboard(req: Request, res: Response) {
     const pageNum = Math.max(1, Math.trunc(Number(page)) || 1)
     const perPageNum = Math.min(100, Math.max(1, Math.trunc(Number(per_page)) || PER_PAGE_PADRAO))
 
-    const [iniciados, concluidos, pulados, elementos_nao_encontrados, totalEventos, eventosRecentes] = await Promise.all([
+    const [
+      iniciados, concluidos, pulados, elementos_nao_encontrados, totalEventos, eventosRecentes,
+      visualizacoesGroup, naoEncontradoGroup, feedbackEventos,
+    ] = await Promise.all([
       prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'inicio' } }),
       prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'concluido' } }),
       prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'pulado' } }),
@@ -708,7 +833,35 @@ export async function buscarDashboard(req: Request, res: Response) {
         skip: (pageNum - 1) * perPageNum,
         take: perPageNum,
       }),
+      // Funil por passo — sempre sobre whereComum (mesmos filtros de
+      // período/cliente/usuário/unidade dos cards, nunca a paginação/busca de
+      // whereEventos), como qualquer contagem agregada desta rota.
+      prisma.eventoTour.groupBy({
+        by: ['passo_ordem'],
+        where: { ...whereComum, tipo_evento: 'passo_visualizado' },
+        _count: { _all: true },
+      }),
+      prisma.eventoTour.groupBy({
+        by: ['passo_ordem'],
+        where: { ...whereComum, tipo_evento: 'elemento_nao_encontrado' },
+        _count: { _all: true },
+      }),
+      // Só o contexto (onde mora feedback_valor) — nunca usuario_id/demais
+      // colunas do evento; montarResumoFeedback já ignora qualquer campo do
+      // contexto além de feedback_valor.
+      prisma.eventoTour.findMany({
+        where: { ...whereComum, tipo_evento: 'feedback_tour' },
+        select: { contexto: true },
+      }),
     ])
+
+    const visualizacoesPorPasso: Record<number, number> = {}
+    for (const g of visualizacoesGroup) if (g.passo_ordem != null) visualizacoesPorPasso[g.passo_ordem] = g._count._all
+    const naoEncontradoPorPasso: Record<number, number> = {}
+    for (const g of naoEncontradoGroup) if (g.passo_ordem != null) naoEncontradoPorPasso[g.passo_ordem] = g._count._all
+
+    const funil_por_passo = montarFunilPorPasso(tour.passos, visualizacoesPorPasso, naoEncontradoPorPasso, concluidos)
+    const feedback = montarResumoFeedback(feedbackEventos)
 
     const total_pages = Math.max(1, Math.ceil(totalEventos / perPageNum))
 
@@ -753,6 +906,8 @@ export async function buscarDashboard(req: Request, res: Response) {
       pulados,
       elementos_nao_encontrados,
       taxa_conclusao,
+      funil_por_passo,
+      feedback,
       eventos_recentes,
       page: pageNum,
       per_page: perPageNum,

@@ -222,6 +222,41 @@ export interface EventoTourDashboard {
   criado_em: string
 }
 
+export interface FunilPassoItem {
+  passo_ordem: number
+  passo_titulo: string
+  visualizacoes: number
+  elemento_nao_encontrado: number
+  // null só no último passo — não existe "próximo passo" pra medir avanço.
+  proximo_passo_visualizacoes: number | null
+  // Estimativa (ver comentário de montarFunilPorPasso em tours.ts): quem
+  // visualizou o próximo passo (ou concluiu, no último) é contado como tendo
+  // avançado a partir deste — nunca um avanço real medido evento a evento.
+  avancos_estimados: number
+  abandonos_estimados: number
+  taxa_continuidade: number | null
+  taxa_queda: number | null
+  ultimo_passo: boolean
+}
+
+export type CategoriaFeedbackTour = 'positivo' | 'neutro' | 'negativo'
+
+export interface FeedbackPorValorItem {
+  valor: string
+  label: string
+  emoji: string
+  categoria: CategoriaFeedbackTour
+  total: number
+}
+
+export interface ResumoFeedbackTour {
+  total: number
+  positivos: number
+  neutros: number
+  negativos: number
+  por_valor: FeedbackPorValorItem[]
+}
+
 export interface TourDashboardData {
   tour: TourGuiado
   iniciados: number
@@ -229,6 +264,8 @@ export interface TourDashboardData {
   pulados: number
   elementos_nao_encontrados: number
   taxa_conclusao: number
+  funil_por_passo: FunilPassoItem[]
+  feedback: ResumoFeedbackTour
   eventos_recentes: EventoTourDashboard[]
   // Paginação da lista de eventos — os cards acima sempre consideram todos
   // os dados filtrados, independente da página atual.
