@@ -542,10 +542,44 @@ function funilTemDados(funil: FunilPassoItem[]): boolean {
   return funil.some(p => p.visualizacoes > 0)
 }
 
+// Só o passo com a MAIOR taxa_queda entre os que têm taxa calculável
+// (visualizacoes > 0 — ver montarFunilPorPasso em tours.ts). Nunca recalcula
+// nada, só percorre o funil já pronto pra achar o pior ponto de queda.
+function passoComMaiorQueda(funil: FunilPassoItem[]): FunilPassoItem | null {
+  let pior: FunilPassoItem | null = null
+  for (const item of funil) {
+    if (item.taxa_queda == null) continue
+    if (!pior || item.taxa_queda > (pior.taxa_queda as number)) pior = item
+  }
+  return pior
+}
+
+function ResumoFunilLinha({ funil }: { funil: FunilPassoItem[] }) {
+  const totalPassos = funil.length
+  const totalElementoNaoEncontrado = funil.reduce((acc, p) => acc + p.elemento_nao_encontrado, 0)
+  const pior = passoComMaiorQueda(funil)
+
+  return (
+    <p className="px-5 py-2 text-label-md text-on-surface-variant bg-surface-container-low/50 border-b border-outline-variant/30 flex flex-wrap items-center gap-x-1.5">
+      <span>{totalPassos} passo{totalPassos === 1 ? '' : 's'}</span>
+      {pior && (
+        <>
+          <span className="text-outline">•</span>
+          <span>
+            Maior queda: #{pior.passo_ordem + 1} {pior.passo_titulo} ({(pior.taxa_queda as number).toLocaleString('pt-BR')}%)
+          </span>
+        </>
+      )}
+      <span className="text-outline">•</span>
+      <span>{totalElementoNaoEncontrado} falha{totalElementoNaoEncontrado === 1 ? '' : 's'} de elemento</span>
+    </p>
+  )
+}
+
 function FunilPorPassoSection({ funil }: { funil: FunilPassoItem[] }) {
   return (
-    <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden h-full">
-      <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3">
+    <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden h-full flex flex-col">
+      <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3 shrink-0">
         <span className="material-symbols-outlined text-on-surface-variant">filter_alt</span>
         <div>
           <h3 className="text-title-lg font-bold text-on-surface">Funil por passo</h3>
@@ -563,34 +597,58 @@ function FunilPorPassoSection({ funil }: { funil: FunilPassoItem[] }) {
           description="Ainda não há eventos suficientes para montar o funil."
         />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-surface-container-low border-b border-outline-variant">
-              <tr>
-                {['Passo', 'Visualizações', 'Próximo passo', 'Queda estimada', 'Elemento não encontrado'].map(h => (
-                  <th
-                    key={h}
-                    className="px-4 py-2.5 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap"
-                    title={h === 'Queda estimada'
-                      ? 'Quantidade estimada de usuários que visualizaram este passo, mas não avançaram para o próximo. No último passo, considera quem não concluiu o tour.'
-                      : undefined}
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-outline-variant/30">
-              {funil.map(item => <FunilPassoRow key={item.passo_ordem} item={item} />)}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <ResumoFunilLinha funil={funil} />
+          {/* max-h fixo + overflow-y aqui é o que evita a página inteira
+              alongar em Tours com muitos passos — o card continua com altura
+              previsível, só a tabela ganha um scroll próprio. overflow-x
+              continua no mesmo container (não quebra em telas menores). */}
+          <div className="overflow-y-auto overflow-x-auto max-h-[420px]">
+            <table className="w-full text-left">
+              <thead className="bg-surface-container-low">
+                <tr>
+                  {['Passo', 'Visualizações', 'Próximo passo', 'Queda estimada', 'Elemento não encontrado'].map(h => (
+                    <th
+                      key={h}
+                      className="sticky top-0 z-10 bg-surface-container-low px-4 py-2.5 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap border-b border-outline-variant"
+                      title={h === 'Queda estimada'
+                        ? 'Quantidade estimada de usuários que visualizaram este passo, mas não avançaram para o próximo. No último passo, considera quem não concluiu o tour.'
+                        : undefined}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant/30">
+                {funil.map(item => <FunilPassoRow key={item.passo_ordem} item={item} />)}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   )
 }
 
+// 'forte'/'moderado' são só destaque visual de leitura — nunca mudam o
+// número exibido (abandonos_estimados/taxa_queda seguem vindo direto do
+// payload, sem nenhum recálculo aqui).
+function nivelQueda(taxaQueda: number | null): 'forte' | 'moderado' | 'normal' {
+  if (taxaQueda == null) return 'normal'
+  if (taxaQueda >= 30) return 'forte'
+  if (taxaQueda >= 15) return 'moderado'
+  return 'normal'
+}
+
+const QUEDA_CLASSES: Record<'forte' | 'moderado' | 'normal', string> = {
+  forte: 'inline-flex items-center px-2 py-0.5 rounded-full bg-error/10 text-error text-[13px] font-bold',
+  moderado: 'text-[13px] text-error font-semibold',
+  normal: 'text-[13px] text-on-surface',
+}
+
 function FunilPassoRow({ item }: { item: FunilPassoItem }) {
+  const queda = nivelQueda(item.taxa_queda)
   return (
     <tr className="hover:bg-surface-container-low/50 transition-colors">
       <td className="px-4 py-2.5 whitespace-nowrap align-middle max-w-[220px]">
@@ -614,10 +672,12 @@ function FunilPassoRow({ item }: { item: FunilPassoItem }) {
         )}
       </td>
       <td className="px-4 py-2.5 whitespace-nowrap align-middle">
-        <span className="text-[13px] text-on-surface">
+        <span className={QUEDA_CLASSES[queda]}>
           {item.abandonos_estimados.toLocaleString('pt-BR')}
           {item.taxa_queda != null && (
-            <span className="text-[12px] text-error ml-1">({item.taxa_queda}%)</span>
+            <span className={queda === 'forte' ? 'text-[12px] ml-1' : 'text-[12px] ml-1 opacity-80'}>
+              ({item.taxa_queda.toLocaleString('pt-BR')}%)
+            </span>
           )}
         </span>
       </td>
