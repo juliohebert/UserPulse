@@ -2635,10 +2635,18 @@
     } catch (_err) {}
   }
 
-  function registrarEventoTour(tipoEvento, passoOrdem) {
+  // contextoExtra (opcional) — mesclado por cima de config.contexto só nesta
+  // chamada (nunca muda config.contexto em si), pra eventos que precisam
+  // carregar um dado próprio além do contexto padrão do widget — ver
+  // tourFeedback (feedback_valor/feedback_label/feedback_emoji). Nunca dado
+  // sensível: só rótulos fixos escolhidos no próprio código do widget.
+  function registrarEventoTour(tipoEvento, passoOrdem, contextoExtra) {
     var tour = tourState.tour;
     var config = state.config;
     if (!tour || !config || tourState.preview) return; // prévia do gravador nunca gera evento real
+    var contexto = contextoExtra
+      ? Object.assign({}, config.contexto || {}, contextoExtra)
+      : (config.contexto || undefined);
     fetch(apiUrl('/api/widget/tour/evento'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -2651,7 +2659,7 @@
         tela: config.tela || undefined,
         navegador: window.navigator.userAgent,
         dispositivo: getDevice(),
-        contexto: config.contexto || undefined,
+        contexto: contexto,
       }),
     }).catch(function () { /* fail silently */ });
   }
@@ -3400,9 +3408,9 @@
   }
 
   // Tela final, exibida depois do último passo (tourConcluir monta essa tela
-  // em vez de encerrar na hora — ver tourConcluir). O feedback é só visual/
-  // local: não há endpoint/tipo de evento pra isso hoje, e a instrução foi
-  // explícita em não criar backend novo só pra essa avaliação.
+  // em vez de encerrar na hora — ver tourConcluir). O feedback é registrado
+  // como evento 'feedback_tour' ao clicar (ver tourFeedback) — esta função só
+  // decide o que mostrar (botões ou "obrigado"), nunca registra nada sozinha.
   function renderTourFim() {
     if (tourState.feedbackEscolhido) {
       return [
@@ -4391,17 +4399,48 @@
     }
   }
 
-  // Feedback da tela final — só visual/local (não existe endpoint/tipo de
-  // evento pra isso hoje, e criar um exigiria mudança de backend). Mostra um
-  // "obrigado" rápido e fecha sozinho.
+  // Feedback da tela final — mostra um "obrigado" rápido e fecha sozinho.
+  // Registrado como evento 'feedback_tour' (ver registrarEventoTour), com o
+  // valor/label/emoji escolhidos dentro de contexto (EventoTour.contexto já é
+  // Json? livre no schema — nenhuma migration nova). Mesmos guards de
+  // registrarEventoTour se aplicam sozinhos aqui (nunca em preview, nunca sem
+  // tour/config, nunca quebra a experiência se a chamada falhar).
   var TOUR_FEEDBACK_AUTOFECHAR_MS = 1400;
+
+  var TOUR_FEEDBACK_INFO = {
+    nao_ajudou: { label: 'Não ajudou', emoji: '😕' },
+    ajudou: { label: 'Ajudou', emoji: '🙂' },
+    muito_util: { label: 'Muito útil', emoji: '🤩' },
+  };
 
   function tourFeedback(valor) {
     if (!valor) return;
+    // Guarda contra clique duplicado/repetido no mesmo fim de tour — os
+    // botões de feedback já somem da tela assim que feedbackEscolhido vira
+    // truthy (ver renderTourFim), mas essa checagem evita reenviar o evento
+    // mesmo numa chamada dupla que chegue aqui antes do próximo render.
+    if (tourState.feedbackEscolhido) return;
     tourState.feedbackEscolhido = valor;
+    var info = TOUR_FEEDBACK_INFO[valor] || {};
+    registrarEventoTour('feedback_tour', tourState.indice, {
+      feedback_valor: valor,
+      feedback_label: info.label || valor,
+      feedback_emoji: info.emoji || null,
+    });
     renderTour();
     limparFimTimer();
     tourState.fimTimer = window.setTimeout(finalizarTour, TOUR_FEEDBACK_AUTOFECHAR_MS);
+  }
+
+  // Snapshot mínimo pra teste (mesmo padrão de recorderGetTestSnapshot) —
+  // nunca tourState/config/contexto/tour/passos inteiros, só o suficiente
+  // pra validar o fluxo de feedback sem revelar dado nenhum do host/tour.
+  function tourGetTestSnapshot() {
+    return {
+      ativo: tourState.ativo,
+      preview: tourState.preview,
+      feedbackEscolhido: tourState.feedbackEscolhido,
+    };
   }
 
   // Ao concluir o último passo, mostra a tela final (com feedback opcional)
@@ -9242,11 +9281,31 @@
   //     totalPassos) usada por recorderRenderPainelFinal — testa que
   //     contexto='editar_tour_existente' troca os textos certos, e que sem
   //     contexto o texto antigo (orientado a criar/importar) continua igual.
+  //   - tourGetTestSnapshot: mesmo padrão de recorderGetTestSnapshot — só
+  //     { ativo, preview, feedbackEscolhido }, nunca o state geral do widget
+  //     (config/campanha/jornada, que pode carregar usuario_email/nome
+  //     passados pelo host em window.UserPulse.init()) nem tourState.tour por
+  //     essa via. Usado pra validar o resultado do feedback sem revelar dado
+  //     nenhum do host/tour em si — ver server/src/widgetTourFeedback.test.ts.
+  //   - renderTour: a MESMA função de render/orquestração usada em produção
+  //     (só desenha o DOM a partir do tourState atual e religa os listeners
+  //     de clique via bindTourEvents — nunca lê/expõe dado nenhum, nunca
+  //     registra evento sozinha). Exposta pra que o teste do feedback final
+  //     dispare o clique real no botão (via o listener que bindTourEvents
+  //     religou) em vez de chamar tourFeedback() diretamente — de propósito
+  //     NÃO expomos tourFeedback aqui: é a função que registra o evento de
+  //     verdade, e expor uma função pública assim, com esse efeito colateral,
+  //     deixaria qualquer script no domínio do cliente livre pra chamá-la à
+  //     vontade. Simular o clique de verdade testa o mesmo caminho de
+  //     produção sem abrir esse atalho — ver
+  //     server/src/widgetTourFeedback.test.ts.
   window.UserPulse._internal = {
     avaliarSegmentacaoTour: avaliarSegmentacaoTour,
     tourState: tourState,
     tourVoltar: tourVoltar,
     finalizarTour: finalizarTour,
+    tourGetTestSnapshot: tourGetTestSnapshot,
+    renderTour: renderTour,
     recorderCapturarClique: recorderCapturarClique,
     recorderCapturarValor: recorderCapturarValor,
     recorderPausarOuContinuar: recorderPausarOuContinuar,

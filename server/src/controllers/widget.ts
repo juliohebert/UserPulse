@@ -702,7 +702,10 @@ export async function registrarEventoTour(req: Request, res: Response) {
     if (!tour_id) return res.status(400).json({ erro: 'tour_id é obrigatório.' })
     if (!tipo_evento) return res.status(400).json({ erro: 'tipo_evento é obrigatório.' })
 
-    const TIPOS_VALIDOS = ['inicio', 'passo_visualizado', 'elemento_nao_encontrado', 'pulado', 'concluido']
+    // feedback_tour: clique numa das opções da tela final (ver tourFeedback
+    // em widget.js) — valor/label/emoji escolhidos vão dentro de contexto
+    // (Json? já existente, sem migration nova).
+    const TIPOS_VALIDOS = ['inicio', 'passo_visualizado', 'elemento_nao_encontrado', 'pulado', 'concluido', 'feedback_tour']
     if (!TIPOS_VALIDOS.includes(tipo_evento)) {
       return res.status(400).json({ erro: `tipo_evento inválido. Use: ${TIPOS_VALIDOS.join(', ')}.` })
     }
