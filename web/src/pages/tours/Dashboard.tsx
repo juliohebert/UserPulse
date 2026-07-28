@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get } from '../../services/api'
-import type { EventoTourDashboard, TourDashboardData } from '../../types'
+import type { EventoTourDashboard, FunilPassoItem, ResumoFeedbackTour, TourDashboardData } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Pagination } from '../../components/ui/Pagination'
@@ -205,6 +205,14 @@ export function TourDashboard() {
         <span className="material-symbols-outlined text-[18px] text-primary shrink-0 mt-0.5">insights</span>
         {resumo}
       </p>
+
+      {/* Funil por passo + resumo de feedback */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-6">
+        <div className="xl:col-span-2">
+          <FunilPorPassoSection funil={data.funil_por_passo} />
+        </div>
+        <FeedbackResumoSection feedback={data.feedback} />
+      </div>
 
       {/* Eventos do tour */}
       <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
@@ -522,6 +530,159 @@ function KpiCard({ icon, iconColor, iconBg, label, value, sub }: {
           {sub && <p className="text-label-md text-outline mt-1">{sub}</p>}
         </div>
       </div>
+    </div>
+  )
+}
+
+// "Sem eventos suficientes" quando nenhum passo tem visualização registrada
+// ainda — nesse caso o funil inteiro seria só zeros, sem nenhuma informação
+// útil (diferente de "tour sem passos", que também cai aqui pela mesma razão:
+// funil.length === 0 já soma 0).
+function funilTemDados(funil: FunilPassoItem[]): boolean {
+  return funil.some(p => p.visualizacoes > 0)
+}
+
+function FunilPorPassoSection({ funil }: { funil: FunilPassoItem[] }) {
+  return (
+    <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden h-full">
+      <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3">
+        <span className="material-symbols-outlined text-on-surface-variant">filter_alt</span>
+        <div>
+          <h3 className="text-title-lg font-bold text-on-surface">Funil por passo</h3>
+          <p className="text-label-md text-outline mt-0.5">
+            Acompanhe em quais passos os usuários continuam, abandonam ou encontram falhas no tour. A queda é
+            estimada com base em quem viu um passo, mas não chegou ao próximo.
+          </p>
+        </div>
+      </div>
+
+      {!funilTemDados(funil) ? (
+        <EmptyState
+          icon="query_stats"
+          title="Funil ainda sem dados"
+          description="Ainda não há eventos suficientes para montar o funil."
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-surface-container-low border-b border-outline-variant">
+              <tr>
+                {['Passo', 'Visualizações', 'Próximo passo', 'Queda estimada', 'Elemento não encontrado'].map(h => (
+                  <th
+                    key={h}
+                    className="px-4 py-2.5 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap"
+                    title={h === 'Queda estimada'
+                      ? 'Quantidade estimada de usuários que visualizaram este passo, mas não avançaram para o próximo. No último passo, considera quem não concluiu o tour.'
+                      : undefined}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-outline-variant/30">
+              {funil.map(item => <FunilPassoRow key={item.passo_ordem} item={item} />)}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FunilPassoRow({ item }: { item: FunilPassoItem }) {
+  return (
+    <tr className="hover:bg-surface-container-low/50 transition-colors">
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle max-w-[220px]">
+        <span className="text-[13px] text-on-surface truncate block" title={item.passo_titulo}>
+          #{item.passo_ordem + 1} {item.passo_titulo}
+        </span>
+      </td>
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
+        <span className="text-[13px] text-on-surface">{item.visualizacoes.toLocaleString('pt-BR')}</span>
+      </td>
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
+        {item.ultimo_passo ? (
+          <span className="text-[12px] text-tertiary font-semibold">Concluído o tour</span>
+        ) : (
+          <span className="text-[13px] text-on-surface">
+            {(item.proximo_passo_visualizacoes ?? 0).toLocaleString('pt-BR')}
+            {item.taxa_continuidade != null && (
+              <span className="text-[12px] text-outline ml-1">({item.taxa_continuidade}%)</span>
+            )}
+          </span>
+        )}
+      </td>
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
+        <span className="text-[13px] text-on-surface">
+          {item.abandonos_estimados.toLocaleString('pt-BR')}
+          {item.taxa_queda != null && (
+            <span className="text-[12px] text-error ml-1">({item.taxa_queda}%)</span>
+          )}
+        </span>
+      </td>
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
+        {item.elemento_nao_encontrado > 0 ? (
+          <span className="text-[13px] text-error font-semibold">{item.elemento_nao_encontrado}</span>
+        ) : (
+          <span className="text-[13px] text-outline">0</span>
+        )}
+      </td>
+    </tr>
+  )
+}
+
+const FEEDBACK_CATEGORIA_UI: Record<'positivos' | 'neutros' | 'negativos', { label: string; icon: string; color: string }> = {
+  positivos: { label: 'Positivos', icon: 'sentiment_very_satisfied', color: 'text-tertiary' },
+  neutros: { label: 'Neutros', icon: 'sentiment_neutral', color: 'text-secondary' },
+  negativos: { label: 'Negativos', icon: 'sentiment_dissatisfied', color: 'text-error' },
+}
+
+function FeedbackResumoSection({ feedback }: { feedback: ResumoFeedbackTour }) {
+  return (
+    <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden h-full">
+      <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3">
+        <span className="material-symbols-outlined text-on-surface-variant">sentiment_satisfied</span>
+        <div>
+          <h3 className="text-title-lg font-bold text-on-surface">Feedback do tour</h3>
+          <p className="text-label-md text-outline mt-0.5">
+            {feedback.total} resposta{feedback.total === 1 ? '' : 's'}
+          </p>
+        </div>
+      </div>
+
+      {feedback.total === 0 ? (
+        <EmptyState
+          icon="chat_bubble"
+          title="Sem feedback ainda"
+          description="Ninguém avaliou a tela final deste tour ainda."
+        />
+      ) : (
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-3 gap-2">
+            {(['positivos', 'neutros', 'negativos'] as const).map(chave => {
+              const cfg = FEEDBACK_CATEGORIA_UI[chave]
+              return (
+                <div key={chave} className="text-center">
+                  <span className={`material-symbols-outlined ${cfg.color} text-[22px]`}>{cfg.icon}</span>
+                  <p className="text-headline-lg font-bold text-on-surface leading-none mt-1">{feedback[chave]}</p>
+                  <p className="text-label-sm text-outline mt-0.5">{cfg.label}</p>
+                </div>
+              )
+            })}
+          </div>
+          {feedback.por_valor.length > 0 && (
+            <ul className="space-y-1.5 pt-2 border-t border-outline-variant/30">
+              {feedback.por_valor.map(item => (
+                <li key={item.valor} className="flex items-center justify-between text-[13px] text-on-surface">
+                  <span>{item.emoji} {item.label}</span>
+                  <span className="font-semibold">{item.total.toLocaleString('pt-BR')}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }
