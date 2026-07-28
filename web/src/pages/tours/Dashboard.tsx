@@ -492,6 +492,7 @@ const EVENTO_TOUR_BADGES: Record<string, { icon: string; label: string; classNam
   elemento_nao_encontrado: { icon: 'search_off', label: 'Elemento não encontrado', className: 'bg-error/10 text-error' },
   pulado: { icon: 'skip_next', label: 'Pulado', className: 'bg-yellow-100 text-yellow-700' },
   concluido: { icon: 'check_circle', label: 'Concluído', className: 'bg-tertiary/10 text-tertiary' },
+  feedback_tour: { icon: 'sentiment_satisfied', label: 'Feedback', className: 'bg-tertiary/10 text-tertiary' },
 }
 
 function EventoTourBadge({ tipo }: { tipo: string }) {

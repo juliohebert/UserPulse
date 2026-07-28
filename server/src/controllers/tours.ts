@@ -14,7 +14,10 @@ const TOOLTIP_POSICOES = ['auto', 'top', 'bottom', 'left', 'right']
 const ACOES_AO_AVANCAR = ['apenas_avancar', 'clicar_elemento']
 const MODOS_AVANCO_INTERACAO = ['manual', 'ao_clicar', 'ao_alterar_valor', 'ao_aparecer_elemento', 'ao_sumir_elemento']
 const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
-const TIPOS_EVENTO_TOUR = ['inicio', 'passo_visualizado', 'elemento_nao_encontrado', 'pulado', 'concluido']
+// feedback_tour: clique numa das opções de feedback da tela final do Tour
+// (ver tourFeedback em widget.js e registrarEventoTour no controller de
+// widget) — mesma lista de tipos válidos usada lá, mantida em sincronia.
+const TIPOS_EVENTO_TOUR = ['inicio', 'passo_visualizado', 'elemento_nao_encontrado', 'pulado', 'concluido', 'feedback_tour']
 
 // Segmentação por contexto (MVP) — ver comentário de segmentacao_regras em
 // schema.prisma e avaliarSegmentacaoTour em widget.js (avaliação de verdade
@@ -659,6 +662,7 @@ export async function buscarDashboard(req: Request, res: Response) {
         elemento_nao_encontrado: 'elemento nao encontrado',
         pulado: 'pulado',
         concluido: 'concluido',
+        feedback_tour: 'feedback tour',
       }
       const tiposCorrespondentes = TIPOS_EVENTO_TOUR.filter(t =>
         normalizar(t).includes(termoNormalizado) || normalizar(LABELS_TIPO_EVENTO[t]).includes(termoNormalizado)
