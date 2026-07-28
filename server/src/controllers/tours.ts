@@ -143,13 +143,99 @@ function validarPassos(passos: unknown, exigirSeletor: boolean): { erro: string 
   return { erro: null, lista: passos as PassoInput[] }
 }
 
-export async function listar(_req: Request, res: Response) {
+export interface FiltrosListaTours {
+  busca?: string
+  sistema?: string
+  status?: string
+}
+
+// Pura — monta só o where do Prisma a partir dos filtros já usados hoje na
+// tela (busca por título/sistema/slug/tela, sistema exato do dropdown,
+// status ativos/inativos das abas). Sem toque em Prisma/HTTP, testável direto
+// (mesmo padrão de validarSegmentacaoRegras acima).
+export function montarWhereListaTours(filtros: FiltrosListaTours): Prisma.TourGuiadoWhereInput {
+  const where: Prisma.TourGuiadoWhereInput = {}
+  if (filtros.status === 'ativos') where.ativo = true
+  else if (filtros.status === 'inativos') where.ativo = false
+  if (filtros.sistema?.trim()) where.sistema = filtros.sistema.trim()
+  if (filtros.busca?.trim()) {
+    const termo = filtros.busca.trim()
+    where.OR = [
+      { titulo: { contains: termo, mode: 'insensitive' } },
+      { sistema: { contains: termo, mode: 'insensitive' } },
+      { slug: { contains: termo, mode: 'insensitive' } },
+      { tela: { contains: termo, mode: 'insensitive' } },
+    ]
+  }
+  return where
+}
+
+const TOURS_PER_PAGE_PADRAO = 10
+const TOURS_PER_PAGE_MAXIMO = 100
+
+// Pura — mesmo padrão de clamp já usado em buscarDashboard (page mínimo 1,
+// per_page entre 1 e 100), só que isolada aqui pra não precisar tocar em
+// buscarDashboard/funil por causa desta feature.
+export function normalizarPaginacaoTours(page: unknown, perPage: unknown): { page: number; perPage: number } {
+  const pageNum = Math.max(1, Math.trunc(Number(page)) || 1)
+  const perPageNum = Math.min(TOURS_PER_PAGE_MAXIMO, Math.max(1, Math.trunc(Number(perPage)) || TOURS_PER_PAGE_PADRAO))
+  return { page: pageNum, perPage: perPageNum }
+}
+
+export async function listar(req: Request, res: Response) {
   try {
-    const tours = await prisma.tourGuiado.findMany({
-      orderBy: { criado_em: 'desc' },
-      include: { _count: { select: { passos: true } } },
+    const { busca, sistema, status, page, pageSize } = req.query as Record<string, string | undefined>
+    const where = montarWhereListaTours({ busca, sistema, status })
+
+    // Sem page/pageSize, devolve o array puro de sempre — compatibilidade com
+    // quem já consome /tours sem paginação (web/src/pages/Dashboard.tsx e
+    // web/src/pages/jornadas/Form.tsx usam a lista inteira pra montar
+    // dropdown/seleção de tours e nunca são tocados por esta mudança).
+    if (page == null && pageSize == null) {
+      const tours = await prisma.tourGuiado.findMany({
+        where,
+        orderBy: { criado_em: 'desc' },
+        include: { _count: { select: { passos: true } } },
+      })
+      return res.json(tours)
+    }
+
+    const { page: pageNum, perPage: perPageNum } = normalizarPaginacaoTours(page, pageSize)
+
+    const [items, total, totalGeral, ativosGeral, inativosGeral, totalPassosGeral, sistemasRows] = await Promise.all([
+      prisma.tourGuiado.findMany({
+        where,
+        orderBy: { criado_em: 'desc' },
+        include: { _count: { select: { passos: true } } },
+        skip: (pageNum - 1) * perPageNum,
+        take: perPageNum,
+      }),
+      // total considerando os filtros — usado pela paginação (total_pages).
+      prisma.tourGuiado.count({ where }),
+      // resumo/KPIs abaixo NUNCA consideram busca/sistema/status — mesmo
+      // comportamento de antes (os cards de topo já mostravam os totais da
+      // base inteira, independente dos filtros aplicados na tabela).
+      prisma.tourGuiado.count(),
+      prisma.tourGuiado.count({ where: { ativo: true } }),
+      prisma.tourGuiado.count({ where: { ativo: false } }),
+      prisma.tourPasso.count(),
+      prisma.tourGuiado.findMany({ distinct: ['sistema'], select: { sistema: true }, orderBy: { sistema: 'asc' } }),
+    ])
+
+    res.json({
+      items,
+      total,
+      page: pageNum,
+      per_page: perPageNum,
+      total_pages: Math.max(1, Math.ceil(total / perPageNum)),
+      resumo: {
+        total: totalGeral,
+        ativos: ativosGeral,
+        inativos: inativosGeral,
+        total_passos: totalPassosGeral,
+      },
+      sistemas: sistemasRows.map(r => r.sistema),
     })
-    res.json(tours)
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao listar tours guiados.' })

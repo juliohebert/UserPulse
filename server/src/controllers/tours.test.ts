@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { validarSegmentacaoRegras, montarFunilPorPasso, montarResumoFeedback } from './tours'
+import { validarSegmentacaoRegras, montarFunilPorPasso, montarResumoFeedback, montarWhereListaTours, normalizarPaginacaoTours } from './tours'
 
 // validarSegmentacaoRegras é a única peça de lógica de Segmentação de Tours
 // que vive no backend — decide o que criar()/atualizar()/importar() persistem
@@ -232,6 +232,95 @@ describe('montarResumoFeedback — agregação de feedback_tour por valor', () =
   })
 })
 
+describe('montarWhereListaTours — filtros da listagem de Tours (GET /tours)', () => {
+  test('sem filtro nenhum => where vazio (mesma consulta de sempre)', () => {
+    assert.deepEqual(montarWhereListaTours({}), {})
+  })
+
+  test('status=ativos => where.ativo=true', () => {
+    assert.deepEqual(montarWhereListaTours({ status: 'ativos' }), { ativo: true })
+  })
+
+  test('status=inativos => where.ativo=false', () => {
+    assert.deepEqual(montarWhereListaTours({ status: 'inativos' }), { ativo: false })
+  })
+
+  test('status=todos (ou qualquer outro valor) => sem where.ativo, igual a "sem filtro"', () => {
+    assert.deepEqual(montarWhereListaTours({ status: 'todos' }), {})
+    assert.deepEqual(montarWhereListaTours({ status: 'qualquer-coisa' }), {})
+  })
+
+  test('sistema preenchido => match exato, trimado', () => {
+    assert.deepEqual(montarWhereListaTours({ sistema: '  crm  ' }), { sistema: 'crm' })
+  })
+
+  test('sistema só com espaços => tratado como ausente', () => {
+    assert.deepEqual(montarWhereListaTours({ sistema: '   ' }), {})
+  })
+
+  test('busca preenchida => OR contains/insensitive em titulo, sistema, slug e tela', () => {
+    const where = montarWhereListaTours({ busca: 'agenda' })
+    assert.deepEqual(where, {
+      OR: [
+        { titulo: { contains: 'agenda', mode: 'insensitive' } },
+        { sistema: { contains: 'agenda', mode: 'insensitive' } },
+        { slug: { contains: 'agenda', mode: 'insensitive' } },
+        { tela: { contains: 'agenda', mode: 'insensitive' } },
+      ],
+    })
+  })
+
+  test('busca é trimada antes de virar o termo de busca', () => {
+    const where = montarWhereListaTours({ busca: '  agenda  ' })
+    assert.equal((where.OR as Array<{ titulo: { contains: string } }>)[0].titulo.contains, 'agenda')
+  })
+
+  test('busca só com espaços => tratada como ausente (sem where.OR)', () => {
+    assert.deepEqual(montarWhereListaTours({ busca: '   ' }), {})
+  })
+
+  test('busca + sistema + status combinados => todos os filtros presentes juntos (AND implícito)', () => {
+    const where = montarWhereListaTours({ busca: 'agenda', sistema: 'crm', status: 'ativos' })
+    assert.equal(where.ativo, true)
+    assert.equal(where.sistema, 'crm')
+    assert.ok(Array.isArray(where.OR))
+  })
+})
+
+describe('normalizarPaginacaoTours — clamp de page/pageSize da listagem de Tours', () => {
+  test('sem page nem pageSize => padrão (page=1, perPage=10)', () => {
+    assert.deepEqual(normalizarPaginacaoTours(undefined, undefined), { page: 1, perPage: 10 })
+  })
+
+  test('page e pageSize numéricos válidos são usados como vieram', () => {
+    assert.deepEqual(normalizarPaginacaoTours('3', '25'), { page: 3, perPage: 25 })
+  })
+
+  test('pageSize acima de 100 é limitado a 100 (evita payload gigante)', () => {
+    assert.deepEqual(normalizarPaginacaoTours('1', '9999'), { page: 1, perPage: 100 })
+  })
+
+  test('page <= 0 ou não numérica cai pra 1', () => {
+    assert.equal(normalizarPaginacaoTours('0', '10').page, 1)
+    assert.equal(normalizarPaginacaoTours('-5', '10').page, 1)
+    assert.equal(normalizarPaginacaoTours('abc', '10').page, 1)
+    assert.equal(normalizarPaginacaoTours(undefined, '10').page, 1)
+  })
+
+  test('pageSize 0/não-numérico cai pro padrão (10); negativo só é limitado ao mínimo (1)', () => {
+    // 0 e NaN são falsy em JS => o "|| PADRAO" pega os dois. Negativo é
+    // truthy (não entra no "||"), então só desce até o mínimo de 1 — mesmo
+    // comportamento (não é bug) já usado em per_page de buscarDashboard.
+    assert.equal(normalizarPaginacaoTours('1', '0').perPage, 10)
+    assert.equal(normalizarPaginacaoTours('1', 'abc').perPage, 10)
+    assert.equal(normalizarPaginacaoTours('1', '-5').perPage, 1)
+  })
+
+  test('valores fracionários são truncados', () => {
+    assert.deepEqual(normalizarPaginacaoTours('2.9', '15.9'), { page: 2, perPage: 15 })
+  })
+})
+
 // ─── O que ficou fora deste arquivo, e por quê ─────────────────────────────
 // criar()/atualizar()/duplicar()/exportar()/importar() em si (efeito de
 // verdade no banco: "salva null", "PUT sem campo preserva", "PUT null limpa",
@@ -262,3 +351,18 @@ describe('montarResumoFeedback — agregação de feedback_tour por valor', () =
 // feedback_tour gerados via curl, funil e resumo de feedback conferidos no
 // Dashboard, e os mesmos filtros de período/cliente/usuário/unidade já
 // existentes aplicados sobre o funil.
+//
+// listar (GET /tours com paginação server-side) segue o mesmo padrão:
+// montarWhereListaTours/normalizarPaginacaoTours (testadas acima) são toda a
+// lógica própria da rota — o resto é skip/take/count/distinct direto no
+// Prisma, sem nenhum branching adicional que valha a pena testar sem banco
+// real. O ramo de compatibilidade (sem page/pageSize, devolve array puro) e o
+// ramo paginado (com resumo/sistemas) foram validados manualmente contra o
+// servidor local real (curl): contagem/total/total_pages batendo com o
+// esperado, busca por título/sistema/slug/tela funcionando, status
+// ativos/inativos filtrando corretamente, resumo (KPIs) sempre refletindo a
+// base inteira independente dos filtros aplicados, e — o mais importante —
+// GET /tours sem parâmetro nenhum continuando a devolver o array de sempre
+// (conferido especificamente porque web/src/pages/Dashboard.tsx e
+// web/src/pages/jornadas/Form.tsx dependem desse formato e não foram
+// tocados nesta tarefa).
