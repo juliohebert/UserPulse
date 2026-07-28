@@ -4432,15 +4432,68 @@
     tourState.fimTimer = window.setTimeout(finalizarTour, TOUR_FEEDBACK_AUTOFECHAR_MS);
   }
 
-  // Snapshot mínimo pra teste (mesmo padrão de recorderGetTestSnapshot) —
-  // nunca tourState/config/contexto/tour/passos inteiros, só o suficiente
-  // pra validar o fluxo de feedback sem revelar dado nenhum do host/tour.
+  // ─── Helpers de teste (harness/vm) ─────────────────────────────────────
+  // Nunca usados em produção — existem só pra widgetTourFeedback.test.ts,
+  // widgetTourVoltar.test.ts e widgetRecorderPause.test.ts montarem cenário
+  // e inspecionarem resultado sem depender de window.UserPulse._internal.
+  // tourState (removido de propósito: expunha o objeto inteiro por
+  // referência — tour/passos, aparencia, urlPorPasso etc. — pro domínio do
+  // cliente conseguir ler E alterar). Cada helper abaixo só lê/escreve um
+  // subconjunto mínimo e nomeado; nenhum devolve tourState.tour/aparencia
+  // inteiros, config/contexto do host, nem o objeto tourState em si.
+
+  // Snapshot mínimo (mesmo padrão de recorderGetTestSnapshot) — nunca
+  // tourState/config/contexto/tour/passos inteiros, só o suficiente pra
+  // validar feedback final e a decisão de tourVoltar.
   function tourGetTestSnapshot() {
     return {
       ativo: tourState.ativo,
       preview: tourState.preview,
       feedbackEscolhido: tourState.feedbackEscolhido,
+      indice: tourState.indice,
+      voltarFallbackTimerAtivo: tourState.voltarFallbackTimer != null,
     };
+  }
+
+  // Snapshot derivado do tour ativo — só titulo/contagem/seletorTipos (nunca
+  // seletor de verdade, id, descrição ou o array de passos em si). Usado só
+  // por widgetRecorderPause.test.ts pra validar que iniciarPreviewSeNecessario
+  // montou o tour temporário certo a partir dos passos colados.
+  function tourGetTestStepSnapshot() {
+    var passos = (tourState.tour && tourState.tour.passos) || [];
+    return {
+      tourTitulo: tourState.tour ? tourState.tour.titulo : null,
+      totalPassos: passos.length,
+      seletorTipos: passos.map(function (p) { return p.seletor_tipo; }),
+    };
+  }
+
+  // Campos que o setter de teste abaixo tem permissão de escrever — lista
+  // fechada de propósito: nunca deixa um teste (ou script no domínio do
+  // cliente, já que isso só existe pra harness mesmo) injetar campo
+  // arbitrário em tourState por essa via.
+  var TOUR_TEST_STATE_CAMPOS_PERMITIDOS = ['ativo', 'tour', 'indice', 'tela', 'feedbackEscolhido', 'preview', 'urlPorPasso'];
+
+  // Setter controlado pra montar cenário de teste (ex.: "tour ativo, no
+  // passo 1, tela final") sem expor tourState por referência — copia só os
+  // campos da lista acima, nunca o objeto inteiro nem aceita chave fora dela.
+  function tourSetTestState(parcial) {
+    if (!parcial) return;
+    for (var i = 0; i < TOUR_TEST_STATE_CAMPOS_PERMITIDOS.length; i++) {
+      var campo = TOUR_TEST_STATE_CAMPOS_PERMITIDOS[i];
+      if (Object.prototype.hasOwnProperty.call(parcial, campo)) tourState[campo] = parcial[campo];
+    }
+  }
+
+  // Devolve só o listener de clique religado por bindTourEvents no root
+  // atual (chamado depois de renderTour()) — usado pra simular um clique
+  // real no botão de feedback sem expor tourState.root (ou qualquer outro
+  // campo) em _internal. `.listeners` é uma propriedade do elemento FAKE
+  // usado só pelo harness de teste (vm) — um DOM real não tem isso, então
+  // este helper nunca resolve nada fora do harness.
+  function tourGetTestClickListener() {
+    var root = tourState.root;
+    return (root && root.listeners && root.listeners.click && root.listeners.click[0]) || null;
   }
 
   // Ao concluir o último passo, mostra a tela final (com feedback opcional)
@@ -9243,14 +9296,17 @@
   // completo. Nunca documentado pro host.
   //   - avaliarSegmentacaoTour: função pura, sem DOM/rede — ver
   //     server/src/widgetTourSegmentacao.test.ts.
-  //   - tourState: referência direta (não cópia) ao estado interno do tour —
-  //     permite montar cenários (indice/urlPorPasso/ativo) sem rodar um tour
-  //     completo de verdade, e inspecionar o resultado (ex.: voltarFallbackTimer
-  //     como sinal de "navegação pendente"). Só leitura/setup em teste; nunca
-  //     mutado pelo próprio runtime através deste objeto.
   //   - tourVoltar/finalizarTour: mesmas funções do runtime, chamadas direto
   //     pra testar a decisão de navegação do "Voltar" — ver
-  //     server/src/widgetTourVoltar.test.ts.
+  //     server/src/widgetTourVoltar.test.ts. tourState em si NUNCA é exposto
+  //     aqui (nem direto nem em cópia) — expunha o objeto inteiro por
+  //     referência (tour/passos, aparencia, urlPorPasso, config indireta via
+  //     jornadaContexto etc.), deixando qualquer script no domínio do
+  //     cliente livre pra ler E alterar esse estado à vontade. Em vez disso,
+  //     ver os helpers de teste logo abaixo de tourFeedback em widget.js:
+  //     tourSetTestState (setter controlado, lista fechada de campos),
+  //     tourGetTestSnapshot/tourGetTestStepSnapshot (leitura mínima) e
+  //     tourGetTestClickListener (só o listener de clique, não o root).
   //   - recorderCapturarClique/recorderCapturarValor/recorderPausarOuContinuar/
   //     recorderPrepararTesteCaptura/recorderGetTestSnapshot: pra testar que
   //     o estado pausado do Gravador de Tours realmente ignora clique/input
@@ -9281,12 +9337,20 @@
   //     totalPassos) usada por recorderRenderPainelFinal — testa que
   //     contexto='editar_tour_existente' troca os textos certos, e que sem
   //     contexto o texto antigo (orientado a criar/importar) continua igual.
-  //   - tourGetTestSnapshot: mesmo padrão de recorderGetTestSnapshot — só
-  //     { ativo, preview, feedbackEscolhido }, nunca o state geral do widget
-  //     (config/campanha/jornada, que pode carregar usuario_email/nome
-  //     passados pelo host em window.UserPulse.init()) nem tourState.tour por
-  //     essa via. Usado pra validar o resultado do feedback sem revelar dado
-  //     nenhum do host/tour em si — ver server/src/widgetTourFeedback.test.ts.
+  //   - tourGetTestSnapshot/tourGetTestStepSnapshot/tourSetTestState/
+  //     tourGetTestClickListener: helpers mínimos de harness que substituem a
+  //     exposição direta de tourState (ver comentário acima, em
+  //     tourVoltar/finalizarTour). tourGetTestSnapshot devolve só
+  //     { ativo, preview, feedbackEscolhido, indice, voltarFallbackTimerAtivo };
+  //     tourGetTestStepSnapshot só { tourTitulo, totalPassos, seletorTipos }
+  //     (nunca o array de passos em si, nem seletor/id/descrição de cada um);
+  //     tourSetTestState só escreve os campos da lista fechada
+  //     TOUR_TEST_STATE_CAMPOS_PERMITIDOS; tourGetTestClickListener devolve só
+  //     a função de clique religada por bindTourEvents, nunca tourState.root.
+  //     Nenhum deles expõe state geral do widget (config/campanha/jornada,
+  //     que pode carregar usuario_email/nome passados pelo host em
+  //     window.UserPulse.init()). Usados por widgetTourFeedback.test.ts,
+  //     widgetTourVoltar.test.ts e widgetRecorderPause.test.ts.
   //   - renderTour: a MESMA função de render/orquestração usada em produção
   //     (só desenha o DOM a partir do tourState atual e religa os listeners
   //     de clique via bindTourEvents — nunca lê/expõe dado nenhum, nunca
@@ -9301,10 +9365,12 @@
   //     server/src/widgetTourFeedback.test.ts.
   window.UserPulse._internal = {
     avaliarSegmentacaoTour: avaliarSegmentacaoTour,
-    tourState: tourState,
     tourVoltar: tourVoltar,
     finalizarTour: finalizarTour,
     tourGetTestSnapshot: tourGetTestSnapshot,
+    tourGetTestStepSnapshot: tourGetTestStepSnapshot,
+    tourSetTestState: tourSetTestState,
+    tourGetTestClickListener: tourGetTestClickListener,
     renderTour: renderTour,
     recorderCapturarClique: recorderCapturarClique,
     recorderCapturarValor: recorderCapturarValor,

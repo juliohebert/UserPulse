@@ -11,8 +11,12 @@ import vm from 'node:vm'
 // repetido, e nunca lançar exceção se a chamada falhar.
 //
 // Carrega o widget.js real via vm (mesmo padrão de widgetTourVoltar.test.ts)
-// e usa window.UserPulse._internal (tourState, renderTour,
-// tourGetTestSnapshot, finalizarTour) pra montar o cenário.
+// e usa window.UserPulse._internal (tourSetTestState, renderTour,
+// tourGetTestClickListener, tourGetTestSnapshot, finalizarTour) pra montar o
+// cenário. _internal.tourState NÃO existe mais (removido por expor o estado
+// inteiro do tour por referência — tour/passos, aparencia, urlPorPasso —
+// pro domínio do cliente ler e alterar); os helpers acima substituem cada
+// uso que este arquivo fazia dele.
 //
 // De propósito, este harness NÃO chama tourFeedback() diretamente e NÃO lê
 // `state` (o objeto geral do widget, com config/campanha/jornada — pode
@@ -28,11 +32,11 @@ import vm from 'node:vm'
 //     extra no sandbox.
 //   - o clique no feedback é simulado de verdade: internos.renderTour()
 //     desenha a tela final e religa o listener de clique real (via
-//     bindTourEvents, chamado por dentro do próprio renderTour) no
-//     tourState.root; o teste recupera esse listener e dispara um evento de
-//     clique sintético num elemento com o atributo data-up-tour-feedback,
-//     do mesmo jeito que um clique real do usuário chegaria até lá — sem
-//     chamar tourFeedback() como função solta.
+//     bindTourEvents, chamado por dentro do próprio renderTour); o teste
+//     recupera esse listener via tourGetTestClickListener() (nunca o root
+//     em si) e dispara um evento de clique sintético num elemento com o
+//     atributo data-up-tour-feedback, do mesmo jeito que um clique real do
+//     usuário chegaria até lá — sem chamar tourFeedback() como função solta.
 //
 // Diferente de widgetTourVoltar.test.ts, aqui o fetch precisa GRAVAR as
 // chamadas — o stub fica no objeto global do sandbox (não só em
@@ -41,26 +45,29 @@ import vm from 'node:vm'
 // dentro do vm.createContext isso só resolve se `fetch` também existir como
 // propriedade do próprio sandbox — window.fetch sozinho não é suficiente.
 
-interface TourStateParaTeste {
-  ativo: boolean
-  tour: { id: string; slug: string; passos: unknown[] } | null
-  indice: number
-  preview: boolean
-  feedbackEscolhido: string | null
-  tela: string | null
-  root: FakeElement | null
-  fimTimer: unknown
+interface TourTestStateParcial {
+  ativo?: boolean
+  tour?: { id: string; slug: string; passos: unknown[] } | null
+  indice?: number
+  preview?: boolean
+  feedbackEscolhido?: string | null
+  tela?: string | null
 }
 
 interface Snapshot {
   ativo: boolean
   preview: boolean
   feedbackEscolhido: string | null
+  indice: number
+  voltarFallbackTimerAtivo: boolean
 }
 
+type ClickListener = (event: { target: unknown; preventDefault(): void; stopPropagation(): void }) => void
+
 interface Internos {
-  tourState: TourStateParaTeste
+  tourSetTestState: (parcial: TourTestStateParcial) => void
   renderTour: () => void
+  tourGetTestClickListener: () => ClickListener | null
   tourGetTestSnapshot: () => Snapshot
   finalizarTour: (motivo: string) => void
 }
@@ -221,6 +228,10 @@ function criarInstancia(fetchImpl?: () => Promise<unknown>) {
     Object.prototype.hasOwnProperty.call(internos, 'tourFeedback'), false,
     'tourFeedback não deveria estar exposto diretamente em _internal (efeito colateral de registrar evento)'
   )
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(internos, 'tourState'), false,
+    'tourState (objeto inteiro por referência — tour/passos, aparencia, urlPorPasso) não deveria estar exposto em _internal'
+  )
 
   // Preenche state.config via a MESMA API pública que qualquer host usa —
   // sem slug/sistema, init() seta state.config e retorna antes de qualquer
@@ -243,30 +254,32 @@ function tourFake() {
   return { id: 'tour-teste', slug: 'tour-teste', passos: [passoFake('p0'), passoFake('p1')] }
 }
 
-// Prepara um tourState "na tela final", pronto pra simular o clique de
-// feedback — mesma forma mínima usada pelas outras suítes (harness monta o
-// estado direto, sem depender de iniciarTour()/tourConcluir() de ponta a
-// ponta rodando DOM real).
-function prepararTourNaTelaFinal(internos: Internos) {
-  const ts = internos.tourState
-  ts.ativo = true
-  ts.tour = tourFake()
-  ts.indice = 1
-  ts.tela = 'concluido'
-  ts.feedbackEscolhido = null
-  return ts
+// Monta o cenário "tour na tela final", pronto pra simular o clique de
+// feedback — via tourSetTestState (setter controlado, nunca a referência de
+// tourState em si), mesma forma mínima usada pelas outras suítes (harness
+// monta o estado direto, sem depender de iniciarTour()/tourConcluir() de
+// ponta a ponta rodando DOM real).
+function prepararTourNaTelaFinal(internos: Internos, preview: boolean) {
+  internos.tourSetTestState({
+    ativo: true,
+    tour: tourFake(),
+    indice: 1,
+    tela: 'concluido',
+    feedbackEscolhido: null,
+    preview,
+  })
 }
 
 // Dispara um clique real no botão de feedback: renderTour() desenha a tela
-// final e religa o listener via bindTourEvents (rodando por dentro dela) no
-// tourState.root; recupera esse listener e chama com um alvo sintético que
-// carrega o atributo data-up-tour-feedback, exatamente como bindTourEvents
-// espera encontrar num clique de verdade — nunca chama tourFeedback() solta.
+// final e religa o listener via bindTourEvents (rodando por dentro dela);
+// recupera esse listener via tourGetTestClickListener() (nunca tourState.root
+// em si) e chama com um alvo sintético que carrega o atributo
+// data-up-tour-feedback, exatamente como bindTourEvents espera encontrar num
+// clique de verdade — nunca chama tourFeedback() solta.
 function clicarBotaoFeedback(internos: Internos, valor: string) {
   internos.renderTour()
-  const root = internos.tourState.root
-  const clickListener = root && root.listeners.click && root.listeners.click[0]
-  assert.ok(clickListener, 'renderTour() deveria ter religado o listener de clique (bindTourEvents) no tourState.root')
+  const clickListener = internos.tourGetTestClickListener()
+  assert.ok(clickListener, 'renderTour() deveria ter religado o listener de clique (bindTourEvents)')
   const botao = makeFakeElement('button', { 'data-up-tour-feedback': valor })
   clickListener!({ target: botao, preventDefault() {}, stopPropagation() {} })
 }
@@ -274,8 +287,7 @@ function clicarBotaoFeedback(internos: Internos, valor: string) {
 describe('feedback final do Tour — persistência via clique real simulado (widget.js)', () => {
   test('em prévia (tourState.preview=true) não registra evento', () => {
     const inst = criarInstancia()
-    const ts = prepararTourNaTelaFinal(inst.internos)
-    ts.preview = true
+    prepararTourNaTelaFinal(inst.internos, true)
 
     clicarBotaoFeedback(inst.internos, 'ajudou')
 
@@ -288,8 +300,7 @@ describe('feedback final do Tour — persistência via clique real simulado (wid
 
   test('tour normal (fora de prévia) registra evento feedback_tour com valor/label/emoji', () => {
     const inst = criarInstancia()
-    const ts = prepararTourNaTelaFinal(inst.internos)
-    ts.preview = false
+    prepararTourNaTelaFinal(inst.internos, false)
 
     clicarBotaoFeedback(inst.internos, 'muito_util')
 
@@ -312,8 +323,7 @@ describe('feedback final do Tour — persistência via clique real simulado (wid
 
   test('clique duplicado/repetido não reenvia o evento (trava por feedbackEscolhido)', () => {
     const inst = criarInstancia()
-    const ts = prepararTourNaTelaFinal(inst.internos)
-    ts.preview = false
+    prepararTourNaTelaFinal(inst.internos, false)
 
     clicarBotaoFeedback(inst.internos, 'ajudou')
     clicarBotaoFeedback(inst.internos, 'ajudou')
@@ -327,8 +337,7 @@ describe('feedback final do Tour — persistência via clique real simulado (wid
 
   test('falha na chamada (API indisponível) não lança exceção nem quebra o estado', () => {
     const inst = criarInstancia(() => Promise.reject(new Error('rede indisponível')))
-    const ts = prepararTourNaTelaFinal(inst.internos)
-    ts.preview = false
+    prepararTourNaTelaFinal(inst.internos, false)
 
     assert.doesNotThrow(() => clicarBotaoFeedback(inst.internos, 'nao_ajudou'))
 
