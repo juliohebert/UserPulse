@@ -175,6 +175,32 @@ export interface TourGuiado {
   _count?: { passos: number }
 }
 
+// GET /tours?page=&pageSize=&... — só quando page/pageSize são enviados (ver
+// listar em server/src/controllers/tours.ts); sem esses parâmetros, a rota
+// continua devolvendo TourGuiado[] puro (usado por web/src/pages/Dashboard.tsx
+// e web/src/pages/jornadas/Form.tsx, que precisam da lista inteira sem
+// paginação e não foram alterados por essa mudança).
+export interface ResumoListaTours {
+  // Totais SEM filtro nenhum (busca/sistema/status) — os KPIs da tela sempre
+  // mostraram o total da base inteira, independente dos filtros da tabela.
+  total: number
+  ativos: number
+  inativos: number
+  total_passos: number
+}
+
+export interface TourGuiadoListaPaginada {
+  items: TourGuiado[]
+  // total já considerando os filtros aplicados — o que a paginação usa.
+  total: number
+  page: number
+  per_page: number
+  total_pages: number
+  resumo: ResumoListaTours
+  // Lista completa de sistemas distintos (sem filtro) — popula o dropdown.
+  sistemas: string[]
+}
+
 export interface TourExportPasso {
   titulo: string
   descricao: string | null
