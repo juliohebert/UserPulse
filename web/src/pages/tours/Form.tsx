@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
 import type { TourGuiado, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour } from '../../types'
@@ -557,6 +557,14 @@ export function TourForm() {
   const [templateAplicadoId, setTemplateAplicadoId] = useState<string | null>(null)
   const [copiadoPasso, setCopiadoPasso] = useState<{ index: number; tipo: 'seletor' | 'comando' } | null>(null)
 
+  // ─── Veio do Dashboard (Funil por passo → "Editar passo", ?passo=N) ────
+  // Só rola/destaca a lista de passos uma vez, na carga inicial — nunca de
+  // novo por causa de edição normal (adicionar/mover/remover passo), que
+  // também muda `passos`. Ver efeito logo abaixo de carregarTour.
+  const passoRefs = useRef<Array<HTMLDivElement | null>>([])
+  const [passoDestacado, setPassoDestacado] = useState<number | null>(null)
+  const scrollParaPassoFeitoRef = useRef(false)
+
   // ─── Editar fluxo no sistema (gravador, só na edição) ──────────────────
   const [urlInicialGravador, setUrlInicialGravador] = useState('')
   const [erroGravador, setErroGravador] = useState<string | null>(null)
@@ -688,6 +696,32 @@ export function TourForm() {
     carregarTour(id, sinal)
     return () => { sinal.cancelado = true }
   }, [id, carregarTour])
+
+  // Rola até o passo (?passo=N, vindo de "Editar passo" no Funil por passo do
+  // Dashboard) e destaca por alguns segundos — só depois que o tour real
+  // carregou (loadingTour=false, sem loadError), nunca em criação de Tour
+  // novo, e só uma vez (scrollParaPassoFeitoRef) pra não disparar de novo
+  // quando `passos` muda por edição comum. passo inexistente/inválido (fora
+  // do intervalo, não numérico, ausente) é ignorado silenciosamente.
+  useEffect(() => {
+    if (!isEdit || loadingTour || loadError || scrollParaPassoFeitoRef.current) return
+    scrollParaPassoFeitoRef.current = true
+    const passoParam = new URLSearchParams(location.search).get('passo')
+    // !passoParam cobre ausente (null) e vazio ('') — Number('') seria 0
+    // (primeiro passo) por acaso, o que não é a intenção de um valor vazio.
+    if (!passoParam) return
+    const indice = Number(passoParam)
+    if (!Number.isInteger(indice) || indice < 0 || indice >= passos.length) return
+    const raf = window.requestAnimationFrame(() => {
+      passoRefs.current[indice]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setPassoDestacado(indice)
+      window.setTimeout(() => {
+        setPassoDestacado(prev => (prev === indice ? null : prev))
+      }, 2500)
+    })
+    return () => window.cancelAnimationFrame(raf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, loadingTour, loadError])
 
   const set = (key: keyof FormState, value: string | boolean) =>
     setForm(prev => ({ ...prev, [key]: value }))
@@ -1639,7 +1673,15 @@ export function TourForm() {
 
             <div className="space-y-3">
               {passos.map((passo, i) => (
-                <div key={i} className="rounded-xl border border-outline-variant bg-surface-container-low/40 p-4">
+                <div
+                  key={i}
+                  ref={el => { passoRefs.current[i] = el }}
+                  className={`rounded-xl border p-4 transition-colors duration-500 ${
+                    passoDestacado === i
+                      ? 'border-primary ring-2 ring-primary/40 bg-primary-fixed/30'
+                      : 'border-outline-variant bg-surface-container-low/40'
+                  }`}
+                >
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <span className="text-label-md font-bold text-on-surface flex items-center gap-2">
                       <span className="w-6 h-6 rounded-full bg-primary-fixed text-primary flex items-center justify-center text-[12px] font-bold">{i + 1}</span>

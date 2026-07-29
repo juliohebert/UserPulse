@@ -75,15 +75,26 @@ function ehAtalhoPeriodo(filtros: FiltrosDashboard, diasAtras: number): boolean 
   return filtros.data_fim === formatarDataInput(hoje) && filtros.data_inicio === formatarDataInput(inicio)
 }
 
+// "Ver eventos deste passo" no Funil por passo chega aqui com
+// ?passo_ordem=N na URL — reaproveita o filtro "Passo do tour" que os
+// Filtros avançados já tinham antes desta feature (mesmo query param que
+// montarQuery já monta), só lendo o valor inicial da URL em vez de sempre
+// começar em FILTROS_INICIAIS. Sem parâmetro na URL, comportamento idêntico
+// a antes.
+function filtrosIniciaisDaUrl(): FiltrosDashboard {
+  const passoOrdem = new URLSearchParams(window.location.search).get('passo_ordem')
+  return passoOrdem ? { ...FILTROS_INICIAIS, passo_ordem: passoOrdem } : FILTROS_INICIAIS
+}
+
 export function TourDashboard() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [data, setData] = useState<TourDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filtros, setFiltros] = useState<FiltrosDashboard>(FILTROS_INICIAIS)
-  const [filtrosCarregados, setFiltrosCarregados] = useState<FiltrosDashboard>(FILTROS_INICIAIS)
-  const [showAvancados, setShowAvancados] = useState(false)
+  const [filtros, setFiltros] = useState<FiltrosDashboard>(filtrosIniciaisDaUrl)
+  const [filtrosCarregados, setFiltrosCarregados] = useState<FiltrosDashboard>(filtrosIniciaisDaUrl)
+  const [showAvancados, setShowAvancados] = useState(() => filtrosIniciaisDaUrl().passo_ordem !== '')
 
   const load = (filtrosParaCarregar: FiltrosDashboard, pagina: number) => {
     if (!id) return
@@ -95,8 +106,24 @@ export function TourDashboard() {
       .finally(() => setLoading(false))
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => load(FILTROS_INICIAIS, 1), [id])
+  useEffect(() => {
+    const iniciais = filtrosIniciaisDaUrl()
+    setFiltros(iniciais)
+    setShowAvancados(iniciais.passo_ordem !== '')
+    load(iniciais, 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  // "Ver eventos deste passo" (Funil por passo) — mesmo filtro de sempre
+  // (Passo do tour), só aplicado por um clique em vez do dropdown, e refletido
+  // na URL (replace, não empilha histórico) pra ficar copiável/compartilhável.
+  const filtrarPorPasso = (ordem: number) => {
+    const novo = { ...filtros, passo_ordem: String(ordem) }
+    setFiltros(novo)
+    setShowAvancados(true)
+    load(novo, 1)
+    if (id) navigate(`/tours/${id}/dashboard?passo_ordem=${ordem}`, { replace: true })
+  }
 
   const aplicarFiltro = (novosFiltros: FiltrosDashboard) => load(novosFiltros, 1)
   const limparFiltros = () => { setFiltros(FILTROS_INICIAIS); aplicarFiltro(FILTROS_INICIAIS) }
@@ -209,7 +236,7 @@ export function TourDashboard() {
       {/* Funil por passo + resumo de feedback */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-6">
         <div className="xl:col-span-2">
-          <FunilPorPassoSection funil={data.funil_por_passo} />
+          <FunilPorPassoSection funil={data.funil_por_passo} tourId={tour.id} onFiltrarPorPasso={filtrarPorPasso} />
         </div>
         <FeedbackResumoSection feedback={data.feedback} />
       </div>
@@ -576,7 +603,11 @@ function ResumoFunilLinha({ funil }: { funil: FunilPassoItem[] }) {
   )
 }
 
-function FunilPorPassoSection({ funil }: { funil: FunilPassoItem[] }) {
+function FunilPorPassoSection({ funil, tourId, onFiltrarPorPasso }: {
+  funil: FunilPassoItem[]
+  tourId: string
+  onFiltrarPorPasso: (ordem: number) => void
+}) {
   return (
     <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden h-full flex flex-col">
       <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3 shrink-0">
@@ -607,10 +638,10 @@ function FunilPorPassoSection({ funil }: { funil: FunilPassoItem[] }) {
             <table className="w-full text-left">
               <thead className="bg-surface-container-low">
                 <tr>
-                  {['Passo', 'Visualizações', 'Próximo passo', 'Queda estimada', 'Elemento não encontrado'].map(h => (
+                  {['Passo', 'Visualizações', 'Próximo passo', 'Queda estimada', 'Elemento não encontrado', 'Ações'].map(h => (
                     <th
                       key={h}
-                      className="sticky top-0 z-10 bg-surface-container-low px-4 py-2.5 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap border-b border-outline-variant"
+                      className={`sticky top-0 z-10 bg-surface-container-low px-4 py-2.5 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap border-b border-outline-variant ${h === 'Ações' ? 'text-right' : ''}`}
                       title={h === 'Queda estimada'
                         ? 'Quantidade estimada de usuários que visualizaram este passo, mas não avançaram para o próximo. No último passo, considera quem não concluiu o tour.'
                         : undefined}
@@ -621,7 +652,9 @@ function FunilPorPassoSection({ funil }: { funil: FunilPassoItem[] }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-outline-variant/30">
-                {funil.map(item => <FunilPassoRow key={item.passo_ordem} item={item} />)}
+                {funil.map(item => (
+                  <FunilPassoRow key={item.passo_ordem} item={item} tourId={tourId} onFiltrarPorPasso={onFiltrarPorPasso} />
+                ))}
               </tbody>
             </table>
           </div>
@@ -647,7 +680,12 @@ const QUEDA_CLASSES: Record<'forte' | 'moderado' | 'normal', string> = {
   normal: 'text-[13px] text-on-surface',
 }
 
-function FunilPassoRow({ item }: { item: FunilPassoItem }) {
+function FunilPassoRow({ item, tourId, onFiltrarPorPasso }: {
+  item: FunilPassoItem
+  tourId: string
+  onFiltrarPorPasso: (ordem: number) => void
+}) {
+  const navigate = useNavigate()
   const queda = nivelQueda(item.taxa_queda)
   return (
     <tr className="hover:bg-surface-container-low/50 transition-colors">
@@ -687,6 +725,26 @@ function FunilPassoRow({ item }: { item: FunilPassoItem }) {
         ) : (
           <span className="text-[13px] text-outline">0</span>
         )}
+      </td>
+      <td className="px-4 py-2.5 whitespace-nowrap align-middle">
+        <div className="flex items-center justify-end gap-1">
+          <button
+            type="button"
+            onClick={() => navigate(`/tours/${tourId}/editar?passo=${item.passo_ordem}`)}
+            title="Editar passo"
+            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+          >
+            <span className="material-symbols-outlined text-[16px]">edit</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onFiltrarPorPasso(item.passo_ordem)}
+            title="Ver eventos deste passo"
+            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+          >
+            <span className="material-symbols-outlined text-[16px]">list_alt</span>
+          </button>
+        </div>
       </td>
     </tr>
   )
