@@ -6,6 +6,7 @@ import { formatDateTime } from '../../utils/campanha'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Pagination } from '../../components/ui/Pagination'
 import { Select } from '../../components/ui/Select'
+import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 
 const PER_PAGE = 10
 const NI = 'Não informado'
@@ -581,6 +582,13 @@ function passoComMaiorQueda(funil: FunilPassoItem[]): FunilPassoItem | null {
   return pior
 }
 
+// Regra do filtro rápido "Mostrar apenas passos com problema" — mesma
+// taxa_queda/elemento_nao_encontrado já exibidos na tabela (moderado/forte em
+// nivelQueda, ver abaixo), nenhum cálculo novo nem toque no payload.
+function passoTemProblema(item: FunilPassoItem): boolean {
+  return (item.taxa_queda != null && item.taxa_queda >= 15) || item.elemento_nao_encontrado > 0
+}
+
 function ResumoFunilLinha({ funil }: { funil: FunilPassoItem[] }) {
   const totalPassos = funil.length
   const totalElementoNaoEncontrado = funil.reduce((acc, p) => acc + p.elemento_nao_encontrado, 0)
@@ -608,6 +616,13 @@ function FunilPorPassoSection({ funil, tourId, onFiltrarPorPasso }: {
   tourId: string
   onFiltrarPorPasso: (ordem: number) => void
 }) {
+  // Só filtra a EXIBIÇÃO da tabela — ResumoFunilLinha abaixo sempre recebe o
+  // `funil` completo (nunca `funilExibido`), pra "Total de passos"/"Maior
+  // queda"/"Total de falhas" continuarem refletindo o funil inteiro,
+  // independente do filtro estar ligado ou não.
+  const [somenteProblemas, setSomenteProblemas] = useState(false)
+  const funilExibido = somenteProblemas ? funil.filter(passoTemProblema) : funil
+
   return (
     <div className="bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden h-full flex flex-col">
       <div className="px-5 py-4 border-b border-outline-variant/30 flex items-center gap-3 shrink-0">
@@ -630,34 +645,50 @@ function FunilPorPassoSection({ funil, tourId, onFiltrarPorPasso }: {
       ) : (
         <>
           <ResumoFunilLinha funil={funil} />
-          {/* max-h fixo + overflow-y aqui é o que evita a página inteira
-              alongar em Tours com muitos passos — o card continua com altura
-              previsível, só a tabela ganha um scroll próprio. overflow-x
-              continua no mesmo container (não quebra em telas menores). */}
-          <div className="overflow-y-auto overflow-x-auto max-h-[420px]">
-            <table className="w-full text-left">
-              <thead className="bg-surface-container-low">
-                <tr>
-                  {['Passo', 'Visualizações', 'Próximo passo', 'Queda estimada', 'Elemento não encontrado', 'Ações'].map(h => (
-                    <th
-                      key={h}
-                      className={`sticky top-0 z-10 bg-surface-container-low px-4 py-2.5 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap border-b border-outline-variant ${h === 'Ações' ? 'text-right' : ''}`}
-                      title={h === 'Queda estimada'
-                        ? 'Quantidade estimada de usuários que visualizaram este passo, mas não avançaram para o próximo. No último passo, considera quem não concluiu o tour.'
-                        : undefined}
-                    >
-                      {h}
-                    </th>
+
+          <label className="px-5 py-2 border-b border-outline-variant/30 flex items-center gap-2.5 shrink-0 cursor-pointer select-none">
+            <ToggleSwitch checked={somenteProblemas} onChange={setSomenteProblemas} />
+            <span className="text-label-md text-on-surface-variant">
+              Mostrar apenas passos com problema
+            </span>
+          </label>
+
+          {funilExibido.length === 0 ? (
+            <EmptyState
+              icon="check_circle"
+              title="Nenhum passo problemático encontrado."
+              description="Não há passos com queda estimada acima de 15% ou falhas de elemento."
+            />
+          ) : (
+            // max-h fixo + overflow-y aqui é o que evita a página inteira
+            // alongar em Tours com muitos passos — o card continua com altura
+            // previsível, só a tabela ganha um scroll próprio. overflow-x
+            // continua no mesmo container (não quebra em telas menores).
+            <div className="overflow-y-auto overflow-x-auto max-h-[420px]">
+              <table className="w-full text-left">
+                <thead className="bg-surface-container-low">
+                  <tr>
+                    {['Passo', 'Visualizações', 'Próximo passo', 'Queda estimada', 'Elemento não encontrado', 'Ações'].map(h => (
+                      <th
+                        key={h}
+                        className={`sticky top-0 z-10 bg-surface-container-low px-4 py-2.5 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap border-b border-outline-variant ${h === 'Ações' ? 'text-right' : ''}`}
+                        title={h === 'Queda estimada'
+                          ? 'Quantidade estimada de usuários que visualizaram este passo, mas não avançaram para o próximo. No último passo, considera quem não concluiu o tour.'
+                          : undefined}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant/30">
+                  {funilExibido.map(item => (
+                    <FunilPassoRow key={item.passo_ordem} item={item} tourId={tourId} onFiltrarPorPasso={onFiltrarPorPasso} />
                   ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-outline-variant/30">
-                {funil.map(item => (
-                  <FunilPassoRow key={item.passo_ordem} item={item} tourId={tourId} onFiltrarPorPasso={onFiltrarPorPasso} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
     </div>
