@@ -139,6 +139,67 @@ function buildResumo(f: FormState): string {
   return `${base} ${recorrencia}${fechamento}`
 }
 
+// ─── Validação por etapa (pura) ─────────────────────────────────────────────
+// Extraída do componente pra virar a MESMA fonte de verdade usada tanto pelo
+// wizard (goNext/handleSubmit, via o wrapper `validateStep` dentro de
+// CampanhaForm) quanto pelo card de Pendências (Passo 4, montarPendenciasCampanha
+// abaixo) — nunca duas listas de regras que possam divergir uma da outra.
+// Comportamento idêntico ao de antes desta função ser extraída.
+function validateCampanhaStep(form: FormState, n: number): string | null {
+  if (n === 1) {
+    if (!form.titulo.trim()) return 'Informe o título da campanha.'
+  }
+  if (n === 2) {
+    if (!form.descricao.trim()) return 'Informe o texto principal da campanha.'
+  }
+  if (n === 3) {
+    if (!destinoConfigurado(form)) return 'Defina o destino da campanha.'
+    if (form.gatilho === 'apos_evento' && !form.evento.trim()) return 'Informe o nome da ação/evento.'
+    if (!form.permitir_fechar_modal && !form.feedback_habilitado && !form.exige_confirmacao_leitura) {
+      return 'Para impedir o fechamento da modal, habilite feedback ou confirmação de leitura.'
+    }
+    if (!form.permitir_fechar_modal && form.politica_reexibicao === 'uma_vez_apos_visualizacao') {
+      return 'Campanhas obrigatórias não podem usar a política "Uma vez após visualização".'
+    }
+    if (form.politica_reexibicao === 'reexibir_apos_dias' && (!form.reexibir_apos_dias || Number(form.reexibir_apos_dias) <= 0)) {
+      return 'Informe quantos dias antes de reexibir.'
+    }
+    if (form.encerrar_apos_evento && !form.evento_conclusao.trim()) {
+      return 'Informe o nome do evento de conclusão.'
+    }
+  }
+  return null
+}
+
+// ─── Pendências (Passo 4 — Revisão) ─────────────────────────────────────────
+// Só orienta: nunca inventa regra nova, sempre a mesma validateCampanhaStep
+// que já bloqueia avançar de etapa/publicar. "aviso" é só recomendação (não
+// impede salvar) — hoje o único caso é pergunta de feedback vazia, que já cai
+// num texto padrão ("Como podemos melhorar?", ver previewQuestion) em vez de
+// travar o formulário.
+interface PendenciaCampanha {
+  step: number
+  label: string
+  mensagem: string
+}
+
+function montarPendenciasCampanha(form: FormState): PendenciaCampanha[] {
+  const pendencias: PendenciaCampanha[] = []
+  for (const n of [1, 2, 3] as const) {
+    const mensagem = validateCampanhaStep(form, n)
+    if (mensagem) pendencias.push({ step: n, label: STEPS[n - 1].label, mensagem })
+  }
+  return pendencias
+}
+
+function montarAvisosCampanha(form: FormState): string[] {
+  const avisos: string[] = []
+  if (form.feedback_habilitado && !form.pergunta_feedback.trim()) {
+    avisos.push('Pergunta de feedback não definida — será usado um texto padrão ("Como podemos melhorar?") ao exibir a campanha.')
+  }
+  return avisos
+}
+
 export function CampanhaForm() {
   const { id } = useParams<{ id: string }>()
   const isEdit = Boolean(id)
@@ -276,31 +337,11 @@ export function CampanhaForm() {
   // Validação por etapa do wizard — usada tanto ao avançar quanto no submit
   // final, já que só a etapa atual fica montada no DOM (as demais são
   // desmontadas, então `required` do HTML não cobre etapas anteriores).
-  const validateStep = (n: number): string | null => {
-    if (n === 1) {
-      if (!form.titulo.trim()) return 'Informe o título da campanha.'
-    }
-    if (n === 2) {
-      if (!form.descricao.trim()) return 'Informe o texto principal da campanha.'
-    }
-    if (n === 3) {
-      if (!destinoConfigurado(form)) return 'Defina o destino da campanha.'
-      if (form.gatilho === 'apos_evento' && !form.evento.trim()) return 'Informe o nome da ação/evento.'
-      if (!form.permitir_fechar_modal && !form.feedback_habilitado && !form.exige_confirmacao_leitura) {
-        return 'Para impedir o fechamento da modal, habilite feedback ou confirmação de leitura.'
-      }
-      if (!form.permitir_fechar_modal && form.politica_reexibicao === 'uma_vez_apos_visualizacao') {
-        return 'Campanhas obrigatórias não podem usar a política "Uma vez após visualização".'
-      }
-      if (form.politica_reexibicao === 'reexibir_apos_dias' && (!form.reexibir_apos_dias || Number(form.reexibir_apos_dias) <= 0)) {
-        return 'Informe quantos dias antes de reexibir.'
-      }
-      if (form.encerrar_apos_evento && !form.evento_conclusao.trim()) {
-        return 'Informe o nome do evento de conclusão.'
-      }
-    }
-    return null
-  }
+  // Wrapper fino sobre validateCampanhaStep (função pura no topo do arquivo)
+  // — mesma assinatura de antes em todos os call sites (goNext/handleSubmit),
+  // só que agora a lógica em si também é reaproveitada pelo card de
+  // Pendências (Passo 4), sem duplicar nenhuma regra.
+  const validateStep = (n: number): string | null => validateCampanhaStep(form, n)
 
   const goToStep = (n: number) => {
     if (n > visitedMax) return
@@ -330,13 +371,13 @@ export function CampanhaForm() {
     setStep(s => Math.max(1, s - 1))
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    // Guarda defensiva: o único botão type="submit" só existe no DOM na
-    // etapa 4 (ver barra inferior), então isto nunca deveria disparar fora
-    // dela — mas se disparar por qualquer motivo, bloqueia aqui, sem salvar
-    // nem navegar.
-    if (step !== 4) return
+  // Validação + salvamento em si — extraída pra ser reaproveitada tanto pelo
+  // submit nativo do <form> (handleSubmit, só disparado pelo botão da etapa
+  // 4) quanto pelo botão "Salvar alterações" (edição, visível em qualquer
+  // etapa — ver barra inferior). Mesma validação (loop validateStep 1-3,
+  // idêntico de antes) e mesmo payload de sempre; só o "de onde pode ser
+  // chamada" mudou.
+  const submeterCampanha = async () => {
     for (const n of [1, 2, 3]) {
       const msg = validateStep(n)
       if (msg) {
@@ -383,6 +424,17 @@ export function CampanhaForm() {
     }
   }
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    // Guarda defensiva: o único botão type="submit" só existe no DOM na
+    // etapa 4 (ver barra inferior), então isto nunca deveria disparar fora
+    // dela — mas se disparar por qualquer motivo, bloqueia aqui, sem salvar
+    // nem navegar. "Salvar alterações" (edição, qualquer etapa) chama
+    // submeterCampanha() direto, sem passar por este guard.
+    if (step !== 4) return
+    submeterCampanha()
+  }
+
   if (loadingCampanha) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
 
   const urlNorm = normalizeUrlContem(form.url_contem)
@@ -415,6 +467,8 @@ export function CampanhaForm() {
     : POLITICA_REEXIBICAO_LABEL[form.politica_reexibicao] ?? 'Política de reexibição não definida'
 
   const currentStepMeta = STEPS[step - 1]
+  const pendencias = montarPendenciasCampanha(form)
+  const avisosCampanha = montarAvisosCampanha(form)
 
   return (
     <div className="relative">
@@ -1064,6 +1118,7 @@ export function CampanhaForm() {
           {step === 4 && (
             <div className="grid grid-cols-12 gap-4 lg:gap-6 items-start">
               <div className="col-span-12 lg:col-span-6 space-y-4">
+                <PendenciasCampanhaCard pendencias={pendencias} avisos={avisosCampanha} onIrPara={goToStep} />
                 <div className={card}>
                   <CardHeader
                     icon="summarize"
@@ -1146,14 +1201,30 @@ export function CampanhaForm() {
               Passo {step} de {STEPS.length}: {currentStepMeta.label}
             </span>
             {step < 4 ? (
-              <button
-                type="button"
-                onClick={goNext}
-                className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95"
-              >
-                Próximo Passo
-                <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Só em edição: evita atrito de ter que passar pelas 4
+                    etapas só pra corrigir um campo — cria continua só com
+                    Próximo Passo/Revisão/Publicar (fluxo de sempre), sem
+                    este botão, pra não confundir antes da revisão. */}
+                {isEdit && (
+                  <button
+                    type="button"
+                    onClick={submeterCampanha}
+                    disabled={submitting}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-outline-variant text-label-md font-bold text-on-surface-variant hover:bg-surface-container-low transition-all disabled:opacity-60"
+                  >
+                    {submitting ? 'Salvando…' : 'Salvar alterações'}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={goNext}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95"
+                >
+                  Próximo Passo
+                  <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                </button>
+              </div>
             ) : (
               <button
                 form="campaign-form"
@@ -1162,11 +1233,77 @@ export function CampanhaForm() {
                 className="flex items-center gap-1.5 px-4 py-1.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
               >
                 <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                {submitting ? 'Salvando…' : isEdit ? 'Salvar' : 'Publicar Campanha'}
+                {submitting ? 'Salvando…' : isEdit ? 'Salvar alterações' : 'Publicar Campanha'}
               </button>
             )}
           </div>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Só orienta — nunca bloqueia nada além do que goNext/handleSubmit já
+// bloqueiam (mesma validateCampanhaStep). "Ir para primeira pendência"
+// reaproveita goToStep, que já é seguro aqui: as etapas com pendência (1-3)
+// sempre estão <= visitedMax quando o usuário já chegou até o Passo 4.
+function PendenciasCampanhaCard({ pendencias, avisos, onIrPara }: {
+  pendencias: PendenciaCampanha[]
+  avisos: string[]
+  onIrPara: (n: number) => void
+}) {
+  const semPendencias = pendencias.length === 0
+
+  return (
+    <div className={card}>
+      <CardHeader
+        icon="checklist"
+        iconBg={semPendencias ? 'bg-tertiary/10' : 'bg-error-container'}
+        iconColor={semPendencias ? 'text-tertiary' : 'text-error'}
+        title="Pendências"
+        description="O que falta para salvar ou publicar esta campanha."
+        action={
+          !semPendencias ? (
+            <button
+              type="button"
+              onClick={() => onIrPara(pendencias[0].step)}
+              className="flex items-center gap-1 text-label-md font-bold text-primary hover:underline whitespace-nowrap"
+            >
+              <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+              Ir para primeira pendência
+            </button>
+          ) : undefined
+        }
+      />
+      <div className="space-y-2">
+        {semPendencias && (
+          <p className="flex items-center gap-2 p-3 rounded-xl bg-tertiary/10 text-tertiary text-body-md font-semibold">
+            <span className="material-symbols-outlined text-[18px]">check_circle</span>
+            Campanha pronta para salvar
+          </p>
+        )}
+        {pendencias.map(p => (
+          <div key={p.step} className="flex items-start gap-2.5 p-3 rounded-xl bg-error-container/30 border border-error/20">
+            <span className="material-symbols-outlined text-[18px] text-error shrink-0 mt-0.5">error</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-body-md text-on-surface leading-snug">{p.mensagem}</p>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant mt-0.5">Etapa: {p.label}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onIrPara(p.step)}
+              className="shrink-0 text-label-sm font-bold text-primary hover:underline"
+            >
+              Corrigir
+            </button>
+          </div>
+        ))}
+        {avisos.map((aviso, i) => (
+          <div key={`aviso-${i}`} className="flex items-start gap-2.5 p-3 rounded-xl bg-[#fff8e1] border border-amber-200">
+            <span className="material-symbols-outlined text-[18px] text-[#e65100] shrink-0 mt-0.5">warning</span>
+            <p className="text-body-md text-on-surface leading-snug">{aviso}</p>
+          </div>
+        ))}
       </div>
     </div>
   )
