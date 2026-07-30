@@ -252,9 +252,15 @@ export function CampanhasIndex() {
 
   const handleToggle = async (c: Campanha) => {
     try {
+      // PUT /campanhas/:id não faz include de _count (ver atualizar() no
+      // controller) — usar a resposta direto sobrescreveria _count.feedbacks
+      // (contagem de respostas) com undefined, some da listagem até o
+      // próximo refresh manual. Mantém o _count local já carregado e só
+      // aplica por cima os campos que o PUT de fato devolveu.
       const updated = await put<Campanha>(`/campanhas/${c.id}`, { ativo: !c.ativo })
-      setCampanhas(prev => prev.map(x => (x.id === c.id ? updated : x)))
-      if (quickView?.id === c.id) setQuickView(updated)
+      const merged: Campanha = { ...c, ...updated, _count: c._count }
+      setCampanhas(prev => prev.map(x => (x.id === c.id ? merged : x)))
+      if (quickView?.id === c.id) setQuickView(merged)
     } catch {
       alert('Erro ao atualizar status da campanha.')
     }
@@ -279,9 +285,14 @@ export function CampanhasIndex() {
 
   const handleReativar = async (id: string) => {
     try {
+      // Mesmo cuidado de handleToggle: PUT não devolve _count, então precisa
+      // preservar o _count.feedbacks já carregado em vez de aceitar a
+      // resposta como o objeto completo.
+      const atual = campanhas.find(x => x.id === id)
       const updated = await put<Campanha>(`/campanhas/${id}`, { ativo: true })
-      setCampanhas(prev => prev.map(x => (x.id === id ? updated : x)))
-      if (quickView?.id === id) setQuickView(updated)
+      const merged: Campanha = atual ? { ...atual, ...updated, _count: atual._count } : updated
+      setCampanhas(prev => prev.map(x => (x.id === id ? merged : x)))
+      if (quickView?.id === id) setQuickView(merged)
     } catch {
       alert('Erro ao reativar campanha.')
     }
