@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../../hooks/useAuth'
 
 const navItems = [
   { icon: 'dashboard', label: 'Dashboard', to: '/' },
@@ -46,6 +47,8 @@ function NavItem({ icon, label, to, collapsed }: { icon: string; label: string; 
 }
 
 export function Sidebar({ collapsed, onToggle }: Props) {
+  const { logout } = useAuth()
+
   return (
     <aside
       className={`fixed left-0 top-0 h-full w-16 ${collapsed ? 'md:w-16' : 'md:w-[248px]'} bg-surface border-r border-outline-variant flex flex-col py-stack-md px-2 z-50 shadow-sm transition-[width] duration-200 overflow-hidden`}
@@ -85,14 +88,17 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       </nav>
 
       <div className="mt-auto border-t border-outline-variant pt-stack-md">
-        <a
-          href="#"
+        {/* setUser(null) em logout() já faz RequireAuth redirecionar pra
+            /login sozinho (re-render do contexto) — sem navigate() manual aqui. */}
+        <button
+          type="button"
+          onClick={() => logout()}
           title="Sair"
-          className={`flex items-center justify-center ${!collapsed ? 'md:justify-start md:gap-3' : ''} px-3 py-2.5 rounded-xl text-error hover:bg-error-container transition-colors`}
+          className={`w-full flex items-center justify-center ${!collapsed ? 'md:justify-start md:gap-3' : ''} px-3 py-2.5 rounded-xl text-error hover:bg-error-container transition-colors`}
         >
           <span className="material-symbols-outlined">logout</span>
           <span className={`text-body-md whitespace-nowrap ${collapsed ? 'hidden' : 'hidden md:inline'}`}>Sair</span>
-        </a>
+        </button>
       </div>
     </aside>
   )

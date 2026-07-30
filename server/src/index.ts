@@ -1,5 +1,6 @@
-import express, { Request, Response, NextFunction } from 'express'
+import express from 'express'
 import cors from 'cors'
+import cookieParser from 'cookie-parser'
 import dotenv from 'dotenv'
 import fs from 'fs'
 import path from 'path'
@@ -10,8 +11,22 @@ import catalogoTelasRouter from './routes/catalogoTelas'
 import toursRouter from './routes/tours'
 import jornadasRouter from './routes/jornadas'
 import aparenciaWidgetRouter from './routes/aparenciaWidget'
+import authRouter from './routes/auth'
+import { requireAdminAuth } from './middleware/requireAdminAuth'
+import { getSessionSecret } from './lib/auth'
 
 dotenv.config()
+
+// Falha rápido e alto no boot se o segredo de sessão não estiver configurado
+// — sem ele, login/me/logout responderiam 500 em runtime (getSessionSecret
+// já lança nesse caso), o que é seguro mas silencioso. Preferível travar o
+// deploy aqui a descobrir só quando alguém tentar logar em produção.
+try {
+  getSessionSecret()
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err)
+  process.exit(1)
+}
 
 const app = express()
 const PORT = process.env.PORT ?? 3333
@@ -33,31 +48,25 @@ function getWidgetLoader(): string {
   return widgetLoaderJs
 }
 
-// Origens permitidas para rotas de admin (campanhas + dashboard).
-// Em dev, CORS_ORIGINS não definido → aceita qualquer origem.
-// Em produção, definir como lista separada por vírgula:
+// Origens permitidas para rotas de admin (campanhas, tours, jornadas,
+// dashboard, aparência, auth). Em dev, CORS_ORIGINS não definido → aceita
+// qualquer origem. Em produção, definir como lista separada por vírgula:
 //   CORS_ORIGINS=https://userpulse.seudominio.com,https://admin.seudominio.com
+// credentials:true é obrigatório aqui — é o que permite o cookie httpOnly de
+// sessão (ver lib/auth.ts) ir/voltar em requisições de outra origem; sem
+// isso, um CORS_ORIGINS configurado bloquearia login/me/logout de qualquer
+// front que não seja a própria origem do servidor.
 const adminOrigins: string[] | true = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
   : true
 
-const corsAdmin = cors({ origin: adminOrigins })
+const corsAdmin = cors({ origin: adminOrigins, credentials: true })
 
 // Widget é embarcado em sites de clientes (origem desconhecida) → sempre aberto.
 const corsWidget = cors()
 
-// Proteção por token para rotas admin.
-// Se ADMIN_TOKEN não estiver definido (dev local), a verificação é ignorada.
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN?.trim() || ''
-
-function requireAdminToken(req: Request, res: Response, next: NextFunction): void {
-  if (!ADMIN_TOKEN) { next(); return }
-  const auth = req.headers['authorization']
-  if (auth === `Bearer ${ADMIN_TOKEN}`) { next(); return }
-  res.status(401).json({ erro: 'Não autorizado.' })
-}
-
 app.use(express.json())
+app.use(cookieParser())
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() })
@@ -89,13 +98,17 @@ app.get('/test-embed.html', (_req, res) => {
 })
 
 // Rotas da API
-app.use('/api/campanhas', corsAdmin, requireAdminToken, campanhasRouter)
-app.use('/api/catalogo-telas', corsAdmin, requireAdminToken, catalogoTelasRouter)
-app.use('/api/tours', corsAdmin, requireAdminToken, toursRouter)
-app.use('/api/jornadas', corsAdmin, requireAdminToken, jornadasRouter)
-app.use('/api/aparencia-widget', corsAdmin, requireAdminToken, aparenciaWidgetRouter)
+// /api/auth fica antes das demais rotas admin — login precisa ser alcançável
+// sem sessão (é o próprio jeito de criar uma); /me e /logout se protegem
+// sozinhas dentro do router (ver routes/auth.ts).
+app.use('/api/auth', corsAdmin, authRouter)
+app.use('/api/campanhas', corsAdmin, requireAdminAuth, campanhasRouter)
+app.use('/api/catalogo-telas', corsAdmin, requireAdminAuth, catalogoTelasRouter)
+app.use('/api/tours', corsAdmin, requireAdminAuth, toursRouter)
+app.use('/api/jornadas', corsAdmin, requireAdminAuth, jornadasRouter)
+app.use('/api/aparencia-widget', corsAdmin, requireAdminAuth, aparenciaWidgetRouter)
 app.use('/api/widget', corsWidget, widgetRouter)
-app.use('/api/dashboard', corsAdmin, requireAdminToken, dashboardRouter)
+app.use('/api/dashboard', corsAdmin, requireAdminAuth, dashboardRouter)
 
 // Assets estáticos do frontend (CSS, JS bundles, favicons…)
 app.use(express.static(WEB_DIST))
