@@ -19,28 +19,21 @@ DIRECT_URL="postgresql://USER:PASSWORD@HOST.REGION.aws.neon.tech/DB?sslmode=requ
 # Porta do servidor (padrão: 3333)
 PORT=3333
 
-# Origens permitidas para /api/campanhas e /api/dashboard
+# Origens permitidas para /api/campanhas, /api/dashboard e /api/auth
 # Separar por vírgula. Se ausente, aceita qualquer origem (INSEGURO em produção).
 CORS_ORIGINS=https://userpulse.seudominio.com
 
-# Token de autenticação para rotas admin (/api/campanhas e /api/dashboard)
+# Segredo usado para assinar a sessão de login admin (JWT em cookie httpOnly).
+# OBRIGATÓRIO: sem ele o servidor não sobe (falha rápido no boot).
 # Gere com: openssl rand -hex 32
-# Se ausente, a verificação é ignorada (apenas para desenvolvimento local).
-ADMIN_TOKEN=seu-token-secreto-aqui
+ADMIN_JWT_SECRET=
 ```
 
 > `/api/widget/*` é sempre aberto — o widget precisa ser acessível a partir de qualquer domínio cliente.
 
-Além disso, copie `web/.env.example` para `web/.env` e defina:
+`web/.env` não precisa de nenhuma variável para o login: a sessão é um cookie httpOnly enviado automaticamente pelo browser (front e back são a mesma origem em produção). Veja `web/.env.example`.
 
-```env
-# Mesmo valor que ADMIN_TOKEN no servidor
-VITE_ADMIN_TOKEN=seu-token-secreto-aqui
-```
-
-Rode o build web após configurar `web/.env`.
-
-### Como gerar um token seguro
+### Como gerar um segredo seguro
 
 ```bash
 # Linux / macOS / WSL
@@ -100,7 +93,19 @@ npm run db:generate --prefix server
 > Normalmente não é necessário em produção se o `dist/` foi gerado com o client correto.  
 > É necessário apenas se o `node_modules/@prisma/client` estiver desatualizado.
 
-### 5. Seed (opcional)
+### 5. Bootstrap do admin inicial (obrigatório num ambiente zerado)
+
+```bash
+ADMIN_EMAIL=admin@seudominio.com ADMIN_PASSWORD=defina-uma-senha-com-8-mais-caracteres ADMIN_NAME="Nome do Admin" \
+  npm run db:seed:admin --prefix server
+```
+
+- `ADMIN_EMAIL` e `ADMIN_PASSWORD` são obrigatórios; sem eles o script não cria nada (só avisa e sai). `ADMIN_NAME` é opcional (padrão: "Administrador").
+- Essas três variáveis são lidas **só por este script**, uma vez, para criar o primeiro admin — o servidor não as lê em runtime. Não é necessário mantê-las no `.env` depois de rodar o script.
+- Idempotente: se `ADMIN_EMAIL` já existir no banco, o script apenas confirma e **não sobrescreve** nome/senha do admin já criado. Pode rodar de novo sem risco (ex.: reexecução de CI/CD).
+- Um ambiente novo (banco zerado/migrado) deve rodar **apenas** este comando — não rode `npm run db:seed` (seed de dados de demonstração) num ambiente de cliente real.
+
+### 6. Seed de demonstração (opcional, nunca em ambiente de cliente real)
 
 ```bash
 npm run db:seed
@@ -108,9 +113,9 @@ npm run db:seed
 # Seguro de rodar repetidamente — usa upsert
 ```
 
-> Não rode o seed em produção a menos que queira criar dados de demonstração.
+> Não rode o seed em produção a menos que queira criar dados de demonstração. Um ambiente novo de cliente deve nascer só com o admin do passo 5, sem campanhas/tours/jornadas demo.
 
-### 6. Start
+### 7. Start
 
 ```bash
 # Na raiz do projeto
@@ -161,6 +166,7 @@ pg_restore -d "$DATABASE_URL" --no-owner --no-privileges userpulse_YYYYMMDD_HHMM
 - [ ] `GET /health` retorna `{ "status": "ok", ... }`
 - [ ] `GET /widget.js` retorna 200 com `Content-Type: application/javascript`
 - [ ] Painel admin abre em `https://seudominio.com`
+- [ ] Login com o admin criado no passo 5 funciona e dá acesso ao painel
 - [ ] Listagem de campanhas carrega sem erros
 - [ ] Criar campanha de teste — salva e aparece na listagem
 - [ ] Dashboard da campanha carrega sem erros
@@ -180,9 +186,10 @@ pg_restore -d "$DATABASE_URL" --no-owner --no-privileges userpulse_YYYYMMDD_HHMM
 
 ### Segurança
 
-- [ ] `ADMIN_TOKEN` definido no servidor (sem ele, `/api/campanhas` e `/api/dashboard` ficam abertos)
-- [ ] `VITE_ADMIN_TOKEN` definido em `web/.env` com o mesmo valor, build web refeito
-- [ ] `CORS_ORIGINS` definido (sem ele, qualquer origem acessa as rotas admin)
+- [ ] `ADMIN_JWT_SECRET` definido no servidor (sem ele o processo não sobe)
+- [ ] Admin inicial criado via `npm run db:seed:admin --prefix server` (passo 5) — não via seed geral
+- [ ] `ADMIN_EMAIL`/`ADMIN_PASSWORD`/`ADMIN_NAME` removidos do `.env` após o bootstrap (não são lidos em runtime)
+- [ ] `CORS_ORIGINS` definido (sem ele, qualquer origem acessa as rotas admin, inclusive `/api/auth`)
 - [ ] `server/.env` não commitado (`git status` não lista o arquivo)
 - [ ] Servidor rodando com HTTPS (TLS no proxy reverso)
 - [ ] `NODE_ENV=production` definido

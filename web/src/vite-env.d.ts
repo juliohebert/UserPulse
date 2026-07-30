@@ -2,7 +2,6 @@
 
 interface ImportMetaEnv {
   readonly VITE_USERPULSE_WIDGET_URL?: string
-  readonly VITE_ADMIN_TOKEN?: string
 }
 
 interface ImportMeta {

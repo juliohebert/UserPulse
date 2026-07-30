@@ -1,13 +1,24 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../hooks/useAuth'
 
 interface Props {
   collapsed: boolean
 }
 
+// Iniciais pro avatar (fallback "UP" se, por algum motivo, o nome vier vazio
+// — nunca deveria acontecer, mas evita um avatar em branco).
+function iniciais(nome: string): string {
+  const partes = nome.trim().split(/\s+/).filter(Boolean)
+  if (partes.length === 0) return 'UP'
+  if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase()
+  return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase()
+}
+
 export function Topbar({ collapsed }: Props) {
   const [search, setSearch] = useState('')
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -49,11 +60,14 @@ export function Topbar({ collapsed }: Props) {
 
         <div className="flex items-center gap-3">
           <div className="hidden md:block text-right">
-            <p className="text-label-md font-bold text-on-surface">Admin</p>
-            <p className="text-[10px] text-outline uppercase tracking-wider">UserPulse</p>
+            <p className="text-label-md font-bold text-on-surface">{user?.nome ?? 'Admin'}</p>
+            <p className="text-[10px] text-outline uppercase tracking-wider truncate max-w-[160px]">{user?.email ?? 'UserPulse'}</p>
           </div>
-          <div className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm border-2 border-primary-fixed">
-            UP
+          <div
+            className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm border-2 border-primary-fixed"
+            title={user?.email}
+          >
+            {iniciais(user?.nome ?? 'UserPulse')}
           </div>
         </div>
       </div>

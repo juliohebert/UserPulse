@@ -47,9 +47,9 @@ npm start
 
 Equivale a `node server/dist/index.js`. O processo Express serve:
 - `GET /widget.js` — widget embarcável
-- `/api/campanhas/*` — CRUD admin (protegido por `ADMIN_TOKEN`)
+- `/api/campanhas/*`, `/api/tours/*`, `/api/jornadas/*`, `/api/dashboard/*` — CRUD/métricas admin (protegidos por sessão de login, ver `ADMIN_JWT_SECRET` abaixo)
+- `/api/auth/*` — login/logout/sessão admin
 - `/api/widget/*` — endpoints do widget (abertos)
-- `/api/dashboard/*` — métricas (protegido por `ADMIN_TOKEN`)
 - `/*` — SPA React (web/dist/index.html)
 
 ### Root Directory
@@ -73,14 +73,13 @@ Configure em **Environment → Environment Variables** no painel do Render:
 | `NODE_ENV` | Sim | `production` |
 | `PORT` | Não¹ | `3333` |
 | `CORS_ORIGINS` | Sim | `https://userpulse.seudominio.com` |
-| `ADMIN_TOKEN` | Sim | token gerado com `openssl rand -hex 32` |
-| `VITE_ADMIN_TOKEN` | — | ² |
+| `ADMIN_JWT_SECRET` | Sim | segredo gerado com `openssl rand -hex 32` |
 
 ¹ O Render injeta `PORT` automaticamente. O Express já usa `process.env.PORT` como padrão.
 
-² `VITE_ADMIN_TOKEN` é uma variável de build do Vite — ela é injetada no bundle no momento em que `npm run build` executa. Configure-a **antes** do primeiro deploy para que o painel envie o token correto nos headers das requisições admin.
+`ADMIN_JWT_SECRET` assina a sessão de login (cookie httpOnly) — sem ele o servidor falha no boot. Não precisa de variável equivalente no `web/`: front e back são a mesma origem, o cookie é enviado automaticamente pelo browser.
 
-### Como gerar o ADMIN_TOKEN
+### Como gerar o ADMIN_JWT_SECRET
 
 ```bash
 # Linux / macOS / WSL
@@ -89,8 +88,6 @@ openssl rand -hex 32
 # PowerShell
 [System.Convert]::ToBase64String((1..32 | ForEach-Object { [byte](Get-Random -Max 256) }))
 ```
-
-Use o mesmo valor em `ADMIN_TOKEN` (servidor) e `VITE_ADMIN_TOKEN` (frontend no build).
 
 ---
 
@@ -108,15 +105,32 @@ npm run db:migrate
 
 ---
 
+## Bootstrap do admin inicial
+
+Depois que as migrations rodarem (banco zerado, sem tabela `admin_users` populada), crie o admin inicial via **Render Shell**:
+
+```bash
+ADMIN_EMAIL=admin@seudominio.com ADMIN_PASSWORD=defina-uma-senha-com-8-mais-caracteres ADMIN_NAME="Nome do Admin" \
+  npm run db:seed:admin --prefix server
+```
+
+- `ADMIN_EMAIL`/`ADMIN_PASSWORD` obrigatórios (o script não cria nada sem os dois); `ADMIN_NAME` opcional.
+- Essas variáveis são lidas só nesta execução do script — não é necessário deixá-las como Environment Variables permanentes no serviço.
+- Idempotente: rodar de novo com o mesmo `ADMIN_EMAIL` não sobrescreve o admin já criado.
+- Um ambiente novo (banco zerado) deve rodar **só** este comando — não rode `npm run db:seed` (dados de demonstração da QuarkClinic) num ambiente de cliente real.
+
+---
+
 ## Ordem completa no primeiro deploy
 
 1. Criar PostgreSQL no Render (ou provisionar banco externo)
 2. Copiar `DATABASE_URL` do banco criado
 3. Criar Web Service apontando para o repositório
-4. Configurar todas as variáveis de ambiente (incluindo `VITE_ADMIN_TOKEN` antes do build)
+4. Configurar todas as variáveis de ambiente, incluindo `ADMIN_JWT_SECRET`
 5. Disparar o deploy — o Build Command roda migrate automaticamente
-6. Após o deploy, acessar `https://seu-servico.onrender.com/health`
-7. Verificar que retorna `{ "status": "ok" }`
+6. Após o deploy, acessar `https://seu-servico.onrender.com/health` e conferir `{ "status": "ok" }`
+7. Rodar o bootstrap do admin inicial (seção acima) via Render Shell
+8. Fazer login no painel com o admin criado
 
 ---
 
@@ -125,8 +139,9 @@ npm run db:migrate
 - [ ] `GET /health` → `{ "status": "ok" }`
 - [ ] `GET /widget.js` → 200 com `Content-Type: application/javascript`
 - [ ] Painel admin abre em `https://seu-servico.onrender.com`
-- [ ] `GET /api/campanhas` sem token → 401 (se `ADMIN_TOKEN` definido)
-- [ ] `GET /api/campanhas` com `Authorization: Bearer <token>` → 200
+- [ ] Admin inicial criado via `npm run db:seed:admin --prefix server` (não via seed geral)
+- [ ] Login com o admin criado funciona e dá acesso ao painel
+- [ ] `GET /api/campanhas` sem sessão → 401
 - [ ] Dashboard carrega campanhas e métricas
 
 ---
@@ -140,4 +155,4 @@ No plano Free do Render, o serviço hiberna após 15 minutos de inatividade. A p
 Acesse em **Logs** no painel do Render. O servidor emite `Server rodando em http://localhost:<PORT>` ao iniciar.
 
 **Redeploy após mudança de variável**  
-Variáveis `VITE_*` são injetadas no bundle durante o build. Se mudar `VITE_ADMIN_TOKEN`, é necessário fazer um novo deploy para que o frontend reflita o valor atualizado. Variáveis do servidor (`ADMIN_TOKEN`, `DATABASE_URL`) são lidas em runtime e não exigem rebuild.
+Variáveis do servidor (`ADMIN_JWT_SECRET`, `DATABASE_URL`, `CORS_ORIGINS`) são lidas em runtime e não exigem rebuild — basta reiniciar o serviço. Variáveis `VITE_*` (ex.: `VITE_USERPULSE_WIDGET_URL`) são injetadas no bundle durante o build e exigem um novo deploy para refletir no frontend.

@@ -378,3 +378,15 @@ export interface ResultadoElegibilidade {
     motivo: string
   } | null
 }
+
+// Usuário admin autenticado — nunca inclui password_hash (o backend já nunca
+// devolve esse campo, ver server/src/controllers/auth.ts).
+export interface AdminUser {
+  id: string
+  nome: string
+  email: string
+  role: string
+  ativo: boolean
+  criado_em: string
+  atualizado_em: string
+}

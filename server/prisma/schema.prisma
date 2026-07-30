@@ -7,6 +7,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Login admin (uso interno Quark) — single-tenant, sem organização/tenant
+// nenhum associado ainda (ver contexto da tarefa: multi-tenancy fica pra uma
+// fase futura). role é string livre (não enum) de propósito — mesmo padrão já
+// usado no schema pra campos de categoria simples (ex.: tipo_evento), sem
+// tabela de permissões: hoje nada lê/valida esse campo além de guardá-lo.
+model AdminUser {
+  id            String   @id @default(uuid())
+  nome          String
+  email         String   @unique
+  password_hash String
+  role          String   @default("admin")
+  ativo         Boolean  @default(true)
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  @@map("admin_users")
+}
+
 model Campanha {
   id                        String    @id @default(uuid())
   slug                      String    @unique

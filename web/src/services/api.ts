@@ -1,17 +1,24 @@
 const BASE = '/api'
 
-const ADMIN_TOKEN: string = import.meta.env.VITE_ADMIN_TOKEN ?? ''
-
-function authHeader(): Record<string, string> {
-  return ADMIN_TOKEN ? { Authorization: `Bearer ${ADMIN_TOKEN}` } : {}
+// Chamado a cada resposta 401 de qualquer rota admin — quem registra é
+// AuthProvider (ver hooks/useAuth.tsx), que reage limpando o usuário local
+// (o guard de rota cuida do redirect pra /login a partir disso). Mantém este
+// módulo sem depender de React/react-router: só um callback opcional.
+let onUnauthorized: (() => void) | null = null
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  onUnauthorized = fn
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const merged: RequestInit = {
     ...init,
-    headers: { ...authHeader(), ...(init?.headers as Record<string, string> | undefined) },
+    // Sessão admin é um cookie httpOnly (ver server/src/lib/auth.ts) — sem
+    // isso o browser não anexa o cookie em requisições fetch, mesmo same-origin.
+    credentials: 'include',
+    headers: { ...(init?.headers as Record<string, string> | undefined) },
   }
   const res = await fetch(`${BASE}${path}`, merged)
+  if (res.status === 401) onUnauthorized?.()
   if (!res.ok) {
     const text = await res.text()
     let message = text
@@ -41,7 +48,8 @@ export const put = <T>(path: string, body: unknown) =>
 export const del = (path: string) => request<void>(path, { method: 'DELETE' })
 
 export const getBlob = (path: string): Promise<Blob> =>
-  fetch(`${BASE}${path}`, { headers: authHeader() }).then(res => {
+  fetch(`${BASE}${path}`, { credentials: 'include' }).then(res => {
+    if (res.status === 401) onUnauthorized?.()
     if (!res.ok) throw new Error('Erro ao baixar arquivo')
     return res.blob()
   })

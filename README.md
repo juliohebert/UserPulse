@@ -27,7 +27,7 @@ O painel de administração permite criar campanhas, acompanhar visualizações,
 - **Controle de exibição única** por usuário (localStorage)
 - **Dashboard** com métricas de visualizações, cliques CTA, taxa de clique e NPS médio
 - **Filtros de listagem** por tipo, status, sistema, tela e categoria
-- **Proteção de rotas admin** via `ADMIN_TOKEN` (Bearer token)
+- **Login admin** com sessão JWT em cookie httpOnly — protege as rotas de campanhas, tours, jornadas e dashboard
 - **CORS configurável** por origens para rotas admin
 - **7 migrations Prisma** com histórico completo
 
@@ -181,14 +181,18 @@ O `test-embed.html` usa o widget em modo slug por padrão. Para testar o modo po
 | `PORT` | Não | Porta do servidor (padrão: `3333`) |
 | `NODE_ENV` | Não | `production` em produção |
 | `CORS_ORIGINS` | Produção | Origens permitidas para rotas admin (separadas por vírgula) |
-| `ADMIN_TOKEN` | Produção | Token Bearer para proteger `/api/campanhas` e `/api/dashboard` |
+| `ADMIN_JWT_SECRET` | Sim | Assina a sessão de login admin (JWT em cookie httpOnly). Sem ele o servidor não sobe. Gere com `openssl rand -hex 32` |
+| `ADMIN_EMAIL` | Só bootstrap | Usada apenas por `npm run db:seed:admin` para criar o admin inicial |
+| `ADMIN_PASSWORD` | Só bootstrap | Idem — 8+ caracteres |
+| `ADMIN_NAME` | Não | Idem, opcional (padrão: "Administrador") |
 
 ### `web/.env`
 
 | Variável | Obrigatória | Descrição |
 |---|---|---|
-| `VITE_ADMIN_TOKEN` | Produção | Mesmo valor que `ADMIN_TOKEN` no servidor |
 | `VITE_USERPULSE_WIDGET_URL` | Não | URL pública do `widget.js` (padrão: `window.location.origin/widget.js`) |
+
+Login admin não precisa de variável no `web/.env` — a sessão é um cookie httpOnly enviado automaticamente pelo browser (front e back na mesma origem).
 
 Copie os exemplos:
 ```bash
@@ -196,6 +200,15 @@ cp .env.example .env          # variáveis raiz (documentação)
 cp server/.env.example server/.env
 cp web/.env.example web/.env
 ```
+
+### Bootstrap do admin inicial
+
+Num ambiente novo (banco zerado/migrado), crie o primeiro admin:
+```bash
+ADMIN_EMAIL=admin@seudominio.com ADMIN_PASSWORD=defina-uma-senha-com-8-mais-caracteres ADMIN_NAME="Nome do Admin" \
+  npm run db:seed:admin --prefix server
+```
+Idempotente — rodar de novo com o mesmo `ADMIN_EMAIL` não sobrescreve o admin já criado. Não rode `npm run db:seed` (dados de demonstração) num ambiente de cliente real; um ambiente zerado deve rodar só o seed admin.
 
 ---
 
@@ -287,7 +300,6 @@ O widget faz `GET /api/widget/campanha?slug=...` ou `?sistema=...&tela=...`, agu
 
 ## Limitações conhecidas do RC1
 
-- Sem autenticação de usuário no painel admin além do `ADMIN_TOKEN` (não há login/logout)
 - Widget não suporta múltiplas campanhas simultâneas na mesma tela — exibe a de maior prioridade
 - Sem paginação na listagem de campanhas (carrega todas as campanhas)
 - Sem suporte a internacionalização (i18n) — interface apenas em português
