@@ -88,10 +88,13 @@ app.get('/widget.js', (_req, res) => {
 })
 
 // Conveniência de dev — serve o test-embed.html da raiz do repo para os botões
-// "Abrir test-embed" do admin (preview de campanhas/tours). Não existe no
-// build de produção (web/dist), então em produção isso só resulta em 404.
+// "Abrir test-embed" do admin (preview de campanhas/tours). Ferramenta local
+// de validação do widget/gravador: NUNCA deve ficar acessível em produção,
+// então essa rota só responde fora de NODE_ENV=production — em produção
+// sempre retorna 404, mesmo que o arquivo exista no filesystem do deploy.
 const TEST_EMBED_PATH = path.resolve(__dirname, '../../test-embed.html')
 app.get('/test-embed.html', (_req, res) => {
+  if (process.env.NODE_ENV === 'production') return res.status(404).end()
   res.sendFile(TEST_EMBED_PATH, err => {
     if (err && !res.headersSent) res.status(404).end()
   })
