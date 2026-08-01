@@ -1,5 +1,8 @@
 node_modules/
 dist/
+build/
+coverage/
+*.log
 
 # variáveis de ambiente (nunca versionar)
 .env
@@ -10,3 +13,12 @@ dist/
 
 # Prisma engine binário (gerado localmente)
 server/src/generated/
+
+# referências locais de design/pesquisa — não versionar
+docs/references/
+
+# dumps e backups de banco — nunca versionar, exceto as migrations do Prisma
+*.dump
+*.bak
+*.sql
+!server/prisma/migrations/**/*.sql
