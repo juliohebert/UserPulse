@@ -1,0 +1,21 @@
+import { Router } from 'express'
+import * as widget from '../controllers/widget'
+
+const router = Router()
+
+router.get('/campanha', widget.buscarCampanha)
+router.get('/candidatas', widget.buscarCandidatas)
+router.post('/evento', widget.registrarEvento)
+router.post('/feedback', widget.registrarFeedback)
+router.patch('/feedback/:id/telefone', widget.atualizarTelefone)
+router.post('/confirmacao', widget.registrarConfirmacao)
+router.post('/conclusao-evento', widget.registrarConclusaoEvento)
+router.post('/eventos', widget.registrarEventoUsuario)
+router.get('/tour', widget.buscarTour)
+router.get('/aparencia', widget.buscarAparencia)
+router.get('/tour/candidatas', widget.buscarTourCandidatos)
+router.post('/tour/evento', widget.registrarEventoTour)
+router.get('/jornadas', widget.buscarJornadas)
+router.post('/jornada/evento', widget.registrarEventoJornada)
+
+export default router

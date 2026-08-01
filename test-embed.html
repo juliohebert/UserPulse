@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QuarkClinic — Agenda (teste embed UserPulse)</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: Inter, system-ui, sans-serif;
+        background: #f3f6fb;
+        color: #172033;
+        min-height: 100vh;
+      }
+
+      /* ── instrução de setup ──────────────────────────────────────── */
+      #setup-banner {
+        background: #fffbe6;
+        border-bottom: 1px solid #ffe58f;
+        padding: 10px 24px;
+        font-size: 13px;
+        color: #613d00;
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      #setup-banner strong { color: #3d2600; }
+      #setup-banner .step { display: flex; align-items: center; gap: 6px; }
+      #setup-banner .step::before {
+        content: attr(data-n);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px; height: 18px;
+        background: #fa8c16;
+        color: #fff;
+        border-radius: 50%;
+        font-size: 11px;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      #setup-banner code {
+        background: #fff3cc;
+        border: 1px solid #ffd666;
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-family: monospace;
+        font-size: 12px;
+      }
+
+      /* ── chrome do app simulado ──────────────────────────────────── */
+      header {
+        height: 60px;
+        background: #0058be;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 28px;
+        color: #fff;
+      }
+      header .brand { font-size: 17px; font-weight: 700; letter-spacing: -0.3px; }
+      header .brand span { opacity: .55; font-weight: 400; font-size: 13px; margin-left: 6px; }
+      header .user { font-size: 13px; opacity: .8; }
+
+      nav {
+        background: #fff;
+        border-bottom: 1px solid #dde3ee;
+        padding: 0 28px;
+        display: flex;
+        gap: 0;
+      }
+      nav a {
+        display: inline-block;
+        padding: 12px 16px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #667085;
+        text-decoration: none;
+        border-bottom: 2px solid transparent;
+      }
+      nav a.active { color: #0058be; border-bottom-color: #0058be; }
+
+      main {
+        max-width: 1100px;
+        margin: 28px auto;
+        padding: 0 24px;
+      }
+
+      .page-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 20px;
+      }
+      .page-title h1 { font-size: 20px; font-weight: 700; }
+      .page-title p  { font-size: 13px; color: #667085; margin-top: 2px; }
+
+      .btn {
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 18px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        line-height: 1;
+      }
+      .btn-primary   { background: #0058be; color: #fff; }
+      .btn-secondary { background: #fff; color: #344054; border: 1px solid #d0d5dd; }
+
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .toolbar-left  { display: flex; gap: 8px; }
+      .toolbar-right { display: flex; gap: 8px; }
+
+      .card {
+        background: #fff;
+        border: 1px solid #dde3ee;
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      table { width: 100%; border-collapse: collapse; }
+      thead th {
+        padding: 10px 16px;
+        text-align: left;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        color: #667085;
+        background: #f9fafb;
+        border-bottom: 1px solid #edf1f7;
+      }
+      tbody tr { border-bottom: 1px solid #f0f3f8; }
+      tbody tr:last-child { border-bottom: 0; }
+      tbody td { padding: 14px 16px; font-size: 13.5px; }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 10px;
+        border-radius: 99px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .badge-green  { background: #d1fae5; color: #065f46; }
+      .badge-yellow { background: #fef9c3; color: #713f12; }
+      .badge-gray   { background: #f3f4f6; color: #374151; }
+      .badge-red    { background: #fee2e2; color: #991b1b; }
+
+      .avatar {
+        width: 28px; height: 28px;
+        border-radius: 50%;
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 11px; font-weight: 700; color: #fff;
+        margin-right: 6px;
+      }
+
+      .search-input {
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+        color: #344054;
+        outline: none;
+        width: 220px;
+      }
+      .search-input:focus { border-color: #0058be; }
+
+      .pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        font-size: 13px;
+        color: #667085;
+        border-top: 1px solid #f0f3f8;
+      }
+    </style>
+  </head>
+
+  <body>
+
+    <!-- instrução de setup: visível na página, some se não precisar -->
+    <div id="setup-banner">
+      <strong>Teste embed UserPulse — QuarkClinic (widget local)</strong>
+      <div class="step" data-n="1">
+        Sistema/Tela → <code>sistema: quarkclinic-core</code> <code>tela: agenda</code>
+      </div>
+      <div class="step" data-n="2">
+        Data-cy → <code>data-cy: agenda-page</code>
+      </div>
+      <div class="step" data-n="3">
+        URL contém → <code>/test-embed.html</code>
+      </div>
+      <div class="step" data-n="4">
+        Após evento → <code>paciente_agendado</code>
+      </div>
+    </div>
+
+    <!-- painel de testes de evento -->
+    <div id="event-panel" style="background:#eef6ff;border-bottom:1px solid #c2d9f8;padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:13px;color:#1a3a5c;">
+      <strong>Testes de gatilho por evento:</strong>
+      <button onclick="window.UserPulse.track('paciente_agendado')" style="background:#0058be;color:#fff;border:0;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;">
+        Simular evento paciente_agendado
+      </button>
+      <button onclick="window.UserPulse.track('outro_evento')" style="background:#fff;color:#344054;border:1px solid #d0d5dd;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;">
+        Simular outro_evento (não deve abrir)
+      </button>
+    </div>
+
+    <!-- painel de testes de tour guiado (Fase 2) -->
+    <div id="tour-panel" style="background:#f3eeff;border-bottom:1px solid #d9c9fb;padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:13px;color:#3a1a6b;">
+      <strong>Testes de tour guiado:</strong>
+      <button onclick="window.UserPulse.iniciarTour('conhecendo-a-agenda')" style="background:#6b38d4;color:#fff;border:0;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;">
+        Iniciar tour: Conhecendo a Agenda (também inicia sozinho ao carregar a página)
+      </button>
+      <button onclick="window.UserPulse.iniciarTour('teste-elemento-ausente')" style="background:#fff;color:#6b38d4;border:1px solid #c9b6f5;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;">
+        Iniciar tour: elemento ausente (1º passo deve falhar)
+      </button>
+      <button onclick="window.UserPulse.iniciarTour('tour-demo-local')" style="background:#fff;color:#6b38d4;border:1px solid #c9b6f5;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:600;cursor:pointer;">
+        Iniciar tour local (demo 3 passos)
+      </button>
+      <span style="color:#5b3d99;">
+        Para testar "Ação ao clicar em Próximo" (admin → passo do tour): aponte um passo para
+        <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">botao-abrir-painel-lento</code>
+        com "Clicar no elemento destacado e avançar", e o passo seguinte para
+        <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">campo-painel-lento</code>
+        (painel abaixo, aparece ~1.5s depois — o widget deve mostrar "Aguardando próximo elemento..." nesse intervalo).
+      </span>
+      <div style="width:100%;margin-top:4px;padding-top:10px;border-top:1px dashed #d9c9fb;color:#5b3d99;">
+        <strong>Tour local de exemplo</strong> — crie em <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">/tours/novo</code>
+        com o slug <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">tour-demo-local</code> e estes 3 passos
+        (o botão acima dispara por slug direto — sistema/tela do tour não importam pra esse teste):
+        <ol style="margin:6px 0 0 18px;">
+          <li>Alvo <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">[data-cy="tour-demo-boas-vindas"]</code> — título "Bem-vindo ao painel", texto "Aqui você acompanha as principais informações do sistema."</li>
+          <li>Alvo <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">[data-cy="tour-demo-busca"]</code> — título "Encontre registros rapidamente", texto "Use a busca para localizar informações importantes sem navegar por várias telas."</li>
+          <li>Alvo <code style="background:#fff;border:1px solid #c9b6f5;border-radius:4px;padding:1px 6px;font-family:monospace;">[data-cy="tour-demo-acao-principal"]</code> — título "Execute a ação principal", texto "Este botão representa a ação mais importante desta tela."</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- chrome do sistema simulado -->
+    <header>
+      <div class="brand">QuarkClinic <span>v2.4</span></div>
+      <div class="user">ALISON FERREIRA MED &nbsp;·&nbsp; Profissional de Saúde</div>
+    </header>
+
+    <nav>
+      <a href="#">Dashboard</a>
+      <a href="#" class="active">Agenda</a>
+      <a href="#">Pacientes</a>
+      <a href="#">Financeiro</a>
+      <a href="#">Relatórios</a>
+    </nav>
+
+    <main data-cy="agenda-page">
+      <div class="page-title">
+        <div>
+          <h1>Agenda</h1>
+          <p>Quarta-feira, 25 de junho de 2026 &mdash; CLINICA VALIDAÇÕES - JFS (MATRIZ)</p>
+        </div>
+        <button class="btn btn-primary" data-cy="botao-novo-agendamento" onclick="document.getElementById('novo-agendamento-painel').style.display='block'">+ Nova consulta</button>
+      </div>
+
+      <div id="novo-agendamento-painel" class="card" style="display:none;margin-bottom:16px;padding:18px 20px;">
+        <h2 style="font-size:15px;margin-bottom:12px;">Novo agendamento</h2>
+        <label style="display:block;font-size:12px;font-weight:600;color:#667085;margin-bottom:6px;">Paciente</label>
+        <input type="text" class="search-input" style="width:280px;margin-bottom:14px;" placeholder="Nome do paciente" data-cy="campo-paciente" />
+        <div>
+          <button class="btn btn-primary" data-cy="botao-salvar-agendamento" onclick="document.getElementById('novo-agendamento-painel').style.display='none'">Salvar agendamento</button>
+          <button class="btn btn-secondary" onclick="document.getElementById('novo-agendamento-painel').style.display='none'">Cancelar</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <button class="btn btn-secondary">◀ Hoje</button>
+          <button class="btn btn-secondary">Semana</button>
+          <button class="btn btn-secondary">Mês</button>
+        </div>
+        <div class="toolbar-right">
+          <input class="search-input" type="text" placeholder="Buscar paciente…" />
+          <button class="btn btn-secondary">Filtros</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Horário</th>
+              <th>Paciente</th>
+              <th>Especialidade</th>
+              <th>Profissional</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>08:00</td>
+              <td><span class="avatar" style="background:#7c3aed">LC</span>Lucas Carvalho</td>
+              <td>Clínica Geral</td>
+              <td>Dr. Marcos Andrade</td>
+              <td><span class="badge badge-green">Confirmada</span></td>
+              <td><button class="btn btn-secondary" style="padding:6px 12px">Ver</button></td>
+            </tr>
+            <tr>
+              <td>09:30</td>
+              <td><span class="avatar" style="background:#0058be">AC</span>Ana Costa</td>
+              <td>Pediatria</td>
+              <td>Dra. Helena Rocha</td>
+              <td><span class="badge badge-green">Confirmada</span></td>
+              <td><button class="btn btn-secondary" style="padding:6px 12px">Ver</button></td>
+            </tr>
+            <tr>
+              <td>10:00</td>
+              <td><span class="avatar" style="background:#059669">BS</span>Beatriz Souza</td>
+              <td>Cardiologia</td>
+              <td>Dr. Paulo Freitas</td>
+              <td><span class="badge badge-yellow">Aguardando</span></td>
+              <td><button class="btn btn-secondary" style="padding:6px 12px">Ver</button></td>
+            </tr>
+            <tr>
+              <td>11:00</td>
+              <td><span class="avatar" style="background:#d97706">RL</span>Rafael Lima</td>
+              <td>Ortopedia</td>
+              <td>Dra. Helena Rocha</td>
+              <td><span class="badge badge-yellow">Aguardando</span></td>
+              <td><button class="btn btn-secondary" style="padding:6px 12px">Ver</button></td>
+            </tr>
+            <tr>
+              <td>14:00</td>
+              <td><span class="avatar" style="background:#be185d">FM</span>Fernanda Melo</td>
+              <td>Dermatologia</td>
+              <td>Dr. Marcos Andrade</td>
+              <td><span class="badge badge-gray">Agendada</span></td>
+              <td><button class="btn btn-secondary" style="padding:6px 12px">Ver</button></td>
+            </tr>
+            <tr>
+              <td>15:30</td>
+              <td><span class="avatar" style="background:#6d28d9">GO</span>Gabriel Oliveira</td>
+              <td>Clínica Geral</td>
+              <td>Dra. Helena Rocha</td>
+              <td><span class="badge badge-red">Cancelada</span></td>
+              <td><button class="btn btn-secondary" style="padding:6px 12px">Ver</button></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="pagination">
+          <span>Mostrando 6 de 18 consultas</span>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-secondary" style="padding:6px 12px">‹</button>
+            <button class="btn btn-secondary" style="padding:6px 12px">1</button>
+            <button class="btn btn-primary"   style="padding:6px 12px">2</button>
+            <button class="btn btn-secondary" style="padding:6px 12px">3</button>
+            <button class="btn btn-secondary" style="padding:6px 12px">›</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- painel de abertura lenta — só para testar o estado "Aguardando próximo
+           elemento..." do tour guiado (acao_ao_avancar = clicar_elemento). O
+           painel some/aparece com atraso proposital, simulando um elemento que
+           leva um tempo real para renderizar (ex.: dado carregado via API). -->
+      <div class="card" style="margin-top:16px;padding:18px 20px;">
+        <h2 style="font-size:15px;margin-bottom:4px;">Teste: aguardar próximo elemento</h2>
+        <p style="font-size:12px;color:#667085;margin-bottom:12px;">
+          O painel abaixo demora ~1.5s para aparecer depois do clique — use com "Clicar no elemento destacado e avançar".
+        </p>
+        <button class="btn btn-primary" data-cy="botao-abrir-painel-lento" onclick="document.getElementById('painel-lento').style.display='none';window.setTimeout(function(){document.getElementById('painel-lento').style.display='block'},1500)">
+          Abrir painel (aparece com atraso)
+        </button>
+        <button class="btn btn-secondary" style="margin-left:8px" onclick="document.getElementById('painel-lento').style.display='none'">
+          Resetar (esconder de novo)
+        </button>
+        <div id="painel-lento" style="display:none;margin-top:14px;">
+          <label style="display:block;font-size:12px;font-weight:600;color:#667085;margin-bottom:6px;">Resultado carregado</label>
+          <input type="text" class="search-input" style="width:280px;" placeholder="Apareceu depois do atraso" data-cy="campo-painel-lento" />
+        </div>
+      </div>
+
+      <!-- painel fake de "sistema cliente" simples — alvo do tour local de 3
+           passos (ver instruções no painel roxo "Testes de tour guiado" acima).
+           Independente do resto da página: não reaproveita nenhum data-cy
+           usado pelos testes de campanha/tour existentes. -->
+      <div class="card" style="margin-top:16px;padding:18px 20px;">
+        <h2 style="font-size:15px;margin-bottom:4px;">Demo: sistema cliente (tour local, 3 passos)</h2>
+        <p style="font-size:12px;color:#667085;margin-bottom:16px;">
+          Painel fake e independente da Agenda acima — só para testar o tour local de exemplo.
+        </p>
+
+        <div class="card" data-cy="tour-demo-boas-vindas" style="padding:16px 18px;margin-bottom:14px;background:#f8faff;">
+          <h3 style="font-size:14px;margin-bottom:4px;">Bem-vindo(a) de volta!</h3>
+          <p style="font-size:12.5px;color:#667085;">Aqui está um resumo rápido do que está acontecendo no seu painel hoje.</p>
+        </div>
+
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <input class="search-input" type="text" placeholder="Buscar registros…" data-cy="tour-demo-busca" />
+          </div>
+          <div class="toolbar-right">
+            <button class="btn btn-primary" data-cy="tour-demo-acao-principal">+ Nova ação</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Categoria</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Registro 001</td>
+                <td>Geral</td>
+                <td><span class="badge badge-green">Ativo</span></td>
+              </tr>
+              <tr>
+                <td>Registro 002</td>
+                <td>Financeiro</td>
+                <td><span class="badge badge-yellow">Pendente</span></td>
+              </tr>
+              <tr>
+                <td>Registro 003</td>
+                <td>Suporte</td>
+                <td><span class="badge badge-gray">Arquivado</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <!-- UserPulse embed ──────────────────────────────────────────────── -->
+    <!-- Caminho relativo seguro — nunca commitar uma URL fixa de localhost aqui.
+         Para testar contra o widget local (npm start, :3333), abra este arquivo
+         direto no navegador com ?local=1 na URL, ex.:
+         file:///.../test-embed.html?local=1 — funciona em URLs file:// também.
+         Sem o parâmetro, usa o caminho relativo /widget-loader.js (seguro para
+         commit, ainda que não resolva nada sob file://).
+         document.write mantém o carregamento síncrono/bloqueante, igual a um
+         <script src> estático, para que o UserPulse.init() abaixo já encontre
+         a fila (window.UserPulse._q) pronta. -->
+    <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var base = params.get('local') === '1' ? 'http://localhost:3333' : '';
+      document.write('<script src="' + base + '/widget-loader.js"><\/script>');
+    })();
+    </script>
+    <script>
+    window.UserPulse.init({
+      // sistema e tela — usados por modo Sistema/Tela, Data-cy e URL contém
+      sistema:          "QuarkClinic",
+      tela:             "home",
+
+      // usuário
+      usuario_id:       "4888505",
+      usuario_nome:     "ALISON FERREIRA MED",
+      usuario_email:    "ps2_qa_teste@gmail.com",
+      usuario_local_id: "16867481",
+      usuario_tipo:     "RECEPÇÃO",
+
+      // cliente / organização
+      cliente_id:       "479379",
+      cliente_nome:     "CLINICA VALIDAÇÕES - JFS",
+      cliente_local_id: "16848497",
+      organizacao_id:   "16848497",
+      organizacao_nome: "CLINICA VALIDAÇÕES - JFS",
+
+      // unidade / clínica
+      unidade_id:       "16848521",
+      unidade_nome:     "CLINICA VALIDAÇÕES - JFS (MATRIZ)",
+      unidade_local_id: "479379",
+      clinica_id:       "16848521",
+      clinica_nome:     "CLINICA VALIDAÇÕES - JFS (MATRIZ)",
+
+      // localização / perfil
+      Estado:           "RN",
+      Perfil:           "PROFISSIONAL_SAUDE",
+    });
+
+    // Suporte ao botão "Abrir test-embed" do admin (preview de tour guiado):
+    // ?tour=<slug> inicia o tour manualmente assim que o widget estiver pronto.
+    // window.UserPulse.iniciarTour() enfileira a chamada normalmente caso o
+    // widget.js ainda não tenha carregado.
+    (function () {
+      var tourSlug = new URLSearchParams(window.location.search).get('tour');
+      if (tourSlug) window.UserPulse.iniciarTour(tourSlug);
+    })();
+    </script>
+  </body>
+</html>

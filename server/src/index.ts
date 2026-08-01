@@ -1,0 +1,126 @@
+import express from 'express'
+import cors from 'cors'
+import cookieParser from 'cookie-parser'
+import dotenv from 'dotenv'
+import fs from 'fs'
+import path from 'path'
+import campanhasRouter from './routes/campanhas'
+import widgetRouter from './routes/widget'
+import dashboardRouter from './routes/dashboard'
+import catalogoTelasRouter from './routes/catalogoTelas'
+import toursRouter from './routes/tours'
+import jornadasRouter from './routes/jornadas'
+import aparenciaWidgetRouter from './routes/aparenciaWidget'
+import authRouter from './routes/auth'
+import { requireAdminAuth } from './middleware/requireAdminAuth'
+import { getSessionSecret } from './lib/auth'
+
+dotenv.config()
+
+// Falha rápido e alto no boot se o segredo de sessão não estiver configurado
+// — sem ele, login/me/logout responderiam 500 em runtime (getSessionSecret
+// já lança nesse caso), o que é seguro mas silencioso. Preferível travar o
+// deploy aqui a descobrir só quando alguém tentar logar em produção.
+try {
+  getSessionSecret()
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err)
+  process.exit(1)
+}
+
+const app = express()
+const PORT = process.env.PORT ?? 3333
+const WEB_DIST = path.resolve(__dirname, '../../web/dist')
+
+// Version injected into the widget loader for cache-busting.
+// Set WIDGET_VERSION on the deploy platform (e.g., git rev-parse --short HEAD).
+const WIDGET_VERSION =
+  process.env.WIDGET_VERSION ||
+  process.env.npm_package_version ||
+  String(Date.now())
+
+const WIDGET_LOADER_TEMPLATE = path.join(WEB_DIST, 'widget-loader.js')
+let widgetLoaderJs: string | null = null
+function getWidgetLoader(): string {
+  if (!widgetLoaderJs) {
+    widgetLoaderJs = fs.readFileSync(WIDGET_LOADER_TEMPLATE, 'utf8').replace('__UP_VERSION__', WIDGET_VERSION)
+  }
+  return widgetLoaderJs
+}
+
+// Origens permitidas para rotas de admin (campanhas, tours, jornadas,
+// dashboard, aparência, auth). Em dev, CORS_ORIGINS não definido → aceita
+// qualquer origem. Em produção, definir como lista separada por vírgula:
+//   CORS_ORIGINS=https://userpulse.seudominio.com,https://admin.seudominio.com
+// credentials:true é obrigatório aqui — é o que permite o cookie httpOnly de
+// sessão (ver lib/auth.ts) ir/voltar em requisições de outra origem; sem
+// isso, um CORS_ORIGINS configurado bloquearia login/me/logout de qualquer
+// front que não seja a própria origem do servidor.
+const adminOrigins: string[] | true = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+  : true
+
+const corsAdmin = cors({ origin: adminOrigins, credentials: true })
+
+// Widget é embarcado em sites de clientes (origem desconhecida) → sempre aberto.
+const corsWidget = cors()
+
+app.use(express.json())
+app.use(cookieParser())
+
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+// Widget loader — URL fixa, sem cache, injeta versão atual
+app.get('/widget-loader.js', corsWidget, (_req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+  res.setHeader('Cache-Control', 'no-cache, must-revalidate')
+  res.setHeader('Pragma', 'no-cache')
+  res.send(getWidgetLoader())
+})
+
+// Widget embarcável — cacheável por versão (chamado com ?v=<versao> pelo loader)
+app.get('/widget.js', (_req, res) => {
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8')
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+  res.sendFile(path.join(WEB_DIST, 'widget.js'))
+})
+
+// Conveniência de dev — serve o test-embed.html da raiz do repo para os botões
+// "Abrir test-embed" do admin (preview de campanhas/tours). Ferramenta local
+// de validação do widget/gravador: NUNCA deve ficar acessível em produção,
+// então essa rota só responde fora de NODE_ENV=production — em produção
+// sempre retorna 404, mesmo que o arquivo exista no filesystem do deploy.
+const TEST_EMBED_PATH = path.resolve(__dirname, '../../test-embed.html')
+app.get('/test-embed.html', (_req, res) => {
+  if (process.env.NODE_ENV === 'production') return res.status(404).end()
+  res.sendFile(TEST_EMBED_PATH, err => {
+    if (err && !res.headersSent) res.status(404).end()
+  })
+})
+
+// Rotas da API
+// /api/auth fica antes das demais rotas admin — login precisa ser alcançável
+// sem sessão (é o próprio jeito de criar uma); /me e /logout se protegem
+// sozinhas dentro do router (ver routes/auth.ts).
+app.use('/api/auth', corsAdmin, authRouter)
+app.use('/api/campanhas', corsAdmin, requireAdminAuth, campanhasRouter)
+app.use('/api/catalogo-telas', corsAdmin, requireAdminAuth, catalogoTelasRouter)
+app.use('/api/tours', corsAdmin, requireAdminAuth, toursRouter)
+app.use('/api/jornadas', corsAdmin, requireAdminAuth, jornadasRouter)
+app.use('/api/aparencia-widget', corsAdmin, requireAdminAuth, aparenciaWidgetRouter)
+app.use('/api/widget', corsWidget, widgetRouter)
+app.use('/api/dashboard', corsAdmin, requireAdminAuth, dashboardRouter)
+
+// Assets estáticos do frontend (CSS, JS bundles, favicons…)
+app.use(express.static(WEB_DIST))
+
+// SPA catch-all — todas as rotas não-API retornam index.html
+app.get('*', (_req, res) => {
+  res.sendFile(path.join(WEB_DIST, 'index.html'))
+})
+
+app.listen(PORT, () => {
+  console.log(`Server rodando em http://localhost:${PORT}`)
+})

@@ -1,0 +1,373 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Login admin (uso interno Quark) — single-tenant, sem organização/tenant
+// nenhum associado ainda (ver contexto da tarefa: multi-tenancy fica pra uma
+// fase futura). role é string livre (não enum) de propósito — mesmo padrão já
+// usado no schema pra campos de categoria simples (ex.: tipo_evento), sem
+// tabela de permissões: hoje nada lê/valida esse campo além de guardá-lo.
+model AdminUser {
+  id            String   @id @default(uuid())
+  nome          String
+  email         String   @unique
+  password_hash String
+  role          String   @default("admin")
+  ativo         Boolean  @default(true)
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  @@map("admin_users")
+}
+
+model Campanha {
+  id                        String    @id @default(uuid())
+  slug                      String    @unique
+  titulo                    String
+  subtitulo                 String?
+  descricao                 String
+  tipo                      String
+  sistema                   String
+  tela                      String
+  imagem_url                String?
+  video_url                 String?
+  texto_botao               String?
+  url_botao                 String?
+  feedback_habilitado       Boolean   @default(true)
+  modo_exibicao             String    @default("modal_automatica")
+  gatilho                   String    @default("ao_abrir_tela")
+  evento                    String?
+  modo_identificacao        String    @default("sistema_tela")
+  data_cy                   String?
+  url_contem                String?
+  atraso_ms                 Int       @default(800)
+  mostrar_uma_vez           Boolean   @default(false)
+  prioridade                Int       @default(0)
+  ordem                     Int       @default(0)
+  ativo                     Boolean   @default(true)
+  data_inicio               DateTime?
+  data_fim                  DateTime?
+  pergunta_feedback         String?
+  observacao_obrigatoria    Boolean   @default(false)
+  exige_confirmacao_leitura Boolean   @default(false)
+  permitir_fechar_modal     Boolean   @default(true)
+  intervalo_reexibicao_dias Int?
+  politica_reexibicao       String    @default("uma_vez_apos_visualizacao")
+  reexibir_apos_dias        Int?
+  encerrar_apos_evento      Boolean   @default(false)
+  evento_conclusao          String?
+  categoria                 String?
+  segmentar_cliente_ids     String[]  @default([])
+  segmentar_unidade_ids     String[]  @default([])
+  segmentar_perfis          String[]  @default([])
+  segmentar_usuario_tipos   String[]  @default([])
+  segmentar_estados         String[]  @default([])
+  criado_em                 DateTime  @default(now())
+  atualizado_em             DateTime  @updatedAt
+
+  feedbacks     Feedback[]
+  eventos       EventoCampanha[]
+  confirmacoes  ConfirmacaoLeitura[]
+  etapasJornada EtapaJornada[]
+
+  @@map("campanhas")
+}
+
+model ConfirmacaoLeitura {
+  id            String   @id @default(uuid())
+  campanha_id   String
+  usuario_id    String?
+  usuario_nome  String?
+  usuario_email String?
+  contexto      Json?
+  criado_em     DateTime @default(now())
+
+  campanha Campanha @relation(fields: [campanha_id], references: [id])
+
+  @@map("confirmacoes_leitura")
+}
+
+model Feedback {
+  id               String   @id @default(uuid())
+  campanha_id      String
+  nota             Int
+  observacao       String?
+  usuario_id       String?
+  usuario_nome     String?
+  usuario_email    String?
+  sistema          String?
+  tela             String?
+  navegador        String?
+  dispositivo      String?
+  contexto         Json?
+  telefone_contato String?
+  criado_em        DateTime @default(now())
+
+  campanha Campanha @relation(fields: [campanha_id], references: [id])
+
+  @@map("feedbacks")
+}
+
+model TelaCatalogo {
+  id                 String   @id @default(uuid())
+  nome               String
+  sistema            String
+  categoria          String
+  modo_identificacao String   @default("url_contem")
+  tela               String?
+  url_contem         String?
+  data_cy            String?
+  ativo              Boolean  @default(true)
+  criado_em          DateTime @default(now())
+  atualizado_em      DateTime @updatedAt
+
+  @@map("telas_catalogo")
+}
+
+// Aparência visual do widget (cor principal + logo/ícone do runtime de
+// Tours) — uma configuração por sistema/tenant, nunca por tour individual
+// (mesmo padrão de "sistema" já usado em Campanha/TourGuiado/TelaCatalogo,
+// sem precisar de uma tabela de tenants separada). cor_principal/logo_url
+// opcionais: sem registro, ou com os dois vazios, o widget usa o fallback
+// visual atual (cor azul padrão, ícone padrão) — nunca quebra clientes que
+// não configuraram nada.
+model AparenciaWidget {
+  id            String   @id @default(uuid())
+  sistema       String   @unique
+  cor_principal String?
+  logo_url      String?
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  @@map("aparencias_widget")
+}
+
+model EventoCampanha {
+  id          String   @id @default(uuid())
+  campanha_id String
+  tipo_evento String
+  usuario_id  String?
+  sistema     String?
+  tela        String?
+  navegador   String?
+  dispositivo String?
+  contexto    Json?
+  criado_em   DateTime @default(now())
+
+  campanha Campanha @relation(fields: [campanha_id], references: [id])
+
+  @@map("eventos_campanha")
+}
+
+model TourGuiado {
+  id                 String   @id @default(uuid())
+  slug               String   @unique
+  titulo             String
+  descricao          String?
+  sistema            String
+  modo_identificacao String   @default("sistema_tela")
+  tela               String?
+  data_cy            String?
+  url_contem         String?
+  prioridade         Int      @default(0)
+  ativo              Boolean  @default(true)
+  // Segmentação por contexto (MVP) — lista de regras simples avaliada pelo
+  // widget (ver avaliarSegmentacaoTour em widget.js), formato:
+  //   [{ campo: 'cliente_id'|'unidade_id'|'organizacao_id'|'clinica_id'|
+  //             'usuario_tipo'|'perfil'|'estado'|'usuario_id'|'usuario_email'|
+  //             'tela'|'sistema',
+  //      operador: 'igual'|'diferente'|'contem'|'em_lista',
+  //      valor: string }]
+  // null ou [] = sem segmentação, comportamento idêntico a antes desta coluna
+  // existir (todos os contextos elegíveis, como qualquer tour já era). Um
+  // JSON livre em vez de colunas/tabela própria (como Campanha/Jornada usam
+  // para os 5 campos fixos de segmentar_*) de propósito: aqui o objetivo é
+  // permitir qualquer campo de contexto + operador com o menor impacto de
+  // schema, não uma segmentação estruturalmente idêntica à de Campanha.
+  segmentacao_regras Json?
+  criado_em          DateTime @default(now())
+  atualizado_em      DateTime @updatedAt
+
+  passos        TourPasso[]
+  eventos       EventoTour[]
+  etapasJornada EtapaJornada[]
+
+  @@map("tours_guiados")
+}
+
+model EventoTour {
+  id          String   @id @default(uuid())
+  tour_id     String
+  tipo_evento String
+  passo_ordem Int?
+  usuario_id  String?
+  sistema     String?
+  tela        String?
+  navegador   String?
+  dispositivo String?
+  contexto    Json?
+  criado_em   DateTime @default(now())
+
+  tour TourGuiado @relation(fields: [tour_id], references: [id])
+
+  @@index([tour_id])
+  @@map("eventos_tour")
+}
+
+model TourPasso {
+  id                    String   @id @default(uuid())
+  tour_id               String
+  ordem                 Int      @default(0)
+  titulo                String
+  descricao             String?
+  seletor_tipo          String   @default("data_cy")
+  seletor               String
+  tooltip_posicao       String   @default("auto")
+  acao_ao_avancar       String   @default("apenas_avancar")
+  modo_avanco_interacao String   @default("manual")
+  seletor_confirmacao   String?
+  // Agrupamento visual opcional (gravador de fluxo) — nunca validado nem
+  // usado em regra nenhuma do runtime do tour, só organiza a lista no
+  // painel lateral do gravador (widget.js) e persiste pra sobreviver a
+  // colar/editar/reabrir.
+  secao                 String?
+  criado_em             DateTime @default(now())
+  atualizado_em         DateTime @updatedAt
+
+  tour TourGuiado @relation(fields: [tour_id], references: [id], onDelete: Cascade)
+
+  @@index([tour_id])
+  @@map("tour_passos")
+}
+
+model EventoUsuario {
+  id           String   @id @default(uuid())
+  sistema      String
+  usuario_id   String
+  evento       String
+  cliente_id   String?
+  unidade_id   String?
+  perfil       String?
+  usuario_tipo String?
+  estado       String?
+  contexto     Json?
+  criado_em    DateTime @default(now())
+
+  @@index([sistema, usuario_id, evento])
+  @@index([sistema, usuario_id, evento, criado_em])
+  @@map("eventos_usuario")
+}
+
+// ─── Jornadas (Onboarding Guiado) ──────────────────────────────────────────
+// Central/checklist acessada pelo usuário (não dispara automaticamente como
+// Campanha/TourGuiado) — agrupa BlocoJornada (nome visual: "Pacote"), que por
+// sua vez agrupam etapas que referenciam conteúdo já existente (Tour ou
+// Campanha) ou um link externo. Progresso é por usuário, via EventoJornada
+// (mesmo padrão de EventoTour/EventoCampanha).
+
+model Jornada {
+  id                      String   @id @default(uuid())
+  slug                    String   @unique
+  titulo                  String
+  descricao               String?
+  ativo                   Boolean  @default(true)
+  permitir_refazer        Boolean  @default(false)
+  permitir_pacotes_fora_ordem Boolean @default(true)
+  segmentar_cliente_ids   String[] @default([])
+  segmentar_unidade_ids   String[] @default([])
+  segmentar_perfis        String[] @default([])
+  segmentar_usuario_tipos String[] @default([])
+  segmentar_estados       String[] @default([])
+  criado_em               DateTime @default(now())
+  atualizado_em           DateTime @updatedAt
+
+  blocos  BlocoJornada[]
+  eventos EventoJornada[]
+
+  @@map("jornadas")
+}
+
+// Nome visual na UI/widget: "Pacote". Agrupa etapas dentro de uma Jornada —
+// o usuário final navega pacote por pacote (não vê a lista de etapas toda de
+// uma vez).
+model BlocoJornada {
+  id            String   @id @default(uuid())
+  jornada_id    String
+  titulo        String
+  descricao     String?
+  ordem         Int      @default(0)
+  obrigatorio   Boolean  @default(true)
+  ativo         Boolean  @default(true)
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  jornada Jornada         @relation(fields: [jornada_id], references: [id], onDelete: Cascade)
+  etapas  EtapaJornada[]
+  eventos EventoJornada[]
+
+  @@index([jornada_id])
+  @@map("blocos_jornada")
+}
+
+// tipo: 'tour' | 'campanha' | 'link' — exatamente um entre tour_id/campanha_id/url
+// deve estar preenchido conforme o tipo; validado na aplicação (controller),
+// não por constraint do banco. texto_cta/abrir_nova_aba só fazem sentido
+// quando tipo = 'link'.
+// tour_id/campanha_id usam onDelete: SetNull — se o Tour/Campanha referenciado
+// for excluído, a etapa permanece (com referência ausente) em vez de bloquear
+// a exclusão ou apagar a etapa junto; o admin deve alertar visualmente nesse caso.
+model EtapaJornada {
+  id             String   @id @default(uuid())
+  bloco_id       String
+  titulo         String
+  descricao      String?
+  tipo           String
+  tour_id        String?
+  campanha_id    String?
+  url            String?
+  texto_cta      String?  @default("Abrir")
+  abrir_nova_aba Boolean  @default(true)
+  ordem          Int      @default(0)
+  obrigatoria    Boolean  @default(true)
+  criado_em      DateTime @default(now())
+  atualizado_em  DateTime @updatedAt
+
+  bloco    BlocoJornada    @relation(fields: [bloco_id], references: [id], onDelete: Cascade)
+  tour     TourGuiado?     @relation(fields: [tour_id], references: [id], onDelete: SetNull)
+  campanha Campanha?       @relation(fields: [campanha_id], references: [id], onDelete: SetNull)
+  eventos  EventoJornada[]
+
+  @@index([bloco_id])
+  @@map("etapas_jornada")
+}
+
+// tipo_evento: 'jornada_aberta' | 'jornada_iniciada' | 'bloco_aberto' |
+// 'bloco_iniciado' | 'bloco_concluido' | 'etapa_aberta' | 'etapa_concluida' |
+// 'etapa_pulada' | 'jornada_concluida'
+// bloco_id/etapa_id são null em eventos no nível da jornada (aberta/iniciada/concluída).
+model EventoJornada {
+  id          String   @id @default(uuid())
+  jornada_id  String
+  bloco_id    String?
+  etapa_id    String?
+  tipo_evento String
+  usuario_id  String?
+  sistema     String?
+  tela        String?
+  navegador   String?
+  dispositivo String?
+  contexto    Json?
+  criado_em   DateTime @default(now())
+
+  jornada Jornada       @relation(fields: [jornada_id], references: [id])
+  bloco   BlocoJornada? @relation(fields: [bloco_id], references: [id], onDelete: SetNull)
+  etapa   EtapaJornada? @relation(fields: [etapa_id], references: [id], onDelete: SetNull)
+
+  @@index([jornada_id])
+  @@map("eventos_jornada")
+}
