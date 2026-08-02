@@ -5,7 +5,7 @@ export async function buscarDashboard(req: Request, res: Response) {
   try {
     const id = req.params.id as string
 
-    const campanha = await prisma.campanha.findUnique({ where: { id } })
+    const campanha = await prisma.campanha.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
     if (!campanha) {
       return res.status(404).json({ erro: 'Campanha não encontrada.' })
     }

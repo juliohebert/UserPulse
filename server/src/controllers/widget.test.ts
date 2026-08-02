@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { avaliarReexibicaoPorDias, fonteReferenciaReexibicao } from './widget'
+import { avaliarReexibicaoPorDias, fonteReferenciaReexibicao, ocultarTenantId } from './widget'
 
 const DIA_MS = 86_400_000
 const AGORA = new Date('2026-07-10T12:00:00Z')
@@ -93,5 +93,69 @@ describe('avaliarReexibicaoPorDias — reexibir_apos_dias null, 0 ou negativo', 
   test('negativo sempre libera', () => {
     const r = avaliarReexibicaoPorDias(-5, diasAtras(0), AGORA, 'feedback')
     assert.equal(r.bloqueado, false)
+  })
+})
+
+// tenant_id é identificador interno da fundação SaaS multi-tenant (ver
+// schema.prisma) — nunca deve aparecer numa resposta pública do widget
+// (buscarCampanha/buscarCandidatas/buscarTour/buscarTourCandidatos/
+// buscarJornadas em widget.ts). Testado aqui como função pura, sem precisar
+// de servidor HTTP nem banco (mesmo padrão das demais funções desta suíte).
+describe('ocultarTenantId — nunca deixa tenant_id vazar numa resposta pública', () => {
+  test('remove tenant_id de um objeto simples, preservando os demais campos', () => {
+    const entrada = { id: 'c1', tenant_id: 't1', titulo: 'Campanha X', ativo: true }
+    const saida = ocultarTenantId(entrada)
+    assert.equal('tenant_id' in saida, false)
+    assert.deepEqual(saida, { id: 'c1', titulo: 'Campanha X', ativo: true })
+  })
+
+  test('remove tenant_id de cada item de um array (ex.: /api/widget/candidatas)', () => {
+    const entrada = [
+      { id: 'c1', tenant_id: 't1', titulo: 'A' },
+      { id: 'c2', tenant_id: 't1', titulo: 'B' },
+    ]
+    const saida = ocultarTenantId(entrada)
+    assert.equal(saida.every(item => !('tenant_id' in item)), true)
+    assert.deepEqual(saida, [{ id: 'c1', titulo: 'A' }, { id: 'c2', titulo: 'B' }])
+  })
+
+  test('remove tenant_id também em objetos aninhados (ex.: tour/campanha dentro de etapa de jornada)', () => {
+    const entrada = {
+      id: 'j1',
+      tenant_id: 't1',
+      titulo: 'Jornada X',
+      blocos: [
+        {
+          id: 'b1',
+          etapas: [
+            { id: 'e1', tour: { id: 'tour1', tenant_id: 't1', titulo: 'Tour' } },
+          ],
+        },
+      ],
+    }
+    const saida = ocultarTenantId(entrada)
+    assert.equal('tenant_id' in saida, false)
+    assert.equal('tenant_id' in saida.blocos[0].etapas[0].tour, false)
+    assert.equal(saida.blocos[0].etapas[0].tour.titulo, 'Tour')
+  })
+
+  test('preserva campos com nome parecido (tour_id, campanha_id) — só remove "tenant_id" exato', () => {
+    const entrada = { id: 'e1', tour_id: 'tour1', campanha_id: null, tenant_id: 't1' }
+    const saida = ocultarTenantId(entrada)
+    assert.deepEqual(saida, { id: 'e1', tour_id: 'tour1', campanha_id: null })
+  })
+
+  test('não altera valores que não são objeto/array (string, número, null, undefined, Date)', () => {
+    assert.equal(ocultarTenantId('texto'), 'texto')
+    assert.equal(ocultarTenantId(42), 42)
+    assert.equal(ocultarTenantId(null), null)
+    assert.equal(ocultarTenantId(undefined), undefined)
+    const data = new Date('2026-01-01T00:00:00Z')
+    assert.equal(ocultarTenantId(data), data)
+  })
+
+  test('objeto sem tenant_id passa intacto', () => {
+    const entrada = { id: 'c1', titulo: 'Sem tenant' }
+    assert.deepEqual(ocultarTenantId(entrada), entrada)
   })
 })

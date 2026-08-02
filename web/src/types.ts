@@ -379,14 +379,44 @@ export interface ResultadoElegibilidade {
   } | null
 }
 
+// Fundação SaaS multi-tenant — ver server/prisma/schema.prisma. Plano/Tenant
+// aqui são o recorte público devolvido em /auth/login e /auth/me (ver
+// tenantPublico em server/src/controllers/auth.ts), nunca o registro
+// completo do banco.
+export type TenantStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED' | 'CANCELED'
+export type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | 'EDITOR' | 'VIEWER'
+
+export interface PlanoResumo {
+  id: string
+  nome: string
+  slug: string
+  permite_tours: boolean
+  permite_jornadas: boolean
+  permite_white_label: boolean
+  limite_campanhas_ativas: number | null
+  limite_tours_ativos: number | null
+  limite_eventos_mes: number | null
+  limite_usuarios_admin: number | null
+}
+
+export interface TenantResumo {
+  id: string
+  nome: string
+  slug: string
+  status: TenantStatus
+  trial_fim: string | null
+  plano: PlanoResumo | null
+}
+
 // Usuário admin autenticado — nunca inclui password_hash (o backend já nunca
 // devolve esse campo, ver server/src/controllers/auth.ts).
 export interface AdminUser {
   id: string
   nome: string
   email: string
-  role: string
+  role: AdminRole
   ativo: boolean
   criado_em: string
   atualizado_em: string
+  tenant: TenantResumo
 }

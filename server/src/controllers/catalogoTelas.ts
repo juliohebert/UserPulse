@@ -1,13 +1,14 @@
 import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
+import { motivoBloqueioEscrita } from '../lib/tenantGuards'
 
 export async function listar(req: Request, res: Response) {
   try {
     const ativo = req.query.ativo as string | undefined
     const busca = req.query.busca as string | undefined
 
-    const where: Prisma.TelaCatalogoWhereInput = {}
+    const where: Prisma.TelaCatalogoWhereInput = { tenant_id: req.adminUser!.tenant_id }
     if (ativo === 'true') where.ativo = true
     if (ativo === 'false') where.ativo = false
     if (busca?.trim()) {
@@ -31,6 +32,9 @@ export async function listar(req: Request, res: Response) {
 
 export async function criar(req: Request, res: Response) {
   try {
+    const bloqueioEscrita = motivoBloqueioEscrita(req.adminUser!.tenant)
+    if (bloqueioEscrita) { res.status(403).json({ erro: bloqueioEscrita }); return }
+
     const { nome, sistema, categoria, modo_identificacao, tela, url_contem, data_cy, ativo } = req.body as {
       nome?: string; sistema?: string; categoria?: string; modo_identificacao?: string
       tela?: string; url_contem?: string; data_cy?: string; ativo?: boolean
@@ -41,6 +45,7 @@ export async function criar(req: Request, res: Response) {
     }
     const nova = await prisma.telaCatalogo.create({
       data: {
+        tenant_id: req.adminUser!.tenant_id,
         nome: nome.trim(),
         sistema: sistema.trim(),
         categoria: categoria.trim(),
@@ -59,6 +64,9 @@ export async function criar(req: Request, res: Response) {
 
 export async function atualizar(req: Request, res: Response) {
   try {
+    const bloqueioEscrita = motivoBloqueioEscrita(req.adminUser!.tenant)
+    if (bloqueioEscrita) { res.status(403).json({ erro: bloqueioEscrita }); return }
+
     const id = req.params.id as string
     const { nome, sistema, categoria, modo_identificacao, tela, url_contem, data_cy, ativo } = req.body as {
       nome?: string; sistema?: string; categoria?: string; modo_identificacao?: string
@@ -68,7 +76,7 @@ export async function atualizar(req: Request, res: Response) {
       res.status(400).json({ erro: 'nome, sistema, categoria e modo_identificacao são obrigatórios.' })
       return
     }
-    const existente = await prisma.telaCatalogo.findUnique({ where: { id } })
+    const existente = await prisma.telaCatalogo.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
     if (!existente) { res.status(404).json({ erro: 'Tela não encontrada.' }); return }
     const atualizada = await prisma.telaCatalogo.update({
       where: { id },
@@ -91,8 +99,11 @@ export async function atualizar(req: Request, res: Response) {
 
 export async function remover(req: Request, res: Response) {
   try {
+    const bloqueioEscrita = motivoBloqueioEscrita(req.adminUser!.tenant)
+    if (bloqueioEscrita) { res.status(403).json({ erro: bloqueioEscrita }); return }
+
     const id = req.params.id as string
-    const existente = await prisma.telaCatalogo.findUnique({ where: { id } })
+    const existente = await prisma.telaCatalogo.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
     if (!existente) { res.status(404).json({ erro: 'Tela não encontrada.' }); return }
     await prisma.telaCatalogo.update({ where: { id }, data: { ativo: false } })
     res.status(204).send()

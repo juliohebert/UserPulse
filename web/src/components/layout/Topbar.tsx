@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import type { TenantStatus } from '../../types'
 
 interface Props {
   collapsed: boolean
@@ -15,10 +16,25 @@ function iniciais(nome: string): string {
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase()
 }
 
+// Aviso simples de estado da conta (ver contexto SaaS multi-tenant) — nada de
+// tela de billing/checkout ainda, só sinalizar quando a conta não está 100%
+// operacional. ACTIVE não mostra nada (estado normal, sem ruído visual).
+function badgeStatusTenant(status: TenantStatus, trialFim: string | null): { label: string; className: string } | null {
+  if (status === 'TRIAL') {
+    const dias = trialFim ? Math.max(0, Math.ceil((new Date(trialFim).getTime() - Date.now()) / 86400000)) : null
+    return { label: dias != null ? `Teste grátis · ${dias}d` : 'Teste grátis', className: 'bg-primary/10 text-primary' }
+  }
+  if (status === 'EXPIRED') return { label: 'Teste expirado', className: 'bg-error-container text-error' }
+  if (status === 'SUSPENDED') return { label: 'Conta suspensa', className: 'bg-error-container text-error' }
+  if (status === 'CANCELED') return { label: 'Conta cancelada', className: 'bg-outline-variant/30 text-outline' }
+  return null
+}
+
 export function Topbar({ collapsed }: Props) {
   const [search, setSearch] = useState('')
   const navigate = useNavigate()
   const { user } = useAuth()
+  const badge = user ? badgeStatusTenant(user.tenant.status, user.tenant.trial_fim) : null
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -55,6 +71,17 @@ export function Topbar({ collapsed }: Props) {
         <button className="hidden sm:block p-2 rounded-full hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors">
           <span className="material-symbols-outlined">help_outline</span>
         </button>
+
+        {user && (
+          <div className="hidden lg:flex items-center gap-2">
+            <span className="text-label-md font-semibold text-on-surface-variant">{user.tenant.nome}</span>
+            {badge && (
+              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${badge.className}`}>
+                {badge.label}
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="hidden sm:block h-8 w-px bg-outline-variant mx-1" />
 

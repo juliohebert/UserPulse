@@ -7,27 +7,111 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Login admin (uso interno Quark) — single-tenant, sem organização/tenant
-// nenhum associado ainda (ver contexto da tarefa: multi-tenancy fica pra uma
-// fase futura). role é string livre (não enum) de propósito — mesmo padrão já
-// usado no schema pra campos de categoria simples (ex.: tipo_evento), sem
-// tabela de permissões: hoje nada lê/valida esse campo além de guardá-lo.
-model AdminUser {
-  id            String   @id @default(uuid())
-  nome          String
-  email         String   @unique
-  password_hash String
-  role          String   @default("admin")
-  ativo         Boolean  @default(true)
-  criado_em     DateTime @default(now())
-  atualizado_em DateTime @updatedAt
+// ─── SaaS: tenants e planos ──────────────────────────────────────────────────
+// Fundação multi-tenant (ver contexto da tarefa "SaaS multi-tenant"). Cada
+// AdminUser e cada registro operacional (Campanha/TourGuiado/Jornada/
+// AparenciaWidget/TelaCatalogo) pertence a exatamente um Tenant. Tabelas
+// filhas (Feedback, EventoCampanha, EventoTour, EventoJornada,
+// ConfirmacaoLeitura, TourPasso, BlocoJornada, EtapaJornada) NÃO ganharam
+// tenant_id próprio nesta fase — seu isolamento vem do tenant_id do
+// pai (campanha_id/tour_id/jornada_id), sempre validado nos controllers antes
+// de tocar nelas. EventoUsuario também ficou de fora: é escrito e lido só
+// pelas rotas públicas do widget (identificadas por "sistema", uma string
+// livre sem conceito de tenant hoje) — colocar tenant_id ali sem o widget
+// enviar um identificador de tenant não teria como ser preenchido
+// corretamente; ver pendência de "Fase 2 do widget multi-tenant" no relatório
+// desta tarefa.
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  CANCELED
+}
 
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+// public_key existe para uma futura Fase 2 (widget enviando um identificador
+// de tenant em vez de só "sistema") — não é lida por nenhum código ainda.
+model Tenant {
+  id            String       @id @default(uuid())
+  nome          String
+  slug          String       @unique
+  public_key    String       @unique @default(uuid())
+  status        TenantStatus @default(TRIAL)
+  trial_inicio  DateTime?
+  trial_fim     DateTime?
+  plano_id      String?
+  criado_em     DateTime     @default(now())
+  atualizado_em DateTime     @updatedAt
+
+  plano             Plano?            @relation(fields: [plano_id], references: [id])
+  admins            AdminUser[]
+  campanhas         Campanha[]
+  tours             TourGuiado[]
+  jornadas          Jornada[]
+  aparenciasWidget  AparenciaWidget[]
+  telasCatalogo     TelaCatalogo[]
+
+  @@map("tenants")
+}
+
+// Limites nulos = sem limite (plano ilimitado nesse quesito — usado pelo
+// plano interno da Quark). Sem integração de pagamento nesta fase: preco_mensal
+// é só informativo, nada aqui gera cobrança.
+model Plano {
+  id                      String   @id @default(uuid())
+  nome                    String
+  slug                    String   @unique
+  descricao               String?
+  preco_mensal            Decimal? @db.Decimal(10, 2)
+  limite_campanhas_ativas Int?
+  limite_tours_ativos     Int?
+  limite_eventos_mes      Int?
+  limite_usuarios_admin   Int?
+  permite_tours           Boolean  @default(true)
+  permite_jornadas        Boolean  @default(true)
+  permite_white_label     Boolean  @default(false)
+  ativo                   Boolean  @default(true)
+  criado_em               DateTime @default(now())
+  atualizado_em           DateTime @updatedAt
+
+  tenants Tenant[]
+
+  @@map("planos")
+}
+
+// Login admin — cada admin pertence a um Tenant (tenant_id obrigatório desde
+// esta migration; ver seedAdmin.ts pra como o tenant é resolvido/criado no
+// bootstrap). role virou enum (era string livre) porque agora efetivamente
+// controla acesso (SUPER_ADMIN reservado pra uma Fase 2 de rotas globais —
+// hoje se comporta como ADMIN dentro do próprio tenant, sem bypass).
+model AdminUser {
+  id            String    @id @default(uuid())
+  nome          String
+  email         String    @unique
+  password_hash String
+  role          AdminRole @default(ADMIN)
+  tenant_id     String
+  ativo         Boolean   @default(true)
+  criado_em     DateTime  @default(now())
+  atualizado_em DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@index([tenant_id])
   @@map("admin_users")
 }
 
 model Campanha {
   id                        String    @id @default(uuid())
-  slug                      String    @unique
+  tenant_id                 String
+  slug                      String
   titulo                    String
   subtitulo                 String?
   descricao                 String
@@ -70,11 +154,15 @@ model Campanha {
   criado_em                 DateTime  @default(now())
   atualizado_em             DateTime  @updatedAt
 
+  tenant        Tenant               @relation(fields: [tenant_id], references: [id])
   feedbacks     Feedback[]
   eventos       EventoCampanha[]
   confirmacoes  ConfirmacaoLeitura[]
   etapasJornada EtapaJornada[]
 
+  // slug deixou de ser globalmente único (era @unique) e virou único por
+  // tenant — dois clientes podem ter, cada um, uma campanha "boas-vindas".
+  @@unique([tenant_id, slug])
   @@map("campanhas")
 }
 
@@ -115,6 +203,7 @@ model Feedback {
 
 model TelaCatalogo {
   id                 String   @id @default(uuid())
+  tenant_id          String
   nome               String
   sistema            String
   categoria          String
@@ -126,24 +215,36 @@ model TelaCatalogo {
   criado_em          DateTime @default(now())
   atualizado_em      DateTime @updatedAt
 
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@index([tenant_id])
   @@map("telas_catalogo")
 }
 
 // Aparência visual do widget (cor principal + logo/ícone do runtime de
-// Tours) — uma configuração por sistema/tenant, nunca por tour individual
-// (mesmo padrão de "sistema" já usado em Campanha/TourGuiado/TelaCatalogo,
-// sem precisar de uma tabela de tenants separada). cor_principal/logo_url
-// opcionais: sem registro, ou com os dois vazios, o widget usa o fallback
-// visual atual (cor azul padrão, ícone padrão) — nunca quebra clientes que
-// não configuraram nada.
+// Tours) — uma configuração por sistema, nunca por tour individual. sistema
+// segue @unique GLOBAL de propósito (não [tenant_id, sistema]): a rota
+// pública buscarAparencia (widget.ts) identifica o registro só por "sistema"
+// (sem tenant algum — mesma limitação estrutural de todo o widget público
+// nesta fase, ver comentário no topo do arquivo). Mudar pra unique composto
+// quebraria esse findUnique público. tenant_id aqui serve só pra escopo do
+// lado admin (buscar/salvar em aparenciaWidget.ts); o controller valida na
+// aplicação que dois tenants não disputem o mesmo nome de "sistema" (ver
+// aparenciaWidget.ts). cor_principal/logo_url opcionais: sem registro, ou com
+// os dois vazios, o widget usa o fallback visual atual (cor azul padrão,
+// ícone padrão) — nunca quebra clientes que não configuraram nada.
 model AparenciaWidget {
   id            String   @id @default(uuid())
+  tenant_id     String
   sistema       String   @unique
   cor_principal String?
   logo_url      String?
   criado_em     DateTime @default(now())
   atualizado_em DateTime @updatedAt
 
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@index([tenant_id])
   @@map("aparencias_widget")
 }
 
@@ -166,7 +267,8 @@ model EventoCampanha {
 
 model TourGuiado {
   id                 String   @id @default(uuid())
-  slug               String   @unique
+  tenant_id          String
+  slug               String
   titulo             String
   descricao          String?
   sistema            String
@@ -193,10 +295,14 @@ model TourGuiado {
   criado_em          DateTime @default(now())
   atualizado_em      DateTime @updatedAt
 
+  tenant        Tenant         @relation(fields: [tenant_id], references: [id])
   passos        TourPasso[]
   eventos       EventoTour[]
   etapasJornada EtapaJornada[]
 
+  // slug deixou de ser globalmente único e virou único por tenant (mesmo
+  // raciocínio de Campanha.slug acima).
+  @@unique([tenant_id, slug])
   @@map("tours_guiados")
 }
 
@@ -272,7 +378,8 @@ model EventoUsuario {
 
 model Jornada {
   id                      String   @id @default(uuid())
-  slug                    String   @unique
+  tenant_id               String
+  slug                    String
   titulo                  String
   descricao               String?
   ativo                   Boolean  @default(true)
@@ -286,9 +393,13 @@ model Jornada {
   criado_em               DateTime @default(now())
   atualizado_em           DateTime @updatedAt
 
+  tenant  Tenant          @relation(fields: [tenant_id], references: [id])
   blocos  BlocoJornada[]
   eventos EventoJornada[]
 
+  // slug deixou de ser globalmente único e virou único por tenant (mesmo
+  // raciocínio de Campanha.slug acima).
+  @@unique([tenant_id, slug])
   @@map("jornadas")
 }
 
