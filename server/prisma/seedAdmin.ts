@@ -35,16 +35,18 @@ async function resolverTenant() {
 
   const existente = await prisma.tenant.findUnique({ where: { slug } })
   if (existente) {
-    console.log(`✓ Tenant já existe: ${existente.nome} (${existente.slug}) — status ${existente.status}, nada foi alterado.`)
+    console.log(`✓ Tenant já existe: ${existente.nome} (${existente.slug}, código ${existente.codigo}) — status ${existente.status}, nada foi alterado.`)
     return existente
   }
 
   const agora = new Date()
   const trialFim = new Date(agora.getTime() + DIAS_TRIAL_PADRAO * 24 * 60 * 60 * 1000)
+  // codigo nunca é definido aqui — vem do @default(autoincrement()) do banco
+  // (ver schema.prisma), garantindo sequência sem risco de colisão.
   const criado = await prisma.tenant.create({
     data: { nome, slug, status: 'TRIAL', trial_inicio: agora, trial_fim: trialFim },
   })
-  console.log(`✓ Tenant criado: ${criado.nome} (${criado.slug}) — TRIAL até ${trialFim.toISOString().slice(0, 10)}.`)
+  console.log(`✓ Tenant criado: ${criado.nome} (${criado.slug}, código ${criado.codigo}) — TRIAL até ${trialFim.toISOString().slice(0, 10)}.`)
   return criado
 }
 

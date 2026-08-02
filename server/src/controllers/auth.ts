@@ -10,6 +10,7 @@ import { ADMIN_SESSION_COOKIE, SESSION_MAX_AGE, sessionCookieOptions, signSessio
 function tenantPublico(t: Tenant & { plano: Plano | null }) {
   return {
     id: t.id,
+    codigo: t.codigo,
     nome: t.nome,
     slug: t.slug,
     status: t.status,

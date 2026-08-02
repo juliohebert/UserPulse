@@ -31,8 +31,12 @@ CREATE TABLE "planos" (
 CREATE UNIQUE INDEX "planos_slug_key" ON "planos"("slug");
 
 -- CreateTable
+-- codigo: sequencial comercial simples (1, 2, 3...) — só para suporte/vendas,
+-- nunca usado como chave técnica (id/tenant_id continuam UUID em todo FK) nem
+-- como public_key (esse segue reservado pra Fase 2 do widget multi-tenant).
 CREATE TABLE "tenants" (
     "id" TEXT NOT NULL,
+    "codigo" SERIAL NOT NULL,
     "nome" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "public_key" TEXT NOT NULL,
@@ -47,6 +51,7 @@ CREATE TABLE "tenants" (
 );
 CREATE UNIQUE INDEX "tenants_slug_key" ON "tenants"("slug");
 CREATE UNIQUE INDEX "tenants_public_key_key" ON "tenants"("public_key");
+CREATE UNIQUE INDEX "tenants_codigo_key" ON "tenants"("codigo");
 ALTER TABLE "tenants" ADD CONSTRAINT "tenants_plano_id_fkey" FOREIGN KEY ("plano_id") REFERENCES "planos"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- Seed: plano interno (sem limites) + tenant Quark (ACTIVE, sem trial —
@@ -67,11 +72,18 @@ INSERT INTO "planos" (
     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 );
 
+-- codigo=1 explícito (não deixado pro DEFAULT) pra garantir que o primeiro
+-- tenant comercial (Quark) sempre nasce com o código 1, independente de
+-- qualquer ordem de execução. setval() logo abaixo realinha a sequence do
+-- SERIAL pra que o PRÓXIMO tenant criado (via seedAdmin.ts ou pela aplicação)
+-- receba 2, e assim por diante — sem isso, a sequence ficaria travada em 1
+-- (seu valor inicial) e colidiria com este INSERT explícito.
 INSERT INTO "tenants" (
-    "id", "nome", "slug", "public_key", "status", "trial_inicio", "trial_fim", "plano_id",
+    "id", "codigo", "nome", "slug", "public_key", "status", "trial_inicio", "trial_fim", "plano_id",
     "criado_em", "atualizado_em"
 ) VALUES (
     '00000000-0000-0000-0000-000000000001',
+    1,
     'Quark',
     'quark',
     '00000000-0000-0000-0000-100000000001',
@@ -80,6 +92,7 @@ INSERT INTO "tenants" (
     '00000000-0000-0000-0000-000000000101',
     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
 );
+SELECT setval('tenants_codigo_seq', 1, true);
 
 -- AdminUser: tenant_id (todo admin já existente vai para o tenant Quark)
 ALTER TABLE "admin_users" ADD COLUMN "tenant_id" TEXT;

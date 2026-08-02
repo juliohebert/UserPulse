@@ -38,8 +38,13 @@ enum AdminRole {
 
 // public_key existe para uma futura Fase 2 (widget enviando um identificador
 // de tenant em vez de só "sistema") — não é lida por nenhum código ainda.
+// codigo é um número sequencial simples (1, 2, 3...) só para uso comercial/
+// suporte/vendas (ex.: "cliente 42" é mais fácil de falar/anotar que um UUID)
+// — nunca é usado como chave técnica: o id (UUID) continua sendo o usado em
+// todo FK/tenant_id, e codigo nunca deve ser usado como public_key.
 model Tenant {
   id            String       @id @default(uuid())
+  codigo        Int          @unique @default(autoincrement())
   nome          String
   slug          String       @unique
   public_key    String       @unique @default(uuid())

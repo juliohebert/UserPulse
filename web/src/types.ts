@@ -401,6 +401,9 @@ export interface PlanoResumo {
 
 export interface TenantResumo {
   id: string
+  // Código sequencial comercial (1, 2, 3...) — só para suporte/vendas, nunca
+  // uma chave técnica (id continua sendo o identificador usado em toda FK).
+  codigo: number
   nome: string
   slug: string
   status: TenantStatus
