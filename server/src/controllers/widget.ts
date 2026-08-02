@@ -1,6 +1,30 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 
+// tenant_id é identificador interno (join key da fundação SaaS multi-tenant,
+// ver schema.prisma) — nunca deve aparecer numa resposta pública do widget.
+// Em vez de reescrever cada select do Prisma campo a campo (arriscado: um
+// campo esquecido quebraria o runtime do widget em produção, silenciosamente),
+// esta função remove só a chave "tenant_id" de qualquer objeto/array antes do
+// res.json(), em qualquer profundidade — cobre tanto o objeto de topo
+// (Campanha/TourGuiado/Jornada) quanto qualquer objeto aninhado que algum dia
+// venha a carregar tenant_id (hoje os includes já usam select explícito sem
+// esse campo, ex.: tour/campanha dentro de EtapaJornada, mas a função não
+// depende disso pra estar correta). Não remove nem altera nenhum outro campo.
+export function ocultarTenantId<T>(valor: T): T {
+  if (Array.isArray(valor)) {
+    return valor.map(item => ocultarTenantId(item)) as unknown as T
+  }
+  if (valor !== null && typeof valor === 'object' && !(valor instanceof Date)) {
+    const { tenant_id: _tenantId, ...resto } = valor as Record<string, unknown>
+    for (const chave of Object.keys(resto)) {
+      resto[chave] = ocultarTenantId(resto[chave])
+    }
+    return resto as unknown as T
+  }
+  return valor
+}
+
 interface SegCtx {
   cliente_id?: string
   unidade_id?: string
@@ -265,7 +289,7 @@ export async function buscarCampanha(req: Request, res: Response) {
       }
     }
 
-    res.json(alwaysShow ? { ...campanha, always_show_user: true } : campanha)
+    res.json(ocultarTenantId(alwaysShow ? { ...campanha, always_show_user: true } : campanha))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar campanha.' })
@@ -325,7 +349,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
     const alwaysShow = usuario_id ? isAlwaysShowUser(String(usuario_id)) : false
 
     if (!usuario_id || segmentadas.length === 0) {
-      return res.json(segmentadas)
+      return res.json(ocultarTenantId(segmentadas))
     }
 
     const uidStr = String(usuario_id)
@@ -341,7 +365,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
     }
 
     if (alwaysShow) {
-      return res.json(semConclusao.map(c => ({ ...c, always_show_user: true })))
+      return res.json(ocultarTenantId(semConclusao.map(c => ({ ...c, always_show_user: true }))))
     }
 
     // Step 2: filter by reexhibition policy
@@ -353,7 +377,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
       }
     }
 
-    res.json(elegiveis)
+    res.json(ocultarTenantId(elegiveis))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar campanhas candidatas.' })
@@ -619,7 +643,7 @@ export async function buscarTour(req: Request, res: Response) {
       include: { passos: { orderBy: { ordem: 'asc' } } },
     })
     if (!tour) return res.status(404).json({ erro: 'Nenhum tour guiado ativo encontrado.' })
-    res.json(tour)
+    res.json(ocultarTenantId(tour))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar tour guiado.' })
@@ -664,7 +688,7 @@ export async function buscarTourCandidatos(req: Request, res: Response) {
     })
 
     if (!usuario_id || tours.length === 0) {
-      return res.json(tours)
+      return res.json(ocultarTenantId(tours))
     }
 
     const uidStr = String(usuario_id)
@@ -672,7 +696,7 @@ export async function buscarTourCandidatos(req: Request, res: Response) {
     // Usuários de validação (mesma lista usada pelas campanhas) sempre veem o
     // tour de novo, mesmo já tendo concluído/pulado — usado para QA repetir o fluxo.
     if (isAlwaysShowUser(uidStr)) {
-      return res.json(tours.map(t => ({ ...t, always_show_user: true })))
+      return res.json(ocultarTenantId(tours.map(t => ({ ...t, always_show_user: true }))))
     }
 
     // Reexibição mínima (MVP): não reabrir automaticamente um tour que este
@@ -688,7 +712,7 @@ export async function buscarTourCandidatos(req: Request, res: Response) {
     })
     const vistos = new Set(jaVistos.map(e => e.tour_id))
 
-    res.json(tours.filter(t => !vistos.has(t.id)))
+    res.json(ocultarTenantId(tours.filter(t => !vistos.has(t.id))))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar tours candidatos.' })
@@ -783,7 +807,7 @@ export async function buscarJornadas(req: Request, res: Response) {
     // Sem usuario_id não há como calcular progresso — tudo volta pendente (o
     // widget não registra eventos de progresso sem usuario_id).
     if (!usuario_id || elegiveis.length === 0) {
-      return res.json(elegiveis.map(j => ({
+      return res.json(ocultarTenantId(elegiveis.map(j => ({
         ...j,
         blocos: j.blocos.map(b => ({
           ...b,
@@ -791,7 +815,7 @@ export async function buscarJornadas(req: Request, res: Response) {
           progresso: { concluido: false, etapas_concluidas: 0, etapas_total: b.etapas.length },
         })),
         progresso: { concluida: false, blocos_concluidos: 0, blocos_total: j.blocos.length },
-      })))
+      }))))
     }
 
     const uidStr = String(usuario_id)
@@ -859,7 +883,7 @@ export async function buscarJornadas(req: Request, res: Response) {
       }
     })
 
-    res.json(resultado)
+    res.json(ocultarTenantId(resultado))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar jornadas.' })

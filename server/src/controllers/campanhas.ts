@@ -1,5 +1,6 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
+import { checarLimiteCampanhasAtivas, motivoBloqueioAtivacao, motivoBloqueioEscrita } from '../lib/tenantGuards'
 
 // ─── Respostas helpers ────────────────────────────────────────────────────────
 
@@ -234,8 +235,8 @@ async function buscarRespostasRows(campanhaId: string, f: RespostaFiltros): Prom
 export async function exportarRespostasCSV(req: Request, res: Response) {
   try {
     const id = req.params.id as string
-    const campanha = await prisma.campanha.findUnique({
-      where: { id },
+    const campanha = await prisma.campanha.findFirst({
+      where: { id, tenant_id: req.adminUser!.tenant_id },
       select: { id: true, titulo: true },
     })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
@@ -383,22 +384,23 @@ function parseArray(v: unknown): string[] {
   return []
 }
 
-async function slugUnico(base: string, ignorarId?: string): Promise<string> {
+async function slugUnico(tenantId: string, base: string, ignorarId?: string): Promise<string> {
   let slug = base
   let contador = 1
 
   while (true) {
     const existente = await prisma.campanha.findFirst({
-      where: { slug, ...(ignorarId ? { NOT: { id: ignorarId } } : {}) },
+      where: { tenant_id: tenantId, slug, ...(ignorarId ? { NOT: { id: ignorarId } } : {}) },
     })
     if (!existente) return slug
     slug = `${base}-${contador++}`
   }
 }
 
-export async function listar(_req: Request, res: Response) {
+export async function listar(req: Request, res: Response) {
   try {
     const campanhas = await prisma.campanha.findMany({
+      where: { tenant_id: req.adminUser!.tenant_id },
       orderBy: { criado_em: 'desc' },
       include: { _count: { select: { feedbacks: true } } },
     })
@@ -411,8 +413,8 @@ export async function listar(_req: Request, res: Response) {
 
 export async function buscarPorId(req: Request, res: Response) {
   try {
-    const campanha = await prisma.campanha.findUnique({
-      where: { id: req.params.id as string },
+    const campanha = await prisma.campanha.findFirst({
+      where: { id: req.params.id as string, tenant_id: req.adminUser!.tenant_id },
       include: { _count: { select: { feedbacks: true } } },
     })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
@@ -425,6 +427,12 @@ export async function buscarPorId(req: Request, res: Response) {
 
 export async function criar(req: Request, res: Response) {
   try {
+    const tenantId = req.adminUser!.tenant_id
+    const tenant = req.adminUser!.tenant
+
+    const bloqueioEscrita = motivoBloqueioEscrita(tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+
     const modo = String(req.body.modo_identificacao || 'sistema_tela')
     const faltando = getCamposObrigatorios(modo).filter(c => !req.body[c]?.toString().trim())
     if (faltando.length > 0) {
@@ -464,10 +472,19 @@ export async function criar(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Informe o nome do evento de conclusão (evento_conclusao).' })
     }
 
-    const slug = await slugUnico(gerarSlugBase(titulo))
+    const ativoBool = ativo !== undefined ? Boolean(ativo) : true
+    if (ativoBool) {
+      const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
+      if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
+      const limite = await checarLimiteCampanhasAtivas(tenantId, tenant.plano)
+      if (limite) return res.status(403).json({ erro: limite })
+    }
+
+    const slug = await slugUnico(tenantId, gerarSlugBase(titulo))
 
     const campanha = await prisma.campanha.create({
       data: {
+        tenant_id: tenantId,
         slug,
         titulo: titulo.trim(),
         subtitulo: subtitulo?.trim() || null,
@@ -490,7 +507,7 @@ export async function criar(req: Request, res: Response) {
         mostrar_uma_vez: Boolean(mostrar_uma_vez),
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
         ordem: ordem !== undefined ? Number(ordem) : 0,
-        ativo: ativo !== undefined ? Boolean(ativo) : true,
+        ativo: ativoBool,
         data_inicio: data_inicio ? new Date(data_inicio) : null,
         data_fim: data_fim ? new Date(data_fim) : null,
         pergunta_feedback: pergunta_feedback?.trim() || null,
@@ -520,9 +537,15 @@ export async function criar(req: Request, res: Response) {
 
 export async function atualizar(req: Request, res: Response) {
   try {
+    const tenantId = req.adminUser!.tenant_id
+    const tenant = req.adminUser!.tenant
+
+    const bloqueioEscrita = motivoBloqueioEscrita(tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+
     const id = req.params.id as string
 
-    const existente = await prisma.campanha.findUnique({ where: { id } })
+    const existente = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId } })
     if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
     const modoAtualizado = String(req.body.modo_identificacao ?? existente.modo_identificacao ?? 'sistema_tela')
@@ -571,9 +594,20 @@ export async function atualizar(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Informe o nome do evento de conclusão (evento_conclusao).' })
     }
 
+    // Só checa bloqueio/limite quando a requisição está de fato LIGANDO a
+    // campanha (false -> true) — reeditar uma campanha já ativa não deve
+    // falhar por causa de um limite reduzido depois que ela já estava ativa.
+    const ativandoAgora = ativo !== undefined && Boolean(ativo) && !existente.ativo
+    if (ativandoAgora) {
+      const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
+      if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
+      const limite = await checarLimiteCampanhasAtivas(tenantId, tenant.plano)
+      if (limite) return res.status(403).json({ erro: limite })
+    }
+
     let slug = existente.slug
     if (titulo && titulo.trim() !== existente.titulo) {
-      slug = await slugUnico(gerarSlugBase(titulo.trim()), id)
+      slug = await slugUnico(tenantId, gerarSlugBase(titulo.trim()), id)
     }
 
     const campanha = await prisma.campanha.update({
@@ -632,8 +666,12 @@ export async function atualizar(req: Request, res: Response) {
 
 export async function remover(req: Request, res: Response) {
   try {
+    const tenant = req.adminUser!.tenant
+    const bloqueioEscrita = motivoBloqueioEscrita(tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+
     const id = req.params.id as string
-    const existente = await prisma.campanha.findUnique({ where: { id } })
+    const existente = await prisma.campanha.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
     if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
     await prisma.campanha.update({ where: { id }, data: { ativo: false } })
@@ -649,7 +687,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
     const id = req.params.id as string
     const { sistema, tela, url, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.body
 
-    const campanha = await prisma.campanha.findUnique({ where: { id } })
+    const campanha = await prisma.campanha.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
     const criterios: Criterio[] = []
@@ -910,6 +948,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
 
       const candidatos = await prisma.campanha.findMany({
         where: {
+          tenant_id: campanha.tenant_id,
           ativo: true,
           sistema: campanha.sistema,
           id: { not: id },

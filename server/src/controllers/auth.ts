@@ -1,12 +1,59 @@
 import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
+import { AdminRole, Plano, Tenant } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { ADMIN_SESSION_COOKIE, SESSION_MAX_AGE, sessionCookieOptions, signSessionToken } from '../lib/auth'
 
+// Recorte público do tenant devolvido em login/me — plano/status é o mínimo
+// que o frontend precisa pra mostrar "conta em teste/expirada/suspensa" (ver
+// Topbar.tsx) sem expor nada de billing ainda (sem checkout nesta fase).
+function tenantPublico(t: Tenant & { plano: Plano | null }) {
+  return {
+    id: t.id,
+    codigo: t.codigo,
+    nome: t.nome,
+    slug: t.slug,
+    status: t.status,
+    trial_fim: t.trial_fim,
+    plano: t.plano && {
+      id: t.plano.id,
+      nome: t.plano.nome,
+      slug: t.plano.slug,
+      permite_tours: t.plano.permite_tours,
+      permite_jornadas: t.plano.permite_jornadas,
+      permite_white_label: t.plano.permite_white_label,
+      limite_campanhas_ativas: t.plano.limite_campanhas_ativas,
+      limite_tours_ativos: t.plano.limite_tours_ativos,
+      limite_eventos_mes: t.plano.limite_eventos_mes,
+      limite_usuarios_admin: t.plano.limite_usuarios_admin,
+    },
+  }
+}
+
 // Nunca devolve password_hash — nem aqui, nem em /me. Sempre a mesma forma
-// reduzida do usuário em qualquer resposta de sucesso (login/me).
-function usuarioPublico(u: { id: string; nome: string; email: string; role: string; ativo: boolean; criado_em: Date; atualizado_em: Date }) {
-  return { id: u.id, nome: u.nome, email: u.email, role: u.role, ativo: u.ativo, criado_em: u.criado_em, atualizado_em: u.atualizado_em }
+// reduzida do usuário em qualquer resposta de sucesso (login/me) — exportada
+// pra me() (abaixo) reaproveitar em cima de req.adminUser, sem duplicar o
+// formato do tenant/plano devolvido.
+export function usuarioPublico(u: {
+  id: string
+  nome: string
+  email: string
+  role: AdminRole
+  ativo: boolean
+  criado_em: Date
+  atualizado_em: Date
+  tenant: Tenant & { plano: Plano | null }
+}) {
+  return {
+    id: u.id,
+    nome: u.nome,
+    email: u.email,
+    role: u.role,
+    ativo: u.ativo,
+    criado_em: u.criado_em,
+    atualizado_em: u.atualizado_em,
+    tenant: tenantPublico(u.tenant),
+  }
 }
 
 export async function login(req: Request, res: Response) {
@@ -19,10 +66,15 @@ export async function login(req: Request, res: Response) {
       return
     }
 
-    const usuario = await prisma.adminUser.findUnique({ where: { email: email.trim().toLowerCase() } })
+    const usuario = await prisma.adminUser.findUnique({
+      where: { email: email.trim().toLowerCase() },
+      include: { tenant: { include: { plano: true } } },
+    })
     // Mesma mensagem genérica pra "usuário não existe", "inativo" e "senha
     // errada" — nunca revelar qual dessas três é o motivo real (evita um
-    // atacante descobrir e-mails válidos por tentativa e erro).
+    // atacante descobrir e-mails válidos por tentativa e erro). Conta
+    // suspensa/cancelada/expirada ainda pode logar (ver contexto da tarefa
+    // SaaS: login sempre permitido, só a escrita é bloqueada) — não checado aqui.
     if (!usuario || !usuario.ativo) {
       res.status(401).json({ erro: 'E-mail ou senha inválidos.' })
       return
@@ -44,8 +96,10 @@ export async function login(req: Request, res: Response) {
 
 // Sempre atrás de requireAdminAuth (ver routes/auth.ts) — se chegou aqui,
 // req.adminUser já foi validado contra o banco (usuário existe e está ativo).
+// Mesmo formato de login (usuarioPublico) — front não precisa tratar /me e
+// /login como respostas diferentes.
 export async function me(req: Request, res: Response) {
-  res.json(req.adminUser)
+  res.json(usuarioPublico(req.adminUser!))
 }
 
 export async function logout(_req: Request, res: Response) {
