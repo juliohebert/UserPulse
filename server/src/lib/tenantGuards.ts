@@ -1,11 +1,60 @@
 import { Plano, Tenant } from '@prisma/client'
 import prisma from './prisma'
 
+// ─── Fase 2 do widget multi-tenant: resolução de tenant por public_key ──────
+// Usado só pelas rotas públicas do widget (widget.ts), nunca pelo admin
+// (que já resolve tenant via sessão em requireAdminAuth.ts).
+
+export type ResolucaoTenantPublico =
+  | { ok: true; tenantId: string; usouFallback: boolean }
+  | { ok: false }
+
+// Slug fixo do tenant Quark (mesmo usado na migration da fundação SaaS) —
+// única exceção onde um slug aparece hardcoded fora de uma migration:
+// compatibilidade temporária pra embeds que ainda não enviam public_key (ver
+// resolverTenantPublico). Remover quando todo embed em produção enviar
+// public_key — não deve virar um padrão pra novos tenants.
+const TENANT_FALLBACK_SLUG = 'quark'
+
+// Decisão pura (sem banco) de se um tenant já resolvido pode atender uma
+// requisição pública do widget — extraída à parte só pra poder ser testada
+// direto (mesmo padrão de motivoBloqueioEscrita abaixo), sem precisar de
+// Prisma/banco no teste. EXPIRED não bloqueia leitura/tracking pública (só
+// criação/ativação no admin, ver motivoBloqueioAtivacao) — só SUSPENDED/
+// CANCELED encerram o widget de verdade, mesmo raciocínio de
+// motivoBloqueioEscrita. tenant nulo (public_key/slug não encontrado) nunca
+// tem acesso, obviamente.
+export function tenantPublicoPermiteAcesso(tenant: Pick<Tenant, 'status'> | null): boolean {
+  if (!tenant) return false
+  return tenant.status !== 'SUSPENDED' && tenant.status !== 'CANCELED'
+}
+
+// Recebe a public_key enviada pelo widget (query string ou body, sempre uma
+// string opcional/não confiável — daí o `unknown`) e resolve pra um tenant_id
+// utilizável nas queries públicas. Nunca lança, nunca diferencia pro caller
+// POR QUE falhou (public_key inexistente vs. tenant suspenso/cancelado) —
+// quem chama sempre trata `ok:false` como "não encontrado" (404 genérico),
+// pra nunca revelar se uma public_key existe mas está bloqueada.
+//
+// Fallback temporário: public_key ausente cai no tenant Quark (nunca em
+// qualquer outro) — mantém embeds já instalados funcionando enquanto a
+// public_key ainda não é obrigatória. `usouFallback` deixa o caller decidir
+// se quer logar/avisar (ver debug do widget.js), nunca é usado pra bloquear.
+export async function resolverTenantPublico(publicKeyBruta: unknown): Promise<ResolucaoTenantPublico> {
+  const publicKey = typeof publicKeyBruta === 'string' ? publicKeyBruta.trim() : ''
+
+  const tenant = publicKey
+    ? await prisma.tenant.findUnique({ where: { public_key: publicKey } })
+    : await prisma.tenant.findUnique({ where: { slug: TENANT_FALLBACK_SLUG } })
+
+  if (!tenantPublicoPermiteAcesso(tenant)) return { ok: false }
+
+  return { ok: true, tenantId: tenant!.id, usouFallback: !publicKey }
+}
+
 // Helpers de escopo/limite de tenant, usados pelos controllers admin
 // (campanhas/tours/jornadas/catalogoTelas/aparenciaWidget) antes de qualquer
-// escrita. Nunca usados pelas rotas públicas do widget (widget.ts) — essas
-// permanecem sem conceito de tenant nesta fase (ver comentário no topo de
-// schema.prisma sobre a Fase 2 do widget multi-tenant).
+// escrita.
 
 export type TenantComPlano = Tenant & { plano: Plano | null }
 

@@ -13,6 +13,12 @@ function tenantPublico(t: Tenant & { plano: Plano | null }) {
     codigo: t.codigo,
     nome: t.nome,
     slug: t.slug,
+    // public_key é o identificador PÚBLICO do tenant (Fase 2 do widget
+    // multi-tenant) — mostrado no painel (tela de Integração) pro admin
+    // colar no window.UserPulse.init(). Não é segredo (nunca autentica
+    // nada sozinho, só resolve qual tenant o widget está falando), então
+    // expor em /auth/me é seguro; tenant_id (UUID técnico) nunca é exposto.
+    public_key: t.public_key,
     status: t.status,
     trial_fim: t.trial_fim,
     plano: t.plano && {

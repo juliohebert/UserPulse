@@ -5,6 +5,7 @@ import type { Campanha, Criterio, ResultadoElegibilidade } from '../../types'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { gerarEmbed, gerarEmbedParts } from '../../utils/campanha'
+import { useAuth } from '../../hooks/useAuth'
 
 function maskPhone(raw: string): string {
   const d = raw.replace(/\D/g, '').slice(0, 11)
@@ -19,6 +20,7 @@ function maskPhone(raw: string): string {
 export function CampanhaPreview() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [campanha, setCampanha] = useState<Campanha | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -118,8 +120,8 @@ export function CampanhaPreview() {
   }
 
   const question = campanha.pergunta_feedback || 'Como podemos melhorar?'
-  const embedCode = gerarEmbed(campanha)
-  const embedParts = gerarEmbedParts(campanha)
+  const embedCode = gerarEmbed(campanha, user?.tenant.public_key)
+  const embedParts = gerarEmbedParts(campanha, user?.tenant.public_key)
   const initSection = [
     embedParts.widgetSrcTag,
     '<script>',

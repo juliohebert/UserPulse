@@ -406,6 +406,11 @@ export interface TenantResumo {
   codigo: number
   nome: string
   slug: string
+  // Identificador público do tenant (Fase 2 do widget multi-tenant) — usado
+  // no window.UserPulse.init({ public_key: ... }) do sistema integrado (ver
+  // tela de Integração). Não é segredo, mas nunca confundir com o id (UUID
+  // técnico) nem com codigo (uso comercial/suporte).
+  public_key: string
   status: TenantStatus
   trial_fim: string | null
   plano: PlanoResumo | null

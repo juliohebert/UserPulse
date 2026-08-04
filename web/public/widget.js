@@ -129,6 +129,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
+        public_key: config.public_key || undefined,
         campanha_id: campanha.id,
         tipo_evento: tipoEvento,
         usuario_id: config.usuario_id || undefined,
@@ -1311,7 +1312,13 @@
       var k = CONTEXT_KEYS[i];
       if (c[k] != null && c[k] !== '') contexto[k] = String(c[k]);
     }
+    // public_key: identificador público do tenant (Fase 2 do widget
+    // multi-tenant) — aceita tanto public_key (convenção do projeto, igual
+    // usuario_id/usuario_nome) quanto publicKey (camelCase), pra não exigir
+    // um nome exato de quem já tenha copiado de outro exemplo.
+    var publicKey = c.public_key || c.publicKey;
     return {
+      public_key: publicKey ? String(publicKey) : '',
       slug: c.slug ? String(c.slug) : '',
       sistema: c.sistema ? String(c.sistema) : '',
       tela: c.tela ? String(c.tela) : '',
@@ -1321,6 +1328,15 @@
       contexto: Object.keys(contexto).length ? contexto : null,
       contextProvider: typeof c.contextProvider === 'function' ? c.contextProvider : null,
     };
+  }
+
+  // Anexa public_key (se configurado) a uma query string de rota pública do
+  // widget — lido de state.config em vez de receber como parâmetro pra não
+  // precisar mudar a assinatura de toda função que já monta uma URLSearchParams
+  // sem receber o config inteiro (fetchCandidatas, fetchTour, etc.), mesmo
+  // padrão já usado por registrarEvento() (topo do arquivo) pra outros campos.
+  function appendPublicKey(params) {
+    if (state.config && state.config.public_key) params.set('public_key', state.config.public_key);
   }
 
   // Consulta o contextProvider (se configurado) e faz merge no contexto atual.
@@ -1350,6 +1366,7 @@
     }
     if (config.usuario_id) params.set('usuario_id', config.usuario_id);
     appendContexto(params, config.contexto);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/campanha?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -1376,6 +1393,7 @@
     if (eventoNome) params.set('evento', String(eventoNome));
     if (usuario_id) params.set('usuario_id', usuario_id);
     appendContexto(params, contexto);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/candidatas?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -1524,6 +1542,7 @@
         Accept: 'application/json',
       },
       body: JSON.stringify({
+        public_key: config.public_key || undefined,
         campanha_id: campanha.id,
         nota: state.nota,
         observacao: state.observacao || undefined,
@@ -1586,6 +1605,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
+        public_key: config.public_key || undefined,
         campanha_id: campanha.id,
         usuario_id: config.usuario_id,
         usuario_nome: config.usuario_nome || undefined,
@@ -1683,6 +1703,14 @@
       config: debugSanitizar(normalized),
       url: debugStatusUrl(),
     });
+    // Fase 2 do widget multi-tenant: sem public_key, o backend cai num
+    // fallback temporário pro tenant Quark (ver resolverTenantPublico no
+    // servidor) — funciona hoje, mas deixará de existir quando public_key
+    // virar obrigatória para tenants novos. Só um aviso de debug (nunca
+    // bloqueia o init) — visível só com window.UserPulse.debug(true).
+    if (!normalized.public_key) {
+      debugLog('public_key ausente em init() — usando fallback temporário pro tenant Quark. Defina { public_key: "..." } antes que isso deixe de funcionar.', {});
+    }
     iniciarGravadorSeNecessario();
     iniciarPreviewSeNecessario();
     state.campanha = null;
@@ -1891,6 +1919,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
+          public_key: config.public_key || undefined,
           evento: eventoNome,
           sistema: config.sistema,
           usuario_id: config.usuario_id,
@@ -2419,6 +2448,7 @@
   function fetchTour(slug) {
     var params = new URLSearchParams();
     params.set('slug', slug);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/tour?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -2435,6 +2465,7 @@
   function fetchAparencia(sistema) {
     var params = new URLSearchParams();
     params.set('sistema', sistema);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/aparencia?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -2603,6 +2634,7 @@
     if (tela) params.set('tela', tela);
     if (usuario_id) params.set('usuario_id', usuario_id);
     appendContexto(params, contexto);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/tour/candidatas?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -2651,6 +2683,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
+        public_key: config.public_key || undefined,
         tour_id: tour.id,
         tipo_evento: tipoEvento,
         passo_ordem: passoOrdem != null ? passoOrdem : undefined,
@@ -8527,6 +8560,7 @@
     if (tela) params.set('tela', tela);
     if (usuario_id) params.set('usuario_id', usuario_id);
     appendContexto(params, contexto);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/jornadas?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -8572,6 +8606,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
+        public_key: config.public_key || undefined,
         jornada_id: jornadaId,
         bloco_id: blocoId != null ? blocoId : undefined,
         etapa_id: etapaId != null ? etapaId : undefined,

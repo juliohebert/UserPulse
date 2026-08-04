@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { useAuth } from '../hooks/useAuth'
 
 const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
@@ -87,7 +88,11 @@ const CODE_INSTALL_TEST = `<!-- Ambiente de testes -->
 const CODE_INSTALL_PROD = `<!-- Produção -->
 <script src="https://userpulse-prod.onrender.com/widget-loader.js" async></script>`
 
-const CODE_INIT = `window.UserPulse.init({
+// publicKey vem do tenant logado (ver IntegracaoPage) — sempre um valor real,
+// nunca um placeholder, pra reduzir o risco de alguém copiar o snippet e
+// esquecer de trocar "up_pub_..." pela chave de verdade.
+const codeInit = (publicKey: string) => `window.UserPulse.init({
+  public_key: "${publicKey}",
   sistema: "NomeDoSistema",
   usuario_id: "123",
   usuario_nome: "Maria Silva",
@@ -113,8 +118,9 @@ const CODE_UPDATE_CONTEXT = `window.UserPulse.updateContext({
 
 const CODE_TRACK = `window.UserPulse.track("usou_nova_agenda");`
 
-const CODE_FULL = `// 1. Na inicialização do sistema (ex: após login)
+const codeFull = (publicKey: string) => `// 1. Na inicialização do sistema (ex: após login)
 window.UserPulse.init({
+  public_key:    "${publicKey}",
   sistema:       "MeuSistema",
   usuario_id:    usuario.id,
   usuario_nome:  usuario.nome,
@@ -210,6 +216,13 @@ const BEST_PRACTICES = [
 // ── Page ──────────────────────────────────────────────────────────────────
 
 export function IntegracaoPage() {
+  const { user } = useAuth()
+  // Placeholder no formato real de public_key (UUID gerado pelo banco, ver
+  // Tenant.public_key em schema.prisma) — só aparece se a sessão ainda não
+  // carregou o tenant; na prática o valor real (user.tenant.public_key)
+  // está quase sempre disponível aqui.
+  const publicKey = user?.tenant.public_key || '00000000-0000-0000-0000-000000000000'
+
   return (
     <div className="relative">
 
@@ -256,7 +269,7 @@ export function IntegracaoPage() {
           title="Inicialização"
           subtitle="Chame UserPulse.init() logo após o login do usuário, passando os dados de identificação e contexto."
         >
-          <CodeBlock code={CODE_INIT} />
+          <CodeBlock code={codeInit(publicKey)} />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
             <div className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/50 space-y-1">
               <p className="text-label-md font-semibold text-on-surface">Campos obrigatórios</p>
@@ -268,12 +281,16 @@ export function IntegracaoPage() {
             <div className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/50 space-y-1">
               <p className="text-label-md font-semibold text-on-surface">Campos opcionais</p>
               <div className="flex flex-wrap gap-1.5 mt-1.5">
+                <InfoChip>public_key</InfoChip>
                 <InfoChip>usuario_nome</InfoChip>
                 <InfoChip>usuario_email</InfoChip>
                 <InfoChip>contexto</InfoChip>
               </div>
             </div>
           </div>
+          <Tip>
+            O campo <span className="font-mono">public_key</span> identifica sua conta — sem ele, o widget assume um tenant padrão temporário. Em breve será obrigatório para contas novas; use sempre o valor mostrado acima.
+          </Tip>
           <Tip>
             O campo <span className="font-mono">sistema</span> deve ser um nome fixo que identifica o produto integrado — use sempre o mesmo valor em todas as chamadas.
           </Tip>
@@ -393,7 +410,7 @@ export function IntegracaoPage() {
           title="Exemplo completo para SPA"
           subtitle="Padrão recomendado para sistemas Single-Page Application com troca de contexto."
         >
-          <CodeBlock code={CODE_FULL} />
+          <CodeBlock code={codeFull(publicKey)} />
         </SectionCard>
 
         {/* H — Boas práticas */}
