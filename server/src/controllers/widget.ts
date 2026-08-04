@@ -1,24 +1,29 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
+import { resolverTenantPublico } from '../lib/tenantGuards'
 
-// tenant_id é identificador interno (join key da fundação SaaS multi-tenant,
-// ver schema.prisma) — nunca deve aparecer numa resposta pública do widget.
-// Em vez de reescrever cada select do Prisma campo a campo (arriscado: um
-// campo esquecido quebraria o runtime do widget em produção, silenciosamente),
-// esta função remove só a chave "tenant_id" de qualquer objeto/array antes do
-// res.json(), em qualquer profundidade — cobre tanto o objeto de topo
-// (Campanha/TourGuiado/Jornada) quanto qualquer objeto aninhado que algum dia
-// venha a carregar tenant_id (hoje os includes já usam select explícito sem
-// esse campo, ex.: tour/campanha dentro de EtapaJornada, mas a função não
-// depende disso pra estar correta). Não remove nem altera nenhum outro campo.
+// tenant_id/codigo são identificadores internos/comerciais (fundação SaaS
+// multi-tenant, ver schema.prisma) — nenhum dos dois deve aparecer numa
+// resposta pública do widget. Em vez de reescrever cada select do Prisma
+// campo a campo (arriscado: um campo esquecido quebraria o runtime do widget
+// em produção, silenciosamente), esta função remove essas duas chaves de
+// qualquer objeto/array antes do res.json(), em qualquer profundidade — cobre
+// tanto o objeto de topo (Campanha/TourGuiado/Jornada) quanto qualquer objeto
+// aninhado. Hoje só Tenant tem "codigo" (Campanha/TourGuiado/Jornada nunca
+// carregam esse campo, então o strip é defensivo/sem efeito atual — nenhum
+// desses modelos é consultado aqui), e a função não depende disso pra estar
+// correta. Não remove nem altera nenhum outro campo.
+const CHAVES_INTERNAS = new Set(['tenant_id', 'codigo'])
+
 export function ocultarTenantId<T>(valor: T): T {
   if (Array.isArray(valor)) {
     return valor.map(item => ocultarTenantId(item)) as unknown as T
   }
   if (valor !== null && typeof valor === 'object' && !(valor instanceof Date)) {
-    const { tenant_id: _tenantId, ...resto } = valor as Record<string, unknown>
-    for (const chave of Object.keys(resto)) {
-      resto[chave] = ocultarTenantId(resto[chave])
+    const resto: Record<string, unknown> = {}
+    for (const [chave, v] of Object.entries(valor as Record<string, unknown>)) {
+      if (CHAVES_INTERNAS.has(chave)) continue
+      resto[chave] = ocultarTenantId(v)
     }
     return resto as unknown as T
   }
@@ -202,11 +207,16 @@ async function verificarConclusaoGlobal(
     segmentar_usuario_tipos: string[]
     segmentar_estados: string[]
   },
-  uidStr: string
+  uidStr: string,
+  tenantId: string
 ): Promise<ConclusaoResult> {
   if (!campanha.evento_conclusao) return { bloqueado: false }
+  // tenant_id aqui fecha a última colisão por "sistema" entre tenants (ver
+  // comentário de EventoUsuario em schema.prisma) — sem isso, dois tenants
+  // usando o mesmo "sistema"+usuario_id+evento_conclusao podiam concluir a
+  // campanha um do outro.
   const eventos = await prisma.eventoUsuario.findMany({
-    where: { sistema: campanha.sistema, usuario_id: uidStr, evento: campanha.evento_conclusao },
+    where: { tenant_id: tenantId, sistema: campanha.sistema, usuario_id: uidStr, evento: campanha.evento_conclusao },
     orderBy: { criado_em: 'desc' },
   })
   for (const ev of eventos) {
@@ -224,10 +234,21 @@ async function verificarConclusaoGlobal(
 
 export async function buscarCampanha(req: Request, res: Response) {
   try {
-    const { slug, sistema, tela, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
+    const { public_key, slug, sistema, tela, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
 
     if (!slug && (!sistema || !tela)) {
       return res.status(400).json({ erro: 'Informe slug ou sistema+tela.' })
+    }
+
+    // Fase 2 do widget multi-tenant: resolve o tenant por public_key (com
+    // fallback temporário pro tenant Quark — ver resolverTenantPublico) e
+    // escopa a busca por tenant_id, evitando colisão quando dois tenants
+    // usam o mesmo "sistema"/slug. public_key inválida responde a MESMA
+    // mensagem de "não encontrada" que qualquer outro motivo de 404 aqui —
+    // nunca revela se a chave existe.
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) {
+      return res.status(404).json({ erro: 'Nenhuma campanha ativa encontrada.' })
     }
 
     const agora = new Date()
@@ -246,6 +267,7 @@ export async function buscarCampanha(req: Request, res: Response) {
 
     const campanha = await prisma.campanha.findFirst({
       where: {
+        tenant_id: resolucao.tenantId,
         ativo: true,
         ...campanhaFilter,
         ...filtroData,
@@ -276,7 +298,7 @@ export async function buscarCampanha(req: Request, res: Response) {
 
     // Conclusao check always applies — not bypassed by always-show
     if (usuario_id && campanha.encerrar_apos_evento && campanha.evento_conclusao) {
-      const conclusao = await verificarConclusaoGlobal(campanha, String(usuario_id))
+      const conclusao = await verificarConclusaoGlobal(campanha, String(usuario_id), resolucao.tenantId)
       if (conclusao.bloqueado) {
         return res.status(404).json({ erro: 'Usuário já realizou o evento de conclusão desta campanha.' })
       }
@@ -298,11 +320,17 @@ export async function buscarCampanha(req: Request, res: Response) {
 
 export async function buscarCandidatas(req: Request, res: Response) {
   try {
-    const { sistema, tela, gatilho, evento, usuario_id, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
+    const { public_key, sistema, tela, gatilho, evento, usuario_id, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
 
     if (!sistema) {
       return res.status(400).json({ erro: 'Informe sistema.' })
     }
+
+    // Endpoint de "candidatas" — public_key inválida/ausente-sem-fallback
+    // nunca é erro aqui, só significa "nenhuma candidata" (mesmo padrão de
+    // resposta vazia que qualquer outro filtro sem resultado nesta rota).
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.json([])
 
     const agora = new Date()
     const filtroData = {
@@ -327,6 +355,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
 
     const campanhas = await prisma.campanha.findMany({
       where: {
+        tenant_id: resolucao.tenantId,
         ativo: true,
         sistema: String(sistema),
         ...gatilhoFilter,
@@ -358,7 +387,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
     const semConclusao: typeof segmentadas = []
     for (const campanha of segmentadas) {
       if (campanha.encerrar_apos_evento && campanha.evento_conclusao) {
-        const conclusao = await verificarConclusaoGlobal(campanha, uidStr)
+        const conclusao = await verificarConclusaoGlobal(campanha, uidStr, resolucao.tenantId)
         if (conclusao.bloqueado) continue
       }
       semConclusao.push(campanha)
@@ -386,7 +415,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
 
 export async function registrarEvento(req: Request, res: Response) {
   try {
-    const { campanha_id, tipo_evento, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
+    const { public_key, campanha_id, tipo_evento, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
 
     if (!campanha_id) return res.status(400).json({ erro: 'campanha_id é obrigatório.' })
     if (!tipo_evento) return res.status(400).json({ erro: 'tipo_evento é obrigatório.' })
@@ -396,8 +425,16 @@ export async function registrarEvento(req: Request, res: Response) {
       return res.status(400).json({ erro: `tipo_evento inválido. Use: ${TIPOS_VALIDOS.join(', ')}.` })
     }
 
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.status(404).json({ erro: 'Campanha não encontrada.' })
+
     const campanha = await prisma.campanha.findUnique({ where: { id: campanha_id } })
-    if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
+    // tenant_id do id resolvido precisa bater com o dono real da campanha —
+    // sem isso, um campanha_id de outro tenant (vazado/adivinhado) poderia
+    // registrar eventos nela usando a public_key errada.
+    if (!campanha || campanha.tenant_id !== resolucao.tenantId) {
+      return res.status(404).json({ erro: 'Campanha não encontrada.' })
+    }
 
     await prisma.eventoCampanha.create({
       data: {
@@ -421,13 +458,18 @@ export async function registrarEvento(req: Request, res: Response) {
 
 export async function registrarConfirmacao(req: Request, res: Response) {
   try {
-    const { campanha_id, usuario_id, usuario_nome, usuario_email, contexto } = req.body
+    const { public_key, campanha_id, usuario_id, usuario_nome, usuario_email, contexto } = req.body
 
     if (!campanha_id) return res.status(400).json({ erro: 'campanha_id é obrigatório.' })
     if (!usuario_id) return res.status(400).json({ erro: 'usuario_id é obrigatório.' })
 
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.status(404).json({ erro: 'Campanha não encontrada.' })
+
     const campanha = await prisma.campanha.findUnique({ where: { id: campanha_id } })
-    if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
+    if (!campanha || campanha.tenant_id !== resolucao.tenantId) {
+      return res.status(404).json({ erro: 'Campanha não encontrada.' })
+    }
     if (!campanha.exige_confirmacao_leitura) {
       return res.status(400).json({ erro: 'Esta campanha não exige confirmação de leitura.' })
     }
@@ -452,7 +494,7 @@ export async function registrarConfirmacao(req: Request, res: Response) {
 export async function registrarFeedback(req: Request, res: Response) {
   try {
     const {
-      campanha_id, nota, observacao,
+      public_key, campanha_id, nota, observacao,
       usuario_id, usuario_nome, usuario_email,
       sistema, tela, navegador, dispositivo, contexto,
     } = req.body
@@ -474,8 +516,13 @@ export async function registrarFeedback(req: Request, res: Response) {
       return res.status(400).json({ erro: 'nota deve ser um inteiro entre 0 e 10.' })
     }
 
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) {
+      return res.status(400).json({ erro: 'Campanha não encontrada.' })
+    }
+
     const campanha = await prisma.campanha.findUnique({ where: { id: campanha_id } })
-    if (!campanha) {
+    if (!campanha || campanha.tenant_id !== resolucao.tenantId) {
       return res.status(400).json({ erro: 'Campanha não encontrada.' })
     }
 
@@ -508,11 +555,16 @@ export async function registrarFeedback(req: Request, res: Response) {
 
 export async function registrarConclusaoEvento(req: Request, res: Response) {
   try {
-    const { evento, sistema, usuario_id, contexto } = req.body
+    const { public_key, evento, sistema, usuario_id, contexto } = req.body
 
     if (!evento || !sistema || !usuario_id) {
       return res.status(400).json({ erro: 'evento, sistema e usuario_id são obrigatórios.' })
     }
+
+    // Sem tenant_id aqui, a busca abaixo por "sistema" poderia concluir
+    // campanhas de OUTRO tenant que usa o mesmo nome de sistema.
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.status(201).json({ ok: true, campanhas_concluidas: 0 })
 
     const eventoStr = String(evento).trim()
     const sistemaStr = String(sistema).trim()
@@ -530,7 +582,7 @@ export async function registrarConclusaoEvento(req: Request, res: Response) {
     // Limitation: only campaigns active at the time of track() are concluded here.
     // Campaigns created after this event fire are not retroactively blocked.
     const campanhas = await prisma.campanha.findMany({
-      where: { ativo: true, sistema: sistemaStr, encerrar_apos_evento: true, evento_conclusao: eventoStr },
+      where: { tenant_id: resolucao.tenantId, ativo: true, sistema: sistemaStr, encerrar_apos_evento: true, evento_conclusao: eventoStr },
       select: {
         id: true,
         segmentar_cliente_ids: true,
@@ -569,7 +621,7 @@ export async function registrarConclusaoEvento(req: Request, res: Response) {
 
 export async function registrarEventoUsuario(req: Request, res: Response) {
   try {
-    const { evento, sistema, usuario_id, contexto,
+    const { public_key, evento, sistema, usuario_id, contexto,
       cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.body
 
     const eventoStr   = evento    ? String(evento).trim()    : ''
@@ -579,6 +631,16 @@ export async function registrarEventoUsuario(req: Request, res: Response) {
     if (!eventoStr || !sistemaStr || !uidStr) {
       return res.status(400).json({ erro: 'evento, sistema e usuario_id são obrigatórios.' })
     }
+
+    // Fase 2 do widget multi-tenant: sem tenant_id aqui, este histórico
+    // (lido por verificarConclusaoGlobal pra encerrar campanha após evento)
+    // não distinguia dois tenants usando o mesmo "sistema" (ver comentário de
+    // EventoUsuario em schema.prisma). public_key inválida/tenant bloqueado:
+    // no-op silencioso — mesma resposta de sucesso de sempre, já que
+    // track() no widget é fire-and-forget e nunca deve revelar se uma chave
+    // existe.
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.status(201).json({ ok: true })
 
     const ctx = (contexto && typeof contexto === 'object' && !Array.isArray(contexto))
       ? contexto as Record<string, unknown>
@@ -595,9 +657,12 @@ export async function registrarEventoUsuario(req: Request, res: Response) {
     const estadoStr  = resolve(estado,       'estado')
 
     // Deduplicate: skip if identical event was registered in the last 5 seconds
+    // (escopado por tenant_id — dois tenants não devem deduplicar um evento
+    // do outro).
     const cincoSegundosAtras = new Date(Date.now() - 5000)
     const jaExiste = await prisma.eventoUsuario.findFirst({
       where: {
+        tenant_id: resolucao.tenantId,
         sistema: sistemaStr,
         usuario_id: uidStr,
         evento: eventoStr,
@@ -612,6 +677,7 @@ export async function registrarEventoUsuario(req: Request, res: Response) {
 
     await prisma.eventoUsuario.create({
       data: {
+        tenant_id: resolucao.tenantId,
         sistema: sistemaStr,
         usuario_id: uidStr,
         evento: eventoStr,
@@ -635,11 +701,14 @@ export async function registrarEventoUsuario(req: Request, res: Response) {
 
 export async function buscarTour(req: Request, res: Response) {
   try {
-    const { slug } = req.query
+    const { public_key, slug } = req.query
     if (!slug) return res.status(400).json({ erro: 'Informe slug.' })
 
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.status(404).json({ erro: 'Nenhum tour guiado ativo encontrado.' })
+
     const tour = await prisma.tourGuiado.findFirst({
-      where: { slug: String(slug), ativo: true },
+      where: { tenant_id: resolucao.tenantId, slug: String(slug), ativo: true },
       include: { passos: { orderBy: { ordem: 'asc' } } },
     })
     if (!tour) return res.status(404).json({ erro: 'Nenhum tour guiado ativo encontrado.' })
@@ -657,9 +726,19 @@ export async function buscarTour(req: Request, res: Response) {
 // cliente que não configurou nada).
 export async function buscarAparencia(req: Request, res: Response) {
   try {
-    const { sistema } = req.query
+    const { public_key, sistema } = req.query
     if (!sistema) return res.json({ cor_principal: null, logo_url: null })
-    const aparencia = await prisma.aparenciaWidget.findUnique({ where: { sistema: String(sistema) } })
+
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.json({ cor_principal: null, logo_url: null })
+
+    // sistema virou único POR TENANT (ver migration
+    // 20260802090000_aparencia_widget_unique_por_tenant) — agora que a rota
+    // resolve tenant via public_key, dois tenants podem ter, cada um, sua
+    // própria aparência pro mesmo nome de "sistema".
+    const aparencia = await prisma.aparenciaWidget.findUnique({
+      where: { tenant_id_sistema: { tenant_id: resolucao.tenantId, sistema: String(sistema) } },
+    })
     res.json({
       cor_principal: aparencia?.cor_principal ?? null,
       logo_url: aparencia?.logo_url ?? null,
@@ -671,8 +750,11 @@ export async function buscarAparencia(req: Request, res: Response) {
 
 export async function buscarTourCandidatos(req: Request, res: Response) {
   try {
-    const { sistema, tela, usuario_id } = req.query
+    const { public_key, sistema, tela, usuario_id } = req.query
     if (!sistema) return res.status(400).json({ erro: 'Informe sistema.' })
+
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.json([])
 
     // sistema_tela tours are filtered by tela server-side (tela deve corresponder).
     // data_cy e url_contem são sempre incluídos — o widget valida no client.
@@ -682,7 +764,7 @@ export async function buscarTourCandidatos(req: Request, res: Response) {
     modoFiltros.push({ modo_identificacao: 'url_contem' })
 
     const tours = await prisma.tourGuiado.findMany({
-      where: { ativo: true, sistema: String(sistema), OR: modoFiltros },
+      where: { tenant_id: resolucao.tenantId, ativo: true, sistema: String(sistema), OR: modoFiltros },
       orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
       include: { passos: { orderBy: { ordem: 'asc' } } },
     })
@@ -721,7 +803,7 @@ export async function buscarTourCandidatos(req: Request, res: Response) {
 
 export async function registrarEventoTour(req: Request, res: Response) {
   try {
-    const { tour_id, tipo_evento, passo_ordem, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
+    const { public_key, tour_id, tipo_evento, passo_ordem, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
 
     if (!tour_id) return res.status(400).json({ erro: 'tour_id é obrigatório.' })
     if (!tipo_evento) return res.status(400).json({ erro: 'tipo_evento é obrigatório.' })
@@ -734,8 +816,13 @@ export async function registrarEventoTour(req: Request, res: Response) {
       return res.status(400).json({ erro: `tipo_evento inválido. Use: ${TIPOS_VALIDOS.join(', ')}.` })
     }
 
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
+
     const tour = await prisma.tourGuiado.findUnique({ where: { id: tour_id } })
-    if (!tour) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
+    if (!tour || tour.tenant_id !== resolucao.tenantId) {
+      return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
+    }
 
     await prisma.eventoTour.create({
       data: {
@@ -773,10 +860,16 @@ const TIPOS_EVENTO_JORNADA = [
 
 export async function buscarJornadas(req: Request, res: Response) {
   try {
-    const { usuario_id, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
+    const { public_key, usuario_id, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
+
+    // Antes da Fase 2, esta rota devolvia TODAS as jornadas ativas de TODOS os
+    // tenants (Jornada não tem campo "sistema" — nunca teve filtro nenhum de
+    // isolamento aqui). tenant_id via public_key fecha esse vazamento.
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.json([])
 
     const jornadas = await prisma.jornada.findMany({
-      where: { ativo: true },
+      where: { tenant_id: resolucao.tenantId, ativo: true },
       orderBy: { criado_em: 'desc' },
       include: {
         blocos: {
@@ -892,7 +985,7 @@ export async function buscarJornadas(req: Request, res: Response) {
 
 export async function registrarEventoJornada(req: Request, res: Response) {
   try {
-    const { jornada_id, bloco_id, etapa_id, tipo_evento, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
+    const { public_key, jornada_id, bloco_id, etapa_id, tipo_evento, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
 
     if (!jornada_id) return res.status(400).json({ erro: 'jornada_id é obrigatório.' })
     if (!tipo_evento) return res.status(400).json({ erro: 'tipo_evento é obrigatório.' })
@@ -900,8 +993,13 @@ export async function registrarEventoJornada(req: Request, res: Response) {
       return res.status(400).json({ erro: `tipo_evento inválido. Use: ${TIPOS_EVENTO_JORNADA.join(', ')}.` })
     }
 
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.status(404).json({ erro: 'Jornada não encontrada.' })
+
     const jornada = await prisma.jornada.findUnique({ where: { id: jornada_id } })
-    if (!jornada) return res.status(404).json({ erro: 'Jornada não encontrada.' })
+    if (!jornada || jornada.tenant_id !== resolucao.tenantId) {
+      return res.status(404).json({ erro: 'Jornada não encontrada.' })
+    }
 
     await prisma.eventoJornada.create({
       data: {

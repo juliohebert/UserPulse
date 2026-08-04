@@ -52,7 +52,11 @@ export interface EmbedParts {
   isAfterEvent: boolean
 }
 
-export function gerarEmbedParts(campanha: Campanha): EmbedParts {
+// publicKey (Fase 2 do widget multi-tenant) — opcional aqui só porque
+// quem chama pode não ter a sessão/tenant carregada ainda; sem ela, o
+// snippet gerado usa o placeholder de sempre, igual aos outros campos
+// desta função quando a campanha não tem o dado preenchido.
+export function gerarEmbedParts(campanha: Campanha, publicKey?: string): EmbedParts {
   const modo = campanha.modo_identificacao || 'sistema_tela'
   const gatilho = campanha.gatilho || 'ao_abrir_tela'
   const sistema = campanha.sistema || 'seu-sistema'
@@ -62,7 +66,7 @@ export function gerarEmbedParts(campanha: Campanha): EmbedParts {
   const evento = campanha.evento || 'nome_do_evento'
   const isAfterEvent = gatilho === 'apos_evento'
 
-  const initLines: string[] = [`  sistema: "${sistema}",`]
+  const initLines: string[] = [`  public_key: "${publicKey || '00000000-0000-0000-0000-000000000000'}",`, `  sistema: "${sistema}",`]
   if (modo === 'sistema_tela') initLines.push(`  tela: "${tela}",`)
   initLines.push(`  usuario_id: "ID_DO_USUARIO"`)
 
@@ -88,8 +92,8 @@ export function gerarEmbedParts(campanha: Campanha): EmbedParts {
   }
 }
 
-export function gerarEmbed(campanha: Campanha): string {
-  const p = gerarEmbedParts(campanha)
+export function gerarEmbed(campanha: Campanha, publicKey?: string): string {
+  const p = gerarEmbedParts(campanha, publicKey)
   const body: string[] = [p.initCode]
   if (p.initNote) body.push('', p.initNote)
   if (p.trackCode) body.push('', p.trackCode)

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { get, del, put } from '../../services/api'
 import type { Campanha, StatusCampanha } from '../../types'
 import { getStatus, formatDateTime, gerarEmbed } from '../../utils/campanha'
+import { useAuth } from '../../hooks/useAuth'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
@@ -172,6 +173,7 @@ function CampanhaCard({
 }
 
 export function CampanhasIndex() {
+  const { user } = useAuth()
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -267,7 +269,7 @@ export function CampanhasIndex() {
   }
 
   const handleCopyEmbed = (c: Campanha) => {
-    navigator.clipboard.writeText(gerarEmbed(c)).catch(() => {})
+    navigator.clipboard.writeText(gerarEmbed(c, user?.tenant.public_key)).catch(() => {})
     setCopiedId(c.id)
     setTimeout(() => setCopiedId(prev => (prev === c.id ? null : prev)), 2000)
   }

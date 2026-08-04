@@ -102,6 +102,14 @@ describe('avaliarReexibicaoPorDias — reexibir_apos_dias null, 0 ou negativo', 
 // buscarJornadas em widget.ts). Testado aqui como função pura, sem precisar
 // de servidor HTTP nem banco (mesmo padrão das demais funções desta suíte).
 describe('ocultarTenantId — nunca deixa tenant_id vazar numa resposta pública', () => {
+  test('remove tenant_id E codigo de um objeto simples (defesa em profundidade — Fase 2 do widget multi-tenant)', () => {
+    const entrada = { id: 't1', tenant_id: 'x', codigo: 42, nome: 'Tenant X' }
+    const saida = ocultarTenantId(entrada)
+    assert.equal('tenant_id' in saida, false)
+    assert.equal('codigo' in saida, false)
+    assert.deepEqual(saida, { id: 't1', nome: 'Tenant X' })
+  })
+
   test('remove tenant_id de um objeto simples, preservando os demais campos', () => {
     const entrada = { id: 'c1', tenant_id: 't1', titulo: 'Campanha X', ativo: true }
     const saida = ocultarTenantId(entrada)

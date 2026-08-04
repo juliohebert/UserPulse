@@ -29,28 +29,26 @@ function normalizarLogoUrl(valor: unknown): { ok: true; valor: string | null } |
 // GET /api/aparencia-widget/:sistema (admin) — 200 com campos null quando
 // ainda não existe configuração pra esse sistema (nunca 404: "sem config
 // ainda" é um estado normal, não um erro, e a tela de admin só precisa
-// saber se deve mostrar o formulário vazio ou preenchido). "sistema" é
-// @unique GLOBAL no schema (ver comentário lá) — se já existe config pra
-// esse nome mas pertence a OUTRO tenant, este admin não pode ver nem saber
-// que ela existe: devolve o mesmo "sem config" que um sistema nunca usado.
+// saber se deve mostrar o formulário vazio ou preenchido). "sistema" virou
+// único POR TENANT (ver migration 20260802090000_aparencia_widget_unique_por_tenant,
+// parte da Fase 2 do widget multi-tenant) — a busca já é naturalmente
+// escopada ao tenant da sessão, sem precisar checar ownership manualmente.
 export async function buscar(req: Request, res: Response) {
   try {
     const sistema = (req.params.sistema as string || '').trim()
     if (!sistema) { res.status(400).json({ erro: 'sistema é obrigatório.' }); return }
-    const existente = await prisma.aparenciaWidget.findUnique({ where: { sistema } })
-    if (!existente || existente.tenant_id !== req.adminUser!.tenant_id) {
-      res.json({ sistema, cor_principal: null, logo_url: null })
-      return
-    }
-    res.json(existente)
+    const existente = await prisma.aparenciaWidget.findUnique({
+      where: { tenant_id_sistema: { tenant_id: req.adminUser!.tenant_id, sistema } },
+    })
+    res.json(existente || { sistema, cor_principal: null, logo_url: null })
   } catch {
     res.status(500).json({ erro: 'Erro ao buscar aparência do widget.' })
   }
 }
 
-// PUT /api/aparencia-widget/:sistema (admin) — upsert por sistema (nunca por
-// tour/campanha individual). cor_principal/logo_url vazios são válidos
-// (limpam a configuração, voltando pro fallback padrão do widget).
+// PUT /api/aparencia-widget/:sistema (admin) — upsert por (tenant, sistema)
+// (nunca por tour/campanha individual). cor_principal/logo_url vazios são
+// válidos (limpam a configuração, voltando pro fallback padrão do widget).
 export async function salvar(req: Request, res: Response) {
   try {
     const bloqueioEscrita = motivoBloqueioEscrita(req.adminUser!.tenant)
@@ -66,17 +64,8 @@ export async function salvar(req: Request, res: Response) {
     if (!logo.ok) { res.status(400).json({ erro: 'URL da logo inválida — use uma URL completa começando com http:// ou https://.' }); return }
 
     const tenantId = req.adminUser!.tenant_id
-    const existente = await prisma.aparenciaWidget.findUnique({ where: { sistema } })
-    // "sistema" é uma chave global (ver schema.prisma) — se outro tenant já
-    // configurou aparência pra esse mesmo nome, não deixa sobrescrever
-    // silenciosamente a config de outro cliente.
-    if (existente && existente.tenant_id !== tenantId) {
-      res.status(409).json({ erro: `O nome de sistema "${sistema}" já está em uso por outra conta.` })
-      return
-    }
-
     const salvo = await prisma.aparenciaWidget.upsert({
-      where: { sistema },
+      where: { tenant_id_sistema: { tenant_id: tenantId, sistema } },
       create: { tenant_id: tenantId, sistema, cor_principal: cor.valor, logo_url: logo.valor },
       update: { cor_principal: cor.valor, logo_url: logo.valor },
     })
