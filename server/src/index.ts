@@ -12,7 +12,10 @@ import toursRouter from './routes/tours'
 import jornadasRouter from './routes/jornadas'
 import aparenciaWidgetRouter from './routes/aparenciaWidget'
 import authRouter from './routes/auth'
+import adminTenantsRouter from './routes/adminTenants'
+import adminPlanosRouter from './routes/adminPlanos'
 import { requireAdminAuth } from './middleware/requireAdminAuth'
+import { requireSuperAdmin } from './middleware/requireSuperAdmin'
 import { getSessionSecret } from './lib/auth'
 
 dotenv.config()
@@ -112,6 +115,11 @@ app.use('/api/jornadas', corsAdmin, requireAdminAuth, jornadasRouter)
 app.use('/api/aparencia-widget', corsAdmin, requireAdminAuth, aparenciaWidgetRouter)
 app.use('/api/widget', corsWidget, widgetRouter)
 app.use('/api/dashboard', corsAdmin, requireAdminAuth, dashboardRouter)
+// Painel Super Admin (gerenciar Tenants/Planos/teste grátis) — cross-tenant
+// de propósito, por isso vem depois de requireSuperAdmin, nunca só
+// requireAdminAuth como as demais rotas admin acima.
+app.use('/api/admin/tenants', corsAdmin, requireAdminAuth, requireSuperAdmin, adminTenantsRouter)
+app.use('/api/admin/planos', corsAdmin, requireAdminAuth, requireSuperAdmin, adminPlanosRouter)
 
 // Assets estáticos do frontend (CSS, JS bundles, favicons…)
 app.use(express.static(WEB_DIST))

@@ -428,3 +428,66 @@ export interface AdminUser {
   atualizado_em: string
   tenant: TenantResumo
 }
+
+// ─── Painel Super Admin (gerenciar Tenants/Planos/teste grátis) ────────────
+// Só acessível por AdminUser.role === 'SUPER_ADMIN' (ver
+// server/src/middleware/requireSuperAdmin.ts) — recorte "administrativo"
+// completo do Plano/Tenant, diferente de PlanoResumo/TenantResumo acima (que
+// são o recorte público devolvido em /auth/me pro próprio tenant logado).
+
+// preco_mensal serializa como string via JSON (Prisma.Decimal.toJSON()),
+// nunca number.
+export interface PlanoAdmin {
+  id: string
+  nome: string
+  slug: string
+  descricao: string | null
+  preco_mensal: string | null
+  limite_campanhas_ativas: number | null
+  limite_tours_ativos: number | null
+  limite_eventos_mes: number | null
+  limite_usuarios_admin: number | null
+  permite_tours: boolean
+  permite_jornadas: boolean
+  permite_white_label: boolean
+  ativo: boolean
+  criado_em: string
+  atualizado_em: string
+}
+
+export interface AdminDoTenant {
+  id: string
+  nome: string
+  email: string
+  role: AdminRole
+  ativo: boolean
+  criado_em: string
+  atualizado_em: string
+}
+
+export interface TenantAdminItem {
+  id: string
+  codigo: number
+  nome: string
+  slug: string
+  public_key: string
+  status: TenantStatus
+  trial_inicio: string | null
+  trial_fim: string | null
+  // Controle de licença paga — ajustado manualmente pelo super admin, sem
+  // gateway/cobrança automática (ver server/prisma/schema.prisma).
+  licenca_inicio: string | null
+  licenca_fim: string | null
+  proxima_cobranca: string | null
+  ultimo_pagamento_em: string | null
+  observacao_comercial: string | null
+  plano_id: string | null
+  plano: PlanoAdmin | null
+  criado_em: string
+  atualizado_em: string
+  _count: { admins: number }
+}
+
+export interface TenantAdminDetail extends Omit<TenantAdminItem, '_count'> {
+  admins: AdminDoTenant[]
+}

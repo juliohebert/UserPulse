@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import { Layout } from './components/layout/Layout'
 import { RequireAuth } from './components/auth/RequireAuth'
+import { RequireSuperAdmin } from './components/auth/RequireSuperAdmin'
 import { LoginPage } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { CampanhasIndex } from './pages/campanhas/Index'
@@ -19,6 +20,8 @@ import { TourGravador } from './pages/tours/Gravador'
 import { JornadasIndex } from './pages/jornadas/Index'
 import { JornadaForm } from './pages/jornadas/Form'
 import { AparenciaWidgetPage } from './pages/AparenciaWidget'
+import { AdminTenantsIndex } from './pages/admin/Tenants'
+import { AdminPlanosIndex } from './pages/admin/Planos'
 
 export default function App() {
   return (
@@ -48,6 +51,14 @@ export default function App() {
           <Route path="catalogo-telas" element={<CatalogoTelasIndex />} />
           <Route path="aparencia-widget" element={<AparenciaWidgetPage />} />
           <Route path="integracao" element={<IntegracaoPage />} />
+          {/* Painel Super Admin — RequireSuperAdmin manda ADMIN comum de
+              volta pro dashboard; o backend (requireSuperAdmin.ts) também
+              bloqueia com 403, então nenhuma chamada de API teria sucesso
+              mesmo pulando este guard. */}
+          <Route element={<RequireSuperAdmin />}>
+            <Route path="admin/tenants" element={<AdminTenantsIndex />} />
+            <Route path="admin/planos" element={<AdminPlanosIndex />} />
+          </Route>
         </Route>
       </Route>
     </Routes>
