@@ -52,6 +52,19 @@ model Tenant {
   status        TenantStatus @default(TRIAL)
   trial_inicio  DateTime?
   trial_fim     DateTime?
+  // Controle de licença PAGA — tudo ajustado manualmente pelo super admin no
+  // painel (ver adminTenants.ts), nunca por gateway/cobrança automática (fora
+  // de escopo). trial_inicio/trial_fim continuam exclusivos do período de
+  // teste grátis (status TRIAL); estes campos cobrem o período depois da
+  // conversão (status ACTIVE): licenca_fim/proxima_cobranca substituem o
+  // acompanhamento manual que antes não tinha onde ser registrado.
+  // observacao_comercial é texto livre (ex.: "negociando renovação",
+  // "pagou via PIX direto") — sem estrutura, só contexto pro super admin.
+  licenca_inicio       DateTime?
+  licenca_fim          DateTime?
+  proxima_cobranca     DateTime?
+  ultimo_pagamento_em  DateTime?
+  observacao_comercial String?
   plano_id      String?
   criado_em     DateTime     @default(now())
   atualizado_em DateTime     @updatedAt

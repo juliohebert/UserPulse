@@ -47,7 +47,15 @@ function NavItem({ icon, label, to, collapsed }: { icon: string; label: string; 
 }
 
 export function Sidebar({ collapsed, onToggle }: Props) {
-  const { logout } = useAuth()
+  const { user, logout } = useAuth()
+  // "Gestão SaaS" só existe para quem gerencia tenants/planos/teste grátis
+  // entre clientes (ver requireSuperAdmin.ts no backend, que também bloqueia
+  // isso independente do que a sidebar mostra). Leva pra /admin/tenants —
+  // rota técnica preservada mesmo com o rótulo visível virando "Clientes"
+  // (ver AdminSaasTabs.tsx).
+  const items = user?.role === 'SUPER_ADMIN'
+    ? [...navItems, { icon: 'admin_panel_settings', label: 'Gestão SaaS', to: '/admin/tenants' }]
+    : navItems
 
   return (
     <aside
@@ -82,7 +90,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       </button>
 
       <nav className="flex-1 space-y-1 overflow-y-auto overflow-x-hidden">
-        {navItems.map(item => (
+        {items.map(item => (
           <NavItem key={item.to} {...item} collapsed={collapsed} />
         ))}
       </nav>

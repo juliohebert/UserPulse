@@ -101,6 +101,18 @@ export async function checarLimiteToursAtivos(tenantId: string, plano: Plano | n
   return null
 }
 
+// Usado só na criação de um novo acesso (ver criarAcesso em adminTenants.ts)
+// — reativar um acesso já existente ou editar nome/role não passa por aqui,
+// só a criação de um AdminUser novo consome uma "vaga" do plano.
+export async function checarLimiteUsuariosAdmin(tenantId: string, plano: Plano | null): Promise<string | null> {
+  if (!plano?.limite_usuarios_admin) return null
+  const total = await prisma.adminUser.count({ where: { tenant_id: tenantId, ativo: true } })
+  if (total >= plano.limite_usuarios_admin) {
+    return `Limite de ${plano.limite_usuarios_admin} usuário(s) admin do plano atingido.`
+  }
+  return null
+}
+
 // Sem plano vinculado = permite (mesmo raciocínio de limite nulo acima) —
 // só bloqueia quando existe um plano explícito que desliga o recurso.
 export function motivoRecursoNaoPermitido(plano: Plano | null, campo: 'permite_tours' | 'permite_jornadas'): string | null {
