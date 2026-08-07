@@ -749,6 +749,7 @@ export function AdminTenantsIndex() {
                   </div>
                   <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
                     A senha temporária deve ser enviada manualmente ao cliente. Envio automático de e-mail será implementado futuramente.
+                    O usuário será obrigado a trocar a senha no primeiro acesso.
                   </p>
                 </div>
               )}
@@ -828,6 +829,10 @@ export function AdminTenantsIndex() {
                           className={field}
                         />
                       </div>
+                      <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
+                        A senha temporária deve ser enviada manualmente ao cliente. Envio automático de e-mail será implementado futuramente.
+                        O usuário será obrigado a trocar a senha no primeiro acesso.
+                      </p>
                     </>
                   )}
                   <div>
@@ -936,6 +941,7 @@ export function AdminTenantsIndex() {
                 </div>
                 <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
                   A senha temporária deve ser enviada manualmente ao cliente. Envio automático será implementado futuramente.
+                  O usuário será obrigado a trocar a senha no primeiro acesso.
                 </p>
                 <div className="flex justify-end gap-2 pt-1">
                   <button type="button" onClick={fecharResetSenha} className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors">

@@ -9,6 +9,7 @@ interface AuthContextValue {
   loading: boolean
   login: (email: string, senha: string) => Promise<void>
   logout: () => Promise<void>
+  trocarSenha: (senha_atual: string, nova_senha: string, confirmar_senha: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -43,8 +44,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  // Resposta tem o mesmo formato de login/me (usuarioPublico) — já vem com
+  // precisa_trocar_senha=false, então setUser aqui já libera a navegação
+  // normal sem precisar de um novo GET /auth/me.
+  const trocarSenha = async (senha_atual: string, nova_senha: string, confirmar_senha: string) => {
+    const atualizado = await post<AdminUser>('/auth/trocar-senha', { senha_atual, nova_senha, confirmar_senha })
+    setUser(atualizado)
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, trocarSenha }}>
       {children}
     </AuthContext.Provider>
   )

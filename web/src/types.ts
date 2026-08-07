@@ -424,6 +424,12 @@ export interface AdminUser {
   email: string
   role: AdminRole
   ativo: boolean
+  // Troca obrigatória de senha (ver server/src/controllers/auth.ts,
+  // usuarioPublico) — senha_temporaria é o estado bruto, precisa_trocar_senha
+  // é o mesmo valor com o nome que RequireSenhaAtualizada.tsx usa pra
+  // decidir o redirect.
+  senha_temporaria: boolean
+  precisa_trocar_senha: boolean
   criado_em: string
   atualizado_em: string
   tenant: TenantResumo

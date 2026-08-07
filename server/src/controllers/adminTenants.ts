@@ -207,6 +207,9 @@ export async function criar(req: Request, res: Response) {
             role: 'ADMIN',
             tenant_id: tenant.id,
             ativo: true,
+            // Senha definida pelo super admin, não pelo próprio usuário —
+            // troca obrigatória no primeiro login (ver POST /auth/trocar-senha).
+            senha_temporaria: true,
           },
         })
       }
@@ -323,6 +326,9 @@ export async function criarAcesso(req: Request, res: Response) {
         role: roleNormalizada,
         tenant_id: tenantId,
         ativo: true,
+        // Senha definida pelo super admin, não pelo próprio usuário —
+        // troca obrigatória no primeiro login (ver POST /auth/trocar-senha).
+        senha_temporaria: true,
       },
       select: SELECAO_ADMIN,
     })
@@ -386,7 +392,10 @@ export async function resetarSenha(req: Request, res: Response) {
     const password_hash = await bcrypt.hash(nova_senha, SALT_ROUNDS)
     const atualizado = await prisma.adminUser.update({
       where: { id: adminId },
-      data: { password_hash },
+      // senha_temporaria volta a true — o cliente é obrigado a trocar de
+      // novo no próximo login (ver POST /auth/trocar-senha). senha_alterada_em
+      // não muda aqui: só reflete quando o PRÓPRIO usuário troca a senha.
+      data: { password_hash, senha_temporaria: true },
       select: SELECAO_ADMIN,
     })
     res.json(atualizado)

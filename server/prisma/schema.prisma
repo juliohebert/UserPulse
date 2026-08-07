@@ -119,6 +119,15 @@ model AdminUser {
   role          AdminRole @default(ADMIN)
   tenant_id     String
   ativo         Boolean   @default(true)
+  // Troca obrigatória de senha (ver server/src/controllers/auth.ts,
+  // trocarSenha) — true sempre que a senha foi definida por outra pessoa que
+  // não o próprio usuário (admin inicial do cliente ou reset manual pelo
+  // SUPER_ADMIN). Vira false só quando o usuário troca a própria senha via
+  // POST /auth/trocar-senha. @default(false) de propósito: usuários já
+  // existentes antes desta migration não são afetados retroativamente.
+  senha_temporaria  Boolean   @default(false)
+  senha_alterada_em DateTime?
+  ultimo_login_em   DateTime?
   criado_em     DateTime  @default(now())
   atualizado_em DateTime  @updatedAt
 
