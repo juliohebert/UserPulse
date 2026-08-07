@@ -26,6 +26,7 @@ export interface AdminAuthPayload {
   email: string
   role: AdminRole
   ativo: boolean
+  senha_temporaria: boolean
   criado_em: Date
   atualizado_em: Date
   tenant_id: string
@@ -67,6 +68,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
       email: usuario.email,
       role: usuario.role,
       ativo: usuario.ativo,
+      senha_temporaria: usuario.senha_temporaria,
       criado_em: usuario.criado_em,
       atualizado_em: usuario.atualizado_em,
       tenant_id: usuario.tenant_id,

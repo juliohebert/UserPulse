@@ -9,5 +9,6 @@ const router = Router()
 router.post('/login', auth.login)
 router.get('/me', requireAdminAuth, auth.me)
 router.post('/logout', auth.logout)
+router.post('/trocar-senha', requireAdminAuth, auth.trocarSenha)
 
 export default router

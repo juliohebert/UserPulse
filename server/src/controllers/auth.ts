@@ -4,6 +4,9 @@ import { AdminRole, Plano, Tenant } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { ADMIN_SESSION_COOKIE, SESSION_MAX_AGE, sessionCookieOptions, signSessionToken } from '../lib/auth'
 
+// Mesmo custo de hash usado em adminTenants.ts/seedAdmin.ts.
+const SALT_ROUNDS = 10
+
 // Recorte público do tenant devolvido em login/me — plano/status é o mínimo
 // que o frontend precisa pra mostrar "conta em teste/expirada/suspensa" (ver
 // Topbar.tsx) sem expor nada de billing ainda (sem checkout nesta fase).
@@ -46,6 +49,7 @@ export function usuarioPublico(u: {
   email: string
   role: AdminRole
   ativo: boolean
+  senha_temporaria: boolean
   criado_em: Date
   atualizado_em: Date
   tenant: Tenant & { plano: Plano | null }
@@ -56,6 +60,14 @@ export function usuarioPublico(u: {
     email: u.email,
     role: u.role,
     ativo: u.ativo,
+    // senha_temporaria: true sempre que a senha foi definida por outra
+    // pessoa (admin inicial do cliente ou reset pelo SUPER_ADMIN) — ver
+    // adminTenants.ts. precisa_trocar_senha é o mesmo valor, com o nome que
+    // o frontend usa pra decidir o redirect obrigatório (ver
+    // RequireSenhaAtualizada.tsx) — mantidos os dois pra deixar explícito
+    // qual campo é o "estado" e qual é a "decisão" derivada dele.
+    senha_temporaria: u.senha_temporaria,
+    precisa_trocar_senha: u.senha_temporaria,
     criado_em: u.criado_em,
     atualizado_em: u.atualizado_em,
     tenant: tenantPublico(u.tenant),
@@ -93,6 +105,11 @@ export async function login(req: Request, res: Response) {
 
     const token = signSessionToken({ sub: usuario.id, email: usuario.email, role: usuario.role })
     res.cookie(ADMIN_SESSION_COOKIE, token, { ...sessionCookieOptions(), maxAge: SESSION_MAX_AGE })
+    // Best-effort: nunca deixa uma falha aqui derrubar um login com
+    // credenciais corretas (ver comentário no contexto da tarefa).
+    prisma.adminUser
+      .update({ where: { id: usuario.id }, data: { ultimo_login_em: new Date() } })
+      .catch(err => console.error('Erro ao atualizar ultimo_login_em:', err))
     res.json(usuarioPublico(usuario))
   } catch (err) {
     console.error(err)
@@ -111,4 +128,62 @@ export async function me(req: Request, res: Response) {
 export async function logout(_req: Request, res: Response) {
   res.clearCookie(ADMIN_SESSION_COOKIE, sessionCookieOptions())
   res.status(204).send()
+}
+
+// Sempre atrás de requireAdminAuth (ver routes/auth.ts) — troca a senha do
+// PRÓPRIO usuário logado, nunca de outro (não recebe id no body/params).
+// req.adminUser (ver middleware/requireAdminAuth.ts) nunca carrega
+// password_hash de propósito, então precisa rebuscar o registro completo
+// aqui pra comparar a senha atual.
+export async function trocarSenha(req: Request, res: Response) {
+  try {
+    const { senha_atual, nova_senha, confirmar_senha } = req.body as {
+      senha_atual?: string
+      nova_senha?: string
+      confirmar_senha?: string
+    }
+    if (!senha_atual || !nova_senha || !confirmar_senha) {
+      res.status(400).json({ erro: 'senha_atual, nova_senha e confirmar_senha são obrigatórios.' })
+      return
+    }
+    if (nova_senha.length < 8) {
+      res.status(400).json({ erro: 'nova_senha precisa ter pelo menos 8 caracteres.' })
+      return
+    }
+    if (nova_senha !== confirmar_senha) {
+      res.status(400).json({ erro: 'confirmar_senha não confere com nova_senha.' })
+      return
+    }
+
+    const usuario = await prisma.adminUser.findUniqueOrThrow({
+      where: { id: req.adminUser!.id },
+      include: { tenant: { include: { plano: true } } },
+    })
+
+    const senhaAtualOk = await bcrypt.compare(senha_atual, usuario.password_hash)
+    if (!senhaAtualOk) {
+      res.status(400).json({ erro: 'senha_atual incorreta.' })
+      return
+    }
+
+    // Comparada contra o hash já salvo (não contra a string senha_atual) —
+    // mesmo resultado aqui (senha_atual já validada acima), mas deixa a
+    // checagem correta mesmo se essa validação mudar no futuro.
+    const novaSenhaIgualAtual = await bcrypt.compare(nova_senha, usuario.password_hash)
+    if (novaSenhaIgualAtual) {
+      res.status(400).json({ erro: 'nova_senha não pode ser igual à senha atual.' })
+      return
+    }
+
+    const password_hash = await bcrypt.hash(nova_senha, SALT_ROUNDS)
+    const atualizado = await prisma.adminUser.update({
+      where: { id: usuario.id },
+      data: { password_hash, senha_temporaria: false, senha_alterada_em: new Date() },
+      include: { tenant: { include: { plano: true } } },
+    })
+    res.json(usuarioPublico(atualizado))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao trocar senha.' })
+  }
 }
