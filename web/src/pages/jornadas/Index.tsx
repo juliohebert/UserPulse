@@ -6,6 +6,8 @@ import { formatDateTime } from '../../utils/campanha'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
+import { useAuth } from '../../hooks/useAuth'
+import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
 
 const PER_PAGE = 10
 
@@ -45,6 +47,13 @@ function StatusBadge({ ativo }: { ativo: boolean }) {
 }
 
 export function JornadasIndex() {
+  const { user } = useAuth()
+  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — VIEWER
+  // só lê; esconder os botões aqui é só UX, o backend já bloqueia 403.
+  const podeEscrever = podeEscreverConteudo(user?.role)
+  // Excluir jornada é hard delete (ver controller) — mais restrito que
+  // criar/editar: só ADMIN/SUPER_ADMIN, EDITOR não.
+  const podeExcluir = podeExcluirOuImportarConteudo(user?.role)
   const [jornadas, setJornadas] = useState<Jornada[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -135,15 +144,17 @@ export function JornadasIndex() {
               </p>
             )}
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
-            <button
-              onClick={() => navigate('/jornadas/novo')}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 w-full sm:w-auto"
-            >
-              <span className="material-symbols-outlined text-[18px]">add</span>
-              Nova Jornada
-            </button>
-          </div>
+          {podeEscrever && (
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
+              <button
+                onClick={() => navigate('/jornadas/novo')}
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 w-full sm:w-auto"
+              >
+                <span className="material-symbols-outlined text-[18px]">add</span>
+                Nova Jornada
+              </button>
+            </div>
+          )}
         </div>
 
         {/* KPIs */}
@@ -241,7 +252,7 @@ export function JornadasIndex() {
               title={jornadas.length === 0 ? 'Nenhuma jornada criada ainda' : 'Nenhuma jornada encontrada'}
               description={jornadas.length === 0 ? 'Crie a primeira jornada para guiar o onboarding dos seus usuários.' : 'Ajuste os filtros para ver outras jornadas.'}
               action={
-                jornadas.length === 0 ? (
+                jornadas.length === 0 && podeEscrever ? (
                   <button
                     onClick={() => navigate('/jornadas/novo')}
                     className="px-6 py-2.5 bg-primary text-on-primary rounded-xl font-bold text-label-md"
@@ -268,19 +279,23 @@ export function JornadasIndex() {
                     {paginated.map(jornada => (
                       <tr key={jornada.id} className="group border-b border-outline-variant/20 last:border-0 hover:bg-surface-container-low/60 transition-colors">
                         <td className="px-5 py-3.5 align-middle">
-                          <button
-                            onClick={() => navigate(`/jornadas/${jornada.id}/editar`)}
-                            className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left"
-                          >
-                            {jornada.titulo}
-                          </button>
+                          {podeEscrever ? (
+                            <button
+                              onClick={() => navigate(`/jornadas/${jornada.id}/editar`)}
+                              className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left"
+                            >
+                              {jornada.titulo}
+                            </button>
+                          ) : (
+                            <span className="text-body-md font-semibold text-on-surface">{jornada.titulo}</span>
+                          )}
                           {jornada.descricao && (
                             <p className="text-label-sm text-on-surface-variant truncate max-w-xs">{jornada.descricao}</p>
                           )}
                         </td>
                         <td className="px-5 py-3.5 align-middle whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <ToggleSwitch checked={jornada.ativo} onChange={() => toggleAtivo(jornada)} />
+                            {podeEscrever && <ToggleSwitch checked={jornada.ativo} onChange={() => toggleAtivo(jornada)} />}
                             <StatusBadge ativo={jornada.ativo} />
                           </div>
                         </td>
@@ -290,7 +305,7 @@ export function JornadasIndex() {
                         <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{formatDateTime(jornada.atualizado_em)}</td>
                         <td className="px-5 py-3.5 align-middle whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
-                            <JornadaActions jornada={jornada} navigate={navigate} excluindoId={excluindoId} onExcluir={excluirJornada} />
+                            <JornadaActions jornada={jornada} navigate={navigate} excluindoId={excluindoId} onExcluir={excluirJornada} podeEscrever={podeEscrever} podeExcluir={podeExcluir} />
                           </div>
                         </td>
                       </tr>
@@ -303,19 +318,23 @@ export function JornadasIndex() {
                 {paginated.map(jornada => (
                   <div key={jornada.id} className="p-4">
                     <div className="flex items-start justify-between gap-3 mb-1.5">
-                      <button
-                        onClick={() => navigate(`/jornadas/${jornada.id}/editar`)}
-                        className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left min-w-0 truncate"
-                      >
-                        {jornada.titulo}
-                      </button>
+                      {podeEscrever ? (
+                        <button
+                          onClick={() => navigate(`/jornadas/${jornada.id}/editar`)}
+                          className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left min-w-0 truncate"
+                        >
+                          {jornada.titulo}
+                        </button>
+                      ) : (
+                        <span className="text-body-md font-semibold text-on-surface min-w-0 truncate">{jornada.titulo}</span>
+                      )}
                     </div>
                     {jornada.descricao && (
                       <p className="text-label-sm text-on-surface-variant truncate mb-2">{jornada.descricao}</p>
                     )}
                     <div className="flex flex-wrap items-center gap-2 mb-3">
                       <div className="flex items-center gap-2">
-                        <ToggleSwitch checked={jornada.ativo} onChange={() => toggleAtivo(jornada)} />
+                        {podeEscrever && <ToggleSwitch checked={jornada.ativo} onChange={() => toggleAtivo(jornada)} />}
                         <StatusBadge ativo={jornada.ativo} />
                       </div>
                       <span className="text-label-sm text-on-surface-variant">
@@ -325,7 +344,7 @@ export function JornadasIndex() {
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-label-sm text-outline">Atualizado {formatDateTime(jornada.atualizado_em)}</span>
                       <div className="flex items-center gap-1 shrink-0">
-                        <JornadaActions jornada={jornada} navigate={navigate} excluindoId={excluindoId} onExcluir={excluirJornada} size="lg" />
+                        <JornadaActions jornada={jornada} navigate={navigate} excluindoId={excluindoId} onExcluir={excluirJornada} podeEscrever={podeEscrever} podeExcluir={podeExcluir} size="lg" />
                       </div>
                     </div>
                   </div>
@@ -341,30 +360,37 @@ export function JornadasIndex() {
   )
 }
 
-function JornadaActions({ jornada, navigate, excluindoId, onExcluir, size = 'md' }: {
+function JornadaActions({ jornada, navigate, excluindoId, onExcluir, podeEscrever, podeExcluir, size = 'md' }: {
   jornada: Jornada
   navigate: (path: string) => void
   excluindoId: string | null
   onExcluir: (jornada: Jornada) => void
+  podeEscrever: boolean
+  podeExcluir: boolean
   size?: 'md' | 'lg'
 }) {
+  if (!podeEscrever && !podeExcluir) return null
   const btnPad = size === 'lg' ? 'p-2' : 'p-1.5'
   const btnCls = `${btnPad} rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors`
   return (
     <>
-      <button onClick={() => navigate(`/jornadas/${jornada.id}/editar`)} title="Editar" className={btnCls}>
-        <span className="material-symbols-outlined text-[18px]">edit</span>
-      </button>
-      <button
-        onClick={() => onExcluir(jornada)}
-        disabled={excluindoId === jornada.id}
-        title="Remover"
-        className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
-      >
-        <span className={`material-symbols-outlined text-[18px] ${excluindoId === jornada.id ? 'animate-spin' : ''}`}>
-          {excluindoId === jornada.id ? 'progress_activity' : 'delete'}
-        </span>
-      </button>
+      {podeEscrever && (
+        <button onClick={() => navigate(`/jornadas/${jornada.id}/editar`)} title="Editar" className={btnCls}>
+          <span className="material-symbols-outlined text-[18px]">edit</span>
+        </button>
+      )}
+      {podeExcluir && (
+        <button
+          onClick={() => onExcluir(jornada)}
+          disabled={excluindoId === jornada.id}
+          title="Remover"
+          className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
+        >
+          <span className={`material-symbols-outlined text-[18px] ${excluindoId === jornada.id ? 'animate-spin' : ''}`}>
+            {excluindoId === jornada.id ? 'progress_activity' : 'delete'}
+          </span>
+        </button>
+      )}
     </>
   )
 }

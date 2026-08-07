@@ -4,6 +4,7 @@ import { get, del, put } from '../../services/api'
 import type { Campanha, StatusCampanha } from '../../types'
 import { getStatus, formatDateTime, gerarEmbed } from '../../utils/campanha'
 import { useAuth } from '../../hooks/useAuth'
+import { podeEscreverConteudo } from '../../utils/permissions'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
@@ -53,7 +54,7 @@ function KpiCard({
 // Card de campanha para telas mobile (< md) — substitui a linha da tabela,
 // que fica ilegível e com ações apertadas em telas estreitas.
 function CampanhaCard({
-  c, st, active, copied, navigate, onOpen, onToggle, onCopyEmbed, onInativar, onReativar,
+  c, st, active, copied, navigate, onOpen, onToggle, onCopyEmbed, onInativar, onReativar, podeEscrever,
 }: {
   c: Campanha
   st: { label: string; dot: string; text: string }
@@ -65,6 +66,7 @@ function CampanhaCard({
   onCopyEmbed: (c: Campanha) => void
   onInativar: (id: string) => void
   onReativar: (id: string) => void
+  podeEscrever: boolean
 }) {
   const actionBtn = 'flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl active:scale-95 transition-all'
   return (
@@ -81,9 +83,11 @@ function CampanhaCard({
             <p className="text-[12px] text-on-surface-variant line-clamp-2 mt-0.5">{c.subtitulo}</p>
           )}
         </div>
-        <div onClick={e => e.stopPropagation()} className="shrink-0 mt-0.5">
-          <ToggleSwitch checked={c.ativo} onChange={() => onToggle(c)} />
-        </div>
+        {podeEscrever && (
+          <div onClick={e => e.stopPropagation()} className="shrink-0 mt-0.5">
+            <ToggleSwitch checked={c.ativo} onChange={() => onToggle(c)} />
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
@@ -113,7 +117,7 @@ function CampanhaCard({
         <span className="ml-auto text-[11px] text-outline">Criada em {formatDateTime(c.criado_em)}</span>
       </div>
 
-      <div onClick={e => e.stopPropagation()} className="grid grid-cols-5 gap-1 mt-3 pt-3 border-t border-outline-variant/20">
+      <div onClick={e => e.stopPropagation()} className={`grid ${podeEscrever ? 'grid-cols-5' : 'grid-cols-3'} gap-1 mt-3 pt-3 border-t border-outline-variant/20`}>
         <button
           onClick={() => navigate(`/campanhas/${c.id}/preview`)}
           title="Preview"
@@ -132,14 +136,16 @@ function CampanhaCard({
           <span className="material-symbols-outlined text-[20px]">{copied ? 'check' : 'integration_instructions'}</span>
           <span className="text-[9px] font-semibold leading-none">Embed</span>
         </button>
-        <button
-          onClick={() => navigate(`/campanhas/${c.id}/editar`)}
-          title="Editar"
-          className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-surface-container-high`}
-        >
-          <span className="material-symbols-outlined text-[20px]">edit</span>
-          <span className="text-[9px] font-semibold leading-none">Editar</span>
-        </button>
+        {podeEscrever && (
+          <button
+            onClick={() => navigate(`/campanhas/${c.id}/editar`)}
+            title="Editar"
+            className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-surface-container-high`}
+          >
+            <span className="material-symbols-outlined text-[20px]">edit</span>
+            <span className="text-[9px] font-semibold leading-none">Editar</span>
+          </button>
+        )}
         <button
           onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
           title="Ver Dashboard"
@@ -148,24 +154,26 @@ function CampanhaCard({
           <span className="material-symbols-outlined text-[20px]">query_stats</span>
           <span className="text-[9px] font-semibold leading-none">Métricas</span>
         </button>
-        {c.ativo ? (
-          <button
-            onClick={() => onInativar(c.id)}
-            title="Inativar"
-            className={`${actionBtn} text-on-surface-variant hover:text-error hover:bg-error-container`}
-          >
-            <span className="material-symbols-outlined text-[20px]">block</span>
-            <span className="text-[9px] font-semibold leading-none">Inativar</span>
-          </button>
-        ) : (
-          <button
-            onClick={() => onReativar(c.id)}
-            title="Reativar"
-            className={`${actionBtn} text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10`}
-          >
-            <span className="material-symbols-outlined text-[20px]">check_circle</span>
-            <span className="text-[9px] font-semibold leading-none">Reativar</span>
-          </button>
+        {podeEscrever && (
+          c.ativo ? (
+            <button
+              onClick={() => onInativar(c.id)}
+              title="Inativar"
+              className={`${actionBtn} text-on-surface-variant hover:text-error hover:bg-error-container`}
+            >
+              <span className="material-symbols-outlined text-[20px]">block</span>
+              <span className="text-[9px] font-semibold leading-none">Inativar</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => onReativar(c.id)}
+              title="Reativar"
+              className={`${actionBtn} text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10`}
+            >
+              <span className="material-symbols-outlined text-[20px]">check_circle</span>
+              <span className="text-[9px] font-semibold leading-none">Reativar</span>
+            </button>
+          )
         )}
       </div>
     </div>
@@ -174,6 +182,9 @@ function CampanhaCard({
 
 export function CampanhasIndex() {
   const { user } = useAuth()
+  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — VIEWER
+  // só lê; esconder os botões aqui é só UX, o backend já bloqueia 403.
+  const podeEscrever = podeEscreverConteudo(user?.role)
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -332,13 +343,15 @@ export function CampanhasIndex() {
             )}
           </div>
         </div>
-        <button
-          onClick={() => navigate('/campanhas/nova')}
-          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 hover:opacity-95 transition-all active:scale-95 shrink-0"
-        >
-          <span className="material-symbols-outlined text-[18px]">add</span>
-          Nova Campanha
-        </button>
+        {podeEscrever && (
+          <button
+            onClick={() => navigate('/campanhas/nova')}
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 hover:opacity-95 transition-all active:scale-95 shrink-0"
+          >
+            <span className="material-symbols-outlined text-[18px]">add</span>
+            Nova Campanha
+          </button>
+        )}
       </div>
 
       {/* KPIs */}
@@ -540,7 +553,7 @@ export function CampanhasIndex() {
                 : 'Crie sua primeira campanha para começar.'
             }
             action={
-              !hasFilters ? (
+              !hasFilters && podeEscrever ? (
                 <button
                   onClick={() => navigate('/campanhas/nova')}
                   className="px-6 py-2.5 bg-primary text-on-primary rounded-xl font-bold text-label-md"
@@ -638,9 +651,11 @@ export function CampanhasIndex() {
                           {/* Status */}
                           <td className="px-4 py-4 align-middle">
                             <div className="flex items-center gap-2.5">
-                              <div onClick={e => e.stopPropagation()}>
-                                <ToggleSwitch checked={c.ativo} onChange={() => handleToggle(c)} />
-                              </div>
+                              {podeEscrever && (
+                                <div onClick={e => e.stopPropagation()}>
+                                  <ToggleSwitch checked={c.ativo} onChange={() => handleToggle(c)} />
+                                </div>
+                              )}
                               <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold ${st.text}`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
                                 {st.label}
@@ -676,13 +691,15 @@ export function CampanhasIndex() {
                                   {copiedId === c.id ? 'check' : 'integration_instructions'}
                                 </span>
                               </button>
-                              <button
-                                onClick={() => navigate(`/campanhas/${c.id}/editar`)}
-                                title="Editar"
-                                className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all"
-                              >
-                                <span className="material-symbols-outlined text-[18px]">edit</span>
-                              </button>
+                              {podeEscrever && (
+                                <button
+                                  onClick={() => navigate(`/campanhas/${c.id}/editar`)}
+                                  title="Editar"
+                                  className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">edit</span>
+                                </button>
+                              )}
                               <button
                                 onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
                                 title="Ver Dashboard"
@@ -690,22 +707,24 @@ export function CampanhasIndex() {
                               >
                                 <span className="material-symbols-outlined text-[18px]">query_stats</span>
                               </button>
-                              {c.ativo ? (
-                                <button
-                                  onClick={() => handleInativar(c.id)}
-                                  title="Inativar"
-                                  className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-full transition-all"
-                                >
-                                  <span className="material-symbols-outlined text-[18px]">block</span>
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleReativar(c.id)}
-                                  title="Reativar"
-                                  className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-full transition-all"
-                                >
-                                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                                </button>
+                              {podeEscrever && (
+                                c.ativo ? (
+                                  <button
+                                    onClick={() => handleInativar(c.id)}
+                                    title="Inativar"
+                                    className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-full transition-all"
+                                  >
+                                    <span className="material-symbols-outlined text-[18px]">block</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => handleReativar(c.id)}
+                                    title="Reativar"
+                                    className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-full transition-all"
+                                  >
+                                    <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                                  </button>
+                                )
                               )}
                             </div>
                           </td>
@@ -734,6 +753,7 @@ export function CampanhasIndex() {
                     onCopyEmbed={handleCopyEmbed}
                     onInativar={handleInativar}
                     onReativar={handleReativar}
+                    podeEscrever={podeEscrever}
                   />
                 )
               })}

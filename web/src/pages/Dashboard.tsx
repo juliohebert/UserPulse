@@ -6,6 +6,8 @@ import { getStatus, formatDate } from '../utils/campanha'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { TypeBadge } from '../components/ui/TypeBadge'
 import { LoadingSpinner, ErrorState } from '../components/ui/EmptyState'
+import { useAuth } from '../hooks/useAuth'
+import { podeEscreverConteudo, podeEscreverConfiguracao } from '../utils/permissions'
 
 // ─── Building blocks ────────────────────────────────────────────────────────
 
@@ -100,7 +102,7 @@ function TourStatusChip({ ativo }: { ativo: boolean }) {
   )
 }
 
-function OnboardingState({ navigate }: { navigate: (path: string) => void }) {
+function OnboardingState({ navigate, podeEscrever }: { navigate: (path: string) => void; podeEscrever: boolean }) {
   return (
     <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-8 sm:p-12 text-center">
       <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-5">
@@ -112,20 +114,24 @@ function OnboardingState({ navigate }: { navigate: (path: string) => void }) {
         e guiar seus usuários dentro do produto.
       </p>
       <div className="flex flex-wrap justify-center gap-3">
-        <button
-          onClick={() => navigate('/campanhas/nova')}
-          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95"
-        >
-          <span className="material-symbols-outlined text-[18px]">add_circle</span>
-          Criar campanha
-        </button>
-        <button
-          onClick={() => navigate('/tours/novo')}
-          className="flex items-center gap-2 px-5 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-colors"
-        >
-          <span className="material-symbols-outlined text-[18px]">map</span>
-          Criar tour guiado
-        </button>
+        {podeEscrever && (
+          <>
+            <button
+              onClick={() => navigate('/campanhas/nova')}
+              className="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95"
+            >
+              <span className="material-symbols-outlined text-[18px]">add_circle</span>
+              Criar campanha
+            </button>
+            <button
+              onClick={() => navigate('/tours/novo')}
+              className="flex items-center gap-2 px-5 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px]">map</span>
+              Criar tour guiado
+            </button>
+          </>
+        )}
         <button
           onClick={() => navigate('/integracao')}
           className="flex items-center gap-2 px-5 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-colors"
@@ -161,6 +167,11 @@ interface Insight {
 }
 
 export function Dashboard() {
+  const { user } = useAuth()
+  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — esconder
+  // aqui é só UX, o backend já bloqueia 403 em qualquer chamada de escrita.
+  const podeEscrever = podeEscreverConteudo(user?.role)
+  const podeConfig = podeEscreverConfiguracao(user?.role)
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -316,22 +327,24 @@ export function Dashboard() {
             <h2 className="text-headline-lg sm:text-display-lg font-bold leading-tight mb-2">Bem-vindo de volta</h2>
             <p className="text-body-lg opacity-90 max-w-xl">{heroSubtitulo}</p>
           </div>
-          <div className="flex flex-wrap gap-3 shrink-0">
-            <button
-              onClick={() => navigate('/campanhas/nova')}
-              className="flex items-center gap-2 px-5 py-2.5 bg-white text-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95"
-            >
-              <span className="material-symbols-outlined text-[18px]">add</span>
-              Nova campanha
-            </button>
-            <button
-              onClick={() => navigate('/tours/gravador')}
-              className="flex items-center gap-2 px-5 py-2.5 border border-white/40 text-on-primary rounded-xl text-label-md font-bold hover:bg-white/10 transition-colors active:scale-95"
-            >
-              <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
-              Gravar fluxo
-            </button>
-          </div>
+          {podeEscrever && (
+            <div className="flex flex-wrap gap-3 shrink-0">
+              <button
+                onClick={() => navigate('/campanhas/nova')}
+                className="flex items-center gap-2 px-5 py-2.5 bg-white text-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[18px]">add</span>
+                Nova campanha
+              </button>
+              <button
+                onClick={() => navigate('/tours/gravador')}
+                className="flex items-center gap-2 px-5 py-2.5 border border-white/40 text-on-primary rounded-xl text-label-md font-bold hover:bg-white/10 transition-colors active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
+                Gravar fluxo
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -369,41 +382,47 @@ export function Dashboard() {
           <div className="mb-6">
             <h3 className="text-title-lg font-bold text-on-surface mb-3">Ações rápidas</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              <AcaoRapida
-                icon="add_circle" iconBg="bg-primary/10" iconColor="text-primary"
-                title="Nova campanha"
-                description="Crie um anúncio, pesquisa ou aviso para os usuários."
-                onClick={() => navigate('/campanhas/nova')}
-              />
-              <AcaoRapida
-                icon="map" iconBg="bg-secondary/10" iconColor="text-secondary"
-                title="Novo Tour Guiado"
-                description="Estruture um passo a passo dentro do produto."
-                onClick={() => navigate('/tours/novo')}
-              />
-              <AcaoRapida
-                icon="radio_button_checked" iconBg="bg-tertiary/10" iconColor="text-tertiary"
-                title="Gravar Fluxo"
-                description="Grave um fluxo real e gere um tour automaticamente."
-                onClick={() => navigate('/tours/gravador')}
-              />
+              {podeEscrever && (
+                <>
+                  <AcaoRapida
+                    icon="add_circle" iconBg="bg-primary/10" iconColor="text-primary"
+                    title="Nova campanha"
+                    description="Crie um anúncio, pesquisa ou aviso para os usuários."
+                    onClick={() => navigate('/campanhas/nova')}
+                  />
+                  <AcaoRapida
+                    icon="map" iconBg="bg-secondary/10" iconColor="text-secondary"
+                    title="Novo Tour Guiado"
+                    description="Estruture um passo a passo dentro do produto."
+                    onClick={() => navigate('/tours/novo')}
+                  />
+                  <AcaoRapida
+                    icon="radio_button_checked" iconBg="bg-tertiary/10" iconColor="text-tertiary"
+                    title="Gravar Fluxo"
+                    description="Grave um fluxo real e gere um tour automaticamente."
+                    onClick={() => navigate('/tours/gravador')}
+                  />
+                </>
+              )}
               <AcaoRapida
                 icon="integration_instructions" iconBg="bg-primary/10" iconColor="text-primary"
                 title="Ver Integração"
                 description="Veja como instalar e configurar o widget."
                 onClick={() => navigate('/integracao')}
               />
-              <AcaoRapida
-                icon="grid_view" iconBg="bg-secondary/10" iconColor="text-secondary"
-                title="Catálogo de Telas"
-                description="Consulte as telas já mapeadas no sistema."
-                onClick={() => navigate('/catalogo-telas')}
-              />
+              {podeConfig && (
+                <AcaoRapida
+                  icon="grid_view" iconBg="bg-secondary/10" iconColor="text-secondary"
+                  title="Catálogo de Telas"
+                  description="Consulte as telas já mapeadas no sistema."
+                  onClick={() => navigate('/catalogo-telas')}
+                />
+              )}
             </div>
           </div>
 
           {isEmpty ? (
-            <OnboardingState navigate={navigate} />
+            <OnboardingState navigate={navigate} podeEscrever={podeEscrever} />
           ) : (
             <>
               {/* O que merece atenção */}
@@ -476,15 +495,19 @@ export function Dashboard() {
                                 </td>
                                 <td className="px-5 py-4">
                                   <div className="flex items-center justify-end gap-0.5 opacity-50 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => navigate(`/campanhas/${c.id}/editar`)} title="Editar" className="p-2 text-on-surface-variant hover:text-primary rounded-lg transition-colors">
-                                      <span className="material-symbols-outlined text-[18px]">edit</span>
-                                    </button>
+                                    {podeEscrever && (
+                                      <button onClick={() => navigate(`/campanhas/${c.id}/editar`)} title="Editar" className="p-2 text-on-surface-variant hover:text-primary rounded-lg transition-colors">
+                                        <span className="material-symbols-outlined text-[18px]">edit</span>
+                                      </button>
+                                    )}
                                     <button onClick={() => navigate(`/campanhas/${c.id}/dashboard`)} title="Dashboard" className="p-2 text-on-surface-variant hover:text-secondary rounded-lg transition-colors">
                                       <span className="material-symbols-outlined text-[18px]">query_stats</span>
                                     </button>
-                                    <button onClick={() => handleInativar(c.id)} title="Inativar" className="p-2 text-on-surface-variant hover:text-error rounded-lg transition-colors">
-                                      <span className="material-symbols-outlined text-[18px]">block</span>
-                                    </button>
+                                    {podeEscrever && (
+                                      <button onClick={() => handleInativar(c.id)} title="Inativar" className="p-2 text-on-surface-variant hover:text-error rounded-lg transition-colors">
+                                        <span className="material-symbols-outlined text-[18px]">block</span>
+                                      </button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -528,7 +551,7 @@ export function Dashboard() {
                           {toursRecentes.map(t => (
                             <button
                               key={t.id}
-                              onClick={() => navigate(`/tours/${t.id}/editar`)}
+                              onClick={() => navigate(podeEscrever ? `/tours/${t.id}/editar` : `/tours/${t.id}/dashboard`)}
                               className="w-full flex items-center justify-between gap-2 -mx-2 px-2 py-1.5 rounded-lg hover:bg-surface-container-low/60 transition-colors text-left"
                             >
                               <div className="min-w-0">
@@ -544,13 +567,15 @@ export function Dashboard() {
                       </>
                     )}
 
-                    <button
-                      onClick={() => navigate('/tours/gravador')}
-                      className="w-full mt-3 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface-variant hover:bg-surface-container-low transition-colors flex items-center justify-center gap-1.5"
-                    >
-                      <span className="material-symbols-outlined text-[16px]">radio_button_checked</span>
-                      Gravar novo fluxo
-                    </button>
+                    {podeEscrever && (
+                      <button
+                        onClick={() => navigate('/tours/gravador')}
+                        className="w-full mt-3 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface-variant hover:bg-surface-container-low transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">radio_button_checked</span>
+                        Gravar novo fluxo
+                      </button>
+                    )}
                   </div>
 
                   {/* Activity feed */}
@@ -563,7 +588,11 @@ export function Dashboard() {
                         {atividades.map((a, i) => (
                           <button
                             key={`${a.tipo}-${a.id}`}
-                            onClick={() => navigate(a.tipo === 'campanha' ? `/campanhas/${a.id}/dashboard` : `/tours/${a.id}/editar`)}
+                            onClick={() => navigate(
+                              a.tipo === 'campanha'
+                                ? `/campanhas/${a.id}/dashboard`
+                                : podeEscrever ? `/tours/${a.id}/editar` : `/tours/${a.id}/dashboard`
+                            )}
                             className="relative w-full flex gap-3 text-left pb-4 last:pb-0 group"
                           >
                             {i < atividades.length - 1 && (

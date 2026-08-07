@@ -3,6 +3,8 @@ import { Layout } from './components/layout/Layout'
 import { RequireAuth } from './components/auth/RequireAuth'
 import { RequireSuperAdmin } from './components/auth/RequireSuperAdmin'
 import { RequireSenhaAtualizada } from './components/auth/RequireSenhaAtualizada'
+import { RequireEscritaConteudo } from './components/auth/RequireEscritaConteudo'
+import { RequireEscritaConfiguracao } from './components/auth/RequireEscritaConfiguracao'
 import { LoginPage } from './pages/Login'
 import { TrocarSenhaPage } from './pages/TrocarSenha'
 import { Dashboard } from './pages/Dashboard'
@@ -43,23 +45,38 @@ export default function App() {
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="campanhas" element={<CampanhasIndex />} />
-            <Route path="campanhas/nova" element={<CampanhaForm />} />
-            <Route path="campanhas/:id/editar" element={<CampanhaForm />} />
             <Route path="campanhas/:id/dashboard" element={<CampanhaDashboard />} />
             <Route path="campanhas/:id/preview" element={<CampanhaPreview />} />
             <Route path="tours" element={<ToursIndex />} />
-            <Route path="tours/guia" element={<TourGuide />} />
-            <Route path="tours/gravador" element={<TourGravador />} />
-            <Route path="tours/novo" element={<TourForm />} />
-            <Route path="tours/:id/editar" element={<TourForm />} />
             <Route path="tours/:id/preview" element={<TourPreview />} />
             <Route path="tours/:id/dashboard" element={<TourDashboard />} />
             <Route path="jornadas" element={<JornadasIndex />} />
-            <Route path="jornadas/novo" element={<JornadaForm />} />
-            <Route path="jornadas/:id/editar" element={<JornadaForm />} />
-            <Route path="catalogo-telas" element={<CatalogoTelasIndex />} />
-            <Route path="aparencia-widget" element={<AparenciaWidgetPage />} />
             <Route path="integracao" element={<IntegracaoPage />} />
+            {/* Criação/edição de campanhas, tours e jornadas (inclui o
+                Gravador de fluxo) — RBAC real: VIEWER nunca acessa, o
+                backend (requireEscritaConteudo) bloqueia com 403 mesmo se
+                alguém pular este guard (ver RequireEscritaConteudo.tsx).
+                tours/guia fica FORA (é só documentação de como criar tours,
+                sem ação de escrita — ok pra qualquer papel ler). */}
+            <Route element={<RequireEscritaConteudo />}>
+              <Route path="campanhas/nova" element={<CampanhaForm />} />
+              <Route path="campanhas/:id/editar" element={<CampanhaForm />} />
+              <Route path="tours/gravador" element={<TourGravador />} />
+              <Route path="tours/novo" element={<TourForm />} />
+              <Route path="tours/:id/editar" element={<TourForm />} />
+              <Route path="jornadas/novo" element={<JornadaForm />} />
+              <Route path="jornadas/:id/editar" element={<JornadaForm />} />
+            </Route>
+            <Route path="tours/guia" element={<TourGuide />} />
+            {/* Configuração do tenant (aparência do widget, catálogo de
+                telas) — RBAC real: só ADMIN/SUPER_ADMIN, EDITOR e VIEWER
+                nunca acessam (ver RequireEscritaConfiguracao.tsx). Backend
+                (requireEscritaConfiguracao) bloqueia a escrita com 403 mesmo
+                se alguém pular este guard. */}
+            <Route element={<RequireEscritaConfiguracao />}>
+              <Route path="catalogo-telas" element={<CatalogoTelasIndex />} />
+              <Route path="aparencia-widget" element={<AparenciaWidgetPage />} />
+            </Route>
             {/* Painel Super Admin — RequireSuperAdmin manda ADMIN comum de
                 volta pro dashboard; o backend (requireSuperAdmin.ts) também
                 bloqueia com 403, então nenhuma chamada de API teria sucesso
