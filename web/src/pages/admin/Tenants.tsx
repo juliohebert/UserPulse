@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { get, post, put } from '../../services/api'
 import type { AdminDoTenant, AdminRole, PlanoAdmin, TenantAdminItem, TenantStatus } from '../../types'
-import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
+import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
+import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
 import { gerarSlug, formatDate, formatDateTime, toInputDate } from '../../utils/campanha'
 
@@ -60,13 +61,54 @@ function TenantStatusBadge({ status }: { status: TenantStatus }) {
   return <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase whitespace-nowrap ${className}`}>{label}</span>
 }
 
+// Textos do ConfirmDialog (ver components/ui/ConfirmDialog.tsx) pras 3
+// transições de status disparadas pela tabela de Clientes — substitui os
+// antigos window.confirm. Só cobre os 3 status alcançáveis pelos botões da
+// linha (SUSPENDED/CANCELED/ACTIVE); TRIAL/EXPIRED não têm botão de ação direta.
+const STATUS_CONFIRM_CFG: Partial<Record<TenantStatus, { titulo: string; descricao: string; confirmLabel: string; variant: ConfirmDialogVariant }>> = {
+  SUSPENDED: {
+    titulo: 'Suspender',
+    descricao: 'Isso bloqueia ações de escrita no painel do cliente. O acesso poderá ser reativado depois.',
+    confirmLabel: 'Suspender',
+    variant: 'warning',
+  },
+  CANCELED: {
+    titulo: 'Cancelar cliente',
+    descricao: 'Isso marca o cliente como cancelado e bloqueia o uso. Use apenas quando o contrato estiver encerrado.',
+    confirmLabel: 'Cancelar cliente',
+    variant: 'danger',
+  },
+  ACTIVE: {
+    titulo: 'Reativar',
+    descricao: 'O cliente voltará a poder usar o sistema conforme o plano e a licença configurados.',
+    confirmLabel: 'Reativar',
+    variant: 'default',
+  },
+}
+
 // Papéis atribuíveis a um usuário DO CLIENTE — SUPER_ADMIN nunca aparece
 // aqui de propósito (só existe fora desse fluxo, ver requireSuperAdmin.ts).
+type RoleAcessoCliente = 'ADMIN' | 'EDITOR' | 'VIEWER'
+
 const ROLE_ACESSO_OPCOES: { value: AdminRole; label: string }[] = [
   { value: 'ADMIN', label: 'Admin' },
   { value: 'EDITOR', label: 'Editor' },
   { value: 'VIEWER', label: 'Visualizador' },
 ]
+
+// Descrição exibida abaixo do select "Papel" (ver card no formulário de
+// Acessos) — hoje é só INFORMATIVO: nenhuma rota de campanhas/tours/jornadas/
+// aparência/catálogo confere role para restringir escrita (só
+// requireSuperAdmin.ts confere role, e só pra bloquear rotas cross-tenant de
+// Gestão SaaS). ADMIN, EDITOR e VIEWER têm hoje o mesmo acesso de leitura e
+// escrita dentro do próprio tenant — este texto descreve o uso PRETENDIDO de
+// cada papel, não uma permissão já aplicada pelo backend. Implementar RBAC
+// de verdade é uma tarefa própria, fora de escopo aqui.
+const ROLE_DESCRICAO: Record<RoleAcessoCliente, string> = {
+  ADMIN: 'Pode gerenciar campanhas, tours, jornadas, aparência, integrações e configurações do cliente. Não acessa Gestão SaaS.',
+  EDITOR: 'Pode criar e editar campanhas, tours e jornadas do próprio cliente. Não gerencia plano, licença, integrações globais ou acessos.',
+  VIEWER: 'Pode apenas visualizar dados, campanhas, tours, jornadas e resultados. Não pode criar, editar, ativar, inativar ou excluir.',
+}
 
 const ROLE_BADGE: Partial<Record<AdminRole, { label: string; className: string }>> = {
   ADMIN: { label: 'Admin', className: 'bg-primary/10 text-primary' },
@@ -157,6 +199,11 @@ export function AdminTenantsIndex() {
 
   const [copiado, setCopiado] = useState<string | null>(null)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
+  // Pendura a transição de status até o usuário confirmar no ConfirmDialog
+  // (ver STATUS_CONFIRM_CFG) — substitui o antigo window.confirm.
+  const [confirmStatusChange, setConfirmStatusChange] = useState<{ tenant: TenantAdminItem; novoStatus: TenantStatus } | null>(null)
+  // Idem, pra ativar/desativar um acesso (ver ConfirmDialog no fim do arquivo).
+  const [confirmAcesso, setConfirmAcesso] = useState<AdminDoTenant | null>(null)
 
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState<TenantStatus | ''>('')
@@ -268,11 +315,17 @@ export function AdminTenantsIndex() {
     }
   }
 
-  const mudarStatus = async (tenant: TenantAdminItem, novoStatus: TenantStatus) => {
-    if ((novoStatus === 'SUSPENDED' || novoStatus === 'CANCELED')) {
-      const acao = novoStatus === 'SUSPENDED' ? 'suspender' : 'cancelar'
-      if (!window.confirm(`Deseja ${acao} o cliente "${tenant.nome}"? Isso bloqueia a escrita no painel dele.`)) return
-    }
+  // Só abre o ConfirmDialog — a chamada de fato fica em confirmarMudarStatus,
+  // disparada pelo onConfirm do modal (nunca mais window.confirm aqui).
+  const pedirMudarStatus = (tenant: TenantAdminItem, novoStatus: TenantStatus) => {
+    setConfirmStatusChange({ tenant, novoStatus })
+  }
+
+  const fecharConfirmStatus = () => setConfirmStatusChange(null)
+
+  const confirmarMudarStatus = async () => {
+    if (!confirmStatusChange) return
+    const { tenant, novoStatus } = confirmStatusChange
     setMudandoStatus(tenant.id)
     try {
       // Preserva todos os campos de trial/licença/observação do cliente —
@@ -291,9 +344,11 @@ export function AdminTenantsIndex() {
         ultimo_pagamento_em: tenant.ultimo_pagamento_em,
         observacao_comercial: tenant.observacao_comercial,
       })
+      setConfirmStatusChange(null)
       load()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao alterar status.')
+      setConfirmStatusChange(null)
     } finally {
       setMudandoStatus(null)
     }
@@ -385,18 +440,26 @@ export function AdminTenantsIndex() {
     }
   }
 
-  const alternarAtivoAcesso = async (acesso: AdminDoTenant) => {
-    if (!acessosModalTenant) return
-    setTogglingAcesso(acesso.id)
+  // Só abre o ConfirmDialog — a chamada de fato fica em
+  // confirmarAlternarAtivoAcesso (nunca mais window.confirm aqui).
+  const pedirAlternarAtivoAcesso = (acesso: AdminDoTenant) => setConfirmAcesso(acesso)
+
+  const fecharConfirmAcesso = () => setConfirmAcesso(null)
+
+  const confirmarAlternarAtivoAcesso = async () => {
+    if (!acessosModalTenant || !confirmAcesso) return
+    setTogglingAcesso(confirmAcesso.id)
     try {
-      await put(`/admin/tenants/${acessosModalTenant.id}/admins/${acesso.id}`, {
-        nome: acesso.nome,
-        role: acesso.role,
-        ativo: !acesso.ativo,
+      await put(`/admin/tenants/${acessosModalTenant.id}/admins/${confirmAcesso.id}`, {
+        nome: confirmAcesso.nome,
+        role: confirmAcesso.role,
+        ativo: !confirmAcesso.ativo,
       })
+      setConfirmAcesso(null)
       carregarAcessos(acessosModalTenant.id)
     } catch (e) {
       setAcessosError(e instanceof Error ? e.message : 'Erro ao atualizar acesso.')
+      setConfirmAcesso(null)
     } finally {
       setTogglingAcesso(null)
     }
@@ -580,7 +643,7 @@ export function AdminTenantsIndex() {
                       </button>
                       {tenant.status !== 'SUSPENDED' && (
                         <button
-                          onClick={() => mudarStatus(tenant, 'SUSPENDED')}
+                          onClick={() => pedirMudarStatus(tenant, 'SUSPENDED')}
                           disabled={mudandoStatus === tenant.id}
                           title="Suspender"
                           className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-50"
@@ -590,7 +653,7 @@ export function AdminTenantsIndex() {
                       )}
                       {(tenant.status === 'SUSPENDED' || tenant.status === 'EXPIRED') && (
                         <button
-                          onClick={() => mudarStatus(tenant, 'ACTIVE')}
+                          onClick={() => pedirMudarStatus(tenant, 'ACTIVE')}
                           disabled={mudandoStatus === tenant.id}
                           title="Reativar"
                           className="p-1.5 rounded-lg text-tertiary hover:bg-tertiary/10 transition-colors disabled:opacity-50"
@@ -600,7 +663,7 @@ export function AdminTenantsIndex() {
                       )}
                       {tenant.status !== 'CANCELED' && (
                         <button
-                          onClick={() => mudarStatus(tenant, 'CANCELED')}
+                          onClick={() => pedirMudarStatus(tenant, 'CANCELED')}
                           disabled={mudandoStatus === tenant.id}
                           title="Cancelar"
                           className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-50"
@@ -617,144 +680,156 @@ export function AdminTenantsIndex() {
         </div>
       )}
 
-      {/* Modal criar/editar tenant */}
+      {/* Modal criar/editar tenant — largura maior (max-w-2xl, era max-w-lg) +
+          header/footer fixos com só o miolo rolando, pra caber confortável
+          com as 3 seções (Dados/Licença/Administrador) sem cortar o rodapé. */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-outline-variant">
               <h3 className="text-title-md font-bold text-on-surface">{editando ? 'Editar Cliente' : 'Novo Cliente'}</h3>
               <button onClick={fecharForm} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
-            <form onSubmit={salvar} className="px-5 py-4 space-y-5">
-              {formError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{formError}</div>}
+            <form onSubmit={salvar} className="flex flex-col min-h-0 flex-1">
+              <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
+                {formError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{formError}</div>}
 
-              {editando && (
-                <div className="flex gap-4 text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
-                  <span>Código: <strong className="text-on-surface">#{editando.codigo}</strong></span>
-                  <span className="font-mono truncate">Public key: <strong className="text-on-surface">{editando.public_key}</strong></span>
-                </div>
-              )}
+                {editando && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
+                    <span>Código: <strong className="text-on-surface">#{editando.codigo}</strong></span>
+                    <span className="font-mono truncate">Public key: <strong className="text-on-surface">{editando.public_key}</strong></span>
+                  </div>
+                )}
 
-              <div className="space-y-4">
-                <h4 className={sectionHeader}>Dados do cliente</h4>
-                <div>
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">Nome <span className="text-error">*</span></label>
-                  <input
-                    required
-                    value={form.nome}
-                    onChange={e => {
-                      const nome = e.target.value
-                      setForm(prev => ({ ...prev, nome, slug: editando ? prev.slug : gerarSlug(nome) }))
-                    }}
-                    placeholder="Ex: Clínica Acme"
-                    className={field}
-                  />
+                <div className="rounded-xl border border-outline-variant/60 p-4 space-y-4">
+                  <h4 className={`${sectionHeader} flex items-center gap-1.5`}>
+                    <span className="material-symbols-outlined text-[15px]">badge</span>
+                    Dados do cliente
+                  </h4>
+                  <div>
+                    <label className="block text-label-md text-on-surface-variant mb-1.5">Nome <span className="text-error">*</span></label>
+                    <input
+                      required
+                      value={form.nome}
+                      onChange={e => {
+                        const nome = e.target.value
+                        setForm(prev => ({ ...prev, nome, slug: editando ? prev.slug : gerarSlug(nome) }))
+                      }}
+                      placeholder="Ex: Clínica Acme"
+                      className={field}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-label-md text-on-surface-variant mb-1.5">Slug <span className="text-error">*</span></label>
+                    <input required value={form.slug} onChange={e => set('slug', e.target.value)} placeholder="Ex: clinica-acme" className={field} />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">Slug <span className="text-error">*</span></label>
-                  <input required value={form.slug} onChange={e => set('slug', e.target.value)} placeholder="Ex: clinica-acme" className={field} />
-                </div>
-              </div>
 
-              <div className="space-y-4 pt-1 border-t border-outline-variant">
-                <h4 className={`${sectionHeader} pt-4`}>Licença</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Plano</label>
-                    <Select value={form.plano_id} options={planoOpcoes} onChange={v => set('plano_id', v)} />
-                  </div>
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Status</label>
-                    <Select value={form.status} options={STATUS_OPCOES} onChange={v => set('status', v)} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Trial início</label>
-                    <input type="date" value={form.trial_inicio} onChange={e => set('trial_inicio', e.target.value)} className={field} />
-                  </div>
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Trial fim</label>
-                    <input type="date" value={form.trial_fim} onChange={e => set('trial_fim', e.target.value)} className={field} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Licença início</label>
-                    <input type="date" value={form.licenca_inicio} onChange={e => set('licenca_inicio', e.target.value)} className={field} />
-                  </div>
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Licença fim</label>
-                    <input type="date" value={form.licenca_fim} onChange={e => set('licenca_fim', e.target.value)} className={field} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Próxima cobrança</label>
-                    <input type="date" value={form.proxima_cobranca} onChange={e => set('proxima_cobranca', e.target.value)} className={field} />
-                  </div>
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Último pagamento</label>
-                    <input type="date" value={form.ultimo_pagamento_em} onChange={e => set('ultimo_pagamento_em', e.target.value)} className={field} />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">Observação comercial</label>
-                  <textarea
-                    value={form.observacao_comercial}
-                    onChange={e => set('observacao_comercial', e.target.value)}
-                    rows={2}
-                    placeholder="Ex: negociando renovação, pagou via PIX direto…"
-                    className={field}
-                  />
-                </div>
-              </div>
-
-              {!editando && (
-                <div className="space-y-4 pt-1 border-t border-outline-variant">
-                  <h4 className={`${sectionHeader} pt-4`}>Administrador do cliente</h4>
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Nome do administrador <span className="text-error">*</span></label>
-                    <input required value={form.admin_nome} onChange={e => set('admin_nome', e.target.value)} className={field} />
-                  </div>
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail do administrador <span className="text-error">*</span></label>
-                    <input required type="email" value={form.admin_email} onChange={e => set('admin_email', e.target.value)} className={field} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-outline-variant/60 p-4 space-y-4">
+                  <h4 className={`${sectionHeader} flex items-center gap-1.5`}>
+                    <span className="material-symbols-outlined text-[15px]">workspace_premium</span>
+                    Licença
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">Senha temporária <span className="text-error">*</span></label>
-                      <input
-                        required
-                        minLength={8}
-                        value={form.admin_password}
-                        onChange={e => set('admin_password', e.target.value)}
-                        placeholder="Mínimo 8 caracteres"
-                        className={field}
-                      />
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Plano</label>
+                      <Select value={form.plano_id} options={planoOpcoes} onChange={v => set('plano_id', v)} />
                     </div>
                     <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">Confirmar senha <span className="text-error">*</span></label>
-                      <input
-                        required
-                        minLength={8}
-                        value={form.admin_password_confirm}
-                        onChange={e => set('admin_password_confirm', e.target.value)}
-                        className={field}
-                      />
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Status</label>
+                      <Select value={form.status} options={STATUS_OPCOES} onChange={v => set('status', v)} />
                     </div>
                   </div>
-                  <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
-                    A senha temporária deve ser enviada manualmente ao cliente. Envio automático de e-mail será implementado futuramente.
-                    O usuário será obrigado a trocar a senha no primeiro acesso.
-                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Trial início</label>
+                      <input type="date" value={form.trial_inicio} onChange={e => set('trial_inicio', e.target.value)} className={field} />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Trial fim</label>
+                      <input type="date" value={form.trial_fim} onChange={e => set('trial_fim', e.target.value)} className={field} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Licença início</label>
+                      <input type="date" value={form.licenca_inicio} onChange={e => set('licenca_inicio', e.target.value)} className={field} />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Licença fim</label>
+                      <input type="date" value={form.licenca_fim} onChange={e => set('licenca_fim', e.target.value)} className={field} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Próxima cobrança</label>
+                      <input type="date" value={form.proxima_cobranca} onChange={e => set('proxima_cobranca', e.target.value)} className={field} />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Último pagamento</label>
+                      <input type="date" value={form.ultimo_pagamento_em} onChange={e => set('ultimo_pagamento_em', e.target.value)} className={field} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-label-md text-on-surface-variant mb-1.5">Observação comercial</label>
+                    <textarea
+                      value={form.observacao_comercial}
+                      onChange={e => set('observacao_comercial', e.target.value)}
+                      rows={2}
+                      placeholder="Ex: negociando renovação, pagou via PIX direto…"
+                      className={`${field} w-full`}
+                    />
+                  </div>
                 </div>
-              )}
 
-              <div className="flex justify-end gap-2 pt-2">
+                {!editando && (
+                  <div className="rounded-xl border border-outline-variant/60 bg-primary/5 p-4 space-y-4">
+                    <h4 className={`${sectionHeader} flex items-center gap-1.5`}>
+                      <span className="material-symbols-outlined text-[15px]">person_add</span>
+                      Administrador do cliente
+                    </h4>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Nome do administrador <span className="text-error">*</span></label>
+                      <input required value={form.admin_nome} onChange={e => set('admin_nome', e.target.value)} className={field} />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail do administrador <span className="text-error">*</span></label>
+                      <input required type="email" value={form.admin_email} onChange={e => set('admin_email', e.target.value)} className={field} />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-label-md text-on-surface-variant mb-1.5">Senha temporária <span className="text-error">*</span></label>
+                        <input
+                          required
+                          minLength={8}
+                          value={form.admin_password}
+                          onChange={e => set('admin_password', e.target.value)}
+                          placeholder="Mínimo 8 caracteres"
+                          className={field}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-label-md text-on-surface-variant mb-1.5">Confirmar senha <span className="text-error">*</span></label>
+                        <input
+                          required
+                          minLength={8}
+                          value={form.admin_password_confirm}
+                          onChange={e => set('admin_password_confirm', e.target.value)}
+                          className={field}
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
+                      A senha temporária deve ser enviada manualmente ao cliente. O usuário será obrigado a trocar a senha no primeiro acesso.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="shrink-0 flex justify-end gap-2 px-5 py-4 border-t border-outline-variant">
                 <button type="button" onClick={fecharForm} className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors">
                   Cancelar
                 </button>
@@ -768,18 +843,20 @@ export function AdminTenantsIndex() {
       )}
 
       {/* Modal Acessos — usuários (ADMIN/EDITOR/VIEWER) DO CLIENTE. Nunca
-          confundir com o painel Gestão SaaS, que é exclusivo do super admin. */}
+          confundir com o painel Gestão SaaS, que é exclusivo do super admin.
+          Largura maior (max-w-2xl, era max-w-xl) pra caber o formulário em
+          grid 2 colunas + a descrição do papel sem apertar. */}
       {acessosModalTenant && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-outline-variant">
               <h3 className="text-title-md font-bold text-on-surface">Acessos — {acessosModalTenant.nome}</h3>
               <button onClick={fecharAcessos} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
 
-            <div className="px-5 py-4 space-y-4">
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
               {acessosError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{acessosError}</div>}
 
               {!mostrarFormAcesso && (
@@ -793,21 +870,21 @@ export function AdminTenantsIndex() {
               )}
 
               {mostrarFormAcesso && (
-                <form onSubmit={salvarAcesso} className="rounded-xl border border-outline-variant p-4 space-y-3">
+                <form onSubmit={salvarAcesso} className="rounded-xl border border-outline-variant p-4 space-y-4">
                   <h4 className={sectionHeader}>{editandoAcesso ? 'Editar acesso' : 'Novo acesso'}</h4>
                   {acessoFormError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{acessoFormError}</div>}
 
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Nome <span className="text-error">*</span></label>
-                    <input
-                      required
-                      value={acessoForm.nome}
-                      onChange={e => setAcessoForm(prev => ({ ...prev, nome: e.target.value }))}
-                      className={field}
-                    />
-                  </div>
-                  {!editandoAcesso && (
-                    <>
+                  <div className={editandoAcesso ? '' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Nome <span className="text-error">*</span></label>
+                      <input
+                        required
+                        value={acessoForm.nome}
+                        onChange={e => setAcessoForm(prev => ({ ...prev, nome: e.target.value }))}
+                        className={field}
+                      />
+                    </div>
+                    {!editandoAcesso && (
                       <div>
                         <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail <span className="text-error">*</span></label>
                         <input
@@ -818,6 +895,11 @@ export function AdminTenantsIndex() {
                           className={field}
                         />
                       </div>
+                    )}
+                  </div>
+
+                  <div className={editandoAcesso ? '' : 'grid grid-cols-1 sm:grid-cols-2 gap-3'}>
+                    {!editandoAcesso && (
                       <div>
                         <label className="block text-label-md text-on-surface-variant mb-1.5">Senha temporária <span className="text-error">*</span></label>
                         <input
@@ -829,20 +911,31 @@ export function AdminTenantsIndex() {
                           className={field}
                         />
                       </div>
-                      <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
-                        A senha temporária deve ser enviada manualmente ao cliente. Envio automático de e-mail será implementado futuramente.
-                        O usuário será obrigado a trocar a senha no primeiro acesso.
-                      </p>
-                    </>
-                  )}
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Papel</label>
-                    <Select
-                      value={acessoForm.role}
-                      options={ROLE_ACESSO_OPCOES}
-                      onChange={v => setAcessoForm(prev => ({ ...prev, role: v as AdminRole }))}
-                    />
+                    )}
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Papel</label>
+                      <Select
+                        value={acessoForm.role}
+                        options={ROLE_ACESSO_OPCOES}
+                        onChange={v => setAcessoForm(prev => ({ ...prev, role: v as AdminRole }))}
+                      />
+                    </div>
                   </div>
+
+                  {/* Descrição do papel selecionado — hoje só informativa (ver
+                      comentário de ROLE_DESCRICAO acima): nenhum papel restringe
+                      escrita de verdade ainda, isso só orienta o super admin na
+                      hora de escolher. */}
+                  <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-surface-container-low border border-outline-variant/60">
+                    <span className="material-symbols-outlined text-[16px] text-outline shrink-0 mt-0.5">info</span>
+                    <p className="text-[12px] text-on-surface-variant">{ROLE_DESCRICAO[acessoForm.role as RoleAcessoCliente]}</p>
+                  </div>
+
+                  {!editandoAcesso && (
+                    <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
+                      A senha temporária deve ser enviada manualmente ao cliente. O usuário será obrigado a trocar a senha no primeiro acesso.
+                    </p>
+                  )}
 
                   <div className="flex justify-end gap-2 pt-1">
                     <button type="button" onClick={fecharFormAcesso} className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors">
@@ -858,47 +951,51 @@ export function AdminTenantsIndex() {
               {acessosLoading && <LoadingSpinner />}
 
               {!acessosLoading && acessos.length === 0 && (
-                <p className="text-body-md text-on-surface-variant text-center py-6">Nenhum usuário do cliente ainda.</p>
+                <EmptyState icon="group_off" title="Nenhum acesso cadastrado para este cliente." />
               )}
 
-              {!acessosLoading && acessos.map(acesso => (
-                <div key={acesso.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border border-outline-variant">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-body-md font-semibold text-on-surface truncate">{acesso.nome}</span>
-                      <RoleBadge role={acesso.role} />
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${acesso.ativo ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'}`}>
-                        {acesso.ativo ? 'Ativo' : 'Inativo'}
-                      </span>
+              {!acessosLoading && acessos.length > 0 && (
+                <div className="rounded-xl border border-outline-variant divide-y divide-outline-variant overflow-hidden">
+                  {acessos.map(acesso => (
+                    <div key={acesso.id} className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-surface-container-lowest transition-colors">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-body-md font-semibold text-on-surface truncate">{acesso.nome}</span>
+                          <RoleBadge role={acesso.role} />
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${acesso.ativo ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'}`}>
+                            {acesso.ativo ? 'Ativo' : 'Inativo'}
+                          </span>
+                        </div>
+                        <p className="text-[12px] text-on-surface-variant truncate">{acesso.email}</p>
+                      </div>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={() => abrirEditarAcesso(acesso)}
+                          title="Editar"
+                          className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">edit</span>
+                        </button>
+                        <button
+                          onClick={() => abrirResetSenha(acesso)}
+                          title="Resetar senha"
+                          className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">lock_reset</span>
+                        </button>
+                        <button
+                          onClick={() => pedirAlternarAtivoAcesso(acesso)}
+                          disabled={togglingAcesso === acesso.id}
+                          title={acesso.ativo ? 'Desativar' : 'Ativar'}
+                          className={`p-1.5 rounded-lg transition-colors disabled:opacity-50 ${acesso.ativo ? 'text-error hover:bg-error-container' : 'text-tertiary hover:bg-tertiary/10'}`}
+                        >
+                          <span className="material-symbols-outlined text-[18px]">{acesso.ativo ? 'block' : 'check_circle'}</span>
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-[12px] text-on-surface-variant truncate">{acesso.email}</p>
-                  </div>
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    <button
-                      onClick={() => abrirEditarAcesso(acesso)}
-                      title="Editar"
-                      className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">edit</span>
-                    </button>
-                    <button
-                      onClick={() => abrirResetSenha(acesso)}
-                      title="Resetar senha"
-                      className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">lock_reset</span>
-                    </button>
-                    <button
-                      onClick={() => alternarAtivoAcesso(acesso)}
-                      disabled={togglingAcesso === acesso.id}
-                      title={acesso.ativo ? 'Desativar' : 'Ativar'}
-                      className={`p-1.5 rounded-lg transition-colors disabled:opacity-50 ${acesso.ativo ? 'text-error hover:bg-error-container' : 'text-tertiary hover:bg-tertiary/10'}`}
-                    >
-                      <span className="material-symbols-outlined text-[18px]">{acesso.ativo ? 'block' : 'check_circle'}</span>
-                    </button>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </div>
@@ -940,8 +1037,7 @@ export function AdminTenantsIndex() {
                   />
                 </div>
                 <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
-                  A senha temporária deve ser enviada manualmente ao cliente. Envio automático será implementado futuramente.
-                  O usuário será obrigado a trocar a senha no primeiro acesso.
+                  A senha temporária deve ser enviada manualmente ao cliente. O usuário será obrigado a trocar a senha no primeiro acesso.
                 </p>
                 <div className="flex justify-end gap-2 pt-1">
                   <button type="button" onClick={fecharResetSenha} className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors">
@@ -955,6 +1051,39 @@ export function AdminTenantsIndex() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ConfirmDialog padrão (ver components/ui/ConfirmDialog.tsx) — substitui
+          os antigos window.confirm de suspender/cancelar/reativar cliente. */}
+      {confirmStatusChange && (
+        <ConfirmDialog
+          title={`${STATUS_CONFIRM_CFG[confirmStatusChange.novoStatus]?.titulo ?? 'Confirmar'} "${confirmStatusChange.tenant.nome}"?`}
+          description={STATUS_CONFIRM_CFG[confirmStatusChange.novoStatus]?.descricao ?? ''}
+          confirmLabel={STATUS_CONFIRM_CFG[confirmStatusChange.novoStatus]?.confirmLabel ?? 'Confirmar'}
+          variant={STATUS_CONFIRM_CFG[confirmStatusChange.novoStatus]?.variant ?? 'default'}
+          loading={mudandoStatus === confirmStatusChange.tenant.id}
+          onConfirm={confirmarMudarStatus}
+          onCancel={fecharConfirmStatus}
+        />
+      )}
+
+      {/* ConfirmDialog padrão pra ativar/desativar acesso — substitui a
+          ausência de confirmação que existia antes (alternarAtivoAcesso
+          disparava a troca direto, sem nenhum aviso). */}
+      {confirmAcesso && (
+        <ConfirmDialog
+          title={confirmAcesso.ativo ? `Desativar acesso de "${confirmAcesso.nome}"?` : `Ativar acesso de "${confirmAcesso.nome}"?`}
+          description={
+            confirmAcesso.ativo
+              ? 'Este usuário não conseguirá mais acessar o painel do cliente.'
+              : 'Este usuário voltará a conseguir acessar o painel do cliente.'
+          }
+          confirmLabel={confirmAcesso.ativo ? 'Desativar' : 'Ativar'}
+          variant={confirmAcesso.ativo ? 'warning' : 'default'}
+          loading={togglingAcesso === confirmAcesso.id}
+          onConfirm={confirmarAlternarAtivoAcesso}
+          onCancel={fecharConfirmAcesso}
+        />
       )}
     </div>
   )

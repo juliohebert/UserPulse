@@ -8,6 +8,8 @@ import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
+import { useAuth } from '../../hooks/useAuth'
+import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
 
 const PAGE_SIZE = 10
 // Só a busca dispara a cada tecla (status/sistema são clique único, sem
@@ -54,6 +56,13 @@ function KpiCard({
 }
 
 export function ToursIndex() {
+  const { user } = useAuth()
+  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — VIEWER
+  // só lê; esconder os botões aqui é só UX, o backend já bloqueia 403.
+  const podeEscrever = podeEscreverConteudo(user?.role)
+  // Excluir (hard delete) e importar tour — mais restrito que criar/editar:
+  // só ADMIN/SUPER_ADMIN, EDITOR não (ver comentário em utils/permissions.ts).
+  const podeExcluirOuImportar = podeExcluirOuImportarConteudo(user?.role)
   const [data, setData] = useState<TourGuiadoListaPaginada | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -249,27 +258,33 @@ export function ToursIndex() {
               <span className="material-symbols-outlined text-[18px]">menu_book</span>
               Guia de Uso
             </button>
-            <button
-              onClick={() => { setImportarViaGravador(false); setModalImportarAberto(true) }}
-              className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
-            >
-              <span className="material-symbols-outlined text-[18px]">upload_file</span>
-              Importar JSON
-            </button>
-            <button
-              onClick={() => navigate('/tours/gravador')}
-              className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
-            >
-              <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
-              Gravar fluxo
-            </button>
-            <button
-              onClick={() => navigate('/tours/novo')}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 w-full sm:w-auto"
-            >
-              <span className="material-symbols-outlined text-[18px]">add</span>
-              Novo Tour Guiado
-            </button>
+            {podeExcluirOuImportar && (
+              <button
+                onClick={() => { setImportarViaGravador(false); setModalImportarAberto(true) }}
+                className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+              >
+                <span className="material-symbols-outlined text-[18px]">upload_file</span>
+                Importar JSON
+              </button>
+            )}
+            {podeEscrever && (
+              <>
+                <button
+                  onClick={() => navigate('/tours/gravador')}
+                  className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+                >
+                  <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
+                  Gravar fluxo
+                </button>
+                <button
+                  onClick={() => navigate('/tours/novo')}
+                  className="flex items-center justify-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 w-full sm:w-auto"
+                >
+                  <span className="material-symbols-outlined text-[18px]">add</span>
+                  Novo Tour Guiado
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -383,7 +398,7 @@ export function ToursIndex() {
               title={resumo.total === 0 ? 'Nenhum tour guiado criado ainda' : 'Nenhum tour encontrado'}
               description={resumo.total === 0 ? 'Crie o primeiro tour para guiar seus usuários pela aplicação.' : 'Ajuste os filtros para ver outros tours.'}
               action={
-                resumo.total === 0 ? (
+                resumo.total === 0 && podeEscrever ? (
                   <button
                     onClick={() => navigate('/tours/novo')}
                     className="px-6 py-2.5 bg-primary text-on-primary rounded-xl font-bold text-label-md"
@@ -416,12 +431,16 @@ export function ToursIndex() {
                     {items.map(tour => (
                       <tr key={tour.id} className="group border-b border-outline-variant/20 last:border-0 hover:bg-surface-container-low/60 transition-colors">
                         <td className="px-5 py-3.5 align-middle">
-                          <button
-                            onClick={() => navigate(`/tours/${tour.id}/editar`)}
-                            className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left"
-                          >
-                            {tour.titulo}
-                          </button>
+                          {podeEscrever ? (
+                            <button
+                              onClick={() => navigate(`/tours/${tour.id}/editar`)}
+                              className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left"
+                            >
+                              {tour.titulo}
+                            </button>
+                          ) : (
+                            <span className="text-body-md font-semibold text-on-surface">{tour.titulo}</span>
+                          )}
                           {tour.descricao && (
                             <p className="text-label-sm text-on-surface-variant truncate max-w-xs">{tour.descricao}</p>
                           )}
@@ -429,7 +448,7 @@ export function ToursIndex() {
                         <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{tour.sistema}</td>
                         <td className="px-5 py-3.5 align-middle whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
+                            {podeEscrever && <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />}
                             <StatusBadge ativo={tour.ativo} />
                           </div>
                         </td>
@@ -448,6 +467,8 @@ export function ToursIndex() {
                               onExportar={exportarTour}
                               removendoId={removendoId}
                               onRemover={removerTour}
+                              podeEscrever={podeEscrever}
+                              podeExcluir={podeExcluirOuImportar}
                             />
                           </div>
                         </td>
@@ -462,12 +483,16 @@ export function ToursIndex() {
                 {items.map(tour => (
                   <div key={tour.id} className="p-4">
                     <div className="flex items-start justify-between gap-3 mb-1.5">
-                      <button
-                        onClick={() => navigate(`/tours/${tour.id}/editar`)}
-                        className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left min-w-0 truncate"
-                      >
-                        {tour.titulo}
-                      </button>
+                      {podeEscrever ? (
+                        <button
+                          onClick={() => navigate(`/tours/${tour.id}/editar`)}
+                          className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left min-w-0 truncate"
+                        >
+                          {tour.titulo}
+                        </button>
+                      ) : (
+                        <span className="text-body-md font-semibold text-on-surface min-w-0 truncate">{tour.titulo}</span>
+                      )}
                     </div>
                     {tour.descricao && (
                       <p className="text-label-sm text-on-surface-variant truncate mb-2">{tour.descricao}</p>
@@ -494,6 +519,8 @@ export function ToursIndex() {
                           onExportar={exportarTour}
                           removendoId={removendoId}
                           onRemover={removerTour}
+                          podeEscrever={podeEscrever}
+                          podeExcluir={podeExcluirOuImportar}
                           size="lg"
                         />
                       </div>
@@ -534,7 +561,7 @@ function StatusBadge({ ativo }: { ativo: boolean }) {
 }
 
 function TourActions({
-  tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, removendoId, onRemover, size = 'md',
+  tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, removendoId, onRemover, podeEscrever, podeExcluir, size = 'md',
 }: {
   tour: TourGuiado
   navigate: NavigateFunction
@@ -544,6 +571,8 @@ function TourActions({
   onExportar: (tour: TourGuiado) => void
   removendoId: string | null
   onRemover: (tour: TourGuiado) => void
+  podeEscrever: boolean
+  podeExcluir: boolean
   size?: 'md' | 'lg'
 }) {
   const btnPad = size === 'lg' ? 'p-2' : 'p-1.5'
@@ -556,29 +585,35 @@ function TourActions({
       <button onClick={() => navigate(`/tours/${tour.id}/preview`)} title="Testar tour" className={btnCls}>
         <span className="material-symbols-outlined text-[18px]">play_circle</span>
       </button>
-      <button onClick={() => navigate(`/tours/${tour.id}/editar`)} title="Editar" className={btnCls}>
-        <span className="material-symbols-outlined text-[18px]">edit</span>
-      </button>
-      <button onClick={() => onDuplicar(tour)} disabled={duplicandoId === tour.id} title="Duplicar" className={`${btnCls} disabled:opacity-40`}>
-        <span className={`material-symbols-outlined text-[18px] ${duplicandoId === tour.id ? 'animate-spin' : ''}`}>
-          {duplicandoId === tour.id ? 'progress_activity' : 'content_copy'}
-        </span>
-      </button>
+      {podeEscrever && (
+        <button onClick={() => navigate(`/tours/${tour.id}/editar`)} title="Editar" className={btnCls}>
+          <span className="material-symbols-outlined text-[18px]">edit</span>
+        </button>
+      )}
+      {podeEscrever && (
+        <button onClick={() => onDuplicar(tour)} disabled={duplicandoId === tour.id} title="Duplicar" className={`${btnCls} disabled:opacity-40`}>
+          <span className={`material-symbols-outlined text-[18px] ${duplicandoId === tour.id ? 'animate-spin' : ''}`}>
+            {duplicandoId === tour.id ? 'progress_activity' : 'content_copy'}
+          </span>
+        </button>
+      )}
       <button onClick={() => onExportar(tour)} disabled={exportandoId === tour.id} title="Exportar JSON" className={`${btnCls} disabled:opacity-40`}>
         <span className={`material-symbols-outlined text-[18px] ${exportandoId === tour.id ? 'animate-spin' : ''}`}>
           {exportandoId === tour.id ? 'progress_activity' : 'download'}
         </span>
       </button>
-      <button
-        onClick={() => onRemover(tour)}
-        disabled={removendoId === tour.id}
-        title="Remover"
-        className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
-      >
-        <span className={`material-symbols-outlined text-[18px] ${removendoId === tour.id ? 'animate-spin' : ''}`}>
-          {removendoId === tour.id ? 'progress_activity' : 'delete'}
-        </span>
-      </button>
+      {podeExcluir && (
+        <button
+          onClick={() => onRemover(tour)}
+          disabled={removendoId === tour.id}
+          title="Remover"
+          className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
+        >
+          <span className={`material-symbols-outlined text-[18px] ${removendoId === tour.id ? 'animate-spin' : ''}`}>
+            {removendoId === tour.id ? 'progress_activity' : 'delete'}
+          </span>
+        </button>
+      )}
     </>
   )
 }

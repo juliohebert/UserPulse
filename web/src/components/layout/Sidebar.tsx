@@ -1,15 +1,16 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import { podeEscreverConteudo, podeEscreverConfiguracao } from '../../utils/permissions'
 
-const navItems = [
-  { icon: 'dashboard', label: 'Dashboard', to: '/' },
-  { icon: 'campaign', label: 'Campanhas', to: '/campanhas' },
-  { icon: 'add_circle', label: 'Nova Campanha', to: '/campanhas/nova' },
-  { icon: 'map', label: 'Tours Guiados', to: '/tours' },
-  { icon: 'route', label: 'Jornadas', to: '/jornadas' },
+// Itens que só levam a telas de escrita (ver RequireEscritaConteudo/
+// Configuracao.tsx) ficam marcados à parte — escondidos de quem não tem
+// permissão, pra não oferecer um link que só mostraria a mensagem de acesso
+// restrito. O resto é sempre visível pra qualquer papel autenticado (leitura
+// livre).
+const navItemNovaCampanha = { icon: 'add_circle', label: 'Nova Campanha', to: '/campanhas/nova' }
+const navItemsConfiguracao = [
   { icon: 'grid_view', label: 'Catálogo de Telas', to: '/catalogo-telas' },
   { icon: 'palette', label: 'Aparência do Widget', to: '/aparencia-widget' },
-  { icon: 'integration_instructions', label: 'Integração', to: '/integracao' },
 ]
 
 interface Props {
@@ -53,9 +54,18 @@ export function Sidebar({ collapsed, onToggle }: Props) {
   // isso independente do que a sidebar mostra). Leva pra /admin/tenants —
   // rota técnica preservada mesmo com o rótulo visível virando "Clientes"
   // (ver AdminSaasTabs.tsx).
-  const items = user?.role === 'SUPER_ADMIN'
-    ? [...navItems, { icon: 'admin_panel_settings', label: 'Gestão SaaS', to: '/admin/tenants' }]
-    : navItems
+  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — esconder
+  // aqui é só UX, o backend já bloqueia 403 em qualquer chamada de escrita.
+  const items = [
+    { icon: 'dashboard', label: 'Dashboard', to: '/' },
+    { icon: 'campaign', label: 'Campanhas', to: '/campanhas' },
+    ...(podeEscreverConteudo(user?.role) ? [navItemNovaCampanha] : []),
+    { icon: 'map', label: 'Tours Guiados', to: '/tours' },
+    { icon: 'route', label: 'Jornadas', to: '/jornadas' },
+    ...(podeEscreverConfiguracao(user?.role) ? navItemsConfiguracao : []),
+    { icon: 'integration_instructions', label: 'Integração', to: '/integracao' },
+    ...(user?.role === 'SUPER_ADMIN' ? [{ icon: 'admin_panel_settings', label: 'Gestão SaaS', to: '/admin/tenants' }] : []),
+  ]
 
   return (
     <aside
