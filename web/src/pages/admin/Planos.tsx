@@ -174,7 +174,10 @@ export function AdminPlanosIndex() {
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[12px] text-on-surface-variant mb-3">
                 <span>Campanhas ativas: <strong className="text-on-surface">{formatarLimite(plano.limite_campanhas_ativas)}</strong></span>
                 <span>Tours ativos: <strong className="text-on-surface">{formatarLimite(plano.limite_tours_ativos)}</strong></span>
-                <span>Eventos/mês: <strong className="text-on-surface">{formatarLimite(plano.limite_eventos_mes)}</strong></span>
+                {/* Rótulo comercial "Volume mensal de uso" — campo técnico
+                    continua limite_eventos_mes (payload/schema/backend
+                    inalterados, só o texto exibido mudou). */}
+                <span>Volume mensal de uso: <strong className="text-on-surface">{formatarLimite(plano.limite_eventos_mes)}</strong></span>
                 <span>Admins: <strong className="text-on-surface">{formatarLimite(plano.limite_usuarios_admin)}</strong></span>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -238,7 +241,7 @@ export function AdminPlanosIndex() {
                 {([
                   ['limite_campanhas_ativas', 'Limite campanhas ativas'],
                   ['limite_tours_ativos', 'Limite tours ativos'],
-                  ['limite_eventos_mes', 'Limite eventos/mês'],
+                  ['limite_eventos_mes', 'Limite de volume mensal de uso'],
                   ['limite_usuarios_admin', 'Limite usuários admin'],
                 ] as const).map(([campo, label]) => (
                   <div key={campo}>
