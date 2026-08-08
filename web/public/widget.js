@@ -155,7 +155,7 @@
     var style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = [
-      '.up-widget-root{position:fixed;z-index:2147483000;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
+      '.up-widget-root{position:fixed;z-index:2147483000;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#0b1c30}',
       '.up-widget-overlay{inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(11,28,48,.45)}',
       '.up-widget-root *{box-sizing:border-box}',
       '.up-fab{width:56px;height:56px;border:0;border-radius:999px;background:#0058be;color:#fff;box-shadow:0 18px 40px rgba(0,88,190,.28);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,opacity .18s ease}',
@@ -225,7 +225,7 @@
       // passos) — só o transition de posição/tamanho abaixo continua
       // responsável por qualquer movimento, no reposicionamento normal.
       '.up-tour-spotlight{position:fixed;border-radius:12px;box-shadow:0 0 0 9999px rgba(11,28,48,.55),0 0 0 2px #fff,0 0 0 5px var(--up-primary, #0058be),0 0 16px 3px var(--up-primary-ring, rgba(0,88,190,.28));pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
-      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:20px;box-shadow:0 1px 2px rgba(11,28,48,.04),0 16px 36px -12px rgba(11,28,48,.22);padding:20px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;animation:up-fade-in .18s ease-out}',
+      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:20px;box-shadow:0 1px 2px rgba(11,28,48,.04),0 16px 36px -12px rgba(11,28,48,.22);padding:20px;pointer-events:auto;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#0b1c30;animation:up-fade-in .18s ease-out}',
       // As telas centralizadas (intro/conclusão/aguardando/não encontrado/erro)
       // usam position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)
       // inline pra centralizar — mas a animação padrão acima (up-fade-in) anima
@@ -356,7 +356,7 @@
       // Barra flutuante — fundo sempre escuro de propósito (independente do
       // tema claro/escuro da página host), pra garantir contraste e leitura
       // em qualquer sistema onde o widget for embedado.
-      '.up-rec-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483640;display:flex;align-items:center;gap:8px;background:#0b1c30;color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 18px 40px rgba(11,28,48,.35);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}',
+      '.up-rec-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483640;display:flex;align-items:center;gap:8px;background:#0b1c30;color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 18px 40px rgba(11,28,48,.35);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;font-size:13px;max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}',
       '.up-rec-dot{width:8px;height:8px;border-radius:50%;background:#ff5252;flex-shrink:0;animation:up-rec-blink 1.2s ease-in-out infinite}',
       '@keyframes up-rec-blink{0%,100%{opacity:1}50%{opacity:.25}}',
       '.up-rec-label{font-weight:800;white-space:nowrap;letter-spacing:.01em}',
@@ -448,7 +448,7 @@
       '.up-rec-btn-danger{background:rgba(255,82,82,.22);color:#fff}',
       '.up-rec-btn-danger:hover{background:rgba(255,82,82,.36)}',
       '.up-rec-overlay{position:fixed;inset:0;z-index:2147483650;display:flex;align-items:center;justify-content:center;background:rgba(11,28,48,.55);padding:16px}',
-      '.up-rec-modal{width:100%;max-width:720px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
+      '.up-rec-modal{width:100%;max-width:720px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#0b1c30}',
       // Mini revisão pós-clique — mais estreito e compacto que o modal de
       // revisão final (só título/descrição/2 selects), pra ler como uma
       // interrupção rápida, não uma segunda tela cheia.
@@ -463,7 +463,7 @@
       // passos + detalhe) excede isso, as regras de overflow-y:auto próprias
       // de .up-rec-lateral-lista/.up-rec-lateral-detalhe assumem o scroll
       // interno, mantendo cabeçalho e rodapé sempre visíveis.
-      '.up-rec-lateral{position:fixed;top:16px;right:16px;max-height:calc(100vh - 32px);width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 20px 55px rgba(11,28,48,.25);display:flex;flex-direction:column;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;overflow:hidden}',
+      '.up-rec-lateral{position:fixed;top:16px;right:16px;max-height:calc(100vh - 32px);width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 20px 55px rgba(11,28,48,.25);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#0b1c30;overflow:hidden}',
       // Sem isso, itens do painel lateral usam o content-box padrão do
       // navegador — adicionar border-top ao item sob o cursor durante um
       // drag (.up-rec-lateral-item-dragover, mais abaixo) crescia a altura
@@ -580,7 +580,7 @@
       // touch-action:none evita o navegador competir com o arrasto em telas
       // touch (scroll da página no lugar de mover o pill); user-select:none
       // evita selecionar o texto "Passos capturados" ao arrastar rápido.
-      '.up-rec-lateral-pill{position:fixed;top:16px;right:16px;z-index:2147483620;display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#132844,#0b1c30);color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 16px 36px rgba(11,28,48,.4),0 0 0 1px rgba(255,255,255,.06) inset;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px;font-weight:700;cursor:grab;border:0;touch-action:none;user-select:none;transition:box-shadow .15s ease}',
+      '.up-rec-lateral-pill{position:fixed;top:16px;right:16px;z-index:2147483620;display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#132844,#0b1c30);color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 16px 36px rgba(11,28,48,.4),0 0 0 1px rgba(255,255,255,.06) inset;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;font-size:12px;font-weight:700;cursor:grab;border:0;touch-action:none;user-select:none;transition:box-shadow .15s ease}',
       '.up-rec-lateral-pill-dot{width:6px;height:6px;border-radius:50%;background:#4dabff;flex-shrink:0;box-shadow:0 0 0 3px rgba(77,171,255,.2)}',
       // Pill durante uma troca (ver recorderRenderPainelLateral) — âmbar em
       // vez de azul, mesmo padrão de cor de "ação pendente" já usado em

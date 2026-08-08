@@ -276,7 +276,7 @@ export function ApresentacaoPage() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-white font-[Inter,sans-serif]">
+    <div className="min-h-screen bg-white font-sans">
 
       {/* ── Navbar ── */}
       <nav className="fixed top-0 inset-x-0 z-50 bg-[#0f172a]/95 backdrop-blur border-b border-white/10">
