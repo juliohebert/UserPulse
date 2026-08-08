@@ -1,11 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import type { AdminUser } from '../../types'
+import { podeEscreverConteudo } from '../../utils/permissions'
 
 interface Props {
   collapsed: boolean
 }
+
+const opcoesNovo = [
+  { label: 'Campanha', description: 'Criar comunicado, melhoria ou pesquisa.', icon: 'campaign', to: '/campanhas/nova' },
+  { label: 'Jornada', description: 'Criar uma trilha de etapas guiadas.', icon: 'route', to: '/jornadas/novo' },
+  { label: 'Tour', description: 'Criar um passo a passo dentro do produto.', icon: 'map', to: '/tours/novo' },
+]
 
 // Iniciais pro avatar (fallback "UP" se, por algum motivo, o nome vier vazio
 // — nunca deveria acontecer, mas evita um avatar em branco).
@@ -45,9 +52,28 @@ function badgeStatusTenant(tenant: AdminUser['tenant']): { label: string; classN
 
 export function Topbar({ collapsed }: Props) {
   const [search, setSearch] = useState('')
+  const [novoAberto, setNovoAberto] = useState(false)
+  const novoRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const { user } = useAuth()
   const badge = user ? badgeStatusTenant(user.tenant) : null
+  const podeCriarConteudo = podeEscreverConteudo(user?.role)
+
+  useEffect(() => {
+    if (!novoAberto) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (novoRef.current && !novoRef.current.contains(e.target as Node)) setNovoAberto(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNovoAberto(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [novoAberto])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -55,6 +81,11 @@ export function Topbar({ collapsed }: Props) {
       navigate(`/campanhas?busca=${encodeURIComponent(search.trim())}`)
       setSearch('')
     }
+  }
+
+  const navegarParaCriacao = (to: string) => {
+    setNovoAberto(false)
+    navigate(to)
   }
 
   return (
@@ -76,27 +107,58 @@ export function Topbar({ collapsed }: Props) {
         </div>
       </form>
 
-      <div className="flex items-center gap-2 sm:gap-4 ml-3 sm:ml-6">
-        <button className="relative h-10 w-10 rounded-full bg-surface text-charcoal hover:bg-surface-container-low transition-colors">
-          <span className="material-symbols-outlined">notifications</span>
-          <span className="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface" />
-        </button>
-        <button className="hidden sm:flex h-10 w-10 items-center justify-center rounded-full bg-surface text-charcoal hover:bg-surface-container-low transition-colors">
-          <span className="material-symbols-outlined">help_outline</span>
-        </button>
-
-        {user && (
-          <div className="hidden lg:flex items-center gap-2">
-            <span className="text-label-md font-bold text-charcoal">{user.tenant.nome}</span>
-            {badge && (
-              <span className={`px-2.5 py-1 rounded-full text-label-sm font-bold uppercase ${badge.className}`}>
-                {badge.label}
-              </span>
+      <div className="flex items-center gap-1.5 sm:gap-2 ml-3 sm:ml-5">
+        {podeCriarConteudo && (
+          <div className="relative" ref={novoRef}>
+            <button
+              type="button"
+              onClick={() => setNovoAberto(v => !v)}
+              className="meta-button-buy h-10 px-5 py-2"
+              aria-haspopup="menu"
+              aria-expanded={novoAberto}
+            >
+              <span>Novo</span>
+              <span className={`material-symbols-outlined text-[18px] transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${novoAberto ? 'rotate-45 scale-110' : 'rotate-0 scale-100'}`}>add</span>
+            </button>
+            {novoAberto && (
+              <div className="absolute right-0 z-50 mt-2 w-72 origin-top-right overflow-hidden rounded-2xl border border-hairline-soft bg-surface p-2 shadow-panel animate-[novo-menu-in_240ms_cubic-bezier(0.16,1,0.3,1)]" role="menu">
+                {opcoesNovo.map((opcao, index) => (
+                  <button
+                    key={opcao.to}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => navegarParaCriacao(opcao.to)}
+                    className="flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left opacity-0 transition-colors hover:bg-surface-container-low animate-[novo-item-in_260ms_cubic-bezier(0.16,1,0.3,1)_forwards]"
+                    style={{ animationDelay: `${index * 45 + 60}ms` }}
+                  >
+                    <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <span className="material-symbols-outlined text-[19px]">{opcao.icon}</span>
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-body-sm font-bold text-ink">{opcao.label}</span>
+                      <span className="mt-0.5 block text-label-sm text-charcoal">{opcao.description}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         )}
+        <button className="relative h-10 w-9 rounded-full bg-surface text-charcoal hover:bg-surface-container-low transition-colors">
+          <span className="material-symbols-outlined">notifications</span>
+          <span className="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface" />
+        </button>
+        <button className="hidden sm:flex h-10 w-9 items-center justify-center rounded-full bg-surface text-charcoal hover:bg-surface-container-low transition-colors">
+          <span className="material-symbols-outlined">help_outline</span>
+        </button>
 
-        <div className="hidden sm:block h-8 w-px bg-hairline-soft mx-1" />
+        {badge && (
+          <span className={`hidden lg:inline-flex px-2.5 py-1 rounded-full text-label-sm font-bold uppercase ${badge.className}`}>
+            {badge.label}
+          </span>
+        )}
+
+        <div className="hidden sm:block h-8 w-px bg-hairline-soft mx-0.5" />
 
         <div className="flex items-center gap-3">
           <div className="hidden md:block text-right">
