@@ -1,6 +1,9 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { tenantPublicoPermiteAcesso, obterSituacaoComercialTenant, motivoBloqueioEscrita } from './tenantGuards'
+import {
+  tenantPublicoPermiteAcesso, obterSituacaoComercialTenant, motivoBloqueioEscrita,
+  motivoLimiteAtivosAtingido, resolverPlanoTrial, resolverDuracaoTrialDias, TRIAL_DIAS_PADRAO,
+} from './tenantGuards'
 
 const AGORA = new Date('2026-07-10T12:00:00Z')
 const DIA_MS = 86_400_000
@@ -113,5 +116,81 @@ describe('motivoBloqueioEscrita — bloqueia todo mundo "vencido", libera o rest
   test('CANCELED bloqueia com mensagem de cancelamento', () => {
     const motivo = motivoBloqueioEscrita({ status: 'CANCELED', trial_fim: null, licenca_fim: null }, AGORA)
     assert.match(motivo ?? '', /cancelada/i)
+  })
+})
+
+// Fase 6A — motivoLimiteAtivosAtingido é a decisão pura por trás de
+// checarLimiteCampanhasAtivas/checarLimiteToursAtivos/checarLimiteJornadasAtivas
+// (cada um só busca o `total` no banco e delega a decisão pra cá) — testar
+// aqui cobre as três, sem precisar de Prisma/banco (mesmo padrão do resto
+// deste arquivo). Serve também de regressão: campanhas/tours usavam a mesma
+// comparação copiada 2x antes desta função existir.
+describe('motivoLimiteAtivosAtingido — decisão pura de limite "X ativos simultâneos"', () => {
+  test('limite null = sem limite, nunca bloqueia', () => {
+    assert.equal(motivoLimiteAtivosAtingido(null, 999, 'campanha(s) ativa(s)'), null)
+  })
+  test('limite undefined = sem limite, nunca bloqueia', () => {
+    assert.equal(motivoLimiteAtivosAtingido(undefined, 999, 'tour(s) ativo(s)'), null)
+  })
+  test('total abaixo do limite libera (campanhas)', () => {
+    assert.equal(motivoLimiteAtivosAtingido(10, 9, 'campanha(s) ativa(s)'), null)
+  })
+  test('total igual ao limite bloqueia (tours)', () => {
+    const motivo = motivoLimiteAtivosAtingido(1, 1, 'tour(s) ativo(s)')
+    assert.match(motivo ?? '', /Limite de 1 tour\(s\) ativo\(s\) do plano atingido\./)
+  })
+  test('total acima do limite bloqueia (jornadas)', () => {
+    const motivo = motivoLimiteAtivosAtingido(1, 2, 'jornada(s) ativa(s)')
+    assert.match(motivo ?? '', /Limite de 1 jornada\(s\) ativa\(s\) do plano atingido\./)
+  })
+  test('total zero, dentro do limite, libera (jornadas — limite disponível)', () => {
+    assert.equal(motivoLimiteAtivosAtingido(1, 0, 'jornada(s) ativa(s)'), null)
+  })
+})
+
+// Fase 6A — resolverPlanoTrial garante a experiência de trial única: nunca
+// resolve arbitrariamente quando a configuração está ambígua (0 ou 2+
+// planos marcados eh_plano_trial=true), só quando existe exatamente 1.
+describe('resolverPlanoTrial — exige exatamente 1 plano marcado como trial', () => {
+  test('nenhum plano marcado => erro, não resolve nada', () => {
+    const resultado = resolverPlanoTrial([])
+    assert.equal(resultado.ok, false)
+  })
+  test('exatamente 1 plano marcado => resolve esse plano', () => {
+    const resultado = resolverPlanoTrial([{ id: 'plano-teste-gratis', trial_dias: 14 }])
+    assert.deepEqual(resultado, { ok: true, plano: { id: 'plano-teste-gratis', trial_dias: 14 } })
+  })
+  test('mais de 1 plano marcado => erro, configuração ambígua', () => {
+    const resultado = resolverPlanoTrial([
+      { id: 'plano-a', trial_dias: 14 },
+      { id: 'plano-b', trial_dias: 7 },
+    ])
+    assert.equal(resultado.ok, false)
+  })
+})
+
+describe('resolverDuracaoTrialDias — default de 14 dias, trial_dias<=0 é configuração inválida', () => {
+  test('null cai no default (14)', () => {
+    assert.deepEqual(resolverDuracaoTrialDias(null), { ok: true, dias: TRIAL_DIAS_PADRAO })
+  })
+  test('undefined cai no default (14)', () => {
+    assert.deepEqual(resolverDuracaoTrialDias(undefined), { ok: true, dias: TRIAL_DIAS_PADRAO })
+  })
+  test('1 usa o valor configurado (1)', () => {
+    assert.deepEqual(resolverDuracaoTrialDias(1), { ok: true, dias: 1 })
+  })
+  test('14 usa o valor configurado (14, igual ao default mas explícito)', () => {
+    assert.deepEqual(resolverDuracaoTrialDias(14), { ok: true, dias: 14 })
+  })
+  test('trial_dias definido no plano prevalece sobre o default (30)', () => {
+    assert.deepEqual(resolverDuracaoTrialDias(30), { ok: true, dias: 30 })
+  })
+  test('0 é inválido', () => {
+    const resultado = resolverDuracaoTrialDias(0)
+    assert.equal(resultado.ok, false)
+  })
+  test('negativo é inválido', () => {
+    const resultado = resolverDuracaoTrialDias(-1)
+    assert.equal(resultado.ok, false)
   })
 })

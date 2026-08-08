@@ -66,6 +66,15 @@ model Tenant {
   ultimo_pagamento_em  DateTime?
   observacao_comercial String?
   plano_id      String?
+  // Fase 6A (fundação do trial) — plano ESCOLHIDO pelo cliente ao converter
+  // (trial→pago) ou trocar de plano, mas ainda NÃO pago/confirmado. plano_id
+  // continua sendo o plano em vigor (o que efetivamente define limites/
+  // situação comercial) até o webhook do Asaas confirmar o pagamento — só
+  // então plano_pendente_id é aplicado em plano_id e limpo (ver
+  // calcularAtualizacaoTenant em asaasClient.ts, ainda não alterado nesta
+  // fase). Nenhuma rota desta fase escreve neste campo ainda — só a base de
+  // dados está sendo preparada (ver docs da Fase 6 completa).
+  plano_pendente_id String?
   // Vínculo com o Asaas (gateway de pagamento, integração fundação/sandbox —
   // ver server/src/services/asaasClient.ts). Nada aqui é escrito automático
   // fora de: ação explícita do SUPER_ADMIN (criar cliente/assinatura, ver
@@ -100,7 +109,11 @@ model Tenant {
   criado_em     DateTime     @default(now())
   atualizado_em DateTime     @updatedAt
 
-  plano             Plano?            @relation(fields: [plano_id], references: [id])
+  // Duas relações distintas com Plano (plano em vigor / plano pendente de
+  // confirmação de pagamento) exigem nomes explícitos — sem isso o Prisma
+  // não sabe distinguir qual FK cada lado do relacionamento representa.
+  plano             Plano?            @relation("PlanoAtualTenant", fields: [plano_id], references: [id])
+  plano_pendente    Plano?            @relation("PlanoPendenteTenant", fields: [plano_pendente_id], references: [id])
   admins            AdminUser[]
   campanhas         Campanha[]
   tours             TourGuiado[]
@@ -123,12 +136,29 @@ model Plano {
   preco_mensal            Decimal? @db.Decimal(10, 2)
   limite_campanhas_ativas Int?
   limite_tours_ativos     Int?
+  // Mesma convenção de limite_campanhas_ativas/limite_tours_ativos (null =
+  // sem limite) — antes deste campo, jornadas só tinham o gate booleano
+  // permite_jornadas (liga/desliga o recurso), sem nenhuma contagem de
+  // jornadas ATIVAS ao mesmo tempo (ver checarLimiteJornadasAtivas em
+  // tenantGuards.ts).
+  limite_jornadas_ativas  Int?
   limite_eventos_mes      Int?
   limite_usuarios_admin   Int?
   permite_tours           Boolean  @default(true)
   permite_jornadas        Boolean  @default(true)
   permite_white_label     Boolean  @default(false)
   ativo                   Boolean  @default(true)
+  // Fase 6A (fundação do trial) — marca qual plano é usado como fonte dos
+  // limites/duração do trial no cadastro self-service (ainda não
+  // implementado, ver docs da Fase 6). Deve haver exatamente 1 plano com
+  // eh_plano_trial=true em uso normal — 0 ou mais de 1 é configuração
+  // inválida, nunca resolvida arbitrariamente (ver resolverPlanoTrial em
+  // tenantGuards.ts). Hoje só "teste-gratis" é marcado (ver seedPlanos.ts).
+  eh_plano_trial          Boolean  @default(false)
+  // Duração do trial em dias quando este é o plano de trial (eh_plano_trial
+  // =true) — null cai no default de 14 dias na hora de calcular trial_fim
+  // (ver docs da Fase 6; nenhum código ainda lê este campo nesta fase).
+  trial_dias              Int?
   // Plano interno (hoje só "Interno (Quark)") — nunca oferecido a cliente
   // comum no select de plano (ver Tenants.tsx) nem removível (ver
   // remover() em adminPlanos.ts), independente do valor de `ativo`.
@@ -148,7 +178,8 @@ model Plano {
   criado_em               DateTime @default(now())
   atualizado_em           DateTime @updatedAt
 
-  tenants Tenant[]
+  tenants           Tenant[] @relation("PlanoAtualTenant")
+  tenants_pendentes Tenant[] @relation("PlanoPendenteTenant")
 
   @@map("planos")
 }
