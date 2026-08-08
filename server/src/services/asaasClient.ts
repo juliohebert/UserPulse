@@ -381,12 +381,118 @@ function montarDadosEvento(eventId: string | null, payload: unknown, acao: AcaoW
   }
 }
 
+export interface AtualizacaoTenantAsaas {
+  // null = não mexe no Tenant nesta chamada (ex.: pagamento confirmado
+  // chegando fora de ordem depois da assinatura já estar inativa/expirada).
+  dados: Prisma.TenantUpdateInput | null
+  // Só presente quando dados===null — motivo gravado no AsaasWebhookEvent
+  // (ver tratarWebhookAsaas), pra ficar rastreável no histórico de eventos
+  // do painel mesmo sem efeito nenhum no Tenant.
+  ignorado?: string
+}
+
+// Domínio real de Subscription.status no Asaas — os únicos 3 valores em que
+// dá pra confiar como "isto é status de ASSINATURA" (mesmo domínio que
+// sincronizar()/criarAssinaturaAsaas escrevem, ver buscarAssinaturaAsaas).
+const ASSINATURA_STATUS_CONHECIDOS = new Set(['ACTIVE', 'EXPIRED', 'INACTIVE'])
+
+// Legado da versão anterior desta correção: SUBSCRIPTION_DELETED/
+// INACTIVATED gravavam o nome bruto do evento em asaas_status (em vez de
+// "INACTIVE"). Dado inequívoco — o nome do evento já diz que a assinatura
+// foi excluída/inativada — por isso é o único caso de tradução aceito aqui;
+// não existe equivalente pra status de PAGAMENTO (ver função abaixo).
+const ASAAS_STATUS_LEGADO_INATIVO = new Set(['SUBSCRIPTION_DELETED', 'SUBSCRIPTION_INACTIVATED'])
+
+// Interpreta Tenant.asaas_status como status de ASSINATURA — nunca infere a
+// partir de status de PAGAMENTO (CONFIRMED, RECEIVED, OVERDUE, ...), mesmo
+// que esses valores tenham ficado gravados ali pela versão anterior desta
+// correção (webhooks de pagamento sobrescreviam o campo). Só os 3 valores
+// reais do domínio Subscription.status, mais os 2 nomes de evento de
+// cancelamento legados acima, são reconhecidos — qualquer outra coisa
+// (null, status de pagamento herdado, valor desconhecido) volta
+// "desconhecido", nunca "ACTIVE" por suposição.
+function interpretarAsaasStatusAssinatura(valor: string | null): 'ACTIVE' | 'EXPIRED' | 'INACTIVE' | 'desconhecido' {
+  if (valor && ASSINATURA_STATUS_CONHECIDOS.has(valor)) return valor as 'ACTIVE' | 'EXPIRED' | 'INACTIVE'
+  if (valor && ASAAS_STATUS_LEGADO_INATIVO.has(valor)) return 'INACTIVE'
+  return 'desconhecido'
+}
+
+// Decisão pura (sem banco) do que gravar no Tenant a partir de uma ação já
+// mapeada (mapearEventoAsaas) — separada de tratarWebhookAsaas só pra poder
+// ser testada sem Prisma/banco (mesmo padrão de mapearEventoAsaas acima).
+//
+// asaas_status passa a significar EXCLUSIVAMENTE status de ASSINATURA
+// (mesmo domínio que sincronizar()/criarAssinaturaAsaas já escrevem: Asaas
+// usa ACTIVE/EXPIRED/INACTIVE pra Subscription.status). Eventos de
+// pagamento (PAYMENT_*) nunca tocam este campo — antes um PAYMENT_CONFIRMED/
+// OVERDUE sobrescrevia asaas_status com o status do PAGAMENTO (ex.:
+// "CONFIRMED", "OVERDUE"), misturando os dois domínios. SUBSCRIPTION_DELETED/
+// INACTIVATED gravam o valor real de assinatura inativa do Asaas
+// ("INACTIVE"), nunca o nome bruto do evento.
+export function calcularAtualizacaoTenant(
+  acao: Extract<AcaoWebhookAsaas, { tipo: 'pagamento_confirmado' | 'pagamento_vencido' | 'assinatura_cancelada' }>,
+  tenantAtual: { asaas_status: string | null; licenca_inicio: Date | null },
+  cicloPlano: string | null,
+  agora: Date = new Date()
+): AtualizacaoTenantAsaas {
+  if (acao.tipo === 'assinatura_cancelada') {
+    // SUSPENDED (não CANCELED) de propósito: automação nunca marca CANCELED
+    // (estado definitivo, "contrato encerrado" na semântica já usada em
+    // Tenants.tsx/tenantGuards.ts) — só SUSPENDED, reversível, deixando o
+    // cancelamento de verdade como decisão manual do super admin.
+    return { dados: { asaas_status: 'INACTIVE', asaas_ultima_sincronizacao: agora, status: 'SUSPENDED' } }
+  }
+
+  if (acao.tipo === 'pagamento_vencido') {
+    // Nunca mexe em status/licenca_fim/asaas_status aqui — o bloqueio por
+    // licenca_fim vencida (ver motivoBloqueioEscrita em tenantGuards.ts) já
+    // cuida disso sozinho quando a data efetivamente chegar, sem precisar
+    // de uma ação explícita de cancelamento. Só registra que ouvimos o
+    // Asaas agora.
+    return { dados: { asaas_ultima_sincronizacao: agora } }
+  }
+
+  // pagamento_confirmado — só ativa quando o asaas_status atual é
+  // CONFIRMADAMENTE "ACTIVE" (allowlist, não blocklist). Cobre dois riscos:
+  // (1) webhook fora de ordem — SUBSCRIPTION_DELETED/INACTIVATED processado
+  // primeiro, depois um PAYMENT_CONFIRMED antigo/reentregue chega e
+  // tentaria voltar pra ACTIVE; (2) dado legado — asaas_status pode conter
+  // um status de PAGAMENTO ("CONFIRMED", "OVERDUE", ...) ou o nome bruto de
+  // um evento de cancelamento, gravados pela versão anterior desta
+  // correção. Em ambos os casos "não confiavelmente ACTIVE" bloqueia — só o
+  // valor real "ACTIVE" libera a reativação automática, nunca uma
+  // suposição em cima de status de pagamento.
+  const statusAssinatura = interpretarAsaasStatusAssinatura(tenantAtual.asaas_status)
+  if (statusAssinatura !== 'ACTIVE') {
+    const ignorado = statusAssinatura === 'desconhecido'
+      ? `Pagamento confirmado ignorado: asaas_status atual ("${tenantAtual.asaas_status ?? 'vazio'}") não é um status de assinatura confiável (pode ser dado legado de pagamento) — sincronize manualmente com o Asaas antes de confiar neste tenant.`
+      : `Pagamento confirmado ignorado: assinatura já registrada como ${statusAssinatura === 'INACTIVE' ? 'inativa' : 'expirada'} no Asaas (evento possivelmente fora de ordem).`
+    // erro aqui não é "falha de processamento" — é o mesmo uso já dado a
+    // este campo pro caso "sem tenant vinculado" logo acima (decisão de
+    // negócio esperada, sempre ok:true/2xx pro Asaas), só com uma
+    // explicação registrada pra ficar rastreável no histórico do painel.
+    return { dados: null, ignorado }
+  }
+
+  const proximoVencimento = calcularProximoVencimento(acao.dataVencimento ?? acao.dataPagamento, cicloPlano)
+  return {
+    dados: {
+      asaas_ultima_sincronizacao: agora,
+      status: 'ACTIVE',
+      ultimo_pagamento_em: acao.dataPagamento,
+      licenca_inicio: tenantAtual.licenca_inicio ?? acao.dataPagamento,
+      licenca_fim: proximoVencimento,
+      proxima_cobranca: proximoVencimento,
+    },
+  }
+}
+
 // Ponto único chamado pelo controller do webhook (ver
 // controllers/webhooksAsaas.ts) — faz idempotência (via asaas_event_id),
-// mapeamento (mapearEventoAsaas) e aplica o efeito no Tenant vinculado.
-// Sempre resolve com ok:true (2xx pro Asaas) exceto quando algo realmente
-// inesperado lança (erro de banco etc.) — o controller trata esse throw
-// como erro controlado (não-2xx).
+// mapeamento (mapearEventoAsaas) e aplica o efeito no Tenant vinculado
+// (calcularAtualizacaoTenant). Sempre resolve com ok:true (2xx pro Asaas)
+// exceto quando algo realmente inesperado lança (erro de banco etc.) — o
+// controller trata esse throw como erro controlado (não-2xx).
 export async function tratarWebhookAsaas(payloadBruto: unknown): Promise<ResultadoWebhookAsaas> {
   const eventId = extrairEventId(payloadBruto)
 
@@ -435,33 +541,17 @@ export async function tratarWebhookAsaas(payloadBruto: unknown): Promise<Resulta
     return { ok: true, semTenantVinculado: true }
   }
 
-  const dadosTenant: Prisma.TenantUpdateInput = {
-    asaas_status: acao.asaasStatus,
-    asaas_ultima_sincronizacao: new Date(),
+  const resultado = calcularAtualizacaoTenant(acao, tenant, tenant.plano?.asaas_billing_cycle ?? null)
+
+  if (resultado.dados === null) {
+    await prisma.asaasWebhookEvent.update({
+      where: { id: evento.id },
+      data: { processado: true, processado_em: new Date(), erro: resultado.ignorado ?? null },
+    })
+    return { ok: true, ignorado: resultado.ignorado }
   }
 
-  if (acao.tipo === 'pagamento_confirmado') {
-    const proximoVencimento = calcularProximoVencimento(acao.dataVencimento ?? acao.dataPagamento, tenant.plano?.asaas_billing_cycle ?? null)
-    dadosTenant.status = 'ACTIVE'
-    dadosTenant.ultimo_pagamento_em = acao.dataPagamento
-    dadosTenant.licenca_inicio = tenant.licenca_inicio ?? acao.dataPagamento
-    dadosTenant.licenca_fim = proximoVencimento
-    dadosTenant.proxima_cobranca = proximoVencimento
-  } else if (acao.tipo === 'assinatura_cancelada') {
-    // SUSPENDED (não CANCELED) de propósito: automação nunca marca CANCELED
-    // (estado definitivo, "contrato encerrado" na semântica já usada em
-    // Tenants.tsx/tenantGuards.ts) — só SUSPENDED, reversível, deixando o
-    // cancelamento de verdade como decisão manual do super admin. Ver regra
-    // "não alterar status em massa sem evento claro" da tarefa.
-    dadosTenant.status = 'SUSPENDED'
-  }
-  // pagamento_vencido: só atualiza asaas_status/asaas_ultima_sincronizacao
-  // (já setados acima) — nunca mexe em status/licenca_fim aqui. A regra de
-  // bloqueio por licenca_fim vencida (ver motivoBloqueioEscrita em
-  // tenantGuards.ts) já cuida disso sozinha quando a data efetivamente
-  // chegar, sem precisar de uma ação explícita de cancelamento.
-
-  await prisma.tenant.update({ where: { id: tenant.id }, data: dadosTenant })
+  await prisma.tenant.update({ where: { id: tenant.id }, data: resultado.dados })
   await prisma.asaasWebhookEvent.update({
     where: { id: evento.id },
     data: { processado: true, processado_em: new Date() },

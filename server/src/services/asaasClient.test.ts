@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mapearEventoAsaas, calcularProximoVencimento, criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas } from './asaasClient'
+import { mapearEventoAsaas, calcularProximoVencimento, calcularAtualizacaoTenant, criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas } from './asaasClient'
 
 // Cobertura da Fase 1 da integração Asaas (fundação/sandbox) — só funções
 // puras (mapearEventoAsaas, calcularProximoVencimento) e um teste de
@@ -141,6 +141,132 @@ describe('calcularProximoVencimento', () => {
   test('ciclo em minúsculo é normalizado', () => {
     assert.equal(calcularProximoVencimento(base, 'quarterly').toISOString().slice(0, 10), '2026-11-08')
   })
+})
+
+describe('calcularAtualizacaoTenant', () => {
+  const agora = new Date('2026-08-08T12:00:00Z')
+
+  test('PAYMENT_CONFIRMED/RECEIVED não escreve mais asaas_status (só campos de licença)', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1',
+      asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'),
+      dataVencimento: new Date('2026-08-08T00:00:00Z'),
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    assert.equal(resultado.dados !== null && 'asaas_status' in resultado.dados, false)
+  })
+
+  test('PAYMENT_OVERDUE não escreve mais asaas_status nem mexe em status/licença', () => {
+    const acao = {
+      tipo: 'pagamento_vencido' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'OVERDUE',
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    assert.deepEqual(resultado.dados, { asaas_ultima_sincronizacao: agora })
+  })
+
+  test('SUBSCRIPTION_DELETED/INACTIVATED grava asaas_status="INACTIVE" (nunca o nome bruto do evento)', () => {
+    const acao = { tipo: 'assinatura_cancelada' as const, subscriptionId: 'sub_1', customerId: 'cus_1', asaasStatus: 'SUBSCRIPTION_DELETED' }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    assert.deepEqual(resultado.dados, { asaas_status: 'INACTIVE', asaas_ultima_sincronizacao: agora, status: 'SUSPENDED' })
+  })
+
+  test('pagamento confirmado NÃO reativa tenant cuja assinatura já é INACTIVE (webhook fora de ordem)', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'INACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    assert.equal(resultado.dados, null)
+    assert.match(resultado.ignorado ?? '', /assinatura já registrada como inativa/)
+  })
+
+  test('pagamento confirmado NÃO reativa tenant cuja assinatura já é EXPIRED', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'EXPIRED', licenca_inicio: null }, 'MONTHLY', agora)
+    assert.equal(resultado.dados, null)
+  })
+
+  test('fluxo normal: pagamento confirmado com assinatura ativa continua ativando/estendendo a licença', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'),
+      dataVencimento: new Date('2026-08-08T00:00:00Z'),
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    assert.deepEqual(resultado.dados, {
+      asaas_ultima_sincronizacao: agora,
+      status: 'ACTIVE',
+      ultimo_pagamento_em: acao.dataPagamento,
+      licenca_inicio: acao.dataPagamento,
+      licenca_fim: new Date('2026-09-08T00:00:00Z'),
+      proxima_cobranca: new Date('2026-09-08T00:00:00Z'),
+    })
+  })
+
+  test('licenca_inicio já preenchido não é sobrescrito por um novo pagamento confirmado', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const licencaInicioOriginal = new Date('2026-01-01T00:00:00Z')
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: licencaInicioOriginal }, 'MONTHLY', agora)
+    assert.equal(resultado.dados !== null && resultado.dados.licenca_inicio, licencaInicioOriginal)
+  })
+
+  test('pagamento confirmado sem NENHUM asaas_status conhecido (null) não ativa por suposição', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: null, licenca_inicio: null }, null, agora)
+    assert.equal(resultado.dados, null)
+    assert.match(resultado.ignorado ?? '', /não é um status de assinatura confiável/)
+  })
+
+  test('pagamento confirmado NÃO reativa quando asaas_status é legado de evento cru (SUBSCRIPTION_DELETED, versão anterior desta correção)', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'SUBSCRIPTION_DELETED', licenca_inicio: null }, 'MONTHLY', agora)
+    assert.equal(resultado.dados, null)
+    assert.match(resultado.ignorado ?? '', /assinatura já registrada como inativa/)
+  })
+
+  test('pagamento confirmado NÃO reativa quando asaas_status é legado de evento cru (SUBSCRIPTION_INACTIVATED)', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'SUBSCRIPTION_INACTIVATED', licenca_inicio: null }, 'MONTHLY', agora)
+    assert.equal(resultado.dados, null)
+  })
+
+  for (const statusPagamentoContaminado of ['CONFIRMED', 'RECEIVED', 'OVERDUE', 'PENDING']) {
+    test(`pagamento confirmado NÃO reativa quando asaas_status ficou contaminado com status de PAGAMENTO ("${statusPagamentoContaminado}", legado do bug corrigido)`, () => {
+      const acao = {
+        tipo: 'pagamento_confirmado' as const,
+        paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+        dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+      }
+      const resultado = calcularAtualizacaoTenant(acao, { asaas_status: statusPagamentoContaminado, licenca_inicio: null }, 'MONTHLY', agora)
+      assert.equal(resultado.dados, null)
+      assert.match(resultado.ignorado ?? '', /não é um status de assinatura confiável/)
+    })
+  }
 })
 
 describe('asaasClient — nunca vaza a API key', () => {
