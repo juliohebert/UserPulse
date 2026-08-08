@@ -22,14 +22,14 @@ function KpiCard({
   value: string | number
 }) {
   return (
-    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md transition-shadow p-5 flex items-center gap-4">
-      <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
-        <span className="material-symbols-outlined text-[22px]">{icon}</span>
-      </span>
-      <div className="min-w-0">
-        <p className="text-headline-md font-bold text-on-surface leading-none">{value}</p>
-        <p className="text-label-md font-semibold text-on-surface-variant mt-1.5 truncate">{label}</p>
+    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:border-primary/40 transition-all p-5 flex flex-col gap-3">
+      <div className="min-w-0 flex items-center gap-2.5">
+        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
+          <span className="material-symbols-outlined text-[19px]">{icon}</span>
+        </span>
+        <p className="text-label-md font-medium text-on-surface-variant truncate">{label}</p>
       </div>
+      <p className="text-headline-md font-bold text-on-surface leading-none">{value}</p>
     </div>
   )
 }

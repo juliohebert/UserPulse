@@ -1609,13 +1609,13 @@ interface KpiCardProps {
 
 function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, tooltip, subTooltip, subExtra }: KpiCardProps) {
   return (
-    <div className="min-w-0 bg-surface-container-lowest p-3.5 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm">
+    <div className="min-w-0 bg-surface-container-lowest p-3.5 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm hover:border-primary/40 transition-colors">
       <div className="flex items-start gap-2.5 sm:gap-3">
-        <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
-          <span className={`material-symbols-outlined ${iconColor} text-[18px] sm:text-[22px]`}>{icon}</span>
+        <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
+          <span className={`material-symbols-outlined ${iconColor} text-[17px] sm:text-[19px]`}>{icon}</span>
         </div>
         <div className="min-w-0">
-          <p className="text-label-md text-outline flex items-center gap-1 truncate">
+          <p className="text-label-md font-medium text-outline flex items-center gap-1 truncate">
             {label}
             {tooltip && (
               <span className="material-symbols-outlined text-[13px] text-outline/50 cursor-help shrink-0" title={tooltip}>
@@ -1626,7 +1626,7 @@ function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, tooltip, s
           <p className={`font-bold text-on-surface leading-none mt-1 truncate ${large ? 'text-title-lg sm:text-display-sm' : 'text-title-lg sm:text-headline-lg'}`}>
             {value}
           </p>
-          <p className="text-label-md text-outline mt-1 flex items-center gap-1">
+          <p className="text-label-md font-medium text-outline mt-1 flex items-center gap-1">
             {sub}
             {subTooltip && (
               <span className="material-symbols-outlined text-[13px] text-outline/50 cursor-help shrink-0" title={subTooltip}>

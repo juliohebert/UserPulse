@@ -73,7 +73,7 @@ module.exports = {
         'secondary-container': '#f3e8fb',
         surface: '#ffffff',
         'on-secondary-container': '#fffbff',
-        background: '#ffffff',
+        background: '#fafafa',
         'on-tertiary-fixed-variant': '#005236',
         'on-tertiary-fixed': '#002113',
       },
