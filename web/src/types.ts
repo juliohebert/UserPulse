@@ -575,6 +575,27 @@ export interface AsaasEventoTenant {
   processado_em: string | null
 }
 
+// Uma cobrança da assinatura Asaas (Fase 3, ver GET .../asaas/payments) —
+// já o recorte normalizado pelo backend (normalizarCobranca em
+// adminTenantsAsaas.ts), nunca o objeto bruto do Asaas.
+export interface CobrancaResumo {
+  id: string
+  status: string
+  value: number
+  dueDate: string
+  paymentDate: string | null
+  invoiceUrl: string | null
+  billingType: string | null
+  description: string | null
+}
+
+// Resposta de GET .../asaas/payments — hasMore indica cobranças além das
+// retornadas (limite fixo no backend, sem paginação real nesta fase).
+export interface CobrancasAsaasResposta {
+  cobrancas: CobrancaResumo[]
+  hasMore: boolean
+}
+
 export interface TenantAdminDetail extends Omit<TenantAdminItem, '_count'> {
   admins: AdminDoTenant[]
 }

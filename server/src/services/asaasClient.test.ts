@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mapearEventoAsaas, calcularProximoVencimento, criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas } from './asaasClient'
+import { mapearEventoAsaas, calcularProximoVencimento, criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas } from './asaasClient'
 
 // Cobertura da Fase 1 da integração Asaas (fundação/sandbox) — só funções
 // puras (mapearEventoAsaas, calcularProximoVencimento) e um teste de
@@ -230,6 +230,91 @@ describe('asaasClient — nunca vaza a API key', () => {
         /não é permitido nesta fase/
       )
     } finally {
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('listarCobrancasAsaas (seção Cobranças, Fase 3) também bloqueia produção', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    process.env.ASAAS_API_KEY = 'qualquer-coisa'
+    process.env.ASAAS_ENV = 'production'
+    try {
+      await assert.rejects(() => listarCobrancasAsaas('sub_1'), /não é permitido nesta fase/)
+    } finally {
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('listarCobrancasAsaas — erro do Asaas é tratado com mensagem clara, sem vazar a API key', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+
+    const SEGREDO = 'segredo-cobrancas-nao-deve-vazar-7c2d'
+    process.env.ASAAS_API_KEY = SEGREDO
+    process.env.ASAAS_ENV = 'sandbox'
+
+    globalThis.fetch = (async () => ({
+      ok: false,
+      status: 404,
+      text: async () => JSON.stringify({ errors: [{ description: 'Assinatura não encontrada' }] }),
+    } as Response)) as typeof fetch
+
+    try {
+      await assert.rejects(
+        () => listarCobrancasAsaas('sub_inexistente'),
+        (err: unknown) => {
+          const mensagem = err instanceof Error ? err.message : String(err)
+          assert.equal(mensagem.includes(SEGREDO), false)
+          assert.match(mensagem, /Assinatura não encontrada/)
+          return true
+        }
+      )
+    } finally {
+      globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('listarCobrancasAsaas — retorna { data, hasMore } (campos do envelope de paginação Asaas)', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+
+    let urlChamada: string | null = null
+    globalThis.fetch = (async (url: unknown) => {
+      urlChamada = String(url)
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          object: 'list', hasMore: true, totalCount: 51,
+          data: [{ id: 'pay_1', status: 'RECEIVED', value: 100, customer: 'cus_1', subscription: 'sub_1', dueDate: '2026-09-08', paymentDate: '2026-08-08' }],
+        }),
+      } as Response
+    }) as typeof fetch
+
+    try {
+      const resultado = await listarCobrancasAsaas('sub_1')
+      assert.equal(resultado.data.length, 1)
+      assert.equal(resultado.data[0].id, 'pay_1')
+      assert.equal(resultado.hasMore, true)
+      assert.match(urlChamada ?? '', /\/payments\?subscription=sub_1/)
+    } finally {
+      globalThis.fetch = fetchOriginal
       if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
       else process.env.ASAAS_API_KEY = apiKeyOriginal
       if (envOriginal === undefined) delete process.env.ASAAS_ENV

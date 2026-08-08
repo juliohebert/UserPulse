@@ -174,11 +174,48 @@ export interface CobrancaAsaas {
   subscription: string | null
   dueDate: string
   paymentDate: string | null
+  billingType?: string
+  description?: string | null
+  invoiceUrl?: string | null
+  bankSlipUrl?: string | null
   [chave: string]: unknown
 }
 
 export async function buscarCobrancaAsaas(id: string): Promise<CobrancaAsaas> {
   return asaasFetch<CobrancaAsaas>(`/payments/${encodeURIComponent(id)}`)
+}
+
+// Envelope de paginação padrão do Asaas pra endpoints de listagem —
+// `totalCount`/`limit`/`offset` ficam de fora da Fase 3 (sem paginação de
+// verdade no painel ainda), mas `hasMore` é repassado pra UI poder avisar
+// que existem cobranças além do limite abaixo, sem precisar paginar.
+interface ListaAsaas<T> {
+  object: 'list'
+  hasMore: boolean
+  totalCount: number
+  data: T[]
+}
+
+// Limite alto o bastante pra cobrir o histórico normal de uma assinatura
+// mensal (~4 anos de cobranças) sem precisar paginar no painel — Fase 3 é
+// só consulta/exibição, sem paginação de verdade ainda.
+const LIMITE_COBRANCAS = 50
+
+export interface CobrancasAsaasResultado {
+  data: CobrancaAsaas[]
+  hasMore: boolean
+}
+
+// Cobranças (histórico de pagamentos) de uma assinatura — usado pela seção
+// "Cobranças" do painel (ver GET /api/admin/tenants/:id/asaas/payments em
+// adminTenantsAsaas.ts). Read-only: nunca cria, altera ou cancela cobrança
+// nenhuma, só lista o que o Asaas já tem. `hasMore` indica se há cobranças
+// além das `LIMITE_COBRANCAS` retornadas (a UI só avisa, não pagina).
+export async function listarCobrancasAsaas(subscriptionId: string): Promise<CobrancasAsaasResultado> {
+  const resposta = await asaasFetch<ListaAsaas<CobrancaAsaas>>(
+    `/payments?subscription=${encodeURIComponent(subscriptionId)}&limit=${LIMITE_COBRANCAS}`
+  )
+  return { data: resposta.data, hasMore: resposta.hasMore }
 }
 
 export async function cancelarAssinaturaAsaas(id: string): Promise<{ deleted: boolean; id: string }> {

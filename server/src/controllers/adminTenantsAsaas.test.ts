@@ -1,6 +1,9 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { extrairDadosBilling, dadosCobrancaAsaas, condicoesEventosAsaas, validarTenantParaSync } from './adminTenantsAsaas'
+import {
+  extrairDadosBilling, dadosCobrancaAsaas, condicoesEventosAsaas, validarTenantParaSync,
+  precisaBuscarCobrancas, normalizarCobranca,
+} from './adminTenantsAsaas'
 
 // Fase 2 da integração Asaas (dados de cobrança/histórico/sync) — só funções
 // puras (sem banco/rede), mesmo padrão de tenantGuards.test.ts. Os fluxos que
@@ -148,5 +151,64 @@ describe('validarTenantParaSync', () => {
 
   test('com asaas_subscription_id, libera (retorna null)', () => {
     assert.equal(validarTenantParaSync({ asaas_subscription_id: 'sub_1' }), null)
+  })
+})
+
+// Fase 3 — seção "Cobranças" da assinatura (ver GET .../asaas/payments).
+
+describe('precisaBuscarCobrancas — rota sem subscription_id', () => {
+  test('sem asaas_subscription_id, não busca (lista vazia sem chamar o Asaas)', () => {
+    assert.equal(precisaBuscarCobrancas({ asaas_subscription_id: null }), false)
+  })
+
+  test('com asaas_subscription_id, busca', () => {
+    assert.equal(precisaBuscarCobrancas({ asaas_subscription_id: 'sub_1' }), true)
+  })
+})
+
+describe('normalizarCobranca — normalização do retorno de cobranças', () => {
+  test('extrai só os campos úteis pro painel', () => {
+    const resumo = normalizarCobranca({
+      id: 'pay_1',
+      status: 'RECEIVED',
+      value: 149.9,
+      customer: 'cus_1',
+      subscription: 'sub_1',
+      dueDate: '2026-09-08',
+      paymentDate: '2026-08-08',
+      billingType: 'BOLETO',
+      description: 'Assinatura mensal',
+      invoiceUrl: 'https://sandbox.asaas.com/i/abc123',
+      bankSlipUrl: 'https://sandbox.asaas.com/b/abc123',
+    })
+    assert.deepEqual(resumo, {
+      id: 'pay_1',
+      status: 'RECEIVED',
+      value: 149.9,
+      dueDate: '2026-09-08',
+      paymentDate: '2026-08-08',
+      invoiceUrl: 'https://sandbox.asaas.com/i/abc123',
+      billingType: 'BOLETO',
+      description: 'Assinatura mensal',
+    })
+  })
+
+  test('sem paymentDate/billingType/description, vira null (nunca undefined)', () => {
+    const resumo = normalizarCobranca({
+      id: 'pay_2', status: 'PENDING', value: 50, customer: 'cus_1', subscription: null,
+      dueDate: '2026-09-08', paymentDate: null,
+    })
+    assert.equal(resumo.paymentDate, null)
+    assert.equal(resumo.billingType, null)
+    assert.equal(resumo.description, null)
+    assert.equal(resumo.invoiceUrl, null)
+  })
+
+  test('sem invoiceUrl, cai pro bankSlipUrl', () => {
+    const resumo = normalizarCobranca({
+      id: 'pay_3', status: 'PENDING', value: 50, customer: 'cus_1', subscription: null,
+      dueDate: '2026-09-08', paymentDate: null, bankSlipUrl: 'https://sandbox.asaas.com/b/xyz',
+    })
+    assert.equal(resumo.invoiceUrl, 'https://sandbox.asaas.com/b/xyz')
   })
 })
