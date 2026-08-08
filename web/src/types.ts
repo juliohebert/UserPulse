@@ -386,6 +386,19 @@ export interface ResultadoElegibilidade {
 export type TenantStatus = 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED' | 'CANCELED'
 export type AdminRole = 'SUPER_ADMIN' | 'ADMIN' | 'EDITOR' | 'VIEWER'
 
+// Mesmos 6 valores de SituacaoComercialTenant em
+// server/src/lib/tenantGuards.ts (obterSituacaoComercialTenant) — já vem
+// calculada em /auth/me, o front nunca recalcula essa regra (que é a mesma
+// que decide bloqueio de escrita no backend), só decide como avisar em
+// cima do valor (ver AvisoComercial.tsx).
+export type SituacaoComercialTenant =
+  | 'trial_ativo'
+  | 'trial_vencido'
+  | 'licenca_ativa'
+  | 'licenca_vencida'
+  | 'suspenso'
+  | 'cancelado'
+
 export interface PlanoResumo {
   id: string
   nome: string
@@ -413,6 +426,8 @@ export interface TenantResumo {
   public_key: string
   status: TenantStatus
   trial_fim: string | null
+  licenca_fim: string | null
+  situacao_comercial: SituacaoComercialTenant
   plano: PlanoResumo | null
 }
 

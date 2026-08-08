@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { AdminRole, Plano, Tenant } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { ADMIN_SESSION_COOKIE, SESSION_MAX_AGE, sessionCookieOptions, signSessionToken } from '../lib/auth'
+import { obterSituacaoComercialTenant } from '../lib/tenantGuards'
 
 // Mesmo custo de hash usado em adminTenants.ts/seedAdmin.ts.
 const SALT_ROUNDS = 10
@@ -24,6 +25,14 @@ function tenantPublico(t: Tenant & { plano: Plano | null }) {
     public_key: t.public_key,
     status: t.status,
     trial_fim: t.trial_fim,
+    // licenca_fim entra aqui pela primeira vez — precisa junto com status
+    // pro front montar o banner de aviso de vencimento (ver
+    // web/src/components/layout/AvisoComercial.tsx). situacao_comercial é
+    // a mesma decisão pura que já bloqueia escrita no backend
+    // (obterSituacaoComercialTenant, ver tenantGuards.ts) — o front nunca
+    // recalcula essa regra sozinho, só lê o valor já calculado aqui.
+    licenca_fim: t.licenca_fim,
+    situacao_comercial: obterSituacaoComercialTenant(t),
     plano: t.plano && {
       id: t.plano.id,
       nome: t.plano.nome,
