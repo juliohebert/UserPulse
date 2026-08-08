@@ -122,6 +122,7 @@ function CampanhaCard({
         <button
           onClick={() => navigate(`/campanhas/${c.id}/preview`)}
           title="Preview"
+          aria-label={`Abrir preview de ${c.titulo}`}
           className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-primary-fixed`}
         >
           <span className="material-symbols-outlined text-[20px]">visibility</span>
@@ -130,6 +131,7 @@ function CampanhaCard({
         <button
           onClick={() => onCopyEmbed(c)}
           title="Copiar embed"
+          aria-label={`Copiar embed de ${c.titulo}`}
           className={`${actionBtn} ${
             copied ? 'text-tertiary bg-tertiary/10' : 'text-on-surface-variant hover:text-primary hover:bg-surface-container-high'
           }`}
@@ -141,6 +143,7 @@ function CampanhaCard({
           <button
             onClick={() => navigate(`/campanhas/${c.id}/editar`)}
             title="Editar"
+            aria-label={`Editar ${c.titulo}`}
             className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-surface-container-high`}
           >
             <span className="material-symbols-outlined text-[20px]">edit</span>
@@ -150,6 +153,7 @@ function CampanhaCard({
         <button
           onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
           title="Ver Dashboard"
+          aria-label={`Abrir dashboard de ${c.titulo}`}
           className={`${actionBtn} text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed`}
         >
           <span className="material-symbols-outlined text-[20px]">query_stats</span>
@@ -160,6 +164,7 @@ function CampanhaCard({
             <button
               onClick={() => onInativar(c.id)}
               title="Inativar"
+              aria-label={`Inativar ${c.titulo}`}
               className={`${actionBtn} text-on-surface-variant hover:text-error hover:bg-error-container`}
             >
               <span className="material-symbols-outlined text-[20px]">block</span>
@@ -169,6 +174,7 @@ function CampanhaCard({
             <button
               onClick={() => onReativar(c.id)}
               title="Reativar"
+              aria-label={`Reativar ${c.titulo}`}
               className={`${actionBtn} text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10`}
             >
               <span className="material-symbols-outlined text-[20px]">check_circle</span>
@@ -668,6 +674,7 @@ export function CampanhasIndex() {
                               <button
                                 onClick={() => navigate(`/campanhas/${c.id}/preview`)}
                                 title="Preview"
+                                aria-label={`Abrir preview de ${c.titulo}`}
                                 className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded-full transition-all"
                               >
                                 <span className="material-symbols-outlined text-[18px]">visibility</span>
@@ -675,6 +682,7 @@ export function CampanhasIndex() {
                               <button
                                 onClick={() => handleCopyEmbed(c)}
                                 title="Copiar embed"
+                                aria-label={`Copiar embed de ${c.titulo}`}
                                 className={`p-2 rounded-full transition-all ${
                                   copiedId === c.id
                                     ? 'text-tertiary bg-tertiary/10'
@@ -689,6 +697,7 @@ export function CampanhasIndex() {
                                 <button
                                   onClick={() => navigate(`/campanhas/${c.id}/editar`)}
                                   title="Editar"
+                                  aria-label={`Editar ${c.titulo}`}
                                   className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all"
                                 >
                                   <span className="material-symbols-outlined text-[18px]">edit</span>
@@ -697,6 +706,7 @@ export function CampanhasIndex() {
                               <button
                                 onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
                                 title="Ver Dashboard"
+                                aria-label={`Abrir dashboard de ${c.titulo}`}
                                 className="p-2 text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed rounded-full transition-all"
                               >
                                 <span className="material-symbols-outlined text-[18px]">query_stats</span>
@@ -706,6 +716,7 @@ export function CampanhasIndex() {
                                   <button
                                     onClick={() => handleInativar(c.id)}
                                     title="Inativar"
+                                    aria-label={`Inativar ${c.titulo}`}
                                     className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-full transition-all"
                                   >
                                     <span className="material-symbols-outlined text-[18px]">block</span>
@@ -714,6 +725,7 @@ export function CampanhasIndex() {
                                   <button
                                     onClick={() => handleReativar(c.id)}
                                     title="Reativar"
+                                    aria-label={`Reativar ${c.titulo}`}
                                     className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-full transition-all"
                                   >
                                     <span className="material-symbols-outlined text-[18px]">check_circle</span>
@@ -842,7 +854,7 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
   return (
     <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-label-md border border-primary/20">
       {label}
-      <button onClick={onRemove} className="ml-0.5 hover:text-error transition-colors">
+      <button onClick={onRemove} title={`Remover filtro ${label}`} aria-label={`Remover filtro ${label}`} className="ml-0.5 hover:text-error transition-colors">
         <span className="material-symbols-outlined text-[14px] leading-none">close</span>
       </button>
     </span>

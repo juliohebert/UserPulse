@@ -467,6 +467,7 @@ export function JornadaForm() {
                           onClick={() => moveBloco(bi, -1)}
                           disabled={bi === 0}
                           title="Mover para cima"
+                          aria-label={`Mover pacote ${bi + 1} para cima`}
                           className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                         >
                           <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
@@ -476,6 +477,7 @@ export function JornadaForm() {
                           onClick={() => moveBloco(bi, 1)}
                           disabled={bi === blocos.length - 1}
                           title="Mover para baixo"
+                          aria-label={`Mover pacote ${bi + 1} para baixo`}
                           className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                         >
                           <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
@@ -484,6 +486,7 @@ export function JornadaForm() {
                           type="button"
                           onClick={() => removeBloco(bi)}
                           title="Remover pacote"
+                          aria-label={`Remover pacote ${bi + 1}`}
                           className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors"
                         >
                           <span className="material-symbols-outlined text-[16px]">delete</span>
@@ -562,6 +565,7 @@ export function JornadaForm() {
                                     onClick={() => moveEtapa(bi, ei, -1)}
                                     disabled={ei === 0}
                                     title="Mover para cima"
+                                    aria-label={`Mover etapa ${ei + 1} para cima`}
                                     className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                                   >
                                     <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
@@ -571,6 +575,7 @@ export function JornadaForm() {
                                     onClick={() => moveEtapa(bi, ei, 1)}
                                     disabled={ei === bloco.etapas.length - 1}
                                     title="Mover para baixo"
+                                    aria-label={`Mover etapa ${ei + 1} para baixo`}
                                     className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                                   >
                                     <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
@@ -579,6 +584,7 @@ export function JornadaForm() {
                                     type="button"
                                     onClick={() => removeEtapa(bi, ei)}
                                     title="Remover etapa"
+                                    aria-label={`Remover etapa ${ei + 1}`}
                                     className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors"
                                   >
                                     <span className="material-symbols-outlined text-[16px]">delete</span>

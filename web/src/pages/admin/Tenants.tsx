@@ -814,6 +814,7 @@ export function AdminTenantsIndex() {
                       <button
                         onClick={() => abrirEditar(tenant)}
                         title="Editar"
+                        aria-label={`Editar ${tenant.nome}`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[18px]">edit</span>
@@ -821,6 +822,7 @@ export function AdminTenantsIndex() {
                       <button
                         onClick={() => abrirAcessos(tenant)}
                         title="Acessos"
+                        aria-label={`Gerenciar acessos de ${tenant.nome}`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[18px]">group</span>
@@ -828,6 +830,7 @@ export function AdminTenantsIndex() {
                       <button
                         onClick={() => abrirAsaas(tenant)}
                         title="Cobrança Asaas"
+                        aria-label={`Abrir cobrança Asaas de ${tenant.nome}`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[18px]">payments</span>
@@ -837,6 +840,7 @@ export function AdminTenantsIndex() {
                           onClick={() => pedirMudarStatus(tenant, 'SUSPENDED')}
                           disabled={mudandoStatus === tenant.id}
                           title="Suspender"
+                          aria-label={`Suspender ${tenant.nome}`}
                           className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-50"
                         >
                           <span className="material-symbols-outlined text-[18px]">pause_circle</span>
@@ -847,6 +851,7 @@ export function AdminTenantsIndex() {
                           onClick={() => pedirMudarStatus(tenant, 'ACTIVE')}
                           disabled={mudandoStatus === tenant.id}
                           title="Reativar"
+                          aria-label={`Reativar ${tenant.nome}`}
                           className="p-1.5 rounded-lg text-tertiary hover:bg-tertiary/10 transition-colors disabled:opacity-50"
                         >
                           <span className="material-symbols-outlined text-[18px]">play_circle</span>
@@ -857,6 +862,7 @@ export function AdminTenantsIndex() {
                           onClick={() => pedirMudarStatus(tenant, 'CANCELED')}
                           disabled={mudandoStatus === tenant.id}
                           title="Cancelar"
+                          aria-label={`Cancelar ${tenant.nome}`}
                           className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-50"
                         >
                           <span className="material-symbols-outlined text-[18px]">cancel</span>
@@ -879,7 +885,7 @@ export function AdminTenantsIndex() {
           <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-outline-variant">
               <h3 className="text-title-md font-bold text-on-surface">{editando ? 'Editar Cliente' : 'Novo Cliente'}</h3>
-              <button onClick={fecharForm} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
+              <button onClick={fecharForm} title="Fechar" aria-label="Fechar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
@@ -1042,7 +1048,7 @@ export function AdminTenantsIndex() {
           <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-outline-variant">
               <h3 className="text-title-md font-bold text-on-surface">Acessos — {acessosModalTenant.nome}</h3>
-              <button onClick={fecharAcessos} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
+              <button onClick={fecharAcessos} title="Fechar" aria-label="Fechar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
@@ -1162,6 +1168,7 @@ export function AdminTenantsIndex() {
                         <button
                           onClick={() => abrirEditarAcesso(acesso)}
                           title="Editar"
+                          aria-label={`Editar acesso de ${acesso.nome}`}
                           className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                         >
                           <span className="material-symbols-outlined text-[18px]">edit</span>
@@ -1169,6 +1176,7 @@ export function AdminTenantsIndex() {
                         <button
                           onClick={() => abrirResetSenha(acesso)}
                           title="Resetar senha"
+                          aria-label={`Resetar senha de ${acesso.nome}`}
                           className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                         >
                           <span className="material-symbols-outlined text-[18px]">lock_reset</span>
@@ -1177,6 +1185,7 @@ export function AdminTenantsIndex() {
                           onClick={() => pedirAlternarAtivoAcesso(acesso)}
                           disabled={togglingAcesso === acesso.id}
                           title={acesso.ativo ? 'Desativar' : 'Ativar'}
+                          aria-label={`${acesso.ativo ? 'Desativar' : 'Ativar'} acesso de ${acesso.nome}`}
                           className={`p-1.5 rounded-lg transition-colors disabled:opacity-50 ${acesso.ativo ? 'text-error hover:bg-error-container' : 'text-tertiary hover:bg-tertiary/10'}`}
                         >
                           <span className="material-symbols-outlined text-[18px]">{acesso.ativo ? 'block' : 'check_circle'}</span>
@@ -1202,7 +1211,7 @@ export function AdminTenantsIndex() {
           <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-outline-variant">
               <h3 className="text-title-md font-bold text-on-surface">Cobrança Asaas — {asaasModalTenant.nome}</h3>
-              <button onClick={fecharAsaas} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
+              <button onClick={fecharAsaas} title="Fechar" aria-label="Fechar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
@@ -1454,7 +1463,7 @@ export function AdminTenantsIndex() {
           <div className="bg-surface rounded-2xl shadow-xl w-full max-w-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
               <h3 className="text-title-md font-bold text-on-surface">Resetar senha</h3>
-              <button onClick={fecharResetSenha} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
+              <button onClick={fecharResetSenha} title="Fechar" aria-label="Fechar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>

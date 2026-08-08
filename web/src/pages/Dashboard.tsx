@@ -507,15 +507,15 @@ export function Dashboard() {
                                 <td className="px-5 py-4">
                                   <div className="flex items-center justify-end gap-0.5 opacity-50 group-hover:opacity-100 transition-opacity">
                                     {podeEscrever && (
-                                      <button onClick={() => navigate(`/campanhas/${c.id}/editar`)} title="Editar" className="p-2 text-on-surface-variant hover:text-primary rounded-lg transition-colors">
+                                      <button onClick={() => navigate(`/campanhas/${c.id}/editar`)} title="Editar" aria-label={`Editar ${c.titulo}`} className="p-2 text-on-surface-variant hover:text-primary rounded-lg transition-colors">
                                         <span className="material-symbols-outlined text-[18px]">edit</span>
                                       </button>
                                     )}
-                                    <button onClick={() => navigate(`/campanhas/${c.id}/dashboard`)} title="Dashboard" className="p-2 text-on-surface-variant hover:text-secondary rounded-lg transition-colors">
+                                    <button onClick={() => navigate(`/campanhas/${c.id}/dashboard`)} title="Dashboard" aria-label={`Abrir dashboard de ${c.titulo}`} className="p-2 text-on-surface-variant hover:text-secondary rounded-lg transition-colors">
                                       <span className="material-symbols-outlined text-[18px]">query_stats</span>
                                     </button>
                                     {podeEscrever && (
-                                      <button onClick={() => handleInativar(c.id)} title="Inativar" className="p-2 text-on-surface-variant hover:text-error rounded-lg transition-colors">
+                                      <button onClick={() => handleInativar(c.id)} title="Inativar" aria-label={`Inativar ${c.titulo}`} className="p-2 text-on-surface-variant hover:text-error rounded-lg transition-colors">
                                         <span className="material-symbols-outlined text-[18px]">block</span>
                                       </button>
                                     )}

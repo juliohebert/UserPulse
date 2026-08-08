@@ -1687,6 +1687,7 @@ export function TourForm() {
                         onClick={() => movePasso(i, -1)}
                         disabled={i === 0}
                         title="Mover para cima"
+                        aria-label={`Mover passo ${i + 1} para cima`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
@@ -1696,6 +1697,7 @@ export function TourForm() {
                         onClick={() => movePasso(i, 1)}
                         disabled={i === passos.length - 1}
                         title="Mover para baixo"
+                        aria-label={`Mover passo ${i + 1} para baixo`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
@@ -1704,6 +1706,7 @@ export function TourForm() {
                         type="button"
                         onClick={() => duplicarPasso(i)}
                         title="Duplicar passo"
+                        aria-label={`Duplicar passo ${i + 1}`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[16px]">content_copy</span>
@@ -1713,6 +1716,7 @@ export function TourForm() {
                         onClick={() => removePasso(i)}
                         disabled={passos.length === 1}
                         title="Remover passo"
+                        aria-label={`Remover passo ${i + 1}`}
                         className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">delete</span>

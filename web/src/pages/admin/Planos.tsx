@@ -341,7 +341,7 @@ export function AdminPlanosIndex() {
                   {!plano.ativo && !plano.interno && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-outline-variant/30 text-outline">Inativo</span>
                   )}
-                  <button onClick={() => abrirEditar(plano)} title="Editar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
+                  <button onClick={() => abrirEditar(plano)} title="Editar" aria-label={`Editar ${plano.nome}`} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                     <span className="material-symbols-outlined text-[18px]">edit</span>
                   </button>
                 </div>
@@ -408,7 +408,7 @@ export function AdminPlanosIndex() {
           <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
               <h3 className="text-title-md font-bold text-on-surface">{editando ? 'Editar Plano' : 'Novo Plano'}</h3>
-              <button onClick={fecharForm} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
+              <button onClick={fecharForm} title="Fechar" aria-label="Fechar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>

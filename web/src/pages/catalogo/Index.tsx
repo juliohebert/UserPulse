@@ -248,6 +248,8 @@ export function CatalogoTelasIndex() {
         {busca && (
           <button
             onClick={() => setBusca('')}
+            title="Limpar busca"
+            aria-label="Limpar busca"
             className="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface"
           >
             <span className="material-symbols-outlined text-[18px]">close</span>
@@ -321,6 +323,7 @@ export function CatalogoTelasIndex() {
                       <button
                         onClick={() => openEditar(tela)}
                         title="Editar"
+                        aria-label={`Editar ${tela.nome}`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[18px]">edit</span>
@@ -344,6 +347,8 @@ export function CatalogoTelasIndex() {
               </h3>
               <button
                 onClick={fecharForm}
+                title="Fechar"
+                aria-label="Fechar"
                 className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>

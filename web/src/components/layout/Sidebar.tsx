@@ -82,6 +82,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         <button
           onClick={onToggle}
           title="Recolher sidebar"
+          aria-label="Recolher sidebar"
           className={`p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors shrink-0 ${collapsed ? 'hidden' : 'hidden md:flex'}`}
         >
           <span className="material-symbols-outlined text-[20px]">chevron_left</span>
@@ -91,6 +92,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
       <button
         onClick={onToggle}
         title="Expandir sidebar"
+        aria-label="Expandir sidebar"
         className={`mb-4 mx-auto p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors ${collapsed ? 'hidden md:block' : 'hidden'}`}
       >
         <span className="material-symbols-outlined text-[20px]">chevron_right</span>
@@ -109,6 +111,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
           type="button"
           onClick={() => logout()}
           title="Sair"
+          aria-label="Sair"
           className={`w-full flex items-center justify-center ${!collapsed ? 'md:justify-start md:gap-3' : ''} px-3 py-2.5 rounded-xl text-error hover:bg-error-container transition-colors`}
         >
           <span className="material-symbols-outlined">logout</span>

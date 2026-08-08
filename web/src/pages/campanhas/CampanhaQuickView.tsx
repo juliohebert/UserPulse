@@ -55,6 +55,7 @@ export function CampanhaQuickView({ campanha, onClose }: Props) {
             </button>
             <button
               onClick={onClose}
+              title="Fechar"
               className="ml-1 p-1.5 rounded-lg text-outline hover:text-on-surface hover:bg-surface-container-high transition-colors"
               aria-label="Fechar"
             >

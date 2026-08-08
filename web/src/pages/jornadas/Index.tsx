@@ -373,7 +373,7 @@ function JornadaActions({ jornada, navigate, excluindoId, onExcluir, podeEscreve
   return (
     <>
       {podeEscrever && (
-        <button onClick={() => navigate(`/jornadas/${jornada.id}/editar`)} title="Editar" className={btnCls}>
+        <button onClick={() => navigate(`/jornadas/${jornada.id}/editar`)} title="Editar" aria-label={`Editar ${jornada.titulo}`} className={btnCls}>
           <span className="material-symbols-outlined text-[18px]">edit</span>
         </button>
       )}
@@ -382,6 +382,7 @@ function JornadaActions({ jornada, navigate, excluindoId, onExcluir, podeEscreve
           onClick={() => onExcluir(jornada)}
           disabled={excluindoId === jornada.id}
           title="Remover"
+          aria-label={`Remover ${jornada.titulo}`}
           className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
         >
           <span className={`material-symbols-outlined text-[18px] ${excluindoId === jornada.id ? 'animate-spin' : ''}`}>
