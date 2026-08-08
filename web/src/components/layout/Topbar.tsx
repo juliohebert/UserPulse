@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import type { TenantStatus } from '../../types'
+import type { AdminUser } from '../../types'
 
 interface Props {
   collapsed: boolean
@@ -18,23 +18,36 @@ function iniciais(nome: string): string {
 
 // Aviso simples de estado da conta (ver contexto SaaS multi-tenant) — nada de
 // tela de billing/checkout ainda, só sinalizar quando a conta não está 100%
-// operacional. ACTIVE não mostra nada (estado normal, sem ruído visual).
-function badgeStatusTenant(status: TenantStatus, trialFim: string | null): { label: string; className: string } | null {
-  if (status === 'TRIAL') {
-    const dias = trialFim ? Math.max(0, Math.ceil((new Date(trialFim).getTime() - Date.now()) / 86400000)) : null
-    return { label: dias != null ? `Teste grátis · ${dias}d` : 'Teste grátis', className: 'bg-primary/10 text-primary' }
+// operacional. Baseado em situacao_comercial (calculada no backend, ver
+// obterSituacaoComercialTenant em server/src/lib/tenantGuards.ts) em vez de
+// só `status` — trial_ativo/licenca_ativa não mostram nada (estado normal,
+// sem ruído visual); o aviso mais completo de "vence em X dias"/vencido fica
+// a cargo do banner (ver AvisoComercial.tsx), este badge é só um resumo
+// compacto sempre visível no topo.
+function badgeStatusTenant(tenant: AdminUser['tenant']): { label: string; className: string } | null {
+  switch (tenant.situacao_comercial) {
+    case 'trial_ativo': {
+      const dias = tenant.trial_fim ? Math.max(0, Math.ceil((new Date(tenant.trial_fim).getTime() - Date.now()) / 86400000)) : null
+      return { label: dias != null ? `Teste grátis · ${dias}d` : 'Teste grátis', className: 'bg-primary/10 text-primary' }
+    }
+    case 'trial_vencido':
+      return { label: 'Teste expirado', className: 'bg-error-container text-error' }
+    case 'licenca_vencida':
+      return { label: 'Licença vencida', className: 'bg-error-container text-error' }
+    case 'suspenso':
+      return { label: 'Conta suspensa', className: 'bg-error-container text-error' }
+    case 'cancelado':
+      return { label: 'Conta cancelada', className: 'bg-outline-variant/30 text-outline' }
+    default:
+      return null // licenca_ativa
   }
-  if (status === 'EXPIRED') return { label: 'Teste expirado', className: 'bg-error-container text-error' }
-  if (status === 'SUSPENDED') return { label: 'Conta suspensa', className: 'bg-error-container text-error' }
-  if (status === 'CANCELED') return { label: 'Conta cancelada', className: 'bg-outline-variant/30 text-outline' }
-  return null
 }
 
 export function Topbar({ collapsed }: Props) {
   const [search, setSearch] = useState('')
   const navigate = useNavigate()
   const { user } = useAuth()
-  const badge = user ? badgeStatusTenant(user.tenant.status, user.tenant.trial_fim) : null
+  const badge = user ? badgeStatusTenant(user.tenant) : null
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
