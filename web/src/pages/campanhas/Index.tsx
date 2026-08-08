@@ -36,17 +36,17 @@ function KpiCard({
   value: string | number
 }) {
   return (
-    <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all p-3.5 sm:p-5 flex items-center gap-2.5 sm:gap-4">
-      <span className={`w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
-        <span className="material-symbols-outlined text-[18px] sm:text-[24px]">{icon}</span>
-      </span>
-      <div className="min-w-0">
-        <p className="text-title-lg sm:text-headline-md font-bold text-on-surface leading-none truncate">{value}</p>
-        <p className="text-label-md font-semibold text-on-surface-variant mt-1.5 truncate">
+    <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:border-primary/40 hover:-translate-y-0.5 transition-all p-3.5 sm:p-5 flex flex-col gap-3">
+      <div className="min-w-0 flex items-center gap-2.5">
+        <span className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
+          <span className="material-symbols-outlined text-[17px] sm:text-[19px]">{icon}</span>
+        </span>
+        <p className="min-w-0 text-label-md font-medium text-on-surface-variant truncate">
           <span className="lg:hidden">{shortLabel}</span>
           <span className="hidden lg:inline">{label}</span>
         </p>
       </div>
+      <p className="text-title-lg sm:text-headline-md font-bold text-on-surface leading-none truncate">{value}</p>
     </div>
   )
 }

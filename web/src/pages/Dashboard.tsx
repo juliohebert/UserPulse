@@ -23,14 +23,20 @@ function KpiCard({
   hintColor?: string
 }) {
   return (
-    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col gap-4">
-      <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
-        <span className="material-symbols-outlined text-[20px]">{icon}</span>
-      </span>
-      <div>
+    <div className="min-h-[164px] bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:border-primary/40 transition-all p-5 flex flex-col">
+      <div className="flex min-h-10 items-center gap-2.5">
+        <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
+          <span className="material-symbols-outlined text-[18px]">{icon}</span>
+        </span>
+        <p className="text-label-md font-medium text-on-surface-variant leading-tight">{label}</p>
+      </div>
+      <div className="mt-4 flex flex-1 flex-col">
         <p className="text-headline-lg font-bold text-on-surface leading-none">{value}</p>
-        <p className="text-label-md font-semibold text-on-surface-variant mt-2">{label}</p>
-        {hint && <p className={`text-[11px] mt-1 ${hintColor ?? 'text-outline'}`}>{hint}</p>}
+        {hint ? (
+          <p className={`mt-auto min-h-5 text-[13px] font-medium leading-5 ${hintColor ?? 'text-outline'}`}>{hint}</p>
+        ) : (
+          <span className="mt-auto min-h-5" aria-hidden="true" />
+        )}
       </div>
     </div>
   )
@@ -331,14 +337,14 @@ export function Dashboard() {
             <div className="flex flex-wrap gap-3 shrink-0">
               <button
                 onClick={() => navigate('/campanhas/nova')}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white text-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95"
+                className="flex items-center gap-2 px-5 py-2.5 bg-white text-primary rounded-xl text-label-md font-bold shadow-md hover:scale-[1.03] active:scale-95 transition-transform duration-200 ease-out"
               >
                 <span className="material-symbols-outlined text-[18px]">add</span>
                 Nova campanha
               </button>
               <button
                 onClick={() => navigate('/tours/gravador')}
-                className="flex items-center gap-2 px-5 py-2.5 border border-white/40 text-on-primary rounded-xl text-label-md font-bold hover:bg-white/10 transition-colors active:scale-95"
+                className="flex items-center gap-2 px-5 py-2.5 bg-white text-error rounded-xl text-label-md font-bold shadow-md hover:scale-[1.03] active:scale-95 transition-transform duration-200 ease-out"
               >
                 <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
                 Gravar fluxo
