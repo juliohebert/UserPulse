@@ -35,6 +35,10 @@ export function formatDateTime(iso: string | null | undefined): string {
   return `${date} ${time}`
 }
 
+export function formatarValorReais(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
 export function toInputDate(iso: string | null): string {
   if (!iso) return ''
   return iso.slice(0, 10)

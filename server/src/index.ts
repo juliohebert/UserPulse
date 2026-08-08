@@ -15,6 +15,7 @@ import authRouter from './routes/auth'
 import adminTenantsRouter from './routes/adminTenants'
 import adminPlanosRouter from './routes/adminPlanos'
 import webhooksAsaasRouter from './routes/webhooksAsaas'
+import billingRouter from './routes/billing'
 import { requireAdminAuth } from './middleware/requireAdminAuth'
 import { requireSuperAdmin } from './middleware/requireSuperAdmin'
 import { getSessionSecret } from './lib/auth'
@@ -116,6 +117,10 @@ app.use('/api/jornadas', corsAdmin, requireAdminAuth, jornadasRouter)
 app.use('/api/aparencia-widget', corsAdmin, requireAdminAuth, aparenciaWidgetRouter)
 app.use('/api/widget', corsWidget, widgetRouter)
 app.use('/api/dashboard', corsAdmin, requireAdminAuth, dashboardRouter)
+// Fase 5 — "Minha assinatura" self-service. Guard de papel (ADMIN-only)
+// fica dentro do router, em cada rota (ver routes/billing.ts) — igual ao
+// padrão de /api/aparencia-widget acima.
+app.use('/api/billing', corsAdmin, requireAdminAuth, billingRouter)
 // Painel Super Admin (gerenciar Tenants/Planos/teste grátis) — cross-tenant
 // de propósito, por isso vem depois de requireSuperAdmin, nunca só
 // requireAdminAuth como as demais rotas admin acima.

@@ -1,6 +1,11 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mapearEventoAsaas, calcularProximoVencimento, calcularAtualizacaoTenant, calcularSituacaoAsaas, criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas } from './asaasClient'
+import {
+  mapearEventoAsaas, calcularProximoVencimento, calcularAtualizacaoTenant, calcularSituacaoAsaas,
+  validarPlanoParaAssinaturaSelfService, validarCobrancaParaRegularizacao, bloqueioOperacaoFinanceiraSelfService,
+  criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas,
+  atualizarBillingTypeCobrancaAsaas,
+} from './asaasClient'
 import type { AssinaturaAsaas, CobrancaAsaas } from './asaasClient'
 
 // Cobertura da Fase 1 da integração Asaas (fundação/sandbox) — só funções
@@ -155,7 +160,7 @@ describe('calcularAtualizacaoTenant', () => {
       dataPagamento: new Date('2026-08-08T00:00:00Z'),
       dataVencimento: new Date('2026-08-08T00:00:00Z'),
     }
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
     assert.equal(resultado.dados !== null && 'asaas_status' in resultado.dados, false)
   })
 
@@ -164,13 +169,36 @@ describe('calcularAtualizacaoTenant', () => {
       tipo: 'pagamento_vencido' as const,
       paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'OVERDUE',
     }
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
     assert.deepEqual(resultado.dados, { asaas_ultima_sincronizacao: agora })
   })
 
   test('SUBSCRIPTION_DELETED/INACTIVATED grava asaas_status="INACTIVE" (nunca o nome bruto do evento)', () => {
     const acao = { tipo: 'assinatura_cancelada' as const, subscriptionId: 'sub_1', customerId: 'cus_1', asaasStatus: 'SUBSCRIPTION_DELETED' }
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
+    assert.deepEqual(resultado.dados, { asaas_status: 'INACTIVE', asaas_ultima_sincronizacao: agora, status: 'SUSPENDED' })
+  })
+
+  // ─── Correção de segurança pós-revisão: CANCELED nunca é rebaixado por
+  // automação Asaas (SUBSCRIPTION_DELETED/INACTIVATED atrasado/reentregue) ─
+
+  test('CANCELED + SUBSCRIPTION_DELETED -> permanece sem alteração (nunca vira SUSPENDED)', () => {
+    const acao = { tipo: 'assinatura_cancelada' as const, subscriptionId: 'sub_1', customerId: 'cus_1', asaasStatus: 'SUBSCRIPTION_DELETED' }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'CANCELED' }, 'MONTHLY', agora)
+    assert.equal(resultado.dados, null)
+    assert.match(resultado.ignorado ?? '', /já está CANCELED/)
+  })
+
+  test('CANCELED + SUBSCRIPTION_INACTIVATED -> permanece sem alteração (nunca vira SUSPENDED)', () => {
+    const acao = { tipo: 'assinatura_cancelada' as const, subscriptionId: 'sub_1', customerId: 'cus_1', asaasStatus: 'SUBSCRIPTION_INACTIVATED' }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'CANCELED' }, 'MONTHLY', agora)
+    assert.equal(resultado.dados, null)
+    assert.match(resultado.ignorado ?? '', /já está CANCELED/)
+  })
+
+  test('ACTIVE + SUBSCRIPTION_INACTIVATED -> continua virando SUSPENDED (comportamento preservado pra quem não é CANCELED)', () => {
+    const acao = { tipo: 'assinatura_cancelada' as const, subscriptionId: 'sub_1', customerId: 'cus_1', asaasStatus: 'SUBSCRIPTION_INACTIVATED' }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
     assert.deepEqual(resultado.dados, { asaas_status: 'INACTIVE', asaas_ultima_sincronizacao: agora, status: 'SUSPENDED' })
   })
 
@@ -180,7 +208,7 @@ describe('calcularAtualizacaoTenant', () => {
       paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
       dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
     }
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'INACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'INACTIVE', licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
     assert.equal(resultado.dados, null)
     assert.match(resultado.ignorado ?? '', /assinatura já registrada como inativa/)
   })
@@ -191,7 +219,7 @@ describe('calcularAtualizacaoTenant', () => {
       paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
       dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
     }
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'EXPIRED', licenca_inicio: null }, 'MONTHLY', agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'EXPIRED', licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
     assert.equal(resultado.dados, null)
   })
 
@@ -202,7 +230,7 @@ describe('calcularAtualizacaoTenant', () => {
       dataPagamento: new Date('2026-08-08T00:00:00Z'),
       dataVencimento: new Date('2026-08-08T00:00:00Z'),
     }
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null }, 'MONTHLY', agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
     assert.deepEqual(resultado.dados, {
       asaas_ultima_sincronizacao: agora,
       status: 'ACTIVE',
@@ -220,7 +248,7 @@ describe('calcularAtualizacaoTenant', () => {
       dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
     }
     const licencaInicioOriginal = new Date('2026-01-01T00:00:00Z')
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: licencaInicioOriginal }, 'MONTHLY', agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: licencaInicioOriginal, status: 'ACTIVE' }, 'MONTHLY', agora)
     assert.equal(resultado.dados !== null && resultado.dados.licenca_inicio, licencaInicioOriginal)
   })
 
@@ -230,7 +258,7 @@ describe('calcularAtualizacaoTenant', () => {
       paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
       dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
     }
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: null, licenca_inicio: null }, null, agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: null, licenca_inicio: null, status: 'ACTIVE' }, null, agora)
     assert.equal(resultado.dados, null)
     assert.match(resultado.ignorado ?? '', /não é um status de assinatura confiável/)
   })
@@ -241,7 +269,7 @@ describe('calcularAtualizacaoTenant', () => {
       paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
       dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
     }
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'SUBSCRIPTION_DELETED', licenca_inicio: null }, 'MONTHLY', agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'SUBSCRIPTION_DELETED', licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
     assert.equal(resultado.dados, null)
     assert.match(resultado.ignorado ?? '', /assinatura já registrada como inativa/)
   })
@@ -252,7 +280,7 @@ describe('calcularAtualizacaoTenant', () => {
       paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
       dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
     }
-    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'SUBSCRIPTION_INACTIVATED', licenca_inicio: null }, 'MONTHLY', agora)
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'SUBSCRIPTION_INACTIVATED', licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
     assert.equal(resultado.dados, null)
   })
 
@@ -263,11 +291,58 @@ describe('calcularAtualizacaoTenant', () => {
         paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
         dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
       }
-      const resultado = calcularAtualizacaoTenant(acao, { asaas_status: statusPagamentoContaminado, licenca_inicio: null }, 'MONTHLY', agora)
+      const resultado = calcularAtualizacaoTenant(acao, { asaas_status: statusPagamentoContaminado, licenca_inicio: null, status: 'ACTIVE' }, 'MONTHLY', agora)
       assert.equal(resultado.dados, null)
       assert.match(resultado.ignorado ?? '', /não é um status de assinatura confiável/)
     })
   }
+
+  // ─── Correção de segurança pós-revisão: Tenant.status agora tem prioridade
+  // sobre asaas_status pra pagamento_confirmado ────────────────────────────
+
+  test('SUSPENDED + asaas_status ACTIVE + pagamento confirmado -> NÃO ativa (bloqueio incondicional)', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'SUSPENDED' }, 'MONTHLY', agora)
+    assert.equal(resultado.dados, null)
+    assert.match(resultado.ignorado ?? '', /tenant está SUSPENDED/)
+  })
+
+  test('CANCELED + asaas_status ACTIVE + pagamento confirmado -> NÃO ativa (bloqueio incondicional)', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'CANCELED' }, 'MONTHLY', agora)
+    assert.equal(resultado.dados, null)
+    assert.match(resultado.ignorado ?? '', /tenant está CANCELED/)
+  })
+
+  test('EXPIRED + asaas_status ACTIVE + pagamento confirmado -> continua renovando normalmente', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'),
+      dataVencimento: new Date('2026-08-08T00:00:00Z'),
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'EXPIRED' }, 'MONTHLY', agora)
+    assert.equal(resultado.dados !== null && resultado.dados.status, 'ACTIVE')
+    assert.equal(resultado.dados !== null && resultado.dados.licenca_fim?.toISOString().slice(0, 10), '2026-09-08')
+  })
+
+  test('TRIAL + asaas_status ACTIVE + pagamento confirmado -> continua ativando normalmente', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'TRIAL' }, 'MONTHLY', agora)
+    assert.equal(resultado.dados !== null && resultado.dados.status, 'ACTIVE')
+  })
 })
 
 describe('calcularSituacaoAsaas', () => {
@@ -360,6 +435,67 @@ describe('calcularSituacaoAsaas', () => {
     const resultado = calcularSituacaoAsaas({ tipo: 'dados', assinatura: assinatura('PENDING'), cobrancas: [], hasMore: false })
     assert.equal(resultado.decisao, 'INDETERMINADO')
     assert.equal(resultado.statusAssinatura, 'PENDING')
+  })
+})
+
+describe('validarPlanoParaAssinaturaSelfService (Fase 5)', () => {
+  test('plano nulo é bloqueado', () => {
+    assert.match(validarPlanoParaAssinaturaSelfService(null) ?? '', /sem plano vinculado/)
+  })
+
+  test('plano interno é bloqueado, mesmo com valor Asaas configurado', () => {
+    const motivo = validarPlanoParaAssinaturaSelfService({ interno: true, asaas_subscription_value: 99.9 })
+    assert.match(motivo ?? '', /não está disponível para contratação self-service/)
+  })
+
+  test('plano sem asaas_subscription_value configurado é bloqueado', () => {
+    const motivo = validarPlanoParaAssinaturaSelfService({ interno: false, asaas_subscription_value: null })
+    assert.match(motivo ?? '', /sem valor de assinatura configurado/)
+  })
+
+  test('plano comercial com valor configurado é permitido', () => {
+    assert.equal(validarPlanoParaAssinaturaSelfService({ interno: false, asaas_subscription_value: 149.9 }), null)
+  })
+})
+
+describe('validarCobrancaParaRegularizacao (Fase 5 — ação "Pagar")', () => {
+  const cobranca = (status: string, subscription: string | null) => ({ status, subscription })
+
+  test('cobrança de outra assinatura (outro tenant) é bloqueada', () => {
+    const motivo = validarCobrancaParaRegularizacao(cobranca('OVERDUE', 'sub_outro_tenant'), 'sub_deste_tenant')
+    assert.match(motivo ?? '', /não pertence à assinatura deste tenant/)
+  })
+
+  test('cobrança já paga (RECEIVED/CONFIRMED) não pode ser preparada novamente', () => {
+    assert.match(validarCobrancaParaRegularizacao(cobranca('RECEIVED', 'sub_1'), 'sub_1') ?? '', /não está pendente ou vencida/)
+    assert.match(validarCobrancaParaRegularizacao(cobranca('CONFIRMED', 'sub_1'), 'sub_1') ?? '', /não está pendente ou vencida/)
+  })
+
+  test('somente PENDING/OVERDUE são aceitas', () => {
+    assert.equal(validarCobrancaParaRegularizacao(cobranca('PENDING', 'sub_1'), 'sub_1'), null)
+    assert.equal(validarCobrancaParaRegularizacao(cobranca('OVERDUE', 'sub_1'), 'sub_1'), null)
+  })
+})
+
+describe('bloqueioOperacaoFinanceiraSelfService (correção de segurança pós-revisão)', () => {
+  test('SUSPENDED bloqueia', () => {
+    assert.match(bloqueioOperacaoFinanceiraSelfService('SUSPENDED') ?? '', /suspensa ou cancelada/)
+  })
+
+  test('CANCELED bloqueia', () => {
+    assert.match(bloqueioOperacaoFinanceiraSelfService('CANCELED') ?? '', /suspensa ou cancelada/)
+  })
+
+  test('EXPIRED NÃO bloqueia — regularização de licença vencida é o caso legítimo do self-service', () => {
+    assert.equal(bloqueioOperacaoFinanceiraSelfService('EXPIRED'), null)
+  })
+
+  test('ACTIVE não bloqueia', () => {
+    assert.equal(bloqueioOperacaoFinanceiraSelfService('ACTIVE'), null)
+  })
+
+  test('TRIAL não bloqueia', () => {
+    assert.equal(bloqueioOperacaoFinanceiraSelfService('TRIAL'), null)
   })
 })
 
@@ -569,6 +705,45 @@ describe('asaasClient — nunca vaza a API key', () => {
       assert.equal(resultado.hasMore, false)
       assert.equal(resultado.data.length, 0)
       assert.match(urlChamada ?? '', /\/payments\?subscription=sub%201%26x&limit=50/)
+    } finally {
+      globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+})
+
+describe('atualizarBillingTypeCobrancaAsaas — regularização self-service (Fase 5)', () => {
+  test('PUT reenvia value/dueDate junto com billingType — nunca omite (Asaas pode interpretar omissão como reset)', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+
+    let metodoChamado: string | undefined
+    let corpoChamado: string | undefined
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      metodoChamado = init?.method
+      corpoChamado = init?.body as string
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          id: 'pay_1', status: 'PENDING', value: 149.9, customer: 'cus_1', subscription: 'sub_1',
+          dueDate: '2026-09-08', paymentDate: null, billingType: 'UNDEFINED',
+        }),
+      } as Response
+    }) as typeof fetch
+
+    try {
+      await atualizarBillingTypeCobrancaAsaas('pay_1', { billingType: 'UNDEFINED', value: 149.9, dueDate: '2026-09-08' })
+      assert.equal(metodoChamado, 'PUT')
+      const corpo = JSON.parse(corpoChamado ?? '{}')
+      assert.deepEqual(corpo, { billingType: 'UNDEFINED', value: 149.9, dueDate: '2026-09-08' })
     } finally {
       globalThis.fetch = fetchOriginal
       if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY

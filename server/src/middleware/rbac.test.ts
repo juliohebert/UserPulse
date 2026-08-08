@@ -11,6 +11,7 @@ import aparenciaWidgetRouter from '../routes/aparenciaWidget'
 import catalogoTelasRouter from '../routes/catalogoTelas'
 import widgetRouter from '../routes/widget'
 import dashboardRouter from '../routes/dashboard'
+import billingRouter from '../routes/billing'
 
 // Cobertura mínima da matriz de permissões RBAC (ADMIN/EDITOR/VIEWER de
 // cliente + SUPER_ADMIN) descrita no contexto da tarefa. Duas frentes, as
@@ -112,6 +113,48 @@ describe('RBAC — wiring das rotas de escrita', () => {
   })
   test('POST /catalogo-telas usa requireEscritaConfiguracao', () => {
     assert.ok(handlersDaRota(catalogoTelasRouter, 'post', '/').includes(requireEscritaConfiguracao))
+  })
+})
+
+// Fase 5 — billing self-service (ver routes/billing.ts). Diferente das
+// demais categorias acima, aqui TODA rota (inclusive leitura) usa
+// requireEscritaConfiguracao — billing é sensível o bastante pra restringir
+// a leitura também, não só a escrita (regra explícita da tarefa: "somente
+// ADMIN do próprio tenant").
+describe('RBAC — wiring das rotas de billing self-service (Fase 5)', () => {
+  test('GET /situacao usa requireEscritaConfiguracao', () => {
+    assert.ok(handlersDaRota(billingRouter, 'get', '/situacao').includes(requireEscritaConfiguracao))
+  })
+  test('PUT /dados-cobranca usa requireEscritaConfiguracao', () => {
+    assert.ok(handlersDaRota(billingRouter, 'put', '/dados-cobranca').includes(requireEscritaConfiguracao))
+  })
+  test('POST /assinatura usa requireEscritaConfiguracao', () => {
+    assert.ok(handlersDaRota(billingRouter, 'post', '/assinatura').includes(requireEscritaConfiguracao))
+  })
+  test('POST /cobrancas/:cobrancaId/pagar usa requireEscritaConfiguracao', () => {
+    assert.ok(handlersDaRota(billingRouter, 'post', '/cobrancas/:cobrancaId/pagar').includes(requireEscritaConfiguracao))
+  })
+  // Correção de segurança pós-revisão: reativação self-service foi
+  // removida — não existe hoje forma confiável de saber se uma assinatura
+  // INACTIVE reflete suspensão manual ou causada pelo billing (ver
+  // bloqueioOperacaoFinanceiraSelfService em asaasClient.ts).
+  test('POST /reativar não existe mais (reativação self-service removida)', () => {
+    assert.throws(() => handlersDaRota(billingRouter, 'post', '/reativar'), /não encontrada/)
+  })
+
+  // Garante estruturalmente que nenhuma rota de billing aceita um id de
+  // tenant pela URL — o tenant tem que vir sempre de req.adminUser (sessão),
+  // nunca de um parâmetro que o cliente controla (regra explícita da
+  // tarefa: "nunca receber tenant_id pelo frontend para decidir qual tenant
+  // operar"). cobrancaId é o único :param permitido (identifica a cobrança,
+  // não o tenant).
+  test('nenhuma rota de billing aceita tenant/tenantId pela URL', () => {
+    const stack = (billingRouter as unknown as { stack: Array<{ route?: { path: string } }> }).stack
+    const caminhos = stack.map(l => l.route?.path).filter((p): p is string => !!p)
+    assert.ok(caminhos.length > 0)
+    for (const caminho of caminhos) {
+      assert.ok(!/:id\b|:tenantId\b/.test(caminho), `rota "${caminho}" não deveria aceitar tenant pela URL`)
+    }
   })
 })
 

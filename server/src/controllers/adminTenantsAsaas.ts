@@ -3,8 +3,8 @@ import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import {
   criarClienteAsaas, criarAssinaturaAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas,
-  calcularSituacaoAsaas,
-  type DadosCobrancaAsaas, type CobrancaAsaas, type EntradaSituacaoAsaas, type SituacaoAsaasResultado,
+  calcularSituacaoAsaas, buscarEntradaSituacaoAsaas,
+  type DadosCobrancaAsaas, type CobrancaAsaas, type SituacaoAsaasResultado,
 } from '../services/asaasClient'
 
 // Vínculo de um Tenant com o Asaas, disparado manualmente pelo SUPER_ADMIN
@@ -47,7 +47,10 @@ export async function obterVinculo(req: Request, res: Response) {
   }
 }
 
-interface BillingBody {
+// Exportada pra reuso no endpoint self-service equivalente (Fase 5, ver
+// controllers/billing.ts) — mesmo shape de body, mesma validação
+// (extrairDadosBilling), só o tenant de destino muda (sessão vs. :id).
+export interface BillingBody {
   billing_nome_responsavel?: string | null
   billing_email?: string | null
   billing_cpf_cnpj?: string | null
@@ -405,21 +408,7 @@ export async function diagnosticar(req: Request, res: Response) {
     const tenant = await prisma.tenant.findUnique({ where: { id } })
     if (!tenant) { res.status(404).json({ erro: 'Tenant não encontrado.' }); return }
 
-    let entrada: EntradaSituacaoAsaas
-    if (!tenant.asaas_subscription_id) {
-      entrada = { tipo: 'sem_vinculo' }
-    } else {
-      try {
-        const [assinatura, cobrancasResultado] = await Promise.all([
-          buscarAssinaturaAsaas(tenant.asaas_subscription_id),
-          listarCobrancasAsaas(tenant.asaas_subscription_id),
-        ])
-        entrada = { tipo: 'dados', assinatura, cobrancas: cobrancasResultado.data, hasMore: cobrancasResultado.hasMore }
-      } catch (err) {
-        entrada = { tipo: 'falha_consulta', erro: err instanceof Error ? err.message : 'Erro desconhecido ao consultar o Asaas.' }
-      }
-    }
-
+    const entrada = await buscarEntradaSituacaoAsaas(tenant)
     const resultado = calcularSituacaoAsaas(entrada)
     const resposta: DiagnosticoAsaasResposta = { ...resultado, consultadoEm: new Date().toISOString() }
     res.json(resposta)

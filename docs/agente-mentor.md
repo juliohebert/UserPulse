@@ -300,11 +300,13 @@ restrito por `CORS_ORIGINS` em produção. **Nunca misturar os dois.**
 
 ## 7. Trabalho em andamento no momento deste briefing
 
-**Branch:** `feat/asaas-payments-panel` — 2 commits já enviados a
-`origin/feat/asaas-payments-panel` (Fase 3, ver abaixo) e uma rodada de
-estabilização mais recente ainda **não commitada** sobre a semântica de
-`asaas_status` (ver bloco "Estabilização pré-Fase 4" no fim desta seção e
-o resumo em 4.2).
+**Branch:** `feat/asaas-self-service-billing` — Fases 3 e 4 (seção
+"Cobranças" e diagnóstico de billing) já mescladas em `main`. Esta branch
+adiciona a Fase 5 (billing self-service pro próprio cliente, ver
+"Fase 5" no fim desta seção) e a estabilização de `asaas_status`/proteção
+de `SUSPENDED`/`CANCELED` (ver bloco "Estabilização pré-Fase 4" abaixo e o
+resumo em 4.2) — histórico mantido aqui pra contexto, mesmo já superado
+por fases seguintes.
 
 ### Fase 3 — seção "Cobranças" (já commitada/pushada)
 
@@ -365,6 +367,51 @@ mesmo padrão de `mapearEventoAsaas`/`calcularProximoVencimento`. Nenhum
 `asaas_status` fora de `ACTIVE`/`INACTIVE`/`EXPIRED` (gravado pelas versões
 anteriores desta correção) precisam de um clique em "Sincronizar agora" no
 modal Asaas pra normalizar — nenhuma sincronização em massa foi implementada.
+
+### Fase 5 — billing self-service (`/api/billing/*`)
+
+Cliente (ADMIN do próprio tenant) contrata/regulariza a própria assinatura
+sem depender do SUPER_ADMIN — tela **Minha Assinatura**
+(`web/src/pages/MinhaAssinatura.tsx`), fora de Gestão SaaS.
+
+- **Só ADMIN**: `requireEscritaConfiguracao` (mesmo guard de aparência do
+  widget/catálogo de telas) protege **toda** rota, inclusive leitura —
+  diferente do padrão usual do projeto de deixar GET aberto a qualquer
+  papel. EDITOR/VIEWER bloqueados no backend (fonte de verdade) e no
+  frontend (sidebar não mostra o link, rota mostra "Acesso restrito").
+- **Tenant sempre da sessão** (`req.adminUser.tenant`/`tenant_id`) —
+  nenhuma rota de `/api/billing` aceita `:id`/`tenantId` pela URL ou body.
+- **Sem Asaas Checkout nesta fase** — reaproveita assinatura/cobrança/
+  `invoiceUrl` já existentes (Fases 2–3). Cliente contrata ou regulariza
+  cobrança vencida sendo redirecionado pra página **hospedada pelo Asaas**;
+  dado de cartão nunca passa pelo UserPulse. `billingType` sempre
+  `'UNDEFINED'` na criação — quem escolhe Pix ou cartão é o pagador, lá.
+- **Cartão renova automático; Pix é pagamento manual por ciclo** — a
+  assinatura continua sendo a mesma, só a cobrança de cada ciclo precisa
+  ser paga de novo pela tela (sem Pix Automático, fora de escopo).
+- **Endpoints** (confirme sempre contra `server/src/routes/billing.ts` —
+  já houve inconsistência de contagem numa auditoria anterior por
+  desatualização): `GET /situacao`, `PUT /dados-cobranca`,
+  `POST /assinatura`, `POST /cobrancas/:cobrancaId/pagar`. **Não existe**
+  `POST /reativar` (removido, ver abaixo).
+- **`TenantStatus` e self-service**: `TRIAL`/`ACTIVE`/`EXPIRED` operam
+  normalmente (regularizar `EXPIRED` é o caso legítimo que a Fase existe
+  pra resolver). `SUSPENDED`/`CANCELED` só leem a própria situação —
+  `bloqueioOperacaoFinanceiraSelfService` (`asaasClient.ts`) bloqueia
+  `criarAssinatura`/`pagarCobranca` com 403 antes de qualquer chamada ao
+  Asaas. O mesmo vale pro webhook: `calcularAtualizacaoTenant` agora checa
+  `Tenant.status` antes de `asaas_status` — `PAYMENT_CONFIRMED` nunca
+  reativa um `SUSPENDED`/`CANCELED`, e `SUBSCRIPTION_DELETED/INACTIVATED`
+  nunca rebaixa um `CANCELED` de volta pra `SUSPENDED`.
+- **Reativação self-service não existe** — foi implementada e depois
+  **removida** numa correção de segurança: não há campo confiável que
+  diferencie um `SUSPENDED` causado pelo Asaas de um `SUSPENDED` manual do
+  SUPER_ADMIN, então reativar a assinatura self-service arriscava desfazer
+  uma decisão administrativa. Fica fora de escopo até existir esse campo
+  de origem — não criar de improviso se pedirem pra "voltar" essa feature.
+- Confirmação financeira continua **só pelo webhook** (`PAYMENT_CONFIRMED`/
+  `RECEIVED`) — nenhuma rota de `/api/billing` ativa licença sozinha,
+  callback/retorno do Asaas é só UX.
 
 ## 8. Comandos úteis (pra reproduzir/validar localmente)
 
