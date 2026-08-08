@@ -1,24 +1,11 @@
 import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
-const TENANT_DEMO_ID = '00000000-0000-0000-0000-000000000001'
-
-async function buscarTenantDemo() {
-  const tenant = await prisma.tenant.findUnique({ where: { id: TENANT_DEMO_ID } })
-
-  if (!tenant) {
-    throw new Error(`Tenant demo ${TENANT_DEMO_ID} não encontrado. Rode as migrations antes do seed demo.`)
-  }
-
-  return tenant
-}
 
 async function main() {
   const slug = 'quarkclinic-agenda-demo'
-  const tenant = await buscarTenantDemo()
 
   const data = {
-    tenant_id: tenant.id,
     slug,
     titulo: 'Novidades do QuarkClinic',
     subtitulo: 'Confira o que chegou de novo na agenda',
@@ -46,7 +33,7 @@ async function main() {
   }
 
   const campanha = await prisma.campanha.upsert({
-    where: { tenant_id_slug: { tenant_id: tenant.id, slug } },
+    where: { slug },
     create: data,
     update: data,
   })
@@ -55,13 +42,10 @@ async function main() {
 }
 
 async function seedCatalogo() {
-  const tenant = await buscarTenantDemo()
-
   const tela = await prisma.telaCatalogo.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
     create: {
       id: '00000000-0000-0000-0000-000000000001',
-      tenant_id: tenant.id,
       nome: 'Agendamentos',
       sistema: 'QuarkClinic',
       categoria: 'Atendimento',
@@ -69,7 +53,7 @@ async function seedCatalogo() {
       url_contem: '/app/atendimento/agendamentos',
       ativo: true,
     },
-    update: { tenant_id: tenant.id },
+    update: {},
   })
   console.log(`✓ Catálogo seed: "${tela.nome}" (${tela.sistema}) — id: ${tela.id}`)
 }
