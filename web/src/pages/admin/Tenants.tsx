@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { get, post, put } from '../../services/api'
-import type { AdminDoTenant, AdminRole, AsaasEventoTenant, AsaasVinculoTenant, AtualizarCobrancaResposta, CobrancaResumo, CobrancasAsaasResposta, PlanoAdmin, TenantAdminItem, TenantStatus } from '../../types'
+import type { AdminDoTenant, AdminRole, AsaasEventoTenant, AsaasVinculoTenant, AtualizarCobrancaResposta, CobrancaResumo, CobrancasAsaasResposta, DiagnosticoAsaasResposta, PlanoAdmin, SituacaoAsaasDecisao, TenantAdminItem, TenantStatus } from '../../types'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { Button } from '../../components/ui/Button'
@@ -82,6 +82,23 @@ const COBRANCA_STATUS_BADGE: Record<string, { label: string; className: string }
 function CobrancaStatusBadge({ status }: { status: string }) {
   const cfg = COBRANCA_STATUS_BADGE[status] ?? { label: status, className: 'bg-outline-variant/30 text-outline' }
   return <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase whitespace-nowrap ${cfg.className}`}>{cfg.label}</span>
+}
+
+// Badge da decisão do diagnóstico de billing (Fase 4) — as 4 decisões que
+// calcularSituacaoAsaas pode retornar (server/src/services/asaasClient.ts),
+// nunca um valor fora desse conjunto (tipo fechado, sem fallback genérico
+// necessário aqui, diferente de COBRANCA_STATUS_BADGE que reflete enum
+// aberto do Asaas).
+const SITUACAO_ASAAS_BADGE: Record<SituacaoAsaasDecisao, { label: string; className: string }> = {
+  OK: { label: 'Em dia', className: 'bg-tertiary/10 text-tertiary' },
+  INADIMPLENTE: { label: 'Inadimplente', className: 'bg-error-container text-error' },
+  ASSINATURA_INATIVA: { label: 'Assinatura inativa', className: 'bg-error-container text-error' },
+  INDETERMINADO: { label: 'Indeterminado', className: 'bg-outline-variant/30 text-outline' },
+}
+
+function SituacaoAsaasBadge({ decisao }: { decisao: SituacaoAsaasDecisao }) {
+  const cfg = SITUACAO_ASAAS_BADGE[decisao]
+  return <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase whitespace-nowrap ${cfg.className}`}>{cfg.label}</span>
 }
 
 function formatarValorReais(valor: number): string {
@@ -389,6 +406,15 @@ export function AdminTenantsIndex() {
   // true quando o Asaas tem mais cobranças além das retornadas (limite fixo
   // no backend) — só um aviso, a UI não pagina nesta fase.
   const [cobrancasTemMais, setCobrancasTemMais] = useState(false)
+
+  // Diagnóstico de billing (Fase 4) — read-only, ver GET .../asaas/
+  // diagnostico. Nunca dispara sozinho ao abrir o modal (diferente de
+  // cobranças/eventos) — só sob clique explícito em "Atualizar
+  // diagnóstico", porque a rota consulta o Asaas ao vivo (mais lenta que
+  // as outras seções, que só leem o que já está salvo).
+  const [diagnostico, setDiagnostico] = useState<DiagnosticoAsaasResposta | null>(null)
+  const [diagnosticoLoading, setDiagnosticoLoading] = useState(false)
+  const [diagnosticoError, setDiagnosticoError] = useState<string | null>(null)
 
   const [copiado, setCopiado] = useState<string | null>(null)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
@@ -769,6 +795,27 @@ export function AdminTenantsIndex() {
       })
   }
 
+  // Diagnóstico (Fase 4) — não chamado automaticamente em abrirAsaas (ver
+  // comentário no state acima); só sob clique explícito no botão da seção
+  // "Situação do billing".
+  const carregarDiagnostico = (tenantId: string, versao: number) => {
+    setDiagnosticoLoading(true)
+    setDiagnosticoError(null)
+    get<DiagnosticoAsaasResposta>(`/admin/tenants/${tenantId}/asaas/diagnostico`)
+      .then(resposta => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setDiagnostico(resposta)
+      })
+      .catch(e => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setDiagnosticoError(e instanceof Error ? e.message : 'Erro ao gerar diagnóstico de billing.')
+      })
+      .finally(() => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setDiagnosticoLoading(false)
+      })
+  }
+
   const abrirAsaas = (tenant: TenantAdminItem) => {
     const versao = ++asaasModalVersaoRef.current
     setAsaasModalTenant(tenant)
@@ -780,6 +827,8 @@ export function AdminTenantsIndex() {
     setCobrancas([])
     setCobrancasError(null)
     setCobrancasTemMais(false)
+    setDiagnostico(null)
+    setDiagnosticoError(null)
     setSyncMensagem(null)
     setAsaasError(null)
     carregarAsaas(tenant.id, versao)
@@ -886,6 +935,11 @@ export function AdminTenantsIndex() {
   const atualizarCobrancasHandler = () => {
     if (!asaasModalTenant) return
     carregarCobrancas(asaasModalTenant.id, asaasModalVersaoRef.current)
+  }
+
+  const atualizarDiagnosticoHandler = () => {
+    if (!asaasModalTenant) return
+    carregarDiagnostico(asaasModalTenant.id, asaasModalVersaoRef.current)
   }
 
   // Só planos ativos e comerciais (nunca "Interno (Quark)") ficam
@@ -1478,6 +1532,69 @@ export function AdminTenantsIndex() {
                         {sincronizando ? 'Sincronizando…' : 'Sincronizar agora'}
                       </button>
                     </div>
+                  )}
+                </div>
+              )}
+
+              {/* Diagnóstico de billing (Fase 4) — read-only, nunca dispara
+                  automaticamente (diferente de Cobranças/Eventos abaixo, ver
+                  comentário no state), nunca cria/cancela/reembolsa nada e
+                  nunca altera Tenant.status/licença/plano (ver GET .../asaas/
+                  diagnostico + calcularSituacaoAsaas no backend). Só calcula
+                  uma leitura da situação a partir do que o Asaas responde
+                  agora, pra consulta manual do SUPER_ADMIN. */}
+              {!asaasLoading && asaasVinculo && (
+                <div className="rounded-xl border border-outline-variant p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className={sectionHeader}>Situação do billing</h4>
+                    {asaasVinculo.asaas_subscription_id && (
+                      <button
+                        onClick={atualizarDiagnosticoHandler}
+                        disabled={diagnosticoLoading}
+                        className="flex items-center gap-1 text-[12px] font-bold text-primary hover:bg-primary/10 rounded-lg px-2 py-1 transition-colors disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">refresh</span>
+                        {diagnosticoLoading ? 'Consultando…' : 'Atualizar diagnóstico'}
+                      </button>
+                    )}
+                  </div>
+
+                  {!asaasVinculo.asaas_subscription_id && (
+                    <p className="text-[12px] text-on-surface-variant">Crie uma assinatura Asaas para calcular o diagnóstico de billing.</p>
+                  )}
+
+                  {asaasVinculo.asaas_subscription_id && (
+                    <>
+                      {diagnosticoError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{diagnosticoError}</div>}
+                      {diagnosticoLoading && <LoadingSpinner />}
+                      {!diagnosticoLoading && !diagnosticoError && !diagnostico && (
+                        <p className="text-[12px] text-on-surface-variant">Clique em "Atualizar diagnóstico" para consultar o Asaas agora.</p>
+                      )}
+                      {!diagnosticoLoading && diagnostico && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <SituacaoAsaasBadge decisao={diagnostico.decisao} />
+                            <span className="text-[12px] text-on-surface-variant">{diagnostico.motivo}</span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[12px] pt-1 border-t border-outline-variant/40">
+                            <div>
+                              <span className="block text-on-surface-variant">Status da assinatura</span>
+                              <span className="text-on-surface">
+                                {diagnostico.statusAssinatura ? rotuloAsaas(ASAAS_SUBSCRIPTION_STATUS_LABEL, diagnostico.statusAssinatura) : '—'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="block text-on-surface-variant">Cobranças vencidas</span>
+                              <span className="text-on-surface">{diagnostico.quantidadeCobrancasVencidas}</span>
+                            </div>
+                            <div>
+                              <span className="block text-on-surface-variant">Consultado em</span>
+                              <span className="text-on-surface">{formatDateTime(diagnostico.consultadoEm)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}

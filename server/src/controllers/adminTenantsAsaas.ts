@@ -3,7 +3,8 @@ import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import {
   criarClienteAsaas, criarAssinaturaAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas,
-  type DadosCobrancaAsaas, type CobrancaAsaas,
+  calcularSituacaoAsaas,
+  type DadosCobrancaAsaas, type CobrancaAsaas, type EntradaSituacaoAsaas, type SituacaoAsaasResultado,
 } from '../services/asaasClient'
 
 // Vínculo de um Tenant com o Asaas, disparado manualmente pelo SUPER_ADMIN
@@ -377,5 +378,53 @@ export async function listarCobrancas(req: Request, res: Response) {
   } catch (err) {
     console.error('Erro ao listar cobranças Asaas:', err)
     res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao listar cobranças no Asaas.' })
+  }
+}
+
+// Resposta de GET .../asaas/diagnostico — decisão calculada por
+// calcularSituacaoAsaas (asaasClient.ts), nunca o payload bruto do Asaas.
+// consultadoEm é a hora desta chamada (não faz parte da decisão pura em si,
+// que não tem noção de "agora").
+export interface DiagnosticoAsaasResposta extends SituacaoAsaasResultado {
+  consultadoEm: string
+}
+
+// Diagnóstico de billing (Fase 4) — busca assinatura + cobranças AO VIVO no
+// Asaas (mesmas funções read-only já usadas em sincronizar/listarCobrancas)
+// e delega a decisão pra calcularSituacaoAsaas (função pura). NUNCA altera
+// Tenant.status/licenca_*/plano, nunca chama tenantGuards, nunca cria/
+// cancela/reembolsa nada no Asaas — só leitura sob demanda do SUPER_ADMIN
+// (botão "Atualizar diagnóstico" no painel, ver Tenants.tsx).
+//
+// Falha ao consultar o Asaas vira decisão INDETERMINADO com 200 (não 502) —
+// "não sabemos agora" é uma resposta válida do diagnóstico, não um erro da
+// rota; o catch externo cobre só falhas realmente inesperadas (ex.: Prisma).
+export async function diagnosticar(req: Request, res: Response) {
+  try {
+    const id = req.params.id as string
+    const tenant = await prisma.tenant.findUnique({ where: { id } })
+    if (!tenant) { res.status(404).json({ erro: 'Tenant não encontrado.' }); return }
+
+    let entrada: EntradaSituacaoAsaas
+    if (!tenant.asaas_subscription_id) {
+      entrada = { tipo: 'sem_vinculo' }
+    } else {
+      try {
+        const [assinatura, cobrancasResultado] = await Promise.all([
+          buscarAssinaturaAsaas(tenant.asaas_subscription_id),
+          listarCobrancasAsaas(tenant.asaas_subscription_id),
+        ])
+        entrada = { tipo: 'dados', assinatura, cobrancas: cobrancasResultado.data, hasMore: cobrancasResultado.hasMore }
+      } catch (err) {
+        entrada = { tipo: 'falha_consulta', erro: err instanceof Error ? err.message : 'Erro desconhecido ao consultar o Asaas.' }
+      }
+    }
+
+    const resultado = calcularSituacaoAsaas(entrada)
+    const resposta: DiagnosticoAsaasResposta = { ...resultado, consultadoEm: new Date().toISOString() }
+    res.json(resposta)
+  } catch (err) {
+    console.error('Erro ao gerar diagnóstico de billing Asaas:', err)
+    res.status(500).json({ erro: 'Erro ao gerar diagnóstico de billing.' })
   }
 }

@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mapearEventoAsaas, calcularProximoVencimento, calcularAtualizacaoTenant, criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas } from './asaasClient'
+import { mapearEventoAsaas, calcularProximoVencimento, calcularAtualizacaoTenant, calcularSituacaoAsaas, criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas } from './asaasClient'
+import type { AssinaturaAsaas, CobrancaAsaas } from './asaasClient'
 
 // Cobertura da Fase 1 da integração Asaas (fundação/sandbox) — só funções
 // puras (mapearEventoAsaas, calcularProximoVencimento) e um teste de
@@ -267,6 +268,99 @@ describe('calcularAtualizacaoTenant', () => {
       assert.match(resultado.ignorado ?? '', /não é um status de assinatura confiável/)
     })
   }
+})
+
+describe('calcularSituacaoAsaas', () => {
+  const assinatura = (status: string): AssinaturaAsaas => ({ id: 'sub_1', status, nextDueDate: '2026-09-08' })
+  const cobranca = (status: string, id = 'pay_1'): CobrancaAsaas => ({
+    id, status, value: 100, customer: 'cus_1', subscription: 'sub_1', dueDate: '2026-08-01', paymentDate: null,
+  })
+
+  test('sem vínculo Asaas -> INDETERMINADO, sem status/cobrança', () => {
+    const resultado = calcularSituacaoAsaas({ tipo: 'sem_vinculo' })
+    assert.equal(resultado.decisao, 'INDETERMINADO')
+    assert.equal(resultado.statusAssinatura, null)
+    assert.equal(resultado.quantidadeCobrancasVencidas, 0)
+    assert.match(resultado.motivo, /sem assinatura Asaas vinculada/)
+  })
+
+  test('falha ao consultar o Asaas -> INDETERMINADO, motivo inclui o erro', () => {
+    const resultado = calcularSituacaoAsaas({ tipo: 'falha_consulta', erro: 'Asaas respondeu 503: indisponível' })
+    assert.equal(resultado.decisao, 'INDETERMINADO')
+    assert.equal(resultado.statusAssinatura, null)
+    assert.match(resultado.motivo, /Asaas respondeu 503/)
+  })
+
+  test('assinatura ACTIVE sem cobrança vencida, hasMore=false -> OK', () => {
+    const resultado = calcularSituacaoAsaas({
+      tipo: 'dados', assinatura: assinatura('ACTIVE'), cobrancas: [cobranca('CONFIRMED'), cobranca('RECEIVED', 'pay_2')], hasMore: false,
+    })
+    assert.equal(resultado.decisao, 'OK')
+    assert.equal(resultado.statusAssinatura, 'ACTIVE')
+    assert.equal(resultado.quantidadeCobrancasVencidas, 0)
+  })
+
+  test('assinatura ACTIVE sem nenhuma cobrança, hasMore=false -> OK', () => {
+    const resultado = calcularSituacaoAsaas({ tipo: 'dados', assinatura: assinatura('ACTIVE'), cobrancas: [], hasMore: false })
+    assert.equal(resultado.decisao, 'OK')
+  })
+
+  test('assinatura ACTIVE sem OVERDUE analisada, hasMore=true -> INDETERMINADO (pode haver vencida fora do lote de 50)', () => {
+    const resultado = calcularSituacaoAsaas({
+      tipo: 'dados', assinatura: assinatura('ACTIVE'), cobrancas: [cobranca('CONFIRMED')], hasMore: true,
+    })
+    assert.equal(resultado.decisao, 'INDETERMINADO')
+    assert.equal(resultado.statusAssinatura, 'ACTIVE')
+    assert.match(resultado.motivo, /Existem cobranças adicionais que não foram analisadas/)
+  })
+
+  test('assinatura ACTIVE com cobrança OVERDUE analisada -> INADIMPLENTE', () => {
+    const resultado = calcularSituacaoAsaas({
+      tipo: 'dados', assinatura: assinatura('ACTIVE'), cobrancas: [cobranca('OVERDUE')], hasMore: false,
+    })
+    assert.equal(resultado.decisao, 'INADIMPLENTE')
+    assert.equal(resultado.statusAssinatura, 'ACTIVE')
+    assert.equal(resultado.quantidadeCobrancasVencidas, 1)
+  })
+
+  test('assinatura ACTIVE com OVERDUE analisada e hasMore=true -> INADIMPLENTE tem prioridade (não vira INDETERMINADO)', () => {
+    const resultado = calcularSituacaoAsaas({
+      tipo: 'dados', assinatura: assinatura('ACTIVE'), cobrancas: [cobranca('OVERDUE')], hasMore: true,
+    })
+    assert.equal(resultado.decisao, 'INADIMPLENTE')
+    assert.equal(resultado.quantidadeCobrancasVencidas, 1)
+  })
+
+  test('assinatura ACTIVE com múltiplas cobranças, pelo menos uma OVERDUE -> INADIMPLENTE e conta só as vencidas', () => {
+    const resultado = calcularSituacaoAsaas({
+      tipo: 'dados',
+      assinatura: assinatura('ACTIVE'),
+      cobrancas: [cobranca('CONFIRMED', 'pay_1'), cobranca('OVERDUE', 'pay_2'), cobranca('OVERDUE', 'pay_3'), cobranca('RECEIVED', 'pay_4')],
+      hasMore: false,
+    })
+    assert.equal(resultado.decisao, 'INADIMPLENTE')
+    assert.equal(resultado.quantidadeCobrancasVencidas, 2)
+  })
+
+  test('assinatura INACTIVE -> ASSINATURA_INATIVA (independe de cobranças/hasMore)', () => {
+    const resultado = calcularSituacaoAsaas({
+      tipo: 'dados', assinatura: assinatura('INACTIVE'), cobrancas: [cobranca('CONFIRMED')], hasMore: true,
+    })
+    assert.equal(resultado.decisao, 'ASSINATURA_INATIVA')
+    assert.equal(resultado.statusAssinatura, 'INACTIVE')
+  })
+
+  test('assinatura EXPIRED -> ASSINATURA_INATIVA', () => {
+    const resultado = calcularSituacaoAsaas({ tipo: 'dados', assinatura: assinatura('EXPIRED'), cobrancas: [], hasMore: false })
+    assert.equal(resultado.decisao, 'ASSINATURA_INATIVA')
+    assert.equal(resultado.statusAssinatura, 'EXPIRED')
+  })
+
+  test('status de assinatura desconhecido (fora de ACTIVE/EXPIRED/INACTIVE) -> INDETERMINADO, nunca presume OK', () => {
+    const resultado = calcularSituacaoAsaas({ tipo: 'dados', assinatura: assinatura('PENDING'), cobrancas: [], hasMore: false })
+    assert.equal(resultado.decisao, 'INDETERMINADO')
+    assert.equal(resultado.statusAssinatura, 'PENDING')
+  })
 })
 
 describe('asaasClient — nunca vaza a API key', () => {
