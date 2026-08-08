@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { get, post, put } from '../../services/api'
-import type { AdminDoTenant, AdminRole, AsaasEventoTenant, AsaasVinculoTenant, AtualizarCobrancaResposta, PlanoAdmin, TenantAdminItem, TenantStatus } from '../../types'
+import type { AdminDoTenant, AdminRole, AsaasEventoTenant, AsaasVinculoTenant, AtualizarCobrancaResposta, CobrancaResumo, CobrancasAsaasResposta, PlanoAdmin, TenantAdminItem, TenantStatus } from '../../types'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { Button } from '../../components/ui/Button'
@@ -59,6 +59,109 @@ const STATUS_BADGE: Record<TenantStatus, { label: string; className: string }> =
   EXPIRED: { label: 'Expirado', className: 'bg-error-container text-error' },
   SUSPENDED: { label: 'Suspenso', className: 'bg-error-container text-error' },
   CANCELED: { label: 'Cancelado', className: 'bg-outline-variant/30 text-outline' },
+}
+
+// Badge de status de cobrança (Fase 3, seção "Cobranças") — mapeia o status
+// bruto do Asaas pros rótulos pedidos. DELETED conta como "Cancelada" (a
+// cobrança não é mais devida); REFUNDED tem rótulo próprio ("Reembolsada")
+// por já ter sido paga e depois estornada, diferente de uma cobrança apenas
+// cancelada/excluída sem pagamento. Qualquer status fora dessa lista (ex.:
+// REFUND_REQUESTED, CHARGEBACK_REQUESTED) cai no fallback neutro, mostrando
+// o valor bruto — nunca escondido.
+const COBRANCA_STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  PENDING: { label: 'Pendente', className: 'bg-outline-variant/30 text-outline' },
+  RECEIVED: { label: 'Recebida', className: 'bg-tertiary/10 text-tertiary' },
+  RECEIVED_IN_CASH: { label: 'Recebida', className: 'bg-tertiary/10 text-tertiary' },
+  CONFIRMED: { label: 'Confirmada', className: 'bg-tertiary/10 text-tertiary' },
+  AWAITING_RISK_ANALYSIS: { label: 'Em análise', className: 'bg-outline-variant/30 text-outline' },
+  OVERDUE: { label: 'Vencida', className: 'bg-error-container text-error' },
+  REFUNDED: { label: 'Reembolsada', className: 'bg-outline-variant/30 text-outline' },
+  DELETED: { label: 'Cancelada', className: 'bg-outline-variant/30 text-outline' },
+}
+
+function CobrancaStatusBadge({ status }: { status: string }) {
+  const cfg = COBRANCA_STATUS_BADGE[status] ?? { label: status, className: 'bg-outline-variant/30 text-outline' }
+  return <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase whitespace-nowrap ${cfg.className}`}>{cfg.label}</span>
+}
+
+function formatarValorReais(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+const COBRANCA_TIPO_LABEL: Record<string, string> = {
+  BOLETO: 'Boleto',
+  PIX: 'Pix',
+  CREDIT_CARD: 'Cartão de crédito',
+  DEBIT_CARD: 'Cartão de débito',
+  DEPOSIT: 'Depósito',
+  TRANSFER: 'Transferência',
+  // RECEIVED_IN_CASH é um valor de status de cobrança (ver
+  // COBRANCA_STATUS_BADGE), mas o Asaas também documenta como possível
+  // billingType em alguns retornos — mapeado aqui por segurança, caso
+  // chegue nesse campo.
+  RECEIVED_IN_CASH: 'Recebido em dinheiro',
+  UNDEFINED: 'A definir',
+}
+
+// Status da assinatura no Asaas (Tenant.asaas_status, espelho pra exibição —
+// ver comentário em schema.prisma). Domínio pequeno e estável (Asaas só usa
+// esses 3 valores pra Subscription.status).
+const ASAAS_SUBSCRIPTION_STATUS_LABEL: Record<string, string> = {
+  ACTIVE: 'Ativa',
+  EXPIRED: 'Expirada',
+  INACTIVE: 'Inativa',
+}
+
+// Eventos de webhook Asaas exibidos no histórico (Fase 2, ver GET .../asaas
+// /events) — cobre os tipos de payment/subscription que este projeto
+// efetivamente recebe (ver mapearEventoAsaas em asaasClient.ts pros que
+// disparam efeito; os demais só ficam registrados no log). Nomes que o
+// Asaas ainda não documentou pra este projeto, ou eventos de outras APIs
+// (transfer, invoice), caem no fallback de rotuloAsaas abaixo.
+const EVENTO_ASAAS_LABEL: Record<string, string> = {
+  PAYMENT_CREATED: 'Cobrança criada',
+  PAYMENT_UPDATED: 'Cobrança atualizada',
+  PAYMENT_CONFIRMED: 'Pagamento confirmado',
+  PAYMENT_RECEIVED: 'Pagamento recebido',
+  PAYMENT_OVERDUE: 'Cobrança vencida',
+  PAYMENT_DELETED: 'Cobrança excluída',
+  PAYMENT_RESTORED: 'Cobrança restaurada',
+  PAYMENT_REFUNDED: 'Pagamento estornado',
+  PAYMENT_PARTIALLY_REFUNDED: 'Pagamento parcialmente estornado',
+  PAYMENT_REFUND_IN_PROGRESS: 'Estorno em andamento',
+  PAYMENT_REFUND_DENIED: 'Estorno negado',
+  PAYMENT_RECEIVED_IN_CASH_UNDONE: 'Recebimento em dinheiro desfeito',
+  PAYMENT_CHARGEBACK_REQUESTED: 'Chargeback solicitado',
+  PAYMENT_CHARGEBACK_DISPUTE: 'Disputa de chargeback aberta',
+  PAYMENT_AWAITING_CHARGEBACK_REVERSAL: 'Aguardando reversão de chargeback',
+  PAYMENT_DUNNING_RECEIVED: 'Cobrança de inadimplência recebida',
+  PAYMENT_DUNNING_REQUESTED: 'Cobrança de inadimplência solicitada',
+  PAYMENT_BANK_SLIP_VIEWED: 'Boleto visualizado pelo cliente',
+  PAYMENT_BANK_SLIP_CANCELLED: 'Boleto cancelado',
+  PAYMENT_CHECKOUT_VIEWED: 'Checkout visualizado pelo cliente',
+  PAYMENT_AWAITING_RISK_ANALYSIS: 'Pagamento aguardando análise de risco',
+  PAYMENT_APPROVED_BY_RISK_ANALYSIS: 'Pagamento aprovado na análise de risco',
+  PAYMENT_REPROVED_BY_RISK_ANALYSIS: 'Pagamento reprovado na análise de risco',
+  PAYMENT_AUTHORIZED: 'Pagamento autorizado',
+  PAYMENT_CREDIT_CARD_CAPTURE_REFUSED: 'Captura no cartão de crédito recusada',
+  PAYMENT_ANTICIPATED: 'Pagamento antecipado',
+  PAYMENT_SPLIT_CANCELLED: 'Divisão de pagamento (split) cancelada',
+  PAYMENT_SPLIT_DIVERGENCE_BLOCK: 'Divisão de pagamento (split) bloqueada por divergência',
+  PAYMENT_SPLIT_DIVERGENCE_BLOCK_FINISHED: 'Bloqueio por divergência no split finalizado',
+  SUBSCRIPTION_CREATED: 'Assinatura criada',
+  SUBSCRIPTION_UPDATED: 'Assinatura atualizada',
+  SUBSCRIPTION_DELETED: 'Assinatura excluída',
+  SUBSCRIPTION_INACTIVATED: 'Assinatura inativada',
+  SUBSCRIPTION_SPLIT_DISABLED: 'Divisão de pagamento (split) da assinatura desativada',
+  SUBSCRIPTION_SPLIT_DIVERGENCE_BLOCK: 'Divisão de pagamento (split) da assinatura bloqueada por divergência',
+  SUBSCRIPTION_SPLIT_DIVERGENCE_BLOCK_FINISHED: 'Bloqueio por divergência no split da assinatura finalizado',
+}
+
+// Tradução de código Asaas -> rótulo PT-BR reaproveitada pelos três mapas
+// acima. Código desconhecido nunca quebra a tela: cai no próprio código
+// como fallback (mesma UX que os badges já tinham antes desta tradução).
+function rotuloAsaas(mapa: Record<string, string>, codigo: string): string {
+  return mapa[codigo] ?? codigo
 }
 
 function TenantStatusBadge({ status }: { status: TenantStatus }) {
@@ -243,6 +346,15 @@ export function AdminTenantsIndex() {
   // sozinho, nunca chama o Asaas automaticamente — só reflete o que já está
   // salvo e oferece os dois botões de ação manual.
   const [asaasModalTenant, setAsaasModalTenant] = useState<TenantAdminItem | null>(null)
+  // Token incremental da abertura atual do modal Asaas — incrementado tanto
+  // ao abrir (nova versão) quanto ao fechar (invalida qualquer requisição
+  // ainda pendente da abertura anterior). Usar só o tenantId como guard não
+  // basta: abrir tenant A, fechar, e abrir A de novo precisa invalidar a
+  // resposta da primeira abertura mesmo sendo o mesmo tenantId. Todo loader
+  // (carregarAsaas/carregarEventosAsaas/carregarCobrancas) recebe a versão
+  // vigente no momento da chamada e só aplica setState se ela ainda for a
+  // atual quando a resposta chegar.
+  const asaasModalVersaoRef = useRef(0)
   const [asaasVinculo, setAsaasVinculo] = useState<AsaasVinculoTenant | null>(null)
   const [asaasLoading, setAsaasLoading] = useState(false)
   const [asaasError, setAsaasError] = useState<string | null>(null)
@@ -269,6 +381,14 @@ export function AdminTenantsIndex() {
   // mexe em licença/status (ver POST .../asaas/sync no backend).
   const [sincronizando, setSincronizando] = useState(false)
   const [syncMensagem, setSyncMensagem] = useState<string | null>(null)
+
+  // Cobranças da assinatura (Fase 3) — read-only, ver GET .../asaas/payments.
+  const [cobrancas, setCobrancas] = useState<CobrancaResumo[]>([])
+  const [cobrancasLoading, setCobrancasLoading] = useState(false)
+  const [cobrancasError, setCobrancasError] = useState<string | null>(null)
+  // true quando o Asaas tem mais cobranças além das retornadas (limite fixo
+  // no backend) — só um aviso, a UI não pagina nesta fase.
+  const [cobrancasTemMais, setCobrancasTemMais] = useState(false)
 
   const [copiado, setCopiado] = useState<string | null>(null)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
@@ -577,11 +697,12 @@ export function AdminTenantsIndex() {
     })
   }
 
-  const carregarAsaas = (tenantId: string) => {
+  const carregarAsaas = (tenantId: string, versao: number) => {
     setAsaasLoading(true)
     setAsaasError(null)
     get<AsaasVinculoTenant>(`/admin/tenants/${tenantId}/asaas`)
       .then(vinculo => {
+        if (asaasModalVersaoRef.current !== versao) return
         setAsaasVinculo(vinculo)
         // Reaplica a máscara em cima do que veio salvo — funciona tanto pra
         // dados já normalizados (só dígitos, ver Fase de normalização) quanto
@@ -601,33 +722,73 @@ export function AdminTenantsIndex() {
           billing_cep: formatarCep(vinculo.billing_cep ?? ''),
         })
       })
-      .catch(e => setAsaasError(e instanceof Error ? e.message : 'Erro ao carregar vínculo Asaas.'))
-      .finally(() => setAsaasLoading(false))
+      .catch(e => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setAsaasError(e instanceof Error ? e.message : 'Erro ao carregar vínculo Asaas.')
+      })
+      .finally(() => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setAsaasLoading(false)
+      })
   }
 
-  const carregarEventosAsaas = (tenantId: string) => {
+  const carregarEventosAsaas = (tenantId: string, versao: number) => {
     setEventosLoading(true)
     setEventosError(null)
     get<AsaasEventoTenant[]>(`/admin/tenants/${tenantId}/asaas/events`)
-      .then(setAsaasEventos)
-      .catch(e => setEventosError(e instanceof Error ? e.message : 'Erro ao carregar eventos Asaas.'))
-      .finally(() => setEventosLoading(false))
+      .then(eventos => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setAsaasEventos(eventos)
+      })
+      .catch(e => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setEventosError(e instanceof Error ? e.message : 'Erro ao carregar eventos Asaas.')
+      })
+      .finally(() => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setEventosLoading(false)
+      })
+  }
+
+  const carregarCobrancas = (tenantId: string, versao: number) => {
+    setCobrancasLoading(true)
+    setCobrancasError(null)
+    get<CobrancasAsaasResposta>(`/admin/tenants/${tenantId}/asaas/payments`)
+      .then(resposta => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setCobrancas(resposta.cobrancas)
+        setCobrancasTemMais(resposta.hasMore)
+      })
+      .catch(e => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setCobrancasError(e instanceof Error ? e.message : 'Erro ao carregar cobranças Asaas.')
+      })
+      .finally(() => {
+        if (asaasModalVersaoRef.current !== versao) return
+        setCobrancasLoading(false)
+      })
   }
 
   const abrirAsaas = (tenant: TenantAdminItem) => {
+    const versao = ++asaasModalVersaoRef.current
     setAsaasModalTenant(tenant)
     setAsaasVinculo(null)
     setBillingForm(EMPTY_BILLING_FORM)
     setBillingSucesso(null)
     setBillingTentouSalvar(false)
     setAsaasEventos([])
+    setCobrancas([])
+    setCobrancasError(null)
+    setCobrancasTemMais(false)
     setSyncMensagem(null)
     setAsaasError(null)
-    carregarAsaas(tenant.id)
-    carregarEventosAsaas(tenant.id)
+    carregarAsaas(tenant.id, versao)
+    carregarEventosAsaas(tenant.id, versao)
+    carregarCobrancas(tenant.id, versao)
   }
 
   const fecharAsaas = () => {
+    asaasModalVersaoRef.current++
     setAsaasModalTenant(null)
     setAsaasError(null)
   }
@@ -668,7 +829,7 @@ export function AdminTenantsIndex() {
       } else {
         setBillingSucesso('Dados de cobrança salvos.')
       }
-      carregarAsaas(asaasModalTenant.id)
+      carregarAsaas(asaasModalTenant.id, asaasModalVersaoRef.current)
     } catch (e) {
       setAsaasError(e instanceof Error ? e.message : 'Erro ao salvar dados de cobrança.')
     } finally {
@@ -682,7 +843,7 @@ export function AdminTenantsIndex() {
     setAsaasError(null)
     try {
       await post(`/admin/tenants/${asaasModalTenant.id}/asaas/customer`, {})
-      carregarAsaas(asaasModalTenant.id)
+      carregarAsaas(asaasModalTenant.id, asaasModalVersaoRef.current)
       load()
     } catch (e) {
       setAsaasError(e instanceof Error ? e.message : 'Erro ao criar cliente no Asaas.')
@@ -697,7 +858,7 @@ export function AdminTenantsIndex() {
     setAsaasError(null)
     try {
       await post(`/admin/tenants/${asaasModalTenant.id}/asaas/subscription`, {})
-      carregarAsaas(asaasModalTenant.id)
+      carregarAsaas(asaasModalTenant.id, asaasModalVersaoRef.current)
       load()
     } catch (e) {
       setAsaasError(e instanceof Error ? e.message : 'Erro ao criar assinatura no Asaas.')
@@ -714,12 +875,17 @@ export function AdminTenantsIndex() {
     try {
       await post(`/admin/tenants/${asaasModalTenant.id}/asaas/sync`, {})
       setSyncMensagem('Sincronizado com o Asaas.')
-      carregarAsaas(asaasModalTenant.id)
+      carregarAsaas(asaasModalTenant.id, asaasModalVersaoRef.current)
     } catch (e) {
       setAsaasError(e instanceof Error ? e.message : 'Erro ao sincronizar com o Asaas.')
     } finally {
       setSincronizando(false)
     }
+  }
+
+  const atualizarCobrancasHandler = () => {
+    if (!asaasModalTenant) return
+    carregarCobrancas(asaasModalTenant.id, asaasModalVersaoRef.current)
   }
 
   // Só planos ativos e comerciais (nunca "Interno (Quark)") ficam
@@ -1294,7 +1460,7 @@ export function AdminTenantsIndex() {
                     </div>
                     <div className="flex justify-between gap-3">
                       <span className="text-on-surface-variant">Status Asaas</span>
-                      <span className="text-on-surface">{asaasVinculo.asaas_status ?? '—'}</span>
+                      <span className="text-on-surface">{asaasVinculo.asaas_status ? rotuloAsaas(ASAAS_SUBSCRIPTION_STATUS_LABEL, asaasVinculo.asaas_status) : '—'}</span>
                     </div>
                     <div className="flex justify-between gap-3">
                       <span className="text-on-surface-variant">Última sincronização</span>
@@ -1493,6 +1659,77 @@ export function AdminTenantsIndex() {
                 </div>
               )}
 
+              {/* Cobranças da assinatura (Fase 3) — read-only, nunca cria
+                  pagamento nenhum dentro do UserPulse (ver GET .../asaas/
+                  payments). Só renderizada quando o vínculo já carregou, pra
+                  decidir entre os dois estados vazios (sem assinatura vs.
+                  assinatura sem cobrança nenhuma ainda). */}
+              {!asaasLoading && asaasVinculo && (
+                <div className="rounded-xl border border-outline-variant p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className={sectionHeader}>Cobranças</h4>
+                    {asaasVinculo.asaas_subscription_id && (
+                      <button
+                        onClick={atualizarCobrancasHandler}
+                        disabled={cobrancasLoading}
+                        className="flex items-center gap-1 text-[12px] font-bold text-primary hover:bg-primary/10 rounded-lg px-2 py-1 transition-colors disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">refresh</span>
+                        {cobrancasLoading ? 'Atualizando…' : 'Atualizar cobranças'}
+                      </button>
+                    )}
+                  </div>
+
+                  {!asaasVinculo.asaas_subscription_id && (
+                    <p className="text-[12px] text-on-surface-variant">Crie uma assinatura Asaas para visualizar cobranças.</p>
+                  )}
+
+                  {asaasVinculo.asaas_subscription_id && (
+                    <>
+                      {cobrancasError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{cobrancasError}</div>}
+                      {cobrancasLoading && <LoadingSpinner />}
+                      {!cobrancasLoading && !cobrancasError && cobrancas.length === 0 && (
+                        <p className="text-[12px] text-on-surface-variant">Nenhuma cobrança encontrada para esta assinatura.</p>
+                      )}
+                      {!cobrancasLoading && cobrancas.length > 0 && (
+                        <div className="divide-y divide-outline-variant">
+                          {cobrancas.map(cobranca => (
+                            <div key={cobranca.id} className="py-2.5 first:pt-0 last:pb-0">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <span className="text-body-md font-semibold text-on-surface">{formatarValorReais(cobranca.value)}</span>
+                                <CobrancaStatusBadge status={cobranca.status} />
+                              </div>
+                              <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-on-surface-variant mt-0.5">
+                                <span>Vencimento: {formatDate(cobranca.dueDate)}</span>
+                                <span>Pagamento: {cobranca.paymentDate ? formatDate(cobranca.paymentDate) : '—'}</span>
+                                <span>{cobranca.billingType ? rotuloAsaas(COBRANCA_TIPO_LABEL, cobranca.billingType) : '—'}</span>
+                              </div>
+                              {cobranca.description && <p className="text-[11px] text-on-surface-variant mt-0.5">{cobranca.description}</p>}
+                              {cobranca.invoiceUrl && (
+                                <a
+                                  href={cobranca.invoiceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[12px] font-bold text-primary hover:underline mt-1"
+                                >
+                                  <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                                  Abrir cobrança
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {!cobrancasLoading && cobrancasTemMais && (
+                        <p className="text-[11px] text-on-surface-variant italic">
+                          Mostrando só as cobranças mais recentes — há cobranças adicionais não exibidas aqui.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Histórico de eventos Asaas (Fase 2) — webhooks já recebidos
                   pra este customer/subscription (ver GET .../asaas/events). */}
               <div className="rounded-xl border border-outline-variant p-4 space-y-3">
@@ -1507,7 +1744,7 @@ export function AdminTenantsIndex() {
                     {asaasEventos.map(evento => (
                       <div key={evento.asaas_event_id ?? `${evento.evento}-${evento.criado_em}`} className="py-2.5 first:pt-0 last:pb-0">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <span className="font-mono text-[12px] font-semibold text-on-surface">{evento.evento}</span>
+                          <span className="text-[12px] font-semibold text-on-surface" title={evento.evento}>{rotuloAsaas(EVENTO_ASAAS_LABEL, evento.evento)}</span>
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                             evento.erro
                               ? 'bg-error-container text-error'

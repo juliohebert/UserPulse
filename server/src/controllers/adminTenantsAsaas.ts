@@ -1,7 +1,10 @@
 import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
-import { criarClienteAsaas, criarAssinaturaAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, type DadosCobrancaAsaas } from '../services/asaasClient'
+import {
+  criarClienteAsaas, criarAssinaturaAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas,
+  type DadosCobrancaAsaas, type CobrancaAsaas,
+} from '../services/asaasClient'
 
 // Vínculo de um Tenant com o Asaas, disparado manualmente pelo SUPER_ADMIN
 // (ver seção "Cobrança Asaas" em Tenants.tsx) — fundação/sandbox, nenhuma
@@ -304,5 +307,75 @@ export async function sincronizar(req: Request, res: Response) {
   } catch (err) {
     console.error('Erro ao sincronizar com o Asaas:', err)
     res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao sincronizar com o Asaas.' })
+  }
+}
+
+// Recorte exposto no painel (seção "Cobranças", ver Tenants.tsx) — só os
+// campos úteis pro SUPER_ADMIN, nunca o objeto Asaas inteiro (dezenas de
+// campos internos, alguns deles nem documentados publicamente). invoiceUrl
+// tem prioridade sobre bankSlipUrl quando os dois vêm preenchidos (link
+// "oficial" da fatura Asaas, cobre qualquer billingType, não só boleto).
+// Pura, exportada pra teste direto (ver adminTenantsAsaas.test.ts).
+export interface CobrancaResumo {
+  id: string
+  status: string
+  value: number
+  dueDate: string
+  paymentDate: string | null
+  invoiceUrl: string | null
+  billingType: string | null
+  description: string | null
+}
+
+// Resposta de GET .../asaas/payments — `hasMore` repassa o mesmo campo do
+// envelope de paginação Asaas (ver listarCobrancasAsaas em asaasClient.ts):
+// true quando existem mais cobranças além das LIMITE_COBRANCAS retornadas.
+// Sem paginação de verdade nesta fase, a UI só usa isso pra avisar o
+// SUPER_ADMIN, nunca pra buscar a próxima página.
+export interface CobrancasAsaasResposta {
+  cobrancas: CobrancaResumo[]
+  hasMore: boolean
+}
+
+export function normalizarCobranca(c: CobrancaAsaas): CobrancaResumo {
+  return {
+    id: c.id,
+    status: c.status,
+    value: c.value,
+    dueDate: c.dueDate,
+    paymentDate: c.paymentDate ?? null,
+    invoiceUrl: c.invoiceUrl || c.bankSlipUrl || null,
+    billingType: c.billingType ?? null,
+    description: c.description ?? null,
+  }
+}
+
+// Decisão pura de se vale a pena chamar o Asaas — sem asaas_subscription_id
+// nunca chama (a assinatura ainda nem existe), sempre lista vazia. Exportada
+// pra deixar essa regra testável sem banco/rede (ver "rota sem
+// subscription_id" em adminTenantsAsaas.test.ts).
+export function precisaBuscarCobrancas(tenant: { asaas_subscription_id: string | null }): boolean {
+  return Boolean(tenant.asaas_subscription_id)
+}
+
+// Cobranças da assinatura — read-only, nunca cria/altera/cancela nada (ver
+// listarCobrancasAsaas em asaasClient.ts) e nunca mexe em licença/status
+// (mesma regra de sincronizar acima). Sem asaas_subscription_id, devolve
+// lista vazia (não é erro — mesmo padrão de listarEventos: o frontend
+// decide a mensagem certa a partir do vínculo já carregado, ver
+// Tenants.tsx — "Crie uma assinatura Asaas para visualizar cobranças" vs.
+// "Nenhuma cobrança encontrada").
+export async function listarCobrancas(req: Request, res: Response) {
+  try {
+    const id = req.params.id as string
+    const tenant = await prisma.tenant.findUnique({ where: { id } })
+    if (!tenant) { res.status(404).json({ erro: 'Tenant não encontrado.' }); return }
+    if (!precisaBuscarCobrancas(tenant)) { res.json({ cobrancas: [], hasMore: false }); return }
+
+    const resultado = await listarCobrancasAsaas(tenant.asaas_subscription_id!)
+    res.json({ cobrancas: resultado.data.map(normalizarCobranca), hasMore: resultado.hasMore })
+  } catch (err) {
+    console.error('Erro ao listar cobranças Asaas:', err)
+    res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao listar cobranças no Asaas.' })
   }
 }
