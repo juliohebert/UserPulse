@@ -13,7 +13,10 @@ router.post('/:id/admins', adminTenants.criarAcesso)
 router.put('/:id/admins/:adminId', adminTenants.atualizarAcesso)
 router.post('/:id/admins/:adminId/reset-password', adminTenants.resetarSenha)
 router.get('/:id/asaas', adminTenantsAsaas.obterVinculo)
+router.put('/:id/asaas/billing', adminTenantsAsaas.atualizarDadosCobranca)
 router.post('/:id/asaas/customer', adminTenantsAsaas.criarCliente)
 router.post('/:id/asaas/subscription', adminTenantsAsaas.criarAssinatura)
+router.get('/:id/asaas/events', adminTenantsAsaas.listarEventos)
+router.post('/:id/asaas/sync', adminTenantsAsaas.sincronizar)
 
 export default router

@@ -78,6 +78,25 @@ model Tenant {
   asaas_subscription_id      String?
   asaas_status                String?
   asaas_ultima_sincronizacao DateTime?
+  // Dados de cobrança (Fase 2 da integração Asaas) — usados só ao criar/
+  // atualizar o customer no Asaas (ver criarClienteAsaas/atualizarClienteAsaas
+  // em asaasClient.ts) e exibidos só dentro de Gestão SaaS (SUPER_ADMIN),
+  // nunca em /auth/me nem em qualquer resposta acessível ao cliente comum
+  // (ver tenantPublico() em controllers/auth.ts — esses campos não entram
+  // lá). billing_cpf_cnpj é o único dado sensível do grupo — nunca logado
+  // (ver comentário em adminTenantsAsaas.ts) e nunca usado em nenhuma regra
+  // de negócio, só repassado ao Asaas.
+  billing_nome_responsavel String?
+  billing_email            String?
+  billing_cpf_cnpj         String?
+  billing_telefone         String?
+  billing_endereco         String?
+  billing_numero           String?
+  billing_complemento      String?
+  billing_bairro           String?
+  billing_cidade           String?
+  billing_estado           String?
+  billing_cep              String?
   criado_em     DateTime     @default(now())
   atualizado_em DateTime     @updatedAt
 

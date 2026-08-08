@@ -527,11 +527,52 @@ export interface TenantAdminItem {
   _count: { admins: number }
 }
 
-export interface AsaasVinculoTenant {
+// Dados de cobrança (Fase 2) — só alcançáveis dentro de Gestão SaaS
+// (SUPER_ADMIN); nunca fazem parte de AdminUser/TenantResumo (o recorte
+// devolvido em /auth/me pro próprio tenant logado, ver server/src/
+// controllers/auth.ts). billing_cpf_cnpj é dado sensível, mas só exibido
+// aqui, dentro do modal Cobrança Asaas.
+export interface DadosCobrancaTenant {
+  billing_nome_responsavel: string | null
+  billing_email: string | null
+  billing_cpf_cnpj: string | null
+  billing_telefone: string | null
+  billing_endereco: string | null
+  billing_numero: string | null
+  billing_complemento: string | null
+  billing_bairro: string | null
+  billing_cidade: string | null
+  billing_estado: string | null
+  billing_cep: string | null
+}
+
+export interface AsaasVinculoTenant extends DadosCobrancaTenant {
   asaas_customer_id: string | null
   asaas_subscription_id: string | null
   asaas_status: string | null
   asaas_ultima_sincronizacao: string | null
+}
+
+// Resposta de PUT .../asaas/billing — mesmos campos de AsaasVinculoTenant
+// (menos os asaas_*, que esse endpoint não altera) mais o resultado
+// best-effort da sincronização com o Asaas, se já existir customer vinculado.
+export interface AtualizarCobrancaResposta extends DadosCobrancaTenant {
+  asaas_sync_erro: string | null
+}
+
+// Um item do histórico de webhooks Asaas (ver GET .../asaas/events) — mesmo
+// recorte do model AsaasWebhookEvent, sem o payload bruto nem o id interno
+// (só o necessário pra listar no painel).
+export interface AsaasEventoTenant {
+  asaas_event_id: string | null
+  evento: string
+  payment_id: string | null
+  subscription_id: string | null
+  customer_id: string | null
+  processado: boolean
+  erro: string | null
+  criado_em: string
+  processado_em: string | null
 }
 
 export interface TenantAdminDetail extends Omit<TenantAdminItem, '_count'> {

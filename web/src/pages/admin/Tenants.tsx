@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { get, post, put } from '../../services/api'
-import type { AdminDoTenant, AdminRole, AsaasVinculoTenant, PlanoAdmin, TenantAdminItem, TenantStatus } from '../../types'
+import type { AdminDoTenant, AdminRole, AsaasEventoTenant, AsaasVinculoTenant, AtualizarCobrancaResposta, PlanoAdmin, TenantAdminItem, TenantStatus } from '../../types'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
@@ -123,6 +123,23 @@ function RoleBadge({ role }: { role: AdminRole }) {
 
 const EMPTY_ACESSO_FORM = { nome: '', email: '', senha: '', role: 'ADMIN' as AdminRole }
 
+// Dados de cobrança (Fase 2 da integração Asaas) — mesmos 11 campos de
+// DadosCobrancaTenant (ver types.ts), todos string vazia por padrão (nunca
+// undefined, pra manter os <input> controlados).
+const EMPTY_BILLING_FORM = {
+  billing_nome_responsavel: '',
+  billing_email: '',
+  billing_cpf_cnpj: '',
+  billing_telefone: '',
+  billing_endereco: '',
+  billing_numero: '',
+  billing_complemento: '',
+  billing_bairro: '',
+  billing_cidade: '',
+  billing_estado: '',
+  billing_cep: '',
+}
+
 const EMPTY_FORM = {
   nome: '',
   slug: '',
@@ -205,9 +222,24 @@ export function AdminTenantsIndex() {
   const [asaasVinculo, setAsaasVinculo] = useState<AsaasVinculoTenant | null>(null)
   const [asaasLoading, setAsaasLoading] = useState(false)
   const [asaasError, setAsaasError] = useState<string | null>(null)
-  const [asaasForm, setAsaasForm] = useState({ cpf_cnpj: '', email: '', telefone: '' })
   const [criandoClienteAsaas, setCriandoClienteAsaas] = useState(false)
   const [criandoAssinaturaAsaas, setCriandoAssinaturaAsaas] = useState(false)
+
+  // Dados de cobrança (Fase 2) — formulário próprio, salvo via PUT .../asaas/
+  // billing antes de criar o customer Asaas (ver salvarBillingHandler).
+  const [billingForm, setBillingForm] = useState(EMPTY_BILLING_FORM)
+  const [salvandoBilling, setSalvandoBilling] = useState(false)
+  const [billingSucesso, setBillingSucesso] = useState<string | null>(null)
+
+  // Histórico de eventos Asaas do tenant selecionado (Fase 2).
+  const [asaasEventos, setAsaasEventos] = useState<AsaasEventoTenant[]>([])
+  const [eventosLoading, setEventosLoading] = useState(false)
+  const [eventosError, setEventosError] = useState<string | null>(null)
+
+  // Sincronização manual (Fase 2) — só busca o status atual no Asaas, nunca
+  // mexe em licença/status (ver POST .../asaas/sync no backend).
+  const [sincronizando, setSincronizando] = useState(false)
+  const [syncMensagem, setSyncMensagem] = useState<string | null>(null)
 
   const [copiado, setCopiado] = useState<string | null>(null)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
@@ -520,17 +552,45 @@ export function AdminTenantsIndex() {
     setAsaasLoading(true)
     setAsaasError(null)
     get<AsaasVinculoTenant>(`/admin/tenants/${tenantId}/asaas`)
-      .then(setAsaasVinculo)
+      .then(vinculo => {
+        setAsaasVinculo(vinculo)
+        setBillingForm({
+          billing_nome_responsavel: vinculo.billing_nome_responsavel ?? '',
+          billing_email: vinculo.billing_email ?? '',
+          billing_cpf_cnpj: vinculo.billing_cpf_cnpj ?? '',
+          billing_telefone: vinculo.billing_telefone ?? '',
+          billing_endereco: vinculo.billing_endereco ?? '',
+          billing_numero: vinculo.billing_numero ?? '',
+          billing_complemento: vinculo.billing_complemento ?? '',
+          billing_bairro: vinculo.billing_bairro ?? '',
+          billing_cidade: vinculo.billing_cidade ?? '',
+          billing_estado: vinculo.billing_estado ?? '',
+          billing_cep: vinculo.billing_cep ?? '',
+        })
+      })
       .catch(e => setAsaasError(e instanceof Error ? e.message : 'Erro ao carregar vínculo Asaas.'))
       .finally(() => setAsaasLoading(false))
+  }
+
+  const carregarEventosAsaas = (tenantId: string) => {
+    setEventosLoading(true)
+    setEventosError(null)
+    get<AsaasEventoTenant[]>(`/admin/tenants/${tenantId}/asaas/events`)
+      .then(setAsaasEventos)
+      .catch(e => setEventosError(e instanceof Error ? e.message : 'Erro ao carregar eventos Asaas.'))
+      .finally(() => setEventosLoading(false))
   }
 
   const abrirAsaas = (tenant: TenantAdminItem) => {
     setAsaasModalTenant(tenant)
     setAsaasVinculo(null)
-    setAsaasForm({ cpf_cnpj: '', email: '', telefone: '' })
+    setBillingForm(EMPTY_BILLING_FORM)
+    setBillingSucesso(null)
+    setAsaasEventos([])
+    setSyncMensagem(null)
     setAsaasError(null)
     carregarAsaas(tenant.id)
+    carregarEventosAsaas(tenant.id)
   }
 
   const fecharAsaas = () => {
@@ -538,21 +598,36 @@ export function AdminTenantsIndex() {
     setAsaasError(null)
   }
 
-  const criarClienteAsaasHandler = async (e: React.FormEvent) => {
+  const salvarBillingHandler = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!asaasModalTenant) return
-    if (!asaasForm.cpf_cnpj.trim()) {
-      setAsaasError('Informe o CPF/CNPJ para criar o cliente no Asaas.')
-      return
+    setSalvandoBilling(true)
+    setAsaasError(null)
+    setBillingSucesso(null)
+    try {
+      const payload = Object.fromEntries(
+        Object.entries(billingForm).map(([chave, valor]) => [chave, valor.trim() || null])
+      )
+      const resposta = await put<AtualizarCobrancaResposta>(`/admin/tenants/${asaasModalTenant.id}/asaas/billing`, payload)
+      if (resposta.asaas_sync_erro) {
+        setAsaasError(`Dados salvos, mas não foi possível sincronizar com o Asaas: ${resposta.asaas_sync_erro}`)
+      } else {
+        setBillingSucesso('Dados de cobrança salvos.')
+      }
+      carregarAsaas(asaasModalTenant.id)
+    } catch (e) {
+      setAsaasError(e instanceof Error ? e.message : 'Erro ao salvar dados de cobrança.')
+    } finally {
+      setSalvandoBilling(false)
     }
+  }
+
+  const criarClienteAsaasHandler = async () => {
+    if (!asaasModalTenant) return
     setCriandoClienteAsaas(true)
     setAsaasError(null)
     try {
-      await post(`/admin/tenants/${asaasModalTenant.id}/asaas/customer`, {
-        cpf_cnpj: asaasForm.cpf_cnpj.trim(),
-        email: asaasForm.email.trim() || undefined,
-        telefone: asaasForm.telefone.trim() || undefined,
-      })
+      await post(`/admin/tenants/${asaasModalTenant.id}/asaas/customer`, {})
       carregarAsaas(asaasModalTenant.id)
       load()
     } catch (e) {
@@ -574,6 +649,22 @@ export function AdminTenantsIndex() {
       setAsaasError(e instanceof Error ? e.message : 'Erro ao criar assinatura no Asaas.')
     } finally {
       setCriandoAssinaturaAsaas(false)
+    }
+  }
+
+  const sincronizarAsaasHandler = async () => {
+    if (!asaasModalTenant) return
+    setSincronizando(true)
+    setAsaasError(null)
+    setSyncMensagem(null)
+    try {
+      await post(`/admin/tenants/${asaasModalTenant.id}/asaas/sync`, {})
+      setSyncMensagem('Sincronizado com o Asaas.')
+      carregarAsaas(asaasModalTenant.id)
+    } catch (e) {
+      setAsaasError(e instanceof Error ? e.message : 'Erro ao sincronizar com o Asaas.')
+    } finally {
+      setSincronizando(false)
     }
   }
 
@@ -1102,11 +1193,13 @@ export function AdminTenantsIndex() {
 
       {/* Modal Cobrança Asaas — vínculo do tenant com o Asaas (fundação/
           sandbox, ver server/src/services/asaasClient.ts). Nunca dispara
-          nada automaticamente — só reflete o vínculo salvo e os dois botões
-          de ação manual (criar cliente / criar assinatura). */}
+          nada automaticamente — só reflete o vínculo salvo e os botões de
+          ação manual (salvar cobrança / criar cliente / criar assinatura /
+          sincronizar). Largura maior (max-w-2xl) desde a Fase 2 — cabe as
+          seções de dados de cobrança e histórico de eventos sem apertar. */}
       {asaasModalTenant && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-outline-variant">
               <h3 className="text-title-md font-bold text-on-surface">Cobrança Asaas — {asaasModalTenant.nome}</h3>
               <button onClick={fecharAsaas} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
@@ -1121,59 +1214,183 @@ export function AdminTenantsIndex() {
               </div>
 
               {asaasError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{asaasError}</div>}
+              {billingSucesso && <div className="p-3 bg-tertiary/10 text-tertiary rounded-xl text-body-md">{billingSucesso}</div>}
+              {syncMensagem && <div className="p-3 bg-tertiary/10 text-tertiary rounded-xl text-body-md">{syncMensagem}</div>}
 
               {asaasLoading && <LoadingSpinner />}
 
               {!asaasLoading && asaasVinculo && (
-                <div className="rounded-xl border border-outline-variant/60 p-4 space-y-2 text-body-md">
-                  <div className="flex justify-between gap-3">
-                    <span className="text-on-surface-variant">Customer ID</span>
-                    <span className="font-mono text-[13px] text-on-surface truncate">{asaasVinculo.asaas_customer_id ?? '—'}</span>
+                <div className="rounded-xl border border-outline-variant/60 p-4 space-y-3 text-body-md">
+                  <div className="space-y-2">
+                    <div className="flex justify-between gap-3">
+                      <span className="text-on-surface-variant">Customer ID</span>
+                      <span className="font-mono text-[13px] text-on-surface truncate">{asaasVinculo.asaas_customer_id ?? '—'}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-on-surface-variant">Subscription ID</span>
+                      <span className="font-mono text-[13px] text-on-surface truncate">{asaasVinculo.asaas_subscription_id ?? '—'}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-on-surface-variant">Status Asaas</span>
+                      <span className="text-on-surface">{asaasVinculo.asaas_status ?? '—'}</span>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <span className="text-on-surface-variant">Última sincronização</span>
+                      <span className="text-on-surface">{asaasVinculo.asaas_ultima_sincronizacao ? formatDateTime(asaasVinculo.asaas_ultima_sincronizacao) : '—'}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-on-surface-variant">Subscription ID</span>
-                    <span className="font-mono text-[13px] text-on-surface truncate">{asaasVinculo.asaas_subscription_id ?? '—'}</span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-on-surface-variant">Status Asaas</span>
-                    <span className="text-on-surface">{asaasVinculo.asaas_status ?? '—'}</span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-on-surface-variant">Última sincronização</span>
-                    <span className="text-on-surface">{asaasVinculo.asaas_ultima_sincronizacao ? formatDateTime(asaasVinculo.asaas_ultima_sincronizacao) : '—'}</span>
-                  </div>
+                  {asaasVinculo.asaas_subscription_id && (
+                    <div className="flex justify-end pt-1 border-t border-outline-variant/40">
+                      <button
+                        onClick={sincronizarAsaasHandler}
+                        disabled={sincronizando}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-label-md font-bold text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">sync</span>
+                        {sincronizando ? 'Sincronizando…' : 'Sincronizar agora'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {!asaasLoading && asaasVinculo && !asaasVinculo.asaas_customer_id && (
-                <form onSubmit={criarClienteAsaasHandler} className="rounded-xl border border-outline-variant p-4 space-y-3">
-                  <h4 className={sectionHeader}>Criar cliente Asaas</h4>
-                  <div>
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">CPF/CNPJ <span className="text-error">*</span></label>
-                    <input
-                      required
-                      value={asaasForm.cpf_cnpj}
-                      onChange={e => setAsaasForm(prev => ({ ...prev, cpf_cnpj: e.target.value }))}
-                      placeholder="Somente números"
-                      className={field}
-                    />
+              {/* Dados de cobrança (Fase 2) — usados ao criar/atualizar o
+                  customer no Asaas. Editável a qualquer momento, mesmo depois
+                  do customer já existir (nesse caso, salvar também tenta
+                  sincronizar no Asaas — ver salvarBillingHandler). */}
+              {!asaasLoading && asaasVinculo && (
+                <form onSubmit={salvarBillingHandler} className="rounded-xl border border-outline-variant p-4 space-y-3">
+                  <h4 className={sectionHeader}>Dados de cobrança</h4>
+                  <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
+                    Dados usados apenas para cobrança e integração Asaas.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Nome do responsável</label>
+                      <input
+                        value={billingForm.billing_nome_responsavel}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_nome_responsavel: e.target.value }))}
+                        placeholder={asaasModalTenant.nome}
+                        className={field}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">CPF/CNPJ <span className="text-error">*</span></label>
+                      <input
+                        value={billingForm.billing_cpf_cnpj}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_cpf_cnpj: e.target.value }))}
+                        placeholder="Somente números"
+                        className={field}
+                      />
+                    </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail</label>
-                      <input type="email" value={asaasForm.email} onChange={e => setAsaasForm(prev => ({ ...prev, email: e.target.value }))} className={field} />
+                      <input
+                        type="email"
+                        value={billingForm.billing_email}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_email: e.target.value }))}
+                        className={field}
+                      />
                     </div>
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">Telefone</label>
-                      <input value={asaasForm.telefone} onChange={e => setAsaasForm(prev => ({ ...prev, telefone: e.target.value }))} className={field} />
+                      <input
+                        value={billingForm.billing_telefone}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_telefone: e.target.value }))}
+                        className={field}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr] gap-3">
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Endereço</label>
+                      <input
+                        value={billingForm.billing_endereco}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_endereco: e.target.value }))}
+                        className={field}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Número</label>
+                      <input
+                        value={billingForm.billing_numero}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_numero: e.target.value }))}
+                        className={field}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Complemento</label>
+                      <input
+                        value={billingForm.billing_complemento}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_complemento: e.target.value }))}
+                        className={field}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Bairro</label>
+                      <input
+                        value={billingForm.billing_bairro}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_bairro: e.target.value }))}
+                        className={field}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">CEP</label>
+                      <input
+                        value={billingForm.billing_cep}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_cep: e.target.value }))}
+                        className={field}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Cidade</label>
+                      <input
+                        value={billingForm.billing_cidade}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_cidade: e.target.value }))}
+                        className={field}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Estado</label>
+                      <input
+                        value={billingForm.billing_estado}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_estado: e.target.value }))}
+                        placeholder="UF"
+                        maxLength={2}
+                        className={field}
+                      />
                     </div>
                   </div>
                   <div className="flex justify-end">
-                    <button type="submit" disabled={criandoClienteAsaas} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60">
-                      {criandoClienteAsaas ? 'Criando…' : 'Criar cliente Asaas'}
+                    <button type="submit" disabled={salvandoBilling} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60">
+                      {salvandoBilling ? 'Salvando…' : 'Salvar dados de cobrança'}
                     </button>
                   </div>
                 </form>
+              )}
+
+              {!asaasLoading && asaasVinculo && !asaasVinculo.asaas_customer_id && (
+                <div className="rounded-xl border border-outline-variant p-4 space-y-3">
+                  <h4 className={sectionHeader}>Criar cliente Asaas</h4>
+                  <p className="text-[12px] text-on-surface-variant">
+                    Usa os dados de cobrança salvos acima (nome e CPF/CNPJ são obrigatórios).
+                  </p>
+                  <div className="flex justify-end">
+                    <button
+                      onClick={criarClienteAsaasHandler}
+                      disabled={criandoClienteAsaas || !billingForm.billing_cpf_cnpj.trim()}
+                      className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+                    >
+                      {criandoClienteAsaas ? 'Criando…' : 'Criar cliente Asaas'}
+                    </button>
+                  </div>
+                </div>
               )}
 
               {!asaasLoading && asaasVinculo?.asaas_customer_id && !asaasVinculo.asaas_subscription_id && (
@@ -1193,6 +1410,39 @@ export function AdminTenantsIndex() {
                   </div>
                 </div>
               )}
+
+              {/* Histórico de eventos Asaas (Fase 2) — webhooks já recebidos
+                  pra este customer/subscription (ver GET .../asaas/events). */}
+              <div className="rounded-xl border border-outline-variant p-4 space-y-3">
+                <h4 className={sectionHeader}>Últimos eventos</h4>
+                {eventosError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{eventosError}</div>}
+                {eventosLoading && <LoadingSpinner />}
+                {!eventosLoading && !eventosError && asaasEventos.length === 0 && (
+                  <p className="text-[12px] text-on-surface-variant">Nenhum evento Asaas recebido ainda.</p>
+                )}
+                {!eventosLoading && asaasEventos.length > 0 && (
+                  <div className="divide-y divide-outline-variant">
+                    {asaasEventos.map(evento => (
+                      <div key={evento.asaas_event_id ?? `${evento.evento}-${evento.criado_em}`} className="py-2.5 first:pt-0 last:pb-0">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="font-mono text-[12px] font-semibold text-on-surface">{evento.evento}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            evento.erro
+                              ? 'bg-error-container text-error'
+                              : evento.processado
+                                ? 'bg-tertiary/10 text-tertiary'
+                                : 'bg-outline-variant/30 text-outline'
+                          }`}>
+                            {evento.erro ? 'Erro' : evento.processado ? 'Processado' : 'Pendente'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-on-surface-variant mt-0.5">{formatDateTime(evento.criado_em)}</p>
+                        {evento.erro && <p className="text-[12px] text-error mt-1">{evento.erro}</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
