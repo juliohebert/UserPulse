@@ -12,8 +12,8 @@ export function ToggleSwitch({ checked, onChange, disabled = false }: Props) {
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 rounded-full border transition-colors focus:outline-none focus:ring-2 focus:ring-[#1876f2] focus:ring-offset-1 disabled:opacity-50 ${
-        checked ? 'bg-primary border-primary' : 'bg-surface-container-low border-hairline'
+      className={`relative w-10 h-5 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 disabled:opacity-50 ${
+        checked ? 'bg-tertiary' : 'bg-outline-variant'
       }`}
     >
       <span

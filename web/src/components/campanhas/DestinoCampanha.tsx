@@ -23,7 +23,7 @@ interface Props {
   resumo: string
 }
 
-const field = 'meta-input w-full'
+const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 
 const MODOS = [
   { value: 'sistema_tela', label: 'Tela informada pelo sistema', desc: 'Use quando o sistema hospedeiro envia o nome da tela.' },
@@ -95,7 +95,7 @@ export function DestinoCampanha({
   }
 
   return (
-    <div className="meta-card-compact">
+    <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm">
       <CardHeader
         number={numero}
         icon="explore"
@@ -109,38 +109,38 @@ export function DestinoCampanha({
         <button
           type="button"
           onClick={() => setTab('catalogo')}
-          className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all ${
-            tab === 'catalogo' ? 'border-ink-deep bg-surface' : 'border-hairline-soft bg-surface-container-low hover:border-hairline'
+          className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${
+            tab === 'catalogo' ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'
           }`}
         >
-          <span className={`material-symbols-outlined text-[20px] mt-0.5 shrink-0 ${tab === 'catalogo' ? 'text-ink-deep' : 'text-charcoal'}`}>grid_view</span>
+          <span className={`material-symbols-outlined text-[20px] mt-0.5 shrink-0 ${tab === 'catalogo' ? 'text-primary' : 'text-on-surface-variant'}`}>grid_view</span>
           <div>
-            <p className={`text-body-md font-semibold ${tab === 'catalogo' ? 'text-ink-deep' : 'text-ink'}`}>Escolher do catálogo</p>
-            <p className="text-label-sm text-charcoal mt-0.5">Selecione uma tela já mapeada no sistema.</p>
+            <p className={`text-body-md font-semibold ${tab === 'catalogo' ? 'text-primary' : 'text-on-surface'}`}>Escolher do catálogo</p>
+            <p className="text-[11px] text-on-surface-variant mt-0.5">Selecione uma tela já mapeada no sistema.</p>
           </div>
         </button>
         <button
           type="button"
           onClick={() => setTab('manual')}
-          className={`flex items-start gap-3 p-4 rounded-xl border text-left transition-all ${
-            tab === 'manual' ? 'border-ink-deep bg-surface' : 'border-hairline-soft bg-surface-container-low hover:border-hairline'
+          className={`flex items-start gap-3 p-3 rounded-xl border text-left transition-all ${
+            tab === 'manual' ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'
           }`}
         >
-          <span className={`material-symbols-outlined text-[20px] mt-0.5 shrink-0 ${tab === 'manual' ? 'text-ink-deep' : 'text-charcoal'}`}>tune</span>
+          <span className={`material-symbols-outlined text-[20px] mt-0.5 shrink-0 ${tab === 'manual' ? 'text-primary' : 'text-on-surface-variant'}`}>tune</span>
           <div>
-            <p className={`text-body-md font-semibold ${tab === 'manual' ? 'text-ink-deep' : 'text-ink'}`}>Configurar manualmente</p>
-            <p className="text-label-sm text-charcoal mt-0.5">Informe sistema, tela ou URL você mesmo.</p>
+            <p className={`text-body-md font-semibold ${tab === 'manual' ? 'text-primary' : 'text-on-surface'}`}>Configurar manualmente</p>
+            <p className="text-[11px] text-on-surface-variant mt-0.5">Informe sistema, tela ou URL você mesmo.</p>
           </div>
         </button>
       </div>
 
       {tab === 'catalogo' ? (
         selecionada ? (
-          <div className="flex items-center justify-between gap-3 p-4 rounded-xl bg-surface border border-ink-deep">
+          <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-primary-fixed/60 border border-primary shadow-sm">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 mb-0.5">
                 <span className="material-symbols-outlined text-primary text-[14px]">check_circle</span>
-                <span className="text-label-md font-bold text-ink-deep truncate">{selecionada.nome}</span>
+                <span className="text-label-md font-bold text-primary truncate">{selecionada.nome}</span>
               </div>
               <span className="text-[11px] text-on-surface-variant">{selecionada.categoria} · {selecionada.sistema}</span>
               {identifier(selecionada) && (
@@ -150,7 +150,7 @@ export function DestinoCampanha({
             <button
               type="button"
               onClick={onClearScreen}
-              className="meta-button-ghost shrink-0 px-4 py-2"
+              className="shrink-0 px-2.5 py-1.5 border border-primary text-primary rounded-lg text-label-sm font-bold hover:bg-primary-fixed transition-colors"
             >
               Alterar
             </button>
@@ -158,13 +158,13 @@ export function DestinoCampanha({
         ) : (
           <div>
             <div ref={buscaRef} className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-steel text-[18px] pointer-events-none">search</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline text-[18px] pointer-events-none">search</span>
               <input
                 value={busca}
                 onChange={e => { setBusca(e.target.value); setDropdownAberto(true) }}
                 onFocus={() => { if (busca.trim()) setDropdownAberto(true) }}
                 placeholder="Buscar tela, módulo ou funcionalidade..."
-                className="meta-input w-full pl-9 pr-9"
+                className="w-full pl-9 pr-9 py-2.5 bg-surface-bright border border-outline-variant rounded-xl text-body-md focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
               {busca && (
                 <button
@@ -177,7 +177,7 @@ export function DestinoCampanha({
               )}
 
               {dropdownAberto && q && (
-                <div className="absolute z-40 mt-1.5 w-full rounded-xl border border-hairline-soft bg-surface shadow-panel overflow-hidden max-h-80 overflow-y-auto">
+                <div className="absolute z-40 mt-1.5 w-full rounded-xl border border-outline-variant bg-surface-bright shadow-lg overflow-hidden max-h-80 overflow-y-auto">
                   {shown.length === 0 ? (
                     <p className="px-4 py-3 text-[12px] text-outline italic">Nenhuma tela encontrada para "{busca}".</p>
                   ) : (

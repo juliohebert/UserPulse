@@ -58,7 +58,7 @@ function resolverAviso(tenant: AdminUser['tenant']): Aviso | null {
 
 const VARIANTE_CLS: Record<Variante, string> = {
   danger: 'bg-error-container text-on-error-container',
-  warning: 'bg-warning text-ink-deep',
+  warning: 'bg-amber-100 text-amber-900',
 }
 
 // Renderizado dentro de Layout.tsx, acima do <Outlet />, em toda página do
@@ -77,7 +77,7 @@ export function AvisoComercial() {
   if (!aviso) return null
 
   return (
-    <div className={`px-4 lg:px-margin-desktop py-3 text-body-sm font-bold flex items-center gap-2 ${VARIANTE_CLS[aviso.variante]}`}>
+    <div className={`px-4 lg:px-margin-desktop py-2.5 text-body-sm font-medium flex items-center gap-2 ${VARIANTE_CLS[aviso.variante]}`}>
       <span className="material-symbols-outlined text-[18px] shrink-0">
         {aviso.variante === 'danger' ? 'error' : 'warning'}
       </span>

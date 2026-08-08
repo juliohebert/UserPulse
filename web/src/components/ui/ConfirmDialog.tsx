@@ -26,19 +26,19 @@ const VARIANT_CFG: Record<ConfirmDialogVariant, { icon: string; iconBg: string; 
     icon: 'warning',
     iconBg: 'bg-error-container',
     iconColor: 'text-error',
-    confirmBtn: 'bg-error text-on-error active:bg-critical-strong',
+    confirmBtn: 'bg-error text-on-error hover:opacity-90',
   },
   warning: {
     icon: 'warning',
-    iconBg: 'bg-warning/20',
-    iconColor: 'text-attention',
-    confirmBtn: 'bg-warning text-ink-deep active:brightness-95',
+    iconBg: 'bg-amber-100',
+    iconColor: 'text-amber-700',
+    confirmBtn: 'bg-amber-500 text-white hover:opacity-90',
   },
   default: {
     icon: 'help',
     iconBg: 'bg-primary/10',
     iconColor: 'text-primary',
-    confirmBtn: 'bg-primary text-on-primary active:bg-primary-deep',
+    confirmBtn: 'bg-primary text-on-primary hover:opacity-90',
   },
 }
 
@@ -77,15 +77,15 @@ export function ConfirmDialog({
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-description"
     >
-      <div className="bg-surface rounded-3xl border border-hairline-soft shadow-panel w-full max-w-sm">
+      <div className="bg-surface rounded-2xl shadow-xl w-full max-w-sm">
         <div className="px-5 pt-5 pb-4">
           <div className="flex items-start gap-3">
             <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${cfg.iconBg}`}>
               <span className={`material-symbols-outlined text-[22px] ${cfg.iconColor}`}>{cfg.icon}</span>
             </div>
             <div className="min-w-0 pt-1">
-              <h3 id="confirm-dialog-title" className="text-title-md font-bold text-ink-deep">{title}</h3>
-              <p id="confirm-dialog-description" className="mt-1 text-body-md text-charcoal">{description}</p>
+              <h3 id="confirm-dialog-title" className="text-title-md font-bold text-on-surface">{title}</h3>
+              <p id="confirm-dialog-description" className="mt-1 text-body-md text-on-surface-variant">{description}</p>
             </div>
           </div>
           {erro && (
@@ -98,7 +98,7 @@ export function ConfirmDialog({
             autoFocus
             disabled={loading}
             onClick={onCancel}
-            className="meta-button-ghost disabled:opacity-50"
+            className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors disabled:opacity-50"
           >
             {cancelLabel}
           </button>
@@ -106,7 +106,7 @@ export function ConfirmDialog({
             type="button"
             disabled={loading}
             onClick={onConfirm}
-            className={`inline-flex items-center justify-center rounded-full px-[30px] py-3.5 text-label-md font-bold transition-colors disabled:opacity-60 ${cfg.confirmBtn}`}
+            className={`px-5 py-2 rounded-xl text-label-md font-bold shadow-sm transition-all active:scale-95 disabled:opacity-60 ${cfg.confirmBtn}`}
           >
             {loading ? 'Aguarde…' : confirmLabel}
           </button>

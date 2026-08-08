@@ -20,15 +20,15 @@ export function Pagination({ page, total, perPage, onChange }: Props) {
   const end = Math.min(page * perPage, total)
 
   return (
-    <div className="px-6 py-4 bg-surface border-t border-hairline-soft flex items-center justify-between">
-      <span className="text-label-md text-charcoal">
+    <div className="px-6 py-4 bg-surface-container-low border-t border-outline-variant flex items-center justify-between">
+      <span className="text-label-md text-on-surface-variant">
         Mostrando {start}–{end} de {total}
       </span>
       <div className="flex items-center gap-2">
         <button
           onClick={() => onChange(page - 1)}
           disabled={page === 1}
-          className="h-10 w-10 rounded-full border border-hairline text-ink hover:bg-surface-container-low transition-colors disabled:opacity-30"
+          className="p-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
         >
           <span className="material-symbols-outlined text-[20px]">chevron_left</span>
         </button>
@@ -44,8 +44,8 @@ export function Pagination({ page, total, perPage, onChange }: Props) {
                 onClick={() => onChange(p)}
                 className={`w-9 h-9 rounded-lg text-label-md font-bold transition-colors ${
                   p === page
-                    ? 'bg-ink-deep text-white'
-                    : 'bg-surface text-ink hover:bg-surface-container-low'
+                    ? 'bg-primary text-on-primary'
+                    : 'hover:bg-surface-container-high text-on-surface-variant'
                 }`}
               >
                 {p}
@@ -56,7 +56,7 @@ export function Pagination({ page, total, perPage, onChange }: Props) {
         <button
           onClick={() => onChange(page + 1)}
           disabled={page === totalPages}
-          className="h-10 w-10 rounded-full border border-hairline text-ink hover:bg-surface-container-low transition-colors disabled:opacity-30"
+          className="p-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
         >
           <span className="material-symbols-outlined text-[20px]">chevron_right</span>
         </button>
