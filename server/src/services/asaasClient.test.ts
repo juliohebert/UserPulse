@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mapearEventoAsaas, calcularProximoVencimento, criarClienteAsaas } from './asaasClient'
+import { mapearEventoAsaas, calcularProximoVencimento, criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas } from './asaasClient'
 
 // Cobertura da Fase 1 da integração Asaas (fundação/sandbox) — só funções
 // puras (mapearEventoAsaas, calcularProximoVencimento) e um teste de
@@ -166,7 +166,7 @@ describe('asaasClient — nunca vaza a API key', () => {
 
     try {
       await assert.rejects(
-        () => criarClienteAsaas({ id: 't1', nome: 'Tenant Teste' }, '00000000000'),
+        () => criarClienteAsaas({ id: 't1' }, { nome: 'Tenant Teste', cpfCnpj: '00000000000' }),
         (err: unknown) => {
           const mensagem = err instanceof Error ? err.message : String(err)
           assert.equal(mensagem.includes(SEGREDO), false)
@@ -193,7 +193,40 @@ describe('asaasClient — nunca vaza a API key', () => {
     process.env.ASAAS_ENV = 'production'
     try {
       await assert.rejects(
-        () => criarClienteAsaas({ id: 't1', nome: 'Tenant Teste' }, '00000000000'),
+        () => criarClienteAsaas({ id: 't1' }, { nome: 'Tenant Teste', cpfCnpj: '00000000000' }),
+        /não é permitido nesta fase/
+      )
+    } finally {
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('buscarAssinaturaAsaas também bloqueia produção — usada pela sincronização manual (Fase 2)', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    process.env.ASAAS_API_KEY = 'qualquer-coisa'
+    process.env.ASAAS_ENV = 'production'
+    try {
+      await assert.rejects(() => buscarAssinaturaAsaas('sub_1'), /não é permitido nesta fase/)
+    } finally {
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('atualizarClienteAsaas (edição de dados de cobrança) também bloqueia produção', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    process.env.ASAAS_API_KEY = 'qualquer-coisa'
+    process.env.ASAAS_ENV = 'production'
+    try {
+      await assert.rejects(
+        () => atualizarClienteAsaas('cus_1', { nome: 'Tenant Teste', cpfCnpj: '00000000000' }),
         /não é permitido nesta fase/
       )
     } finally {

@@ -75,20 +75,54 @@ export interface ClienteAsaas {
   [chave: string]: unknown
 }
 
-export async function criarClienteAsaas(
-  tenant: { id: string; nome: string },
-  cpfCnpj: string,
-  opcional?: { email?: string | null; telefone?: string | null }
-): Promise<ClienteAsaas> {
+// Dados de cobrança persistidos no Tenant (Fase 2, ver billing_* no schema)
+// repassados ao Asaas na criação/atualização do customer — nunca logados
+// aqui (ver comentário em adminTenantsAsaas.ts sobre não logar cpfCnpj).
+// cidade/estado ficam de fora do payload Asaas de propósito: o campo "city"
+// da API Asaas espera um código IBGE, não texto livre — Asaas já resolve
+// cidade/estado a partir do postalCode enviado, então billing_cidade/
+// billing_estado servem só pra exibição no painel, nunca são enviados.
+export interface DadosCobrancaAsaas {
+  nome: string
+  cpfCnpj: string
+  email?: string | null
+  telefone?: string | null
+  cep?: string | null
+  endereco?: string | null
+  numero?: string | null
+  complemento?: string | null
+  bairro?: string | null
+}
+
+function corpoClienteAsaas(dados: DadosCobrancaAsaas) {
+  return {
+    name: dados.nome,
+    cpfCnpj: dados.cpfCnpj,
+    email: dados.email || undefined,
+    phone: dados.telefone || undefined,
+    postalCode: dados.cep || undefined,
+    address: dados.endereco || undefined,
+    addressNumber: dados.numero || undefined,
+    complement: dados.complemento || undefined,
+    province: dados.bairro || undefined,
+  }
+}
+
+export async function criarClienteAsaas(tenant: { id: string }, dados: DadosCobrancaAsaas): Promise<ClienteAsaas> {
   return asaasFetch<ClienteAsaas>('/customers', {
     method: 'POST',
-    body: JSON.stringify({
-      name: tenant.nome,
-      cpfCnpj,
-      email: opcional?.email || undefined,
-      phone: opcional?.telefone || undefined,
-      externalReference: tenant.id,
-    }),
+    body: JSON.stringify({ ...corpoClienteAsaas(dados), externalReference: tenant.id }),
+  })
+}
+
+// Atualiza um customer já existente no Asaas — usado quando o SUPER_ADMIN
+// edita os dados de cobrança de um tenant que já tem asaas_customer_id (ver
+// atualizarDadosCobranca em adminTenantsAsaas.ts). Mesma convenção de
+// endpoint do Asaas pra update (POST em vez de PUT, igual à criação).
+export async function atualizarClienteAsaas(customerId: string, dados: DadosCobrancaAsaas): Promise<ClienteAsaas> {
+  return asaasFetch<ClienteAsaas>(`/customers/${encodeURIComponent(customerId)}`, {
+    method: 'POST',
+    body: JSON.stringify(corpoClienteAsaas(dados)),
   })
 }
 
