@@ -66,6 +66,18 @@ model Tenant {
   ultimo_pagamento_em  DateTime?
   observacao_comercial String?
   plano_id      String?
+  // Vínculo com o Asaas (gateway de pagamento, integração fundação/sandbox —
+  // ver server/src/services/asaasClient.ts). Nada aqui é escrito automático
+  // fora de: ação explícita do SUPER_ADMIN (criar cliente/assinatura, ver
+  // adminTenantsAsaas.ts) ou um webhook do Asaas pra um tenant já vinculado
+  // (ver tratarWebhookAsaas). asaas_status é só espelho pra exibição — nunca
+  // usado sozinho pra decidir bloqueio de escrita, isso continua 100% via
+  // status/licenca_fim (ver tenantGuards.ts) mesmo quando o status é setado
+  // por um webhook.
+  asaas_customer_id          String?
+  asaas_subscription_id      String?
+  asaas_status                String?
+  asaas_ultima_sincronizacao DateTime?
   criado_em     DateTime     @default(now())
   atualizado_em DateTime     @updatedAt
 
@@ -104,6 +116,16 @@ model Plano {
   // Distinto de `ativo`: um plano comercial pode ficar inativo (oculto de
   // novas vendas, mas ainda vinculável/editável) sem nunca virar interno.
   interno                 Boolean  @default(false)
+  // Configuração pra gerar a assinatura Asaas correspondente a este plano
+  // (ver criarAssinaturaAsaas em asaasClient.ts) — todos opcionais: um plano
+  // sem asaas_subscription_value preenchido simplesmente não pode ter
+  // assinatura Asaas criada ainda (ver validação em adminTenantsAsaas.ts).
+  // asaas_billing_cycle segue o enum de ciclo do Asaas (MONTHLY/WEEKLY/
+  // BIWEEKLY/BIMONTHLY/QUARTERLY/SEMIANNUALLY/YEARLY) — sem enum próprio no
+  // Prisma de propósito, é validado só na hora de chamar o Asaas.
+  asaas_external_reference String?
+  asaas_subscription_value Decimal? @db.Decimal(10, 2)
+  asaas_billing_cycle      String?
   criado_em               DateTime @default(now())
   atualizado_em           DateTime @updatedAt
 
@@ -516,4 +538,28 @@ model EventoJornada {
 
   @@index([jornada_id])
   @@map("eventos_jornada")
+}
+
+// ─── Asaas (gateway de pagamento) — fundação/sandbox ───────────────────────
+// Log + idempotência dos webhooks recebidos do Asaas (ver tratarWebhookAsaas
+// em server/src/services/asaasClient.ts). asaas_event_id é o campo "id" do
+// payload do Asaas (ex.: "evt_xxx&yyy") — único quando presente, garante que
+// o mesmo evento nunca é aplicado duas vezes (Asaas entrega no modelo "at
+// least once", duplicatas são esperadas). Nem todo payload necessariamente
+// traz esse id (ex.: um teste manual sem "id") — opcional nesse caso, sem
+// idempotência possível, cada chamada cria uma linha nova.
+model AsaasWebhookEvent {
+  id              String    @id @default(uuid())
+  asaas_event_id  String?   @unique
+  evento          String
+  payment_id      String?
+  subscription_id String?
+  customer_id     String?
+  payload         Json
+  processado      Boolean   @default(false)
+  erro            String?
+  criado_em       DateTime  @default(now())
+  processado_em   DateTime?
+
+  @@map("asaas_webhook_events")
 }
