@@ -1,11 +1,13 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import { podeEscreverConfiguracao } from '../../utils/permissions'
+import { podeEscreverConteudo, podeEscreverConfiguracao } from '../../utils/permissions'
 
-// Itens que só levam a telas de configuração (ver RequireEscritaConfiguracao.tsx)
-// ficam marcados à parte — escondidos de quem não tem permissão, pra não
-// oferecer um link que só mostraria a mensagem de acesso restrito. A criação de
-// conteúdo fica no botão "Novo" do header (Topbar.tsx).
+// Itens que só levam a telas de escrita (ver RequireEscritaConteudo/
+// Configuracao.tsx) ficam marcados à parte — escondidos de quem não tem
+// permissão, pra não oferecer um link que só mostraria a mensagem de acesso
+// restrito. O resto é sempre visível pra qualquer papel autenticado (leitura
+// livre).
+const navItemNovaCampanha = { icon: 'add_circle', label: 'Nova Campanha', to: '/campanhas/nova' }
 const navItemsConfiguracao = [
   { icon: 'grid_view', label: 'Catálogo de Telas', to: '/catalogo-telas' },
   { icon: 'palette', label: 'Aparência do Widget', to: '/aparencia-widget' },
@@ -57,6 +59,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
   const items = [
     { icon: 'dashboard', label: 'Dashboard', to: '/' },
     { icon: 'campaign', label: 'Campanhas', to: '/campanhas' },
+    ...(podeEscreverConteudo(user?.role) ? [navItemNovaCampanha] : []),
     { icon: 'map', label: 'Tours Guiados', to: '/tours' },
     { icon: 'route', label: 'Jornadas', to: '/jornadas' },
     ...(podeEscreverConfiguracao(user?.role) ? navItemsConfiguracao : []),
@@ -74,9 +77,9 @@ export function Sidebar({ collapsed, onToggle }: Props) {
           <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-on-primary shrink-0">
             <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
           </div>
-          <div className={`min-w-0 flex-col items-start text-left ${collapsed ? 'hidden' : 'hidden md:flex'}`}>
+          <div className={`overflow-hidden ${collapsed ? 'hidden' : 'hidden md:block'}`}>
             <h1 className="text-title-lg font-semibold text-primary leading-tight whitespace-nowrap">UserPulse</h1>
-            <p className="w-full max-w-[150px] truncate whitespace-nowrap text-left text-label-md font-bold text-charcoal">{user?.tenant.nome ?? 'Tenant'}</p>
+            <p className="text-label-md text-steel whitespace-nowrap">Feedback Engine</p>
           </div>
         </div>
         <button

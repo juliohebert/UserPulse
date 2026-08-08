@@ -310,7 +310,6 @@ export function Dashboard() {
     : total === 0 && totalTours === 0
     ? 'Comece criando sua primeira campanha ou tour guiado para engajar os usuários.'
     : `${ativas} campanha${ativas === 1 ? '' : 's'} ativa${ativas === 1 ? '' : 's'} e ${toursAtivos} tour${toursAtivos === 1 ? '' : 's'} guiado${toursAtivos === 1 ? '' : 's'} ajudando seus usuários agora.`
-  const primeiroNome = user?.nome.trim().split(/\s+/)[0]
 
   const handleInativar = async (id: string) => {
     if (!window.confirm('Deseja inativar esta campanha? Ela deixará de ser exibida para os usuários, mas o histórico será preservado.')) return
@@ -325,15 +324,13 @@ export function Dashboard() {
   return (
     <section className="px-4 lg:px-margin-desktop py-5">
       {/* Hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-primary p-6 sm:p-8 text-on-primary shadow-lg mb-6">
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-secondary p-6 sm:p-8 text-on-primary shadow-lg mb-6">
         <div className="absolute -right-16 -top-16 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
         <div className="absolute -left-12 -bottom-20 w-56 h-56 bg-white/10 rounded-full blur-3xl" />
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-          <div className="pt-3 sm:pt-4">
+          <div>
             <p className="text-label-md font-bold uppercase tracking-widest opacity-75 mb-2">Visão geral</p>
-            <h2 className="text-headline-lg sm:text-display-lg font-bold leading-tight mb-1 text-on-primary">
-              Bem-vindo de volta{primeiroNome ? `, ${primeiroNome}` : ''}
-            </h2>
+            <h2 className="text-headline-lg sm:text-display-lg font-bold leading-tight mb-2 text-on-primary">Bem-vindo de volta</h2>
             <p className="text-body-lg opacity-90 max-w-xl">{heroSubtitulo}</p>
           </div>
           {podeEscrever && (
@@ -349,10 +346,7 @@ export function Dashboard() {
                 onClick={() => navigate('/tours/gravador')}
                 className="flex items-center gap-2 px-5 py-2.5 bg-white text-error rounded-xl text-label-md font-bold shadow-md hover:scale-[1.03] active:scale-95 transition-transform duration-200 ease-out"
               >
-                <span className="relative inline-flex h-5 w-5 items-center justify-center rounded-full bg-error/10 text-error">
-                  <span className="absolute h-2 w-2 rounded-full bg-error" />
-                  <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
-                </span>
+                <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
                 Gravar fluxo
               </button>
             </div>
@@ -584,7 +578,7 @@ export function Dashboard() {
                         onClick={() => navigate('/tours/gravador')}
                         className="w-full mt-3 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface-variant hover:bg-surface-container-low transition-colors flex items-center justify-center gap-1.5"
                       >
-                        <span className="material-symbols-outlined text-[16px] text-error">radio_button_checked</span>
+                        <span className="material-symbols-outlined text-[16px]">radio_button_checked</span>
                         Gravar novo fluxo
                       </button>
                     )}
