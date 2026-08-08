@@ -312,7 +312,43 @@ describe('asaasClient — nunca vaza a API key', () => {
       assert.equal(resultado.data.length, 1)
       assert.equal(resultado.data[0].id, 'pay_1')
       assert.equal(resultado.hasMore, true)
-      assert.match(urlChamada ?? '', /\/payments\?subscription=sub_1/)
+      // limit=50 (LIMITE_COBRANCAS) sempre vai junto — sem isso a Fase 3
+      // buscaria o limite padrão do Asaas, não o combinado no painel.
+      assert.match(urlChamada ?? '', /\/payments\?subscription=sub_1&limit=50/)
+    } finally {
+      globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('listarCobrancasAsaas — escapa subscriptionId na URL e repassa hasMore=false', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+
+    let urlChamada: string | null = null
+    globalThis.fetch = (async (url: unknown) => {
+      urlChamada = String(url)
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ object: 'list', hasMore: false, totalCount: 0, data: [] }),
+      } as Response
+    }) as typeof fetch
+
+    try {
+      // Espaço e "&" no subscriptionId não devem virar parâmetros extras na
+      // querystring — precisam sair codificados (encodeURIComponent).
+      const resultado = await listarCobrancasAsaas('sub 1&x')
+      assert.equal(resultado.hasMore, false)
+      assert.equal(resultado.data.length, 0)
+      assert.match(urlChamada ?? '', /\/payments\?subscription=sub%201%26x&limit=50/)
     } finally {
       globalThis.fetch = fetchOriginal
       if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
