@@ -27,6 +27,11 @@ interface PlanoBody {
   // round-trip aqui pra um PUT de edição normal (ex.: corrigir a descrição
   // do plano interno) não resetar o flag pra false por omissão.
   interno?: boolean
+  // Config da assinatura Asaas correspondente (ver criarAssinaturaAsaas em
+  // services/asaasClient.ts) — todos opcionais, fundação/sandbox.
+  asaas_external_reference?: string | null
+  asaas_subscription_value?: number | string | null
+  asaas_billing_cycle?: string | null
 }
 
 // Limite nulo = sem limite (mesmo raciocínio documentado no schema.prisma) —
@@ -52,6 +57,9 @@ function validarCamposPlano(body: PlanoBody): { ok: true; data: Prisma.PlanoUnch
 
   const preco = parsePreco(body.preco_mensal)
   if (!preco.ok) return { ok: false, erro: 'preco_mensal inválido.' }
+
+  const valorAssinaturaAsaas = parsePreco(body.asaas_subscription_value)
+  if (!valorAssinaturaAsaas.ok) return { ok: false, erro: 'asaas_subscription_value inválido.' }
 
   const limites = {
     limite_campanhas_ativas: parseLimite(body.limite_campanhas_ativas),
@@ -79,6 +87,9 @@ function validarCamposPlano(body: PlanoBody): { ok: true; data: Prisma.PlanoUnch
       permite_white_label: body.permite_white_label === true,
       ativo: body.ativo !== false,
       interno: body.interno === true,
+      asaas_external_reference: body.asaas_external_reference?.trim() || null,
+      asaas_subscription_value: valorAssinaturaAsaas.valor,
+      asaas_billing_cycle: body.asaas_billing_cycle?.trim().toUpperCase() || null,
     },
   }
 }

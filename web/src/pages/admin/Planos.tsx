@@ -3,6 +3,7 @@ import { get, post, put, del } from '../../services/api'
 import type { PlanoAdmin } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
+import { Select } from '../../components/ui/Select'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
 import { gerarSlug } from '../../utils/campanha'
@@ -24,7 +25,23 @@ const EMPTY_FORM = {
   // isso, gerido pelo seed) — só faz round-trip aqui pra editar outros
   // campos do plano interno (ex.: descrição) não resetar o flag pra false.
   interno: false,
+  // Config da assinatura Asaas correspondente (fundação/sandbox, ver
+  // server/src/services/asaasClient.ts) — todos opcionais.
+  asaas_external_reference: '',
+  asaas_subscription_value: '',
+  asaas_billing_cycle: '',
 }
+
+const CICLO_ASAAS_OPCOES = [
+  { value: '', label: 'Não definido' },
+  { value: 'WEEKLY', label: 'Semanal' },
+  { value: 'BIWEEKLY', label: 'Quinzenal' },
+  { value: 'MONTHLY', label: 'Mensal' },
+  { value: 'BIMONTHLY', label: 'Bimestral' },
+  { value: 'QUARTERLY', label: 'Trimestral' },
+  { value: 'SEMIANNUALLY', label: 'Semestral' },
+  { value: 'YEARLY', label: 'Anual' },
+]
 
 type FormState = typeof EMPTY_FORM
 
@@ -147,6 +164,9 @@ export function AdminPlanosIndex() {
       permite_white_label: plano.permite_white_label,
       ativo: plano.ativo,
       interno: plano.interno,
+      asaas_external_reference: plano.asaas_external_reference ?? '',
+      asaas_subscription_value: plano.asaas_subscription_value ?? '',
+      asaas_billing_cycle: plano.asaas_billing_cycle ?? '',
     })
     setFormError(null)
     setShowForm(true)
@@ -177,6 +197,9 @@ export function AdminPlanosIndex() {
         permite_white_label: form.permite_white_label,
         ativo: form.ativo,
         interno: form.interno,
+        asaas_external_reference: form.asaas_external_reference.trim() || null,
+        asaas_subscription_value: form.asaas_subscription_value.trim() || null,
+        asaas_billing_cycle: form.asaas_billing_cycle || null,
       }
       if (editando) {
         await put(`/admin/planos/${editando.id}`, payload)
@@ -228,6 +251,9 @@ export function AdminPlanosIndex() {
           permite_jornadas: plano.permite_jornadas,
           permite_white_label: plano.permite_white_label,
           interno: plano.interno,
+          asaas_external_reference: plano.asaas_external_reference,
+          asaas_subscription_value: plano.asaas_subscription_value,
+          asaas_billing_cycle: plano.asaas_billing_cycle,
           ativo: tipo === 'reativar',
         })
       }
@@ -459,6 +485,40 @@ export function AdminPlanosIndex() {
                     </label>
                   </div>
                 ))}
+              </div>
+
+              <div className="rounded-xl border border-outline-variant/60 p-4 space-y-3">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-outline">Assinatura Asaas (sandbox)</h4>
+                <p className="text-[12px] text-on-surface-variant">
+                  Usado só ao criar uma assinatura Asaas pra um cliente neste plano (ver Gestão SaaS &gt; Clientes &gt; Cobrança Asaas). Sem valor definido, não é possível criar a assinatura.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-label-md text-on-surface-variant mb-1.5">Valor da assinatura (R$)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.asaas_subscription_value}
+                      onChange={e => set('asaas_subscription_value', e.target.value)}
+                      placeholder="Vazio = não configurado"
+                      className={field}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-label-md text-on-surface-variant mb-1.5">Ciclo de cobrança</label>
+                    <Select value={form.asaas_billing_cycle} options={CICLO_ASAAS_OPCOES} onChange={v => set('asaas_billing_cycle', v)} />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-label-md text-on-surface-variant mb-1.5">Referência externa (externalReference)</label>
+                  <input
+                    value={form.asaas_external_reference}
+                    onChange={e => set('asaas_external_reference', e.target.value)}
+                    placeholder="Opcional"
+                    className={field}
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">

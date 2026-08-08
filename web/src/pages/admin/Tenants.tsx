@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { get, post, put } from '../../services/api'
-import type { AdminDoTenant, AdminRole, PlanoAdmin, TenantAdminItem, TenantStatus } from '../../types'
+import type { AdminDoTenant, AdminRole, AsaasVinculoTenant, PlanoAdmin, TenantAdminItem, TenantStatus } from '../../types'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
@@ -196,6 +196,18 @@ export function AdminTenantsIndex() {
   const [resetSaving, setResetSaving] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
   const [resetSucesso, setResetSucesso] = useState<string | null>(null)
+
+  // Modal "Cobrança Asaas" — vínculo do tenant selecionado com o Asaas
+  // (fundação/sandbox, ver server/src/services/asaasClient.ts). Nunca abre
+  // sozinho, nunca chama o Asaas automaticamente — só reflete o que já está
+  // salvo e oferece os dois botões de ação manual.
+  const [asaasModalTenant, setAsaasModalTenant] = useState<TenantAdminItem | null>(null)
+  const [asaasVinculo, setAsaasVinculo] = useState<AsaasVinculoTenant | null>(null)
+  const [asaasLoading, setAsaasLoading] = useState(false)
+  const [asaasError, setAsaasError] = useState<string | null>(null)
+  const [asaasForm, setAsaasForm] = useState({ cpf_cnpj: '', email: '', telefone: '' })
+  const [criandoClienteAsaas, setCriandoClienteAsaas] = useState(false)
+  const [criandoAssinaturaAsaas, setCriandoAssinaturaAsaas] = useState(false)
 
   const [copiado, setCopiado] = useState<string | null>(null)
   const [mudandoStatus, setMudandoStatus] = useState<string | null>(null)
@@ -504,6 +516,67 @@ export function AdminTenantsIndex() {
     })
   }
 
+  const carregarAsaas = (tenantId: string) => {
+    setAsaasLoading(true)
+    setAsaasError(null)
+    get<AsaasVinculoTenant>(`/admin/tenants/${tenantId}/asaas`)
+      .then(setAsaasVinculo)
+      .catch(e => setAsaasError(e instanceof Error ? e.message : 'Erro ao carregar vínculo Asaas.'))
+      .finally(() => setAsaasLoading(false))
+  }
+
+  const abrirAsaas = (tenant: TenantAdminItem) => {
+    setAsaasModalTenant(tenant)
+    setAsaasVinculo(null)
+    setAsaasForm({ cpf_cnpj: '', email: '', telefone: '' })
+    setAsaasError(null)
+    carregarAsaas(tenant.id)
+  }
+
+  const fecharAsaas = () => {
+    setAsaasModalTenant(null)
+    setAsaasError(null)
+  }
+
+  const criarClienteAsaasHandler = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!asaasModalTenant) return
+    if (!asaasForm.cpf_cnpj.trim()) {
+      setAsaasError('Informe o CPF/CNPJ para criar o cliente no Asaas.')
+      return
+    }
+    setCriandoClienteAsaas(true)
+    setAsaasError(null)
+    try {
+      await post(`/admin/tenants/${asaasModalTenant.id}/asaas/customer`, {
+        cpf_cnpj: asaasForm.cpf_cnpj.trim(),
+        email: asaasForm.email.trim() || undefined,
+        telefone: asaasForm.telefone.trim() || undefined,
+      })
+      carregarAsaas(asaasModalTenant.id)
+      load()
+    } catch (e) {
+      setAsaasError(e instanceof Error ? e.message : 'Erro ao criar cliente no Asaas.')
+    } finally {
+      setCriandoClienteAsaas(false)
+    }
+  }
+
+  const criarAssinaturaAsaasHandler = async () => {
+    if (!asaasModalTenant) return
+    setCriandoAssinaturaAsaas(true)
+    setAsaasError(null)
+    try {
+      await post(`/admin/tenants/${asaasModalTenant.id}/asaas/subscription`, {})
+      carregarAsaas(asaasModalTenant.id)
+      load()
+    } catch (e) {
+      setAsaasError(e instanceof Error ? e.message : 'Erro ao criar assinatura no Asaas.')
+    } finally {
+      setCriandoAssinaturaAsaas(false)
+    }
+  }
+
   // Só planos ativos e comerciais (nunca "Interno (Quark)") ficam
   // oferecíveis a um cliente comum — mas o plano JÁ atribuído ao tenant em
   // edição continua na lista mesmo se hoje estiver inativo/interno (sem
@@ -659,6 +732,13 @@ export function AdminTenantsIndex() {
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[18px]">group</span>
+                      </button>
+                      <button
+                        onClick={() => abrirAsaas(tenant)}
+                        title="Cobrança Asaas"
+                        className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">payments</span>
                       </button>
                       {tenant.status !== 'SUSPENDED' && (
                         <button
@@ -1013,6 +1093,104 @@ export function AdminTenantsIndex() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cobrança Asaas — vínculo do tenant com o Asaas (fundação/
+          sandbox, ver server/src/services/asaasClient.ts). Nunca dispara
+          nada automaticamente — só reflete o vínculo salvo e os dois botões
+          de ação manual (criar cliente / criar assinatura). */}
+      {asaasModalTenant && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="shrink-0 flex items-center justify-between px-5 py-4 border-b border-outline-variant">
+              <h3 className="text-title-md font-bold text-on-surface">Cobrança Asaas — {asaasModalTenant.nome}</h3>
+              <button onClick={fecharAsaas} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-100 text-amber-900">
+                <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">science</span>
+                <p className="text-[12px] font-medium">Integração em sandbox. Não usar em produção.</p>
+              </div>
+
+              {asaasError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{asaasError}</div>}
+
+              {asaasLoading && <LoadingSpinner />}
+
+              {!asaasLoading && asaasVinculo && (
+                <div className="rounded-xl border border-outline-variant/60 p-4 space-y-2 text-body-md">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-on-surface-variant">Customer ID</span>
+                    <span className="font-mono text-[13px] text-on-surface truncate">{asaasVinculo.asaas_customer_id ?? '—'}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-on-surface-variant">Subscription ID</span>
+                    <span className="font-mono text-[13px] text-on-surface truncate">{asaasVinculo.asaas_subscription_id ?? '—'}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-on-surface-variant">Status Asaas</span>
+                    <span className="text-on-surface">{asaasVinculo.asaas_status ?? '—'}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-on-surface-variant">Última sincronização</span>
+                    <span className="text-on-surface">{asaasVinculo.asaas_ultima_sincronizacao ? formatDateTime(asaasVinculo.asaas_ultima_sincronizacao) : '—'}</span>
+                  </div>
+                </div>
+              )}
+
+              {!asaasLoading && asaasVinculo && !asaasVinculo.asaas_customer_id && (
+                <form onSubmit={criarClienteAsaasHandler} className="rounded-xl border border-outline-variant p-4 space-y-3">
+                  <h4 className={sectionHeader}>Criar cliente Asaas</h4>
+                  <div>
+                    <label className="block text-label-md text-on-surface-variant mb-1.5">CPF/CNPJ <span className="text-error">*</span></label>
+                    <input
+                      required
+                      value={asaasForm.cpf_cnpj}
+                      onChange={e => setAsaasForm(prev => ({ ...prev, cpf_cnpj: e.target.value }))}
+                      placeholder="Somente números"
+                      className={field}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail</label>
+                      <input type="email" value={asaasForm.email} onChange={e => setAsaasForm(prev => ({ ...prev, email: e.target.value }))} className={field} />
+                    </div>
+                    <div>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Telefone</label>
+                      <input value={asaasForm.telefone} onChange={e => setAsaasForm(prev => ({ ...prev, telefone: e.target.value }))} className={field} />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button type="submit" disabled={criandoClienteAsaas} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60">
+                      {criandoClienteAsaas ? 'Criando…' : 'Criar cliente Asaas'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {!asaasLoading && asaasVinculo?.asaas_customer_id && !asaasVinculo.asaas_subscription_id && (
+                <div className="rounded-xl border border-outline-variant p-4 space-y-3">
+                  <h4 className={sectionHeader}>Criar assinatura Asaas</h4>
+                  <p className="text-[12px] text-on-surface-variant">
+                    Usa o plano e o valor de assinatura configurados em Gestão SaaS &gt; Planos.
+                  </p>
+                  <div className="flex justify-end">
+                    <button
+                      onClick={criarAssinaturaAsaasHandler}
+                      disabled={criandoAssinaturaAsaas}
+                      className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+                    >
+                      {criandoAssinaturaAsaas ? 'Criando…' : 'Criar assinatura Asaas'}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

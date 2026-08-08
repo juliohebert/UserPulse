@@ -476,6 +476,13 @@ export interface PlanoAdmin {
   // de plano do Cliente, nunca removível (ver server/src/controllers/
   // adminPlanos.ts, remover()).
   interno: boolean
+  // Config da assinatura Asaas correspondente (fundação/sandbox, ver
+  // server/src/services/asaasClient.ts). asaas_subscription_value serializa
+  // como string via JSON (Prisma.Decimal.toJSON()), mesmo padrão de
+  // preco_mensal acima.
+  asaas_external_reference: string | null
+  asaas_subscription_value: string | null
+  asaas_billing_cycle: string | null
   criado_em: string
   atualizado_em: string
 }
@@ -508,9 +515,23 @@ export interface TenantAdminItem {
   observacao_comercial: string | null
   plano_id: string | null
   plano: PlanoAdmin | null
+  // Vínculo com o Asaas (fundação/sandbox) — ver GET /admin/tenants/:id/asaas
+  // e server/src/services/asaasClient.ts. asaas_status é só espelho pra
+  // exibição, nunca usado no frontend pra decidir nada.
+  asaas_customer_id: string | null
+  asaas_subscription_id: string | null
+  asaas_status: string | null
+  asaas_ultima_sincronizacao: string | null
   criado_em: string
   atualizado_em: string
   _count: { admins: number }
+}
+
+export interface AsaasVinculoTenant {
+  asaas_customer_id: string | null
+  asaas_subscription_id: string | null
+  asaas_status: string | null
+  asaas_ultima_sincronizacao: string | null
 }
 
 export interface TenantAdminDetail extends Omit<TenantAdminItem, '_count'> {

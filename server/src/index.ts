@@ -14,6 +14,7 @@ import aparenciaWidgetRouter from './routes/aparenciaWidget'
 import authRouter from './routes/auth'
 import adminTenantsRouter from './routes/adminTenants'
 import adminPlanosRouter from './routes/adminPlanos'
+import webhooksAsaasRouter from './routes/webhooksAsaas'
 import { requireAdminAuth } from './middleware/requireAdminAuth'
 import { requireSuperAdmin } from './middleware/requireSuperAdmin'
 import { getSessionSecret } from './lib/auth'
@@ -120,6 +121,10 @@ app.use('/api/dashboard', corsAdmin, requireAdminAuth, dashboardRouter)
 // requireAdminAuth como as demais rotas admin acima.
 app.use('/api/admin/tenants', corsAdmin, requireAdminAuth, requireSuperAdmin, adminTenantsRouter)
 app.use('/api/admin/planos', corsAdmin, requireAdminAuth, requireSuperAdmin, adminPlanosRouter)
+// Webhook do Asaas — chamado server-to-server pelo próprio Asaas (nunca por
+// um navegador), então sem CORS/sessão admin: a única proteção é o token no
+// header (ver requireAsaasWebhookToken).
+app.use('/api/webhooks/asaas', webhooksAsaasRouter)
 
 // Assets estáticos do frontend (CSS, JS bundles, favicons…)
 app.use(express.static(WEB_DIST))
