@@ -11,6 +11,60 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: #0a1317;
+    font-weight: 600;
+  }
+
+  label {
+    color: #444950;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.14px;
+    line-height: 20px;
+  }
+
+  input,
+  textarea,
+  select {
+    min-height: 44px;
+  }
+}
+
+@layer components {
+  .meta-card {
+    @apply rounded-3xl border border-hairline-soft bg-surface p-6 shadow-none;
+  }
+
+  .meta-card-compact {
+    @apply rounded-xl border border-hairline-soft bg-surface p-5 shadow-none;
+  }
+
+  .meta-input {
+    @apply h-11 rounded-lg border border-hairline bg-surface px-3 text-body-md text-ink focus:border-[#1876f2] focus:outline-none focus:ring-0;
+  }
+
+  .meta-button-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-ink-deep px-[30px] py-3.5 text-label-md font-bold text-white transition-colors active:bg-charcoal disabled:bg-stone disabled:text-white disabled:opacity-100;
+  }
+
+  .meta-button-buy {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-primary px-[30px] py-3.5 text-label-md font-bold text-on-primary transition-colors active:bg-primary-deep disabled:bg-stone disabled:text-white disabled:opacity-100;
+  }
+
+  .meta-button-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border-2 border-ink-deep bg-transparent px-7 py-3 text-label-md font-bold text-ink-deep transition-colors;
+  }
+
+  .meta-button-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border-2 border-ink-deep/10 bg-transparent px-[22px] py-2.5 text-label-md font-bold text-ink-deep transition-colors;
+  }
+}
+
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   vertical-align: middle;

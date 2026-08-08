@@ -324,7 +324,7 @@ export function Dashboard() {
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
           <div>
             <p className="text-label-md font-bold uppercase tracking-widest opacity-75 mb-2">Visão geral</p>
-            <h2 className="text-headline-lg sm:text-display-lg font-bold leading-tight mb-2">Bem-vindo de volta</h2>
+            <h2 className="text-headline-lg sm:text-display-lg font-bold leading-tight mb-2 text-on-primary">Bem-vindo de volta</h2>
             <p className="text-body-lg opacity-90 max-w-xl">{heroSubtitulo}</p>
           </div>
           {podeEscrever && (

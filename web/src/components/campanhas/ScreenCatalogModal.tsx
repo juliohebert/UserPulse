@@ -52,36 +52,36 @@ export function ScreenCatalogModal({ telas, onSelect, onClose }: Props) {
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="relative w-full max-w-3xl bg-surface rounded-2xl shadow-2xl my-8 overflow-hidden">
+      <div className="relative w-full max-w-3xl bg-surface rounded-3xl border border-hairline-soft shadow-panel my-8 overflow-hidden">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-outline-variant">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-hairline-soft">
           <div className="flex items-center gap-3">
             <span className="material-symbols-outlined text-primary text-[22px]">grid_view</span>
             <div>
-              <h2 className="text-title-lg font-bold text-on-surface">Catálogo de Telas</h2>
-              <p className="text-label-md text-on-surface-variant">{telas.length} tela(s) disponível(is)</p>
+              <h2 className="text-title-lg font-semibold text-ink-deep">Catálogo de Telas</h2>
+              <p className="text-label-md text-charcoal">{telas.length} tela(s) disponível(is)</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl hover:bg-surface-container-low transition-colors text-on-surface-variant"
+            className="h-10 w-10 rounded-full hover:bg-surface-container-low transition-colors text-charcoal"
           >
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>
 
         {/* Filters */}
-        <div className="px-6 py-4 border-b border-outline-variant/50 bg-surface-container-low/40 space-y-3">
+        <div className="px-6 py-4 border-b border-hairline-soft bg-surface-container-low/40 space-y-3">
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline text-[18px] pointer-events-none">search</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-steel text-[18px] pointer-events-none">search</span>
             <input
               ref={inputRef}
               value={busca}
               onChange={e => setBusca(e.target.value)}
               placeholder="Buscar por nome, módulo, URL, elemento..."
-              className="w-full pl-9 pr-9 py-2.5 bg-surface-bright border border-outline-variant rounded-xl text-body-md focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              className="meta-input w-full pl-9 pr-9"
             />
             {busca && (
               <button
@@ -101,7 +101,7 @@ export function ScreenCatalogModal({ telas, onSelect, onClose }: Props) {
                 <button
                   type="button"
                   onClick={() => setFiltroSistema('')}
-                  className={`px-2.5 py-0.5 rounded-full text-label-sm font-medium transition-colors ${!filtroSistema ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'}`}
+                  className={`px-4 py-2 rounded-full border text-label-sm font-bold transition-colors ${!filtroSistema ? 'border-ink-deep bg-ink-deep text-white' : 'border-hairline bg-surface text-ink hover:bg-surface-container-low'}`}
                 >
                   Todos
                 </button>
@@ -110,7 +110,7 @@ export function ScreenCatalogModal({ telas, onSelect, onClose }: Props) {
                     key={s}
                     type="button"
                     onClick={() => setFiltroSistema(filtroSistema === s ? '' : s)}
-                    className={`px-2.5 py-0.5 rounded-full text-label-sm font-medium transition-colors ${filtroSistema === s ? 'bg-primary text-on-primary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'}`}
+                    className={`px-4 py-2 rounded-full border text-label-sm font-bold transition-colors ${filtroSistema === s ? 'border-ink-deep bg-ink-deep text-white' : 'border-hairline bg-surface text-ink hover:bg-surface-container-low'}`}
                   >
                     {s}
                   </button>
@@ -124,7 +124,7 @@ export function ScreenCatalogModal({ telas, onSelect, onClose }: Props) {
                 <button
                   type="button"
                   onClick={() => setFiltroCategoria('')}
-                  className={`px-2.5 py-0.5 rounded-full text-label-sm font-medium transition-colors ${!filtroCategoria ? 'bg-secondary text-on-secondary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'}`}
+                  className={`px-4 py-2 rounded-full border text-label-sm font-bold transition-colors ${!filtroCategoria ? 'border-ink-deep bg-ink-deep text-white' : 'border-hairline bg-surface text-ink hover:bg-surface-container-low'}`}
                 >
                   Todas
                 </button>
@@ -133,7 +133,7 @@ export function ScreenCatalogModal({ telas, onSelect, onClose }: Props) {
                     key={c}
                     type="button"
                     onClick={() => setFiltroCategoria(filtroCategoria === c ? '' : c)}
-                    className={`px-2.5 py-0.5 rounded-full text-label-sm font-medium transition-colors ${filtroCategoria === c ? 'bg-secondary text-on-secondary' : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'}`}
+                    className={`px-4 py-2 rounded-full border text-label-sm font-bold transition-colors ${filtroCategoria === c ? 'border-ink-deep bg-ink-deep text-white' : 'border-hairline bg-surface text-ink hover:bg-surface-container-low'}`}
                   >
                     {c}
                   </button>
@@ -159,7 +159,7 @@ export function ScreenCatalogModal({ telas, onSelect, onClose }: Props) {
                     {filtered.filter(t => t.categoria === cat).map(tela => (
                       <div
                         key={tela.id}
-                        className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-outline-variant hover:border-primary hover:bg-primary-fixed/20 transition-all group"
+                        className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-hairline-soft hover:border-hairline hover:bg-surface-container-low transition-all group"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 min-w-0">
@@ -177,7 +177,7 @@ export function ScreenCatalogModal({ telas, onSelect, onClose }: Props) {
                         <button
                           type="button"
                           onClick={() => { onSelect(tela.id); onClose() }}
-                          className="shrink-0 px-3 py-1.5 bg-primary text-on-primary rounded-lg text-label-sm font-bold opacity-0 group-hover:opacity-100 transition-all hover:opacity-90 active:scale-95 focus:opacity-100"
+                          className="meta-button-buy shrink-0 px-4 py-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
                         >
                           Selecionar
                         </button>
@@ -191,14 +191,14 @@ export function ScreenCatalogModal({ telas, onSelect, onClose }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-outline-variant/50 bg-surface-container-low/40 flex items-center justify-between">
+        <div className="px-6 py-3 border-t border-hairline-soft bg-surface-container-low/40 flex items-center justify-between">
           <p className="text-label-sm text-outline">
             {filtered.length} de {telas.length} tela(s)
           </p>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 border border-outline-variant rounded-xl text-label-sm text-on-surface-variant hover:bg-surface-container-low transition-colors"
+            className="meta-button-ghost px-4 py-2 text-label-sm"
           >
             Fechar
           </button>

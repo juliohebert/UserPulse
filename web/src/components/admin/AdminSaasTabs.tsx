@@ -12,16 +12,16 @@ const TABS = [
 // Sidebar.tsx, que só leva a /admin/tenants).
 export function AdminSaasTabs() {
   return (
-    <div className="flex items-center gap-1 mb-6 border-b border-outline-variant">
+    <div className="flex flex-wrap items-center gap-2 mb-6">
       {TABS.map(tab => (
         <NavLink
           key={tab.to}
           to={tab.to}
           className={({ isActive }) =>
-            `px-4 py-2.5 text-label-md font-bold border-b-2 -mb-px transition-colors ${
+            `rounded-full border px-4 py-2 text-label-md font-bold transition-colors ${
               isActive
-                ? 'border-primary text-primary'
-                : 'border-transparent text-on-surface-variant hover:text-on-surface'
+                ? 'border-ink-deep bg-ink-deep text-white'
+                : 'border-hairline bg-surface text-ink hover:bg-surface-container-low'
             }`
           }
         >
