@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { get, post, put } from '../../services/api'
+import { get, post, put, del } from '../../services/api'
 import type { PlanoAdmin } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
+import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
 import { gerarSlug } from '../../utils/campanha'
 
@@ -19,9 +20,65 @@ const EMPTY_FORM = {
   permite_jornadas: true,
   permite_white_label: false,
   ativo: true,
+  // Nunca exposto como checkbox no formulário (só "Interno (Quark)" usa
+  // isso, gerido pelo seed) — só faz round-trip aqui pra editar outros
+  // campos do plano interno (ex.: descrição) não resetar o flag pra false.
+  interno: false,
 }
 
 type FormState = typeof EMPTY_FORM
+
+type FiltroPlano = 'ativos' | 'inativos' | 'internos' | 'todos'
+
+const FILTRO_OPCOES: { key: FiltroPlano; label: string; icon: string }[] = [
+  { key: 'ativos', label: 'Ativos', icon: 'play_circle' },
+  { key: 'inativos', label: 'Inativos', icon: 'pause_circle' },
+  { key: 'internos', label: 'Internos', icon: 'shield' },
+  { key: 'todos', label: 'Todos', icon: 'apps' },
+]
+
+function pertenceAoFiltro(plano: PlanoAdmin, filtro: FiltroPlano): boolean {
+  if (filtro === 'todos') return true
+  if (filtro === 'internos') return plano.interno
+  if (filtro === 'ativos') return plano.ativo && !plano.interno
+  return !plano.ativo && !plano.interno // inativos
+}
+
+// Planos comerciais padrão do UserPulse (ver server/prisma/seedPlanos.ts) —
+// nunca removíveis, mesmo sem cliente vinculado, só editáveis/inativáveis.
+// Mantido em sincronia manual com SLUGS_PLANOS_OFICIAIS em
+// server/src/controllers/adminPlanos.ts — isso aqui é só UX (esconder o
+// botão Remover); o backend é quem de fato bloqueia a exclusão.
+const PLANOS_OFICIAIS = new Set(['teste-gratis', 'starter', 'growth', 'scale', 'enterprise'])
+
+function podeRemover(plano: PlanoAdmin): boolean {
+  return !plano.interno && !PLANOS_OFICIAIS.has(plano.slug)
+}
+
+type TipoAcaoPlano = 'inativar' | 'reativar' | 'remover'
+
+// Textos do ConfirmDialog por ação — nunca window.confirm (ver
+// ConfirmDialog.tsx e o mesmo padrão já usado em Tenants.tsx).
+const ACAO_CFG: Record<TipoAcaoPlano, { titulo: string; descricao: string; confirmLabel: string; variant: ConfirmDialogVariant }> = {
+  inativar: {
+    titulo: 'Inativar',
+    descricao: 'O plano deixa de aparecer como opção para novos clientes. Quem já está nesse plano continua normalmente, nada muda para eles.',
+    confirmLabel: 'Inativar',
+    variant: 'warning',
+  },
+  reativar: {
+    titulo: 'Reativar',
+    descricao: 'O plano volta a aparecer como opção para novos clientes.',
+    confirmLabel: 'Reativar',
+    variant: 'default',
+  },
+  remover: {
+    titulo: 'Remover',
+    descricao: 'Esta ação não pode ser desfeita. Só é possível remover planos sem nenhum cliente vinculado.',
+    confirmLabel: 'Remover',
+    variant: 'danger',
+  },
+}
 
 const field =
   'w-full px-3 py-2 rounded-xl border border-outline-variant bg-surface text-body-md text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors'
@@ -45,6 +102,13 @@ export function AdminPlanosIndex() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  const [filtro, setFiltro] = useState<FiltroPlano>('ativos')
+
+  // Inativar/reativar/remover — pendura a ação até confirmar no ConfirmDialog.
+  const [confirmAcao, setConfirmAcao] = useState<{ plano: PlanoAdmin; tipo: TipoAcaoPlano } | null>(null)
+  const [confirmSaving, setConfirmSaving] = useState(false)
+  const [confirmErro, setConfirmErro] = useState<string | null>(null)
 
   const load = () => {
     setLoading(true)
@@ -82,6 +146,7 @@ export function AdminPlanosIndex() {
       permite_jornadas: plano.permite_jornadas,
       permite_white_label: plano.permite_white_label,
       ativo: plano.ativo,
+      interno: plano.interno,
     })
     setFormError(null)
     setShowForm(true)
@@ -111,6 +176,7 @@ export function AdminPlanosIndex() {
         permite_jornadas: form.permite_jornadas,
         permite_white_label: form.permite_white_label,
         ativo: form.ativo,
+        interno: form.interno,
       }
       if (editando) {
         await put(`/admin/planos/${editando.id}`, payload)
@@ -126,11 +192,65 @@ export function AdminPlanosIndex() {
     }
   }
 
+  // Só abre o ConfirmDialog — a chamada de fato fica em confirmarAcaoPlano.
+  const pedirAcaoPlano = (plano: PlanoAdmin, tipo: TipoAcaoPlano) => {
+    setConfirmAcao({ plano, tipo })
+    setConfirmErro(null)
+  }
+
+  const fecharConfirmAcao = () => {
+    setConfirmAcao(null)
+    setConfirmErro(null)
+  }
+
+  const confirmarAcaoPlano = async () => {
+    if (!confirmAcao) return
+    const { plano, tipo } = confirmAcao
+    setConfirmSaving(true)
+    setConfirmErro(null)
+    try {
+      if (tipo === 'remover') {
+        await del(`/admin/planos/${plano.id}`)
+      } else {
+        // PUT substitui o registro inteiro (ver validarCamposPlano no
+        // backend) — reenvia todos os campos do plano já carregado,
+        // trocando só `ativo`. Mesmo cuidado de Tenants.tsx/mudarStatus.
+        await put(`/admin/planos/${plano.id}`, {
+          nome: plano.nome,
+          slug: plano.slug,
+          descricao: plano.descricao,
+          preco_mensal: plano.preco_mensal,
+          limite_campanhas_ativas: plano.limite_campanhas_ativas,
+          limite_tours_ativos: plano.limite_tours_ativos,
+          limite_eventos_mes: plano.limite_eventos_mes,
+          limite_usuarios_admin: plano.limite_usuarios_admin,
+          permite_tours: plano.permite_tours,
+          permite_jornadas: plano.permite_jornadas,
+          permite_white_label: plano.permite_white_label,
+          interno: plano.interno,
+          ativo: tipo === 'reativar',
+        })
+      }
+      setConfirmAcao(null)
+      load()
+    } catch (e) {
+      // Fica com o dialog aberto mostrando o motivo (ex.: "vinculado a
+      // clientes") — não fecha sozinho num erro esperado como esse.
+      setConfirmErro(e instanceof Error ? e.message : 'Erro ao executar ação.')
+    } finally {
+      setConfirmSaving(false)
+    }
+  }
+
+  // Sempre client-side, em cima da lista já carregada (painel interno,
+  // poucos planos) — mesmo padrão dos filtros de Clientes em Tenants.tsx.
+  const planosFiltrados = planos.filter(p => pertenceAoFiltro(p, filtro))
+
   return (
     <div className="px-4 lg:px-margin-desktop py-5">
       <AdminSaasTabs />
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
           <h2 className="text-title-lg font-bold text-on-surface">Planos</h2>
           <p className="text-body-md text-on-surface-variant mt-0.5">Planos comerciais disponíveis para vincular a um cliente.</p>
@@ -144,16 +264,43 @@ export function AdminPlanosIndex() {
         </button>
       </div>
 
+      {/* Filtro — client-side sobre a lista já carregada, mesmo padrão dos
+          filtros de status em Tenants.tsx/tours/jornadas Index. */}
+      <div className="flex flex-wrap items-center gap-1 p-1 bg-surface-container rounded-xl w-fit mb-5">
+        {FILTRO_OPCOES.map(opcao => {
+          const count = planos.filter(p => pertenceAoFiltro(p, opcao.key)).length
+          return (
+            <button
+              key={opcao.key}
+              onClick={() => setFiltro(opcao.key)}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-label-md font-bold transition-all ${
+                filtro === opcao.key ? 'bg-surface-bright text-on-surface shadow-sm' : 'text-on-surface-variant hover:text-on-surface'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[16px]">{opcao.icon}</span>
+              {opcao.label}
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                filtro === opcao.key ? 'bg-primary/10 text-primary' : 'bg-surface-container-high text-on-surface-variant'
+              }`}>
+                {count}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
       {loading && <LoadingSpinner />}
       {!loading && error && <ErrorState message={error} onRetry={load} />}
 
-      {!loading && !error && planos.length === 0 && (
-        <div className="py-16 text-center text-on-surface-variant">Nenhum plano cadastrado ainda.</div>
+      {!loading && !error && planosFiltrados.length === 0 && (
+        <div className="py-16 text-center text-on-surface-variant">
+          {planos.length === 0 ? 'Nenhum plano cadastrado ainda.' : 'Nenhum plano encontrado para este filtro.'}
+        </div>
       )}
 
-      {!loading && !error && planos.length > 0 && (
+      {!loading && !error && planosFiltrados.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {planos.map(plano => (
+          {planosFiltrados.map(plano => (
             <div key={plano.id} className="rounded-2xl border border-outline-variant p-4 bg-surface">
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div>
@@ -161,7 +308,10 @@ export function AdminPlanosIndex() {
                   <p className="text-[11px] text-outline">{plano.slug}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {!plano.ativo && (
+                  {plano.interno && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-primary/10 text-primary">Plano interno</span>
+                  )}
+                  {!plano.ativo && !plano.interno && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-outline-variant/30 text-outline">Inativo</span>
                   )}
                   <button onClick={() => abrirEditar(plano)} title="Editar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
@@ -185,6 +335,42 @@ export function AdminPlanosIndex() {
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${plano.permite_jornadas ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'}`}>Jornadas</span>
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${plano.permite_white_label ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'}`}>White label</span>
               </div>
+              {/* Inativar/Reativar/Remover — nunca pro plano interno (ver
+                  comentário no schema.prisma: Interno (Quark) é permanente,
+                  tratado à parte de qualquer plano comercial). */}
+              {!plano.interno && (
+                <div className="flex items-center gap-1 mt-3 pt-3 border-t border-outline-variant/40">
+                  {plano.ativo ? (
+                    <button
+                      onClick={() => pedirAcaoPlano(plano, 'inativar')}
+                      title="Inativar plano"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">pause_circle</span>
+                      Inativar
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => pedirAcaoPlano(plano, 'reativar')}
+                      title="Reativar plano"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-tertiary hover:bg-tertiary/10 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">play_circle</span>
+                      Reativar
+                    </button>
+                  )}
+                  {podeRemover(plano) && (
+                    <button
+                      onClick={() => pedirAcaoPlano(plano, 'remover')}
+                      title="Remover plano"
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-error hover:bg-error-container transition-colors ml-auto"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">delete</span>
+                      Remover
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -286,6 +472,21 @@ export function AdminPlanosIndex() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ConfirmDialog padrão (ver components/ui/ConfirmDialog.tsx) — nunca
+          window.confirm, mesmo padrão já usado em Tenants.tsx. */}
+      {confirmAcao && (
+        <ConfirmDialog
+          title={`${ACAO_CFG[confirmAcao.tipo].titulo} "${confirmAcao.plano.nome}"?`}
+          description={ACAO_CFG[confirmAcao.tipo].descricao}
+          confirmLabel={ACAO_CFG[confirmAcao.tipo].confirmLabel}
+          variant={ACAO_CFG[confirmAcao.tipo].variant}
+          loading={confirmSaving}
+          erro={confirmErro}
+          onConfirm={confirmarAcaoPlano}
+          onCancel={fecharConfirmAcao}
+        />
       )}
     </div>
   )

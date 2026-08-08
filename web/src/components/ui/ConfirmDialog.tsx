@@ -9,6 +9,10 @@ interface ConfirmDialogProps {
   cancelLabel?: string
   variant?: ConfirmDialogVariant
   loading?: boolean
+  // Falha ao confirmar (ex.: "plano vinculado a clientes") — mantém o
+  // dialog aberto com o motivo visível, em vez de fechar silenciosamente
+  // ou precisar de um banner separado na página por trás.
+  erro?: string | null
   onConfirm: () => void
   onCancel: () => void
 }
@@ -50,6 +54,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancelar',
   variant = 'default',
   loading = false,
+  erro,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -83,6 +88,9 @@ export function ConfirmDialog({
               <p id="confirm-dialog-description" className="mt-1 text-body-md text-on-surface-variant">{description}</p>
             </div>
           </div>
+          {erro && (
+            <p className="mt-3 p-3 rounded-xl bg-error-container text-on-error-container text-body-sm">{erro}</p>
+          )}
         </div>
         <div className="flex justify-end gap-2 px-5 pb-5">
           <button

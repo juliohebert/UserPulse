@@ -457,6 +457,10 @@ export interface PlanoAdmin {
   permite_jornadas: boolean
   permite_white_label: boolean
   ativo: boolean
+  // Plano interno (hoje só "Interno (Quark)") — nunca oferecido no select
+  // de plano do Cliente, nunca removível (ver server/src/controllers/
+  // adminPlanos.ts, remover()).
+  interno: boolean
   criado_em: string
   atualizado_em: string
 }
