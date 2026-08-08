@@ -365,7 +365,7 @@ export function CampanhasIndex() {
       )}
 
       {/* Filters */}
-      <div className="w-full max-w-full overflow-x-hidden bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 mb-6 shadow-sm space-y-3">
+      <div className="relative z-20 w-full max-w-full overflow-visible bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 mb-6 shadow-sm space-y-3">
         <p className="flex items-center gap-1.5 text-label-md font-bold text-on-surface-variant uppercase tracking-wide">
           <span className="material-symbols-outlined text-[16px]">filter_alt</span>
           Filtrar campanhas
