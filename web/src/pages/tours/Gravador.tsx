@@ -63,21 +63,14 @@ export function TourGravador() {
 
   return (
     <div className="relative">
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
-        <nav className="flex gap-2 text-label-md text-outline mb-0.5">
-          <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">
-            Tours Guiados
-          </button>
-          <span>/</span>
-          <span className="text-on-surface">Gravador de fluxo</span>
-        </nav>
-        <h2 className="text-title-lg font-bold text-on-surface leading-tight">Gravador de Fluxo (MVP)</h2>
-        <p className="text-label-md text-on-surface-variant mt-0.5">
+      <div className="px-4 lg:px-margin-desktop py-5">
+        <h2 className="text-title-lg font-bold text-on-surface">Gravador de Fluxo (MVP)</h2>
+        <p className="text-body-md text-on-surface-variant mt-0.5">
           Grave um fluxo navegando pelo sistema real e gere um rascunho de tour pra importar.
         </p>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px] space-y-4">
         <div className={card}>
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">

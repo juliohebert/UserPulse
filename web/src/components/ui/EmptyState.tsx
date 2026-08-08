@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Button } from './Button'
 
 interface Props {
   icon?: string
@@ -36,12 +37,12 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
       description={message}
       action={
         onRetry ? (
-          <button
+          <Button
             onClick={onRetry}
-            className="px-6 py-2.5 bg-primary text-on-primary rounded-xl font-bold text-label-md"
+            size="md"
           >
             Tentar novamente
-          </button>
+          </Button>
         ) : undefined
       }
     />

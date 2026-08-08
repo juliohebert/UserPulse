@@ -5,6 +5,7 @@ import type { TourGuiado, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSe
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
+import { Button } from '../../components/ui/Button'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
 import { buildGravadorUrl, buildPreviewUrl, comandoTestarSeletor, type GravadorUrlResultado, type PreviewUrlResultado } from '../../utils/tour'
 
@@ -1155,20 +1156,13 @@ export function TourForm() {
   return (
     <div className="relative">
       {/* Page action bar */}
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
+      <div className="px-4 lg:px-margin-desktop py-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <nav className="flex gap-2 text-label-md text-outline mb-0.5">
-              <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">
-                Tours Guiados
-              </button>
-              <span>/</span>
-              <span className="text-on-surface">{isEdit ? 'Editar' : 'Criar Novo'}</span>
-            </nav>
-            <h2 className="text-headline-md font-bold text-on-surface leading-tight">
+            <h2 className="text-title-lg font-bold text-on-surface">
               {isEdit ? 'Editar Tour Guiado' : 'Novo Tour Guiado'}
             </h2>
-            <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
+            <p className="text-body-md text-on-surface-variant mt-0.5">
               {isEdit
                 ? 'Ajuste os passos e o destino deste tour guiado.'
                 : 'Monte um passo a passo para guiar usuários dentro do produto.'}
@@ -1183,35 +1177,35 @@ export function TourForm() {
             </button>
           </div>
           <div className="flex gap-2 shrink-0">
-            <button
+            <Button
               type="button"
               onClick={() => navigate('/tours')}
-              className="px-4 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-all"
+              variant="ghost"
             >
               Cancelar
-            </button>
+            </Button>
             {isEdit && (
-              <button
+              <Button
                 type="button"
                 onClick={() => navigate(`/tours/${id}/preview`)}
-                className="px-4 py-2 border border-primary text-primary rounded-xl text-label-md font-bold hover:bg-primary-fixed transition-all"
+                variant="ghost"
               >
                 Testar tour
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               form="tour-form"
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+              size="md"
             >
               {submitting ? 'Salvando…' : isEdit ? 'Salvar' : 'Publicar'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px]">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px]">
         {!isEdit && !form.ativo && (
           <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]">info</span>
@@ -1693,6 +1687,7 @@ export function TourForm() {
                         onClick={() => movePasso(i, -1)}
                         disabled={i === 0}
                         title="Mover para cima"
+                        aria-label={`Mover passo ${i + 1} para cima`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
@@ -1702,6 +1697,7 @@ export function TourForm() {
                         onClick={() => movePasso(i, 1)}
                         disabled={i === passos.length - 1}
                         title="Mover para baixo"
+                        aria-label={`Mover passo ${i + 1} para baixo`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
@@ -1710,6 +1706,7 @@ export function TourForm() {
                         type="button"
                         onClick={() => duplicarPasso(i)}
                         title="Duplicar passo"
+                        aria-label={`Duplicar passo ${i + 1}`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[16px]">content_copy</span>
@@ -1719,6 +1716,7 @@ export function TourForm() {
                         onClick={() => removePasso(i)}
                         disabled={passos.length === 1}
                         title="Remover passo"
+                        aria-label={`Remover passo ${i + 1}`}
                         className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">delete</span>

@@ -6,6 +6,7 @@ import { formatDateTime } from '../../utils/campanha'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
 
@@ -130,29 +131,26 @@ export function JornadasIndex() {
     <div>
       <section className="px-4 lg:px-margin-desktop py-5">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div>
-            <nav className="flex text-label-md text-outline mb-1 gap-2">
-              <button onClick={() => navigate('/')} className="hover:text-primary transition-colors">UserPulse</button>
-              <span>/</span>
-              <span className="font-bold text-on-surface">Jornadas</span>
-            </nav>
-            <h2 className="text-headline-lg font-bold text-on-surface">Jornadas</h2>
+            <h2 className="text-title-lg font-bold text-on-surface">Jornadas</h2>
             {!loading && !error && (
               <p className="text-body-md text-on-surface-variant mt-0.5">
-                {jornadas.length} {jornadas.length === 1 ? 'jornada' : 'jornadas'} no total
+                {jornadas.length === 0
+                  ? 'Ainda não foram criadas jornadas.'
+                  : `${jornadas.length} ${jornadas.length === 1 ? 'jornada' : 'jornadas'} no total`}
               </p>
             )}
           </div>
           {podeEscrever && (
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
-              <button
+              <Button
                 onClick={() => navigate('/jornadas/novo')}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 w-full sm:w-auto"
+                fullWidthMobile
+                iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
               >
-                <span className="material-symbols-outlined text-[18px]">add</span>
                 Nova Jornada
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -375,7 +373,7 @@ function JornadaActions({ jornada, navigate, excluindoId, onExcluir, podeEscreve
   return (
     <>
       {podeEscrever && (
-        <button onClick={() => navigate(`/jornadas/${jornada.id}/editar`)} title="Editar" className={btnCls}>
+        <button onClick={() => navigate(`/jornadas/${jornada.id}/editar`)} title="Editar" aria-label={`Editar ${jornada.titulo}`} className={btnCls}>
           <span className="material-symbols-outlined text-[18px]">edit</span>
         </button>
       )}
@@ -384,6 +382,7 @@ function JornadaActions({ jornada, navigate, excluindoId, onExcluir, podeEscreve
           onClick={() => onExcluir(jornada)}
           disabled={excluindoId === jornada.id}
           title="Remover"
+          aria-label={`Remover ${jornada.titulo}`}
           className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
         >
           <span className={`material-symbols-outlined text-[18px] ${excluindoId === jornada.id ? 'animate-spin' : ''}`}>

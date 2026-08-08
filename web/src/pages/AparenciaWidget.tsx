@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { get, put } from '../services/api'
 import type { AparenciaWidget } from '../types'
 import { CardHeader } from '../components/ui/CardHeader'
+import { Button } from '../components/ui/Button'
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
@@ -76,26 +77,27 @@ export function AparenciaWidgetPage() {
 
   return (
     <>
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
+      <div className="px-4 lg:px-margin-desktop py-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-headline-md font-bold text-on-surface leading-tight">Aparência do Widget</h2>
-            <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
+            <h2 className="text-title-lg font-bold text-on-surface">Aparência do Widget</h2>
+            <p className="text-body-md text-on-surface-variant mt-0.5">
               Personalize a cor principal e a logo/ícone exibidos no runtime de Tours, por sistema integrado.
             </p>
           </div>
-          <button
+          <Button
             type="button"
             onClick={salvar}
             disabled={salvando || !carregado}
-            className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-60 shrink-0"
+            size="md"
+            className="shrink-0"
           >
             {salvando ? 'Salvando…' : 'Salvar'}
-          </button>
+          </Button>
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px] space-y-4">
         {erro && (
           <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]">error</span>

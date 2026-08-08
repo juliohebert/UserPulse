@@ -3,6 +3,7 @@ import { get, post, put } from '../../services/api'
 import type { TelaCatalogo } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
+import { Button } from '../../components/ui/Button'
 
 const MODOS = [
   { value: 'url_contem', label: 'Caminho da URL' },
@@ -226,13 +227,13 @@ export function CatalogoTelasIndex() {
             Telas cadastradas para preenchimento automático em campanhas.
           </p>
         </div>
-        <button
+        <Button
           onClick={openNova}
-          className="shrink-0 flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-sm hover:opacity-90 transition-all active:scale-95"
+          className="shrink-0"
+          iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
         >
-          <span className="material-symbols-outlined text-[18px]">add</span>
           Nova Tela
-        </button>
+        </Button>
       </div>
 
       {/* Busca */}
@@ -247,6 +248,8 @@ export function CatalogoTelasIndex() {
         {busca && (
           <button
             onClick={() => setBusca('')}
+            title="Limpar busca"
+            aria-label="Limpar busca"
             className="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface"
           >
             <span className="material-symbols-outlined text-[18px]">close</span>
@@ -268,13 +271,13 @@ export function CatalogoTelasIndex() {
             {busca ? 'Nenhuma tela encontrada para essa busca.' : 'Nenhuma tela cadastrada ainda.'}
           </p>
           {!busca && (
-            <button
+            <Button
               onClick={openNova}
-              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95"
+              className="mt-4"
+              iconLeft={<span className="material-symbols-outlined text-[16px]">add</span>}
             >
-              <span className="material-symbols-outlined text-[16px]">add</span>
               Nova Tela
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -320,6 +323,7 @@ export function CatalogoTelasIndex() {
                       <button
                         onClick={() => openEditar(tela)}
                         title="Editar"
+                        aria-label={`Editar ${tela.nome}`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[18px]">edit</span>
@@ -343,6 +347,8 @@ export function CatalogoTelasIndex() {
               </h3>
               <button
                 onClick={fecharForm}
+                title="Fechar"
+                aria-label="Fechar"
                 className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
               >
                 <span className="material-symbols-outlined text-[20px]">close</span>
@@ -449,20 +455,20 @@ export function CatalogoTelasIndex() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button
+                <Button
                   type="button"
                   onClick={fecharForm}
-                  className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors"
+                  variant="ghost"
                 >
                   Cancelar
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+                  size="md"
                 >
                   {saving ? 'Salvando…' : editando ? 'Salvar' : 'Criar'}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

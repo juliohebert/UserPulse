@@ -4,6 +4,7 @@ import type { PlanoAdmin } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Select } from '../../components/ui/Select'
+import { Button } from '../../components/ui/Button'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
 import { gerarSlug } from '../../utils/campanha'
@@ -281,13 +282,13 @@ export function AdminPlanosIndex() {
           <h2 className="text-title-lg font-bold text-on-surface">Planos</h2>
           <p className="text-body-md text-on-surface-variant mt-0.5">Planos comerciais disponíveis para vincular a um cliente.</p>
         </div>
-        <button
+        <Button
           onClick={abrirNovo}
-          className="shrink-0 flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-sm hover:opacity-90 transition-all active:scale-95"
+          className="shrink-0"
+          iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
         >
-          <span className="material-symbols-outlined text-[18px]">add</span>
           Novo Plano
-        </button>
+        </Button>
       </div>
 
       {/* Filtro — client-side sobre a lista já carregada, mesmo padrão dos
@@ -340,7 +341,7 @@ export function AdminPlanosIndex() {
                   {!plano.ativo && !plano.interno && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-outline-variant/30 text-outline">Inativo</span>
                   )}
-                  <button onClick={() => abrirEditar(plano)} title="Editar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
+                  <button onClick={() => abrirEditar(plano)} title="Editar" aria-label={`Editar ${plano.nome}`} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                     <span className="material-symbols-outlined text-[18px]">edit</span>
                   </button>
                 </div>
@@ -407,7 +408,7 @@ export function AdminPlanosIndex() {
           <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
               <h3 className="text-title-md font-bold text-on-surface">{editando ? 'Editar Plano' : 'Novo Plano'}</h3>
-              <button onClick={fecharForm} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
+              <button onClick={fecharForm} title="Fechar" aria-label="Fechar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
@@ -522,12 +523,12 @@ export function AdminPlanosIndex() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={fecharForm} className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors">
+                <Button type="button" onClick={fecharForm} variant="ghost">
                   Cancelar
-                </button>
-                <button type="submit" disabled={saving} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60">
+                </Button>
+                <Button type="submit" disabled={saving} size="md">
                   {saving ? 'Salvando…' : editando ? 'Salvar' : 'Criar'}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

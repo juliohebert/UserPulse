@@ -144,11 +144,11 @@ export function Topbar({ collapsed }: Props) {
             )}
           </div>
         )}
-        <button className="relative p-2 rounded-full hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors">
+        <button type="button" title="Notificações" aria-label="Notificações" className="relative p-2 rounded-full hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors">
           <span className="material-symbols-outlined">notifications</span>
           <span className="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface" />
         </button>
-        <button className="hidden sm:block p-2 rounded-full hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors">
+        <button type="button" title="Ajuda" aria-label="Ajuda" className="hidden sm:block p-2 rounded-full hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors">
           <span className="material-symbols-outlined">help_outline</span>
         </button>
 

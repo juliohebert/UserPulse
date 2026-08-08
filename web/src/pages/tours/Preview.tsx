@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { get } from '../../services/api'
 import type { TourExportEnvelope, TourGuiado } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { comandoIniciarTour, comandoTestarSeletor, downloadJson, testEmbedUrl } from '../../utils/tour'
 
 const card = 'w-full bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden mb-5'
@@ -65,35 +66,31 @@ export function TourPreview() {
     <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px]">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
-          <nav className="flex gap-2 text-label-md text-outline mb-1">
-            <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">Tours Guiados</button>
-            <span>/</span>
-            <span className="text-on-surface">Testar</span>
-          </nav>
-          <h2 className="text-headline-lg font-bold text-on-surface">{tour.titulo}</h2>
+          <h2 className="text-title-lg font-bold text-on-surface">{tour.titulo}</h2>
           <p className="text-body-md text-on-surface-variant mt-0.5">
             O teste acontece no ambiente embed (host real ou test-embed.html) — nenhum evento é registrado a partir desta página.
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
-          <button
+          <Button
             type="button"
             onClick={exportarJson}
             disabled={exportando}
-            className="flex items-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all disabled:opacity-50"
+            variant="ghost"
+            iconLeft={(
+              <span className={`material-symbols-outlined text-[18px] ${exportando ? 'animate-spin' : ''}`}>
+                {exportando ? 'progress_activity' : 'download'}
+              </span>
+            )}
           >
-            <span className={`material-symbols-outlined text-[18px] ${exportando ? 'animate-spin' : ''}`}>
-              {exportando ? 'progress_activity' : 'download'}
-            </span>
             Exportar JSON
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => navigate(`/tours/${tour.id}/editar`)}
-            className="px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all"
           >
             Editar
-          </button>
+          </Button>
         </div>
       </div>
 

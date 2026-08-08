@@ -7,6 +7,7 @@ import { downloadJson } from '../../utils/tour'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
@@ -238,51 +239,51 @@ export function ToursIndex() {
     <div>
       <section className="px-4 lg:px-margin-desktop py-5">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div>
-            <nav className="flex text-label-md text-outline mb-1 gap-2">
-              <button onClick={() => navigate('/')} className="hover:text-primary transition-colors">UserPulse</button>
-              <span>/</span>
-              <span className="font-bold text-on-surface">Tours Guiados</span>
-            </nav>
-            <h2 className="text-headline-lg font-bold text-on-surface">Tours Guiados</h2>
+            <h2 className="text-title-lg font-bold text-on-surface">Tours Guiados</h2>
             <p className="text-body-md text-on-surface-variant mt-0.5">
-              {resumo.total} {resumo.total === 1 ? 'tour' : 'tours'} no total
+              {resumo.total === 0
+                ? 'Ainda não foram criados tours.'
+                : `${resumo.total} ${resumo.total === 1 ? 'tour' : 'tours'} no total`}
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
-            <button
+            <Button
+              variant="ghost"
               onClick={() => navigate('/tours/guia')}
-              className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+              fullWidthMobile
+              iconLeft={<span className="material-symbols-outlined text-[18px]">menu_book</span>}
             >
-              <span className="material-symbols-outlined text-[18px]">menu_book</span>
               Guia de Uso
-            </button>
+            </Button>
             {podeExcluirOuImportar && (
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => { setImportarViaGravador(false); setModalImportarAberto(true) }}
-                className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+                fullWidthMobile
+                iconLeft={<span className="material-symbols-outlined text-[18px]">upload_file</span>}
               >
-                <span className="material-symbols-outlined text-[18px]">upload_file</span>
                 Importar JSON
-              </button>
+              </Button>
             )}
             {podeEscrever && (
               <>
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => navigate('/tours/gravador')}
-                  className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+                  fullWidthMobile
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
                 >
-                  <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
                   Gravar fluxo
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={() => navigate('/tours/novo')}
-                  className="flex items-center justify-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 w-full sm:w-auto"
+                  fullWidthMobile
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
                 >
-                  <span className="material-symbols-outlined text-[18px]">add</span>
                   Novo Tour Guiado
-                </button>
+                </Button>
               </>
             )}
           </div>
@@ -579,25 +580,25 @@ function TourActions({
   const btnCls = `${btnPad} rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors`
   return (
     <>
-      <button onClick={() => navigate(`/tours/${tour.id}/dashboard`)} title="Dashboard" className={btnCls}>
+      <button onClick={() => navigate(`/tours/${tour.id}/dashboard`)} title="Dashboard" aria-label={`Abrir dashboard de ${tour.titulo}`} className={btnCls}>
         <span className="material-symbols-outlined text-[18px]">monitoring</span>
       </button>
-      <button onClick={() => navigate(`/tours/${tour.id}/preview`)} title="Testar tour" className={btnCls}>
+      <button onClick={() => navigate(`/tours/${tour.id}/preview`)} title="Testar tour" aria-label={`Testar ${tour.titulo}`} className={btnCls}>
         <span className="material-symbols-outlined text-[18px]">play_circle</span>
       </button>
       {podeEscrever && (
-        <button onClick={() => navigate(`/tours/${tour.id}/editar`)} title="Editar" className={btnCls}>
+        <button onClick={() => navigate(`/tours/${tour.id}/editar`)} title="Editar" aria-label={`Editar ${tour.titulo}`} className={btnCls}>
           <span className="material-symbols-outlined text-[18px]">edit</span>
         </button>
       )}
       {podeEscrever && (
-        <button onClick={() => onDuplicar(tour)} disabled={duplicandoId === tour.id} title="Duplicar" className={`${btnCls} disabled:opacity-40`}>
+        <button onClick={() => onDuplicar(tour)} disabled={duplicandoId === tour.id} title="Duplicar" aria-label={`Duplicar ${tour.titulo}`} className={`${btnCls} disabled:opacity-40`}>
           <span className={`material-symbols-outlined text-[18px] ${duplicandoId === tour.id ? 'animate-spin' : ''}`}>
             {duplicandoId === tour.id ? 'progress_activity' : 'content_copy'}
           </span>
         </button>
       )}
-      <button onClick={() => onExportar(tour)} disabled={exportandoId === tour.id} title="Exportar JSON" className={`${btnCls} disabled:opacity-40`}>
+      <button onClick={() => onExportar(tour)} disabled={exportandoId === tour.id} title="Exportar JSON" aria-label={`Exportar JSON de ${tour.titulo}`} className={`${btnCls} disabled:opacity-40`}>
         <span className={`material-symbols-outlined text-[18px] ${exportandoId === tour.id ? 'animate-spin' : ''}`}>
           {exportandoId === tour.id ? 'progress_activity' : 'download'}
         </span>
@@ -607,6 +608,7 @@ function TourActions({
           onClick={() => onRemover(tour)}
           disabled={removendoId === tour.id}
           title="Remover"
+          aria-label={`Remover ${tour.titulo}`}
           className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
         >
           <span className={`material-symbols-outlined text-[18px] ${removendoId === tour.id ? 'animate-spin' : ''}`}>
@@ -715,7 +717,7 @@ function ImportarTourModal({ onClose, onImported, avisoColar = false }: {
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant/30 shrink-0">
           <h3 className="text-title-lg font-bold text-on-surface">Importar tour (JSON)</h3>
-          <button onClick={onClose} className="p-1 text-outline hover:text-on-surface transition-colors">
+          <button onClick={onClose} title="Fechar" aria-label="Fechar" className="p-1 text-outline hover:text-on-surface transition-colors">
             <span className="material-symbols-outlined text-[20px]">close</span>
           </button>
         </div>

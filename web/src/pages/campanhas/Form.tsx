@@ -7,6 +7,7 @@ import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { Stepper } from '../../components/ui/Stepper'
+import { Button } from '../../components/ui/Button'
 import { TEMPLATES } from '../../utils/templates'
 import { DestinoCampanha } from '../../components/campanhas/DestinoCampanha'
 
@@ -472,20 +473,13 @@ export function CampanhaForm() {
 
   return (
     <div className="relative">
-      {/* ── Header compacto: breadcrumb/título + stepper ── */}
-      <div className="bg-surface border-b border-outline-variant">
-        <div className={`${container} px-4 lg:px-6 pt-3 pb-2`}>
+      {/* ── Header compacto: título + stepper ── */}
+      <div>
+        <div className={`${container} px-4 lg:px-6 pt-5 pb-2`}>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <nav className="flex gap-2 text-label-md text-outline mb-0.5">
-                <button type="button" onClick={() => navigate('/campanhas')} className="hover:text-primary transition-colors">
-                  Campanhas
-                </button>
-                <span>/</span>
-                <span className="text-on-surface">{isEdit ? 'Editar' : 'Criar Nova'}</span>
-              </nav>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-headline-md font-bold text-on-surface leading-tight">
+                <h2 className="text-title-lg font-bold text-on-surface">
                   {isEdit ? 'Editar Campanha' : 'Nova Campanha'}
                 </h2>
                 <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide ${
@@ -494,25 +488,29 @@ export function CampanhaForm() {
                   {!isEdit ? 'Rascunho' : form.ativo ? 'Ativa' : 'Inativa'}
                 </span>
               </div>
+              <p className="text-body-md text-on-surface-variant mt-0.5">
+                {isEdit ? 'Ajuste a configuração e a exibição desta campanha.' : 'Configure uma nova campanha para coletar feedback dos usuários.'}
+              </p>
             </div>
             <div className="flex gap-2 shrink-0">
               {id && (
-                <button
+                <Button
                   type="button"
                   onClick={() => navigate(`/campanhas/${id}/preview`)}
-                  className="hidden sm:flex items-center gap-1.5 px-4 py-2 border border-primary text-primary rounded-xl text-label-md font-bold hover:bg-primary-fixed transition-all"
+                  variant="ghost"
+                  className="hidden sm:inline-flex"
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">visibility</span>}
                 >
-                  <span className="material-symbols-outlined text-[18px]">visibility</span>
                   Preview
-                </button>
+                </Button>
               )}
-              <button
+              <Button
                 type="button"
                 onClick={() => navigate('/campanhas')}
-                className="px-4 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-all"
+                variant="ghost"
               >
                 Cancelar
-              </button>
+              </Button>
             </div>
           </div>
         </div>

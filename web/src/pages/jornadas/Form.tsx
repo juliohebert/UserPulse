@@ -6,6 +6,7 @@ import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { Select } from '../../components/ui/Select'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
+import { Button } from '../../components/ui/Button'
 
 interface FormState {
   titulo: string
@@ -269,46 +270,39 @@ export function JornadaForm() {
   return (
     <div className="relative">
       {/* Page action bar */}
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
+      <div className="px-4 lg:px-margin-desktop py-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <nav className="flex gap-2 text-label-md text-outline mb-0.5">
-              <button onClick={() => navigate('/jornadas')} className="hover:text-primary transition-colors">
-                Jornadas
-              </button>
-              <span>/</span>
-              <span className="text-on-surface">{isEdit ? 'Editar' : 'Criar Nova'}</span>
-            </nav>
-            <h2 className="text-headline-md font-bold text-on-surface leading-tight">
+            <h2 className="text-title-lg font-bold text-on-surface">
               {isEdit ? 'Editar Jornada' : 'Nova Jornada'}
             </h2>
-            <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
+            <p className="text-body-md text-on-surface-variant mt-0.5">
               {isEdit
                 ? 'Ajuste os pacotes e o destino desta jornada de onboarding.'
                 : 'Monte uma central de onboarding guiada, organizada em pacotes de etapas.'}
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
-            <button
+            <Button
               type="button"
               onClick={() => navigate('/jornadas')}
-              className="px-4 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-all"
+              variant="ghost"
             >
               Cancelar
-            </button>
-            <button
+            </Button>
+            <Button
               form="jornada-form"
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+              size="md"
             >
               {submitting ? 'Salvando…' : isEdit ? 'Salvar' : 'Publicar'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1000px]">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1000px]">
         {successMsg && (
           <div className="mb-5 p-4 bg-tertiary/10 rounded-xl">
             <p className="text-body-md text-tertiary font-semibold flex items-center gap-2 mb-3">
@@ -434,14 +428,14 @@ export function JornadaForm() {
               title="Pacotes da jornada"
               description="Agrupe as etapas em pacotes — o usuário navega pacote por pacote."
               action={
-                <button
+                <Button
                   type="button"
                   onClick={addBloco}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-on-primary rounded-lg text-label-sm font-bold hover:opacity-90 transition-all active:scale-95"
+                  size="sm"
+                  iconLeft={<span className="material-symbols-outlined text-[16px]">add</span>}
                 >
-                  <span className="material-symbols-outlined text-[16px]">add</span>
                   Adicionar pacote
-                </button>
+                </Button>
               }
             />
 
@@ -451,13 +445,12 @@ export function JornadaForm() {
                 <p className="text-body-md text-on-surface-variant max-w-sm">
                   Nenhum pacote adicionado ainda. Cada pacote agrupa um conjunto de etapas (tour, campanha ou link).
                 </p>
-                <button
+                <Button
                   type="button"
                   onClick={addBloco}
-                  className="px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold"
                 >
                   Adicionar pacote
-                </button>
+                </Button>
               </div>
             ) : (
               <div className="space-y-4">
@@ -474,6 +467,7 @@ export function JornadaForm() {
                           onClick={() => moveBloco(bi, -1)}
                           disabled={bi === 0}
                           title="Mover para cima"
+                          aria-label={`Mover pacote ${bi + 1} para cima`}
                           className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                         >
                           <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
@@ -483,6 +477,7 @@ export function JornadaForm() {
                           onClick={() => moveBloco(bi, 1)}
                           disabled={bi === blocos.length - 1}
                           title="Mover para baixo"
+                          aria-label={`Mover pacote ${bi + 1} para baixo`}
                           className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                         >
                           <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
@@ -491,6 +486,7 @@ export function JornadaForm() {
                           type="button"
                           onClick={() => removeBloco(bi)}
                           title="Remover pacote"
+                          aria-label={`Remover pacote ${bi + 1}`}
                           className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors"
                         >
                           <span className="material-symbols-outlined text-[16px]">delete</span>
@@ -569,6 +565,7 @@ export function JornadaForm() {
                                     onClick={() => moveEtapa(bi, ei, -1)}
                                     disabled={ei === 0}
                                     title="Mover para cima"
+                                    aria-label={`Mover etapa ${ei + 1} para cima`}
                                     className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                                   >
                                     <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
@@ -578,6 +575,7 @@ export function JornadaForm() {
                                     onClick={() => moveEtapa(bi, ei, 1)}
                                     disabled={ei === bloco.etapas.length - 1}
                                     title="Mover para baixo"
+                                    aria-label={`Mover etapa ${ei + 1} para baixo`}
                                     className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                                   >
                                     <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
@@ -586,6 +584,7 @@ export function JornadaForm() {
                                     type="button"
                                     onClick={() => removeEtapa(bi, ei)}
                                     title="Remover etapa"
+                                    aria-label={`Remover etapa ${ei + 1}`}
                                     className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors"
                                   >
                                     <span className="material-symbols-outlined text-[16px]">delete</span>

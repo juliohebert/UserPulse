@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { Button } from './Button'
 
 export type ConfirmDialogVariant = 'danger' | 'warning' | 'default'
 
@@ -21,24 +22,21 @@ interface ConfirmDialogProps {
 // Tailwind (mesmo padrão já usado em avisos pelo resto do painel, ex.:
 // DestinoCampanha.tsx, campanhas/Form.tsx), já que o design system do
 // projeto (tailwind.config) só define tokens de primary/tertiary/error.
-const VARIANT_CFG: Record<ConfirmDialogVariant, { icon: string; iconBg: string; iconColor: string; confirmBtn: string }> = {
+const VARIANT_CFG: Record<ConfirmDialogVariant, { icon: string; iconBg: string; iconColor: string }> = {
   danger: {
     icon: 'warning',
     iconBg: 'bg-error-container',
     iconColor: 'text-error',
-    confirmBtn: 'bg-error text-on-error hover:opacity-90',
   },
   warning: {
     icon: 'warning',
     iconBg: 'bg-amber-100',
     iconColor: 'text-amber-700',
-    confirmBtn: 'bg-amber-500 text-white hover:opacity-90',
   },
   default: {
     icon: 'help',
     iconBg: 'bg-primary/10',
     iconColor: 'text-primary',
-    confirmBtn: 'bg-primary text-on-primary hover:opacity-90',
   },
 }
 
@@ -93,23 +91,24 @@ export function ConfirmDialog({
           )}
         </div>
         <div className="flex justify-end gap-2 px-5 pb-5">
-          <button
+          <Button
             type="button"
             autoFocus
             disabled={loading}
             onClick={onCancel}
-            className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors disabled:opacity-50"
+            variant="ghost"
           >
             {cancelLabel}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={loading}
             onClick={onConfirm}
-            className={`px-5 py-2 rounded-xl text-label-md font-bold shadow-sm transition-all active:scale-95 disabled:opacity-60 ${cfg.confirmBtn}`}
+            variant={variant === 'danger' ? 'danger' : 'primary'}
+            className={variant === 'warning' ? 'bg-[#e65100] text-white hover:opacity-90' : ''}
           >
             {loading ? 'Aguarde…' : confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
