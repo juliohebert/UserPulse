@@ -6,7 +6,7 @@ import { Select } from '../../components/ui/Select'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
-import { gerarSlug, formatDate, formatDateTime, toInputDate } from '../../utils/campanha'
+import { gerarSlug, formatDate, formatDateTime, formatarValorReais, toInputDate } from '../../utils/campanha'
 import {
   formatarCpfCnpj, formatarTelefone, formatarCep, formatarEstado,
   normalizarCpfCnpj, normalizarTelefone, normalizarCep, normalizarEmail, emailValido,
@@ -99,10 +99,6 @@ const SITUACAO_ASAAS_BADGE: Record<SituacaoAsaasDecisao, { label: string; classN
 function SituacaoAsaasBadge({ decisao }: { decisao: SituacaoAsaasDecisao }) {
   const cfg = SITUACAO_ASAAS_BADGE[decisao]
   return <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase whitespace-nowrap ${cfg.className}`}>{cfg.label}</span>
-}
-
-function formatarValorReais(valor: number): string {
-  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
 const COBRANCA_TIPO_LABEL: Record<string, string> = {

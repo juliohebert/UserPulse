@@ -24,6 +24,7 @@ import { TourGravador } from './pages/tours/Gravador'
 import { JornadasIndex } from './pages/jornadas/Index'
 import { JornadaForm } from './pages/jornadas/Form'
 import { AparenciaWidgetPage } from './pages/AparenciaWidget'
+import { MinhaAssinatura } from './pages/MinhaAssinatura'
 import { AdminTenantsIndex } from './pages/admin/Tenants'
 import { AdminPlanosIndex } from './pages/admin/Planos'
 
@@ -76,6 +77,12 @@ export default function App() {
             <Route element={<RequireEscritaConfiguracao />}>
               <Route path="catalogo-telas" element={<CatalogoTelasIndex />} />
               <Route path="aparencia-widget" element={<AparenciaWidgetPage />} />
+              {/* Fase 5 — "Minha assinatura" (billing self-service). Mesmo
+                  guard de aparência/catálogo (ADMIN-only dentro do próprio
+                  tenant) porque billing é sensível o bastante pra restringir
+                  até a leitura, não só a escrita — mesma regra já aplicada
+                  no backend (requireEscritaConfiguracao em routes/billing.ts). */}
+              <Route path="minha-assinatura" element={<MinhaAssinatura />} />
             </Route>
             {/* Painel Super Admin — RequireSuperAdmin manda ADMIN comum de
                 volta pro dashboard; o backend (requireSuperAdmin.ts) também

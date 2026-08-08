@@ -9,6 +9,7 @@ import { podeEscreverConfiguracao } from '../../utils/permissions'
 const navItemsConfiguracao = [
   { icon: 'grid_view', label: 'Catálogo de Telas', to: '/catalogo-telas' },
   { icon: 'palette', label: 'Aparência do Widget', to: '/aparencia-widget' },
+  { icon: 'receipt_long', label: 'Minha Assinatura', to: '/minha-assinatura' },
 ]
 
 interface Props {

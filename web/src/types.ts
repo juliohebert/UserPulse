@@ -609,6 +609,40 @@ export interface DiagnosticoAsaasResposta {
   consultadoEm: string
 }
 
+// Fase 5 — "Minha assinatura" self-service (ver GET /api/billing/situacao e
+// controllers/billing.ts). Reaproveita o SituacaoComercialTenant já
+// declarado acima (mesmo tipo que /auth/me devolve em tenant.situacao_comercial,
+// ver AdminUser/AvisoComercial.tsx) — não duplicar.
+
+export interface CobrancaVencidaResumo {
+  id: string
+  value: number
+  dueDate: string
+}
+
+// Nunca inclui asaas_customer_id/asaas_subscription_id — o cliente final não
+// precisa desses IDs técnicos (ver regra da tarefa em obterSituacao,
+// controllers/billing.ts). possuiAssinatura (booleano, não um ID) é o que
+// decide se a UI oferece "Assinar" ou "Reativar"/cobranças vencidas.
+export interface SituacaoBillingResposta {
+  possuiAssinatura: boolean
+  plano: { nome: string; valor: string | number | null; ciclo: string | null } | null
+  situacaoComercial: SituacaoComercialTenant
+  situacaoAsaas: SituacaoAsaasDecisao
+  motivoSituacaoAsaas: string
+  proximaCobranca: string | null
+  cobrancasVencidas: CobrancaVencidaResumo[]
+}
+
+export interface AssinaturaSelfServiceResposta {
+  cobrancaDisponivel: boolean
+  invoiceUrl: string | null
+}
+
+export interface PagarCobrancaResposta {
+  invoiceUrl: string | null
+}
+
 export interface TenantAdminDetail extends Omit<TenantAdminItem, '_count'> {
   admins: AdminDoTenant[]
 }

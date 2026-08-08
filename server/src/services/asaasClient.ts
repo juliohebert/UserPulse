@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+import { Prisma, TenantStatus } from '@prisma/client'
 import prisma from '../lib/prisma'
 
 // ─── Asaas (gateway de pagamento) — fundação/sandbox ───────────────────────
@@ -137,10 +137,16 @@ const CICLOS_ASAAS_VALIDOS = new Set([
   'WEEKLY', 'BIWEEKLY', 'MONTHLY', 'BIMONTHLY', 'QUARTERLY', 'SEMIANNUALLY', 'YEARLY',
 ])
 
+// billingType aceita 'UNDEFINED' (Fase 5, self-service) além dos 3 fixos —
+// é o valor que o próprio Asaas usa pra "deixar o pagador escolher o meio de
+// pagamento na página hospedada" (Pix ou cartão), em vez do UserPulse
+// decidir por ele. Continua opcional: SUPER_ADMIN (criarAssinatura em
+// adminTenantsAsaas.ts) segue mandando BOLETO/PIX/CREDIT_CARD explícito ou
+// nada (default BOLETO abaixo), comportamento inalterado.
 export async function criarAssinaturaAsaas(
   customerId: string,
   plano: { asaas_external_reference: string | null; asaas_subscription_value: Prisma.Decimal | number | string | null; asaas_billing_cycle: string | null },
-  opcoes: { nextDueDate: string; billingType?: 'BOLETO' | 'PIX' | 'CREDIT_CARD' }
+  opcoes: { nextDueDate: string; billingType?: 'BOLETO' | 'PIX' | 'CREDIT_CARD' | 'UNDEFINED' }
 ): Promise<AssinaturaAsaas> {
   if (plano.asaas_subscription_value == null) {
     throw new Error('Plano sem asaas_subscription_value configurado — não é possível criar a assinatura no Asaas.')
@@ -183,6 +189,32 @@ export interface CobrancaAsaas {
 
 export async function buscarCobrancaAsaas(id: string): Promise<CobrancaAsaas> {
   return asaasFetch<CobrancaAsaas>(`/payments/${encodeURIComponent(id)}`)
+}
+
+// Regularização self-service (Fase 5) — libera a escolha do meio de
+// pagamento numa cobrança PENDING/OVERDUE já existente (sem isso, uma
+// cobrança criada com billingType fixo, ex. BOLETO, só aceitaria boleto na
+// invoiceUrl). Nunca cria cobrança nova, nunca muda customer/subscription —
+// só billingType (ver validarCobrancaParaRegularizacao abaixo, que já
+// barrou qualquer cobrança que não seja PENDING/OVERDUE ou que não pertença
+// à assinatura do tenant antes de chegar aqui).
+//
+// value/dueDate são reenviados de propósito, mesmo sem mudar — o PUT
+// /payments do Asaas não documenta claramente semântica de patch parcial
+// pra todo campo, então preferimos sempre reafirmar os valores que já
+// estavam na cobrança (lidos por buscarCobrancaAsaas no controller, nunca
+// do body do cliente) a arriscar o Asaas interpretar um campo omitido como
+// "zerar"/usar default. O caller (pagarCobranca em controllers/billing.ts)
+// nunca aceita value/dueDate do frontend — só repassa o que já leu da
+// própria cobrança buscada no Asaas.
+export async function atualizarBillingTypeCobrancaAsaas(
+  paymentId: string,
+  dados: { billingType: 'UNDEFINED'; value: number; dueDate: string }
+): Promise<CobrancaAsaas> {
+  return asaasFetch<CobrancaAsaas>(`/payments/${encodeURIComponent(paymentId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(dados),
+  })
 }
 
 // Envelope de paginação padrão do Asaas pra endpoints de listagem —
@@ -336,6 +368,88 @@ export function calcularSituacaoAsaas(entrada: EntradaSituacaoAsaas): SituacaoAs
     quantidadeCobrancasVencidas,
   }
 }
+
+// Busca a entrada pronta pra calcularSituacaoAsaas — compartilhada entre o
+// diagnóstico do SUPER_ADMIN (Fase 4, ver diagnosticar em
+// adminTenantsAsaas.ts) e a tela "Minha assinatura" self-service (Fase 5,
+// ver controllers/billing.ts), pra não duplicar a mesma sequência de
+// chamadas/try-catch nos dois lugares.
+export async function buscarEntradaSituacaoAsaas(tenant: { asaas_subscription_id: string | null }): Promise<EntradaSituacaoAsaas> {
+  if (!tenant.asaas_subscription_id) return { tipo: 'sem_vinculo' }
+  try {
+    const [assinatura, cobrancasResultado] = await Promise.all([
+      buscarAssinaturaAsaas(tenant.asaas_subscription_id),
+      listarCobrancasAsaas(tenant.asaas_subscription_id),
+    ])
+    return { tipo: 'dados', assinatura, cobrancas: cobrancasResultado.data, hasMore: cobrancasResultado.hasMore }
+  } catch (err) {
+    return { tipo: 'falha_consulta', erro: err instanceof Error ? err.message : 'Erro desconhecido ao consultar o Asaas.' }
+  }
+}
+
+// ─── Pagamento self-service (Fase 5) — funções puras de validação ─────────
+// Nenhuma delas faz I/O; os controllers (billing.ts) buscam o dado e só
+// aplicam a decisão. Não usa Asaas Checkout nesta fase — reaproveita
+// assinatura/cobrança/invoiceUrl já existentes (ver buscarAssinaturaAsaas,
+// listarCobrancasAsaas, buscarCobrancaAsaas acima).
+
+// Portão comum das 2 operações financeiras self-service que restam nesta
+// Fase (criar assinatura, pagar cobrança) — bloqueia SOMENTE SUSPENDED e
+// CANCELED. EXPIRED fica de propósito FORA deste bloqueio: regularizar uma
+// licença vencida é exatamente o caso legítimo que o self-service existe
+// pra resolver (ver regra 4 da tarefa desta correção). Não confundir com
+// motivoBloqueioEscrita (tenantGuards.ts) — aquele bloqueia também
+// TRIAL/licença vencidos pra escrita de conteúdo comum; este é mais
+// estreito, só pra operação financeira, e mora aqui (não em
+// tenantGuards.ts) por ser específico do domínio Asaas/self-service.
+export function bloqueioOperacaoFinanceiraSelfService(status: TenantStatus): string | null {
+  if (status === 'SUSPENDED' || status === 'CANCELED') {
+    return 'Sua conta está suspensa ou cancelada. Entre em contato com o suporte para regularizar sua assinatura.'
+  }
+  return null
+}
+
+// Bloqueia geração de assinatura self-service pra plano interno (nunca
+// oferecido a cliente comum, mesma regra de Planos.tsx/adminPlanos.ts) ou
+// sem asaas_subscription_value configurado (nada a cobrar). Nunca valida
+// asaas_billing_cycle aqui — criarAssinaturaAsaas já cai em MONTHLY por
+// padrão quando ausente, sem precisar bloquear por isso.
+export function validarPlanoParaAssinaturaSelfService(
+  plano: { interno: boolean; asaas_subscription_value: Prisma.Decimal | number | string | null } | null
+): string | null {
+  if (!plano) return 'Tenant sem plano vinculado — entre em contato com o suporte.'
+  if (plano.interno) return 'Este plano não está disponível para contratação self-service — entre em contato com o suporte.'
+  if (plano.asaas_subscription_value == null) return 'Plano sem valor de assinatura configurado — entre em contato com o suporte.'
+  return null
+}
+
+// Regularização de cobrança vencida ("Pagar") — confirma que a cobrança
+// pertence à assinatura do tenant da sessão (nunca de outro tenant) e que
+// ainda está pendente/vencida (nunca prepara de novo uma cobrança já paga,
+// nem cria uma cobrança nova — só libera billingType na existente, ver
+// atualizarBillingTypeCobrancaAsaas acima).
+export function validarCobrancaParaRegularizacao(
+  cobranca: { subscription: string | null; status: string },
+  tenantSubscriptionId: string
+): string | null {
+  if (cobranca.subscription !== tenantSubscriptionId) {
+    return 'Esta cobrança não pertence à assinatura deste tenant.'
+  }
+  if (cobranca.status !== 'PENDING' && cobranca.status !== 'OVERDUE') {
+    return 'Esta cobrança não está pendente ou vencida — nada para regularizar.'
+  }
+  return null
+}
+
+// Reativação self-service de assinatura INACTIVE foi retirada desta Fase
+// (correção de segurança pós-revisão): um tenant com assinatura INACTIVE no
+// Asaas normalmente já está SUSPENDED, e hoje não existe campo que
+// distinga suspensão manual de suspensão causada pelo billing (ver
+// bloqueioOperacaoFinanceiraSelfService acima). Reintroduzir reativação
+// self-service exige antes um campo/auditoria de origem da suspensão —
+// não criado nesta Fase por não ter sido comprovadamente necessário até
+// aqui. reativarAssinaturaAsaas/decidirReativacaoAssinatura foram
+// removidas junto (sem uso).
 
 export async function cancelarAssinaturaAsaas(id: string): Promise<{ deleted: boolean; id: string }> {
   return asaasFetch(`/subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' })
@@ -550,13 +664,29 @@ function interpretarAsaasStatusAssinatura(valor: string | null): 'ACTIVE' | 'EXP
 // ("INACTIVE"), nunca o nome bruto do evento.
 export function calcularAtualizacaoTenant(
   acao: Extract<AcaoWebhookAsaas, { tipo: 'pagamento_confirmado' | 'pagamento_vencido' | 'assinatura_cancelada' }>,
-  tenantAtual: { asaas_status: string | null; licenca_inicio: Date | null },
+  tenantAtual: { asaas_status: string | null; licenca_inicio: Date | null; status: TenantStatus },
   cicloPlano: string | null,
   agora: Date = new Date()
 ): AtualizacaoTenantAsaas {
   if (acao.tipo === 'assinatura_cancelada') {
-    // SUSPENDED (não CANCELED) de propósito: automação nunca marca CANCELED
-    // (estado definitivo, "contrato encerrado" na semântica já usada em
+    // CANCELED é estado administrativo definitivo — automação nunca o
+    // rebaixa pra SUSPENDED. Sem isso, um SUBSCRIPTION_DELETED/INACTIVATED
+    // atrasado/reentregue (Asaas entrega "at least once", sem garantia de
+    // ordem) depois de um cancelamento manual do SUPER_ADMIN "desfazia"
+    // parte da decisão dele, mesmo sem reativar acesso nenhum. Correção de
+    // segurança pós-revisão, mesma família do bloqueio já aplicado em
+    // pagamento_confirmado — não inventa origem de SUSPENDED, só protege
+    // CANCELED especificamente, que já é tratado como definitivo em todo o
+    // resto do sistema (ver Tenants.tsx/tenantGuards.ts).
+    if (tenantAtual.status === 'CANCELED') {
+      return {
+        dados: null,
+        ignorado: 'Evento de cancelamento de assinatura ignorado: tenant já está CANCELED — automação nunca altera um cancelamento definitivo.',
+      }
+    }
+    // SUSPENDED (não CANCELED) de propósito, pra todo estado que não seja
+    // CANCELED: automação nunca marca CANCELED (estado definitivo,
+    // "contrato encerrado" na semântica já usada em
     // Tenants.tsx/tenantGuards.ts) — só SUSPENDED, reversível, deixando o
     // cancelamento de verdade como decisão manual do super admin.
     return { dados: { asaas_status: 'INACTIVE', asaas_ultima_sincronizacao: agora, status: 'SUSPENDED' } }
@@ -571,16 +701,41 @@ export function calcularAtualizacaoTenant(
     return { dados: { asaas_ultima_sincronizacao: agora } }
   }
 
-  // pagamento_confirmado — só ativa quando o asaas_status atual é
-  // CONFIRMADAMENTE "ACTIVE" (allowlist, não blocklist). Cobre dois riscos:
-  // (1) webhook fora de ordem — SUBSCRIPTION_DELETED/INACTIVATED processado
-  // primeiro, depois um PAYMENT_CONFIRMED antigo/reentregue chega e
-  // tentaria voltar pra ACTIVE; (2) dado legado — asaas_status pode conter
-  // um status de PAGAMENTO ("CONFIRMED", "OVERDUE", ...) ou o nome bruto de
-  // um evento de cancelamento, gravados pela versão anterior desta
-  // correção. Em ambos os casos "não confiavelmente ACTIVE" bloqueia — só o
-  // valor real "ACTIVE" libera a reativação automática, nunca uma
-  // suposição em cima de status de pagamento.
+  // pagamento_confirmado — SUSPENDED/CANCELED bloqueiam ANTES de qualquer
+  // outra checagem, independente do que asaas_status disser. Hoje não há
+  // como saber se o SUSPENDED foi causado pelo Asaas (SUBSCRIPTION_DELETED/
+  // INACTIVATED, ver acima) ou definido manualmente pelo SUPER_ADMIN por um
+  // motivo não relacionado a billing (fraude, violação de contrato, etc.) —
+  // sem esse dado, pagamento nunca pode ser o que desfaz uma suspensão ou
+  // cancelamento; só o SUPER_ADMIN, manualmente, decide reverter. CANCELED
+  // é o mesmo raciocínio, redobrado: já é tratado como estado definitivo em
+  // todo o resto do sistema (ver Tenants.tsx/tenantGuards.ts), pagamento
+  // não é motivo válido pra sair dele. Nenhuma heurística de origem foi
+  // inventada aqui — é bloqueio incondicional pros dois estados.
+  if (tenantAtual.status === 'SUSPENDED') {
+    return {
+      dados: null,
+      ignorado: 'Pagamento confirmado ignorado: tenant está SUSPENDED — reativação automática bloqueada; requer ação manual do SUPER_ADMIN (não há como saber se a suspensão foi causada pelo Asaas ou definida manualmente).',
+    }
+  }
+  if (tenantAtual.status === 'CANCELED') {
+    return {
+      dados: null,
+      ignorado: 'Pagamento confirmado ignorado: tenant está CANCELED — automação nunca reativa um cancelamento; requer ação manual do SUPER_ADMIN.',
+    }
+  }
+
+  // Só chega aqui pra TRIAL/ACTIVE/EXPIRED — comportamento normal
+  // preservado: ativa/renova quando o asaas_status atual é CONFIRMADAMENTE
+  // "ACTIVE" (allowlist, não blocklist). Cobre dois riscos: (1) webhook
+  // fora de ordem — SUBSCRIPTION_DELETED/INACTIVATED processado primeiro,
+  // depois um PAYMENT_CONFIRMED antigo/reentregue chega e tentaria voltar
+  // pra ACTIVE; (2) dado legado — asaas_status pode conter um status de
+  // PAGAMENTO ("CONFIRMED", "OVERDUE", ...) ou o nome bruto de um evento de
+  // cancelamento, gravados pela versão anterior desta correção. Em ambos os
+  // casos "não confiavelmente ACTIVE" bloqueia — só o valor real "ACTIVE"
+  // libera a reativação automática, nunca uma suposição em cima de status
+  // de pagamento.
   const statusAssinatura = interpretarAsaasStatusAssinatura(tenantAtual.asaas_status)
   if (statusAssinatura !== 'ACTIVE') {
     const ignorado = statusAssinatura === 'desconhecido'
