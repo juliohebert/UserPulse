@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, type NavigateFunction } from 'react-router-dom'
+import { useNavigate, useSearchParams, type NavigateFunction } from 'react-router-dom'
 import { del, get, post, put } from '../../services/api'
 import type { TourExportEnvelope, TourGuiado, TourGuiadoListaPaginada } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
@@ -67,7 +67,8 @@ export function ToursIndex() {
   const [data, setData] = useState<TourGuiadoListaPaginada | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [busca, setBusca] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [busca, setBusca] = useState(() => searchParams.get('busca') ?? '')
   const [filterSistema, setFilterSistema] = useState('')
   const [filterAtivo, setFilterAtivo] = useState<StatusFiltro>('todos')
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
@@ -85,6 +86,21 @@ export function ToursIndex() {
   useEffect(() => () => {
     if (redirectTimer.current) window.clearTimeout(redirectTimer.current)
   }, [])
+
+  useEffect(() => {
+    const buscaUrl = searchParams.get('busca') ?? ''
+    setBusca(prev => (prev === buscaUrl ? prev : buscaUrl))
+  }, [searchParams])
+
+  useEffect(() => {
+    const termo = busca.trim()
+    const atual = searchParams.get('busca') ?? ''
+    if (termo === atual) return
+    const next = new URLSearchParams(searchParams)
+    if (termo) next.set('busca', termo)
+    else next.delete('busca')
+    setSearchParams(next, { replace: true })
+  }, [busca, searchParams, setSearchParams])
 
   // Vindo do Gravador de Fluxo ("Copiar e abrir importação" no widget): o JSON
   // já foi copiado pra área de transferência lá — aqui só abre o modal
@@ -112,7 +128,7 @@ export function ToursIndex() {
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load('', '', 'todos', 1) }, [])
+  useEffect(() => { load(busca, '', 'todos', 1) }, [])
 
   // Debounce só da busca — status/sistema mudam por clique único (sem
   // motivo pra atrasar) e já chamam load() direto nos próprios handlers.
