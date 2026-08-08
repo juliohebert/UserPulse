@@ -504,7 +504,26 @@ export function AdminTenantsIndex() {
     })
   }
 
-  const planoOpcoes = [{ value: '', label: 'Sem plano' }, ...planos.map(p => ({ value: p.id, label: p.nome }))]
+  // Só planos ativos e comerciais (nunca "Interno (Quark)") ficam
+  // oferecíveis a um cliente comum — mas o plano JÁ atribuído ao tenant em
+  // edição continua na lista mesmo se hoje estiver inativo/interno (sem
+  // isso, abrir "Editar" nesse tenant mostraria o select vazio/resetado só
+  // por causa do filtro, perdendo a seleção real dele). Na prática só o
+  // próprio tenant Quark tem plano interno — este guard existe pra nunca
+  // quebrar a tela dele, não porque se espera algum cliente comum caindo
+  // nesse caso.
+  const planoOpcoes = [
+    { value: '', label: 'Sem plano' },
+    ...planos
+      .filter(p => (p.ativo && !p.interno) || p.id === editando?.plano_id)
+      .map(p => ({
+        value: p.id,
+        label: p.interno || !p.ativo ? `${p.nome} (atual)` : p.nome,
+      })),
+  ]
+  // Filtro da tabela de Clientes continua com a lista inteira (inclui
+  // inativos/interno) — um super admin pode querer localizar quem ainda
+  // está num plano descontinuado, diferente do select de atribuição acima.
   const filtroPlanoOpcoes = [{ value: '', label: 'Todos' }, ...planos.map(p => ({ value: p.id, label: p.nome }))]
 
   // Lista já vem inteira do backend (painel interno, poucos clientes) — os

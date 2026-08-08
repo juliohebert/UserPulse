@@ -11,8 +11,10 @@
 // duplica: sempre atualiza os 5 planos abaixo pros valores atuais aqui
 // definidos, nunca cria um segundo registro pro mesmo slug.
 //
-// Nunca toca no plano "Interno (Quark)" (slug "interno-quark") nem em
-// nenhum Tenant existente — só faz upsert dos 5 slugs comerciais abaixo.
+// Nunca cria/edita nenhum Tenant, nem mexe em nome/descrição/preço/limites
+// do plano "Interno (Quark)" (slug "interno-quark") — só garante que ele
+// continue marcado interno=true/ativo=true (ver garantirPlanoInterno
+// abaixo), além de fazer upsert dos 5 slugs comerciais.
 //
 // TODO(Asaas): quando a integração de cobrança automática existir, ela vai
 // provavelmente precisar mapear cada plano daqui pra um plano/preço no
@@ -37,6 +39,8 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     permite_tours: true,
     permite_jornadas: false,
     permite_white_label: false,
+    ativo: true,
+    interno: false,
   },
   {
     slug: 'starter',
@@ -50,6 +54,8 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     permite_tours: true,
     permite_jornadas: false,
     permite_white_label: false,
+    ativo: true,
+    interno: false,
   },
   {
     slug: 'growth',
@@ -63,6 +69,8 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     permite_tours: true,
     permite_jornadas: true,
     permite_white_label: false,
+    ativo: true,
+    interno: false,
   },
   {
     slug: 'scale',
@@ -76,6 +84,8 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     permite_tours: true,
     permite_jornadas: true,
     permite_white_label: true,
+    ativo: true,
+    interno: false,
   },
   {
     slug: 'enterprise',
@@ -93,8 +103,36 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     permite_tours: true,
     permite_jornadas: true,
     permite_white_label: true,
+    ativo: true,
+    interno: false,
   },
 ]
+
+// O plano "Interno (Quark)" já existe desde a migration
+// 20260801120000_add_saas_multi_tenant (seed via SQL, id fixo) — nunca faz
+// parte de PLANOS_PADRAO acima (não é um plano comercial). Esta função só
+// garante interno=true/ativo=true nele, de forma idempotente; nunca mexe em
+// nome/descrição/preço/limites (o `update` do upsert só toca os campos
+// listados, os demais ficam como já estavam). O `create` aqui é só uma rede
+// de segurança — na prática nunca roda, porque a migration já criou o
+// registro antes deste script existir.
+async function garantirPlanoInterno() {
+  const salvo = await prisma.plano.upsert({
+    where: { slug: 'interno-quark' },
+    update: { interno: true, ativo: true },
+    create: {
+      slug: 'interno-quark',
+      nome: 'Interno (Quark)',
+      descricao: 'Plano interno sem limites de uso, para a própria Quark.',
+      permite_tours: true,
+      permite_jornadas: true,
+      permite_white_label: true,
+      ativo: true,
+      interno: true,
+    },
+  })
+  console.log(`✓ Plano interno confirmado: "${salvo.nome}" (${salvo.slug}) — ativo=${salvo.ativo}, interno=${salvo.interno}`)
+}
 
 async function main() {
   for (const plano of PLANOS_PADRAO) {
@@ -105,6 +143,7 @@ async function main() {
     })
     console.log(`✓ Plano comercial: "${salvo.nome}" (${salvo.slug}) — id: ${salvo.id}`)
   }
+  await garantirPlanoInterno()
 }
 
 main()

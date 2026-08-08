@@ -98,6 +98,12 @@ model Plano {
   permite_jornadas        Boolean  @default(true)
   permite_white_label     Boolean  @default(false)
   ativo                   Boolean  @default(true)
+  // Plano interno (hoje só "Interno (Quark)") — nunca oferecido a cliente
+  // comum no select de plano (ver Tenants.tsx) nem removível (ver
+  // remover() em adminPlanos.ts), independente do valor de `ativo`.
+  // Distinto de `ativo`: um plano comercial pode ficar inativo (oculto de
+  // novas vendas, mas ainda vinculável/editável) sem nunca virar interno.
+  interno                 Boolean  @default(false)
   criado_em               DateTime @default(now())
   atualizado_em           DateTime @updatedAt
 

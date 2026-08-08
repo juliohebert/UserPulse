@@ -2,6 +2,13 @@ import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 
+// Planos comerciais padrão do UserPulse (ver prisma/seedPlanos.ts) — nunca
+// removíveis, mesmo sem nenhum cliente vinculado (só editáveis/inativáveis,
+// ver remover() abaixo). Mantido em sincronia manual com PLANOS_OFICIAIS em
+// web/src/pages/admin/Planos.tsx — lá é só UX (esconder o botão Remover);
+// aqui é a fonte de verdade que de fato bloqueia a exclusão.
+const SLUGS_PLANOS_OFICIAIS = new Set(['teste-gratis', 'starter', 'growth', 'scale', 'enterprise'])
+
 interface PlanoBody {
   nome?: string
   slug?: string
@@ -15,6 +22,11 @@ interface PlanoBody {
   permite_jornadas?: boolean
   permite_white_label?: boolean
   ativo?: boolean
+  // Nunca exposto como checkbox no formulário de Planos.tsx (só o plano
+  // "Interno (Quark)" usa isso, gerido pelo seed) — mas precisa fazer
+  // round-trip aqui pra um PUT de edição normal (ex.: corrigir a descrição
+  // do plano interno) não resetar o flag pra false por omissão.
+  interno?: boolean
 }
 
 // Limite nulo = sem limite (mesmo raciocínio documentado no schema.prisma) —
@@ -66,6 +78,7 @@ function validarCamposPlano(body: PlanoBody): { ok: true; data: Prisma.PlanoUnch
       permite_jornadas: body.permite_jornadas !== false,
       permite_white_label: body.permite_white_label === true,
       ativo: body.ativo !== false,
+      interno: body.interno === true,
     },
   }
 }
@@ -118,5 +131,50 @@ export async function atualizar(req: Request, res: Response) {
     }
     console.error(err)
     res.status(500).json({ erro: 'Erro ao atualizar plano.' })
+  }
+}
+
+// Remoção de verdade (hard delete) — só quando é seguro: nunca o plano
+// interno (Interno (Quark) é permanente, independente de estar vinculado a
+// tenant ou não), nunca um dos 5 planos oficiais padrão (SLUGS_PLANOS_OFICIAIS
+// — existem pra sempre estarem disponíveis pra venda/teste grátis, mesmo que
+// hoje nenhum cliente use um deles ainda) e nunca um plano com pelo menos um
+// Tenant vinculado (evita derrubar tenant.plano_id sem querer — a FK é ON
+// DELETE SET NULL, então tecnicamente não quebraria nada no banco, mas
+// apagaria silenciosamente a informação comercial "qual plano esse cliente
+// contratou"). Pra todos esses casos, a UI orienta inativar em vez de
+// remover (ver Planos.tsx) — só plano customizado/de teste sem vínculo é
+// removível de verdade.
+export async function remover(req: Request, res: Response) {
+  try {
+    const id = req.params.id as string
+    const existente = await prisma.plano.findUnique({
+      where: { id },
+      include: { _count: { select: { tenants: true } } },
+    })
+    if (!existente) { res.status(404).json({ erro: 'Plano não encontrado.' }); return }
+
+    if (existente.interno) {
+      res.status(400).json({ erro: 'O plano interno não pode ser removido.' })
+      return
+    }
+    if (SLUGS_PLANOS_OFICIAIS.has(existente.slug)) {
+      res.status(400).json({
+        erro: 'Este é um plano padrão do UserPulse e não pode ser removido. Inative o plano se não quiser oferecê-lo.',
+      })
+      return
+    }
+    if (existente._count.tenants > 0) {
+      res.status(400).json({
+        erro: 'Este plano está vinculado a clientes e não pode ser removido. Inative o plano para ocultá-lo de novas vendas.',
+      })
+      return
+    }
+
+    await prisma.plano.delete({ where: { id } })
+    res.status(204).send()
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao remover plano.' })
   }
 }
