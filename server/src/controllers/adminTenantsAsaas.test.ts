@@ -25,6 +25,34 @@ describe('extrairDadosBilling — nunca loga nada (dado sensível: billing_cpf_c
     assert.equal(dados.billing_telefone, null)
   })
 
+  test('billing_cpf_cnpj: normalização defensiva remove pontuação e letras, guarda só dígitos', () => {
+    assert.equal(extrairDadosBilling({ billing_cpf_cnpj: '123.456.789-00' }).billing_cpf_cnpj, '12345678900')
+    assert.equal(extrairDadosBilling({ billing_cpf_cnpj: '12.345.678/0001-90' }).billing_cpf_cnpj, '12345678000190')
+    assert.equal(extrairDadosBilling({ billing_cpf_cnpj: 'abc123def456' }).billing_cpf_cnpj, '123456')
+  })
+
+  test('billing_telefone: normalização defensiva remove pontuação, guarda só dígitos', () => {
+    assert.equal(extrairDadosBilling({ billing_telefone: '(11) 98888-7777' }).billing_telefone, '11988887777')
+  })
+
+  test('billing_cep: normalização defensiva remove hífen, guarda só dígitos', () => {
+    assert.equal(extrairDadosBilling({ billing_cep: '01000-000' }).billing_cep, '01000000')
+  })
+
+  test('billing_estado: normalização defensiva vira maiúsculo, só letras, no máximo 2', () => {
+    assert.equal(extrairDadosBilling({ billing_estado: 'sp' }).billing_estado, 'SP')
+    assert.equal(extrairDadosBilling({ billing_estado: ' rj ' }).billing_estado, 'RJ')
+    assert.equal(extrairDadosBilling({ billing_estado: 'são paulo' }).billing_estado, 'SO')
+  })
+
+  test('billing_estado: só símbolos/números vira null (nada sobra depois de normalizar)', () => {
+    assert.equal(extrairDadosBilling({ billing_estado: '123' }).billing_estado, null)
+  })
+
+  test('billing_email: normalização defensiva faz trim e lowercase', () => {
+    assert.equal(extrairDadosBilling({ billing_email: '  Fulano@Exemplo.COM  ' }).billing_email, 'fulano@exemplo.com')
+  })
+
   test('não escreve em console.* — nenhuma chamada de log recebe o cpf_cnpj (ou qualquer outro valor)', () => {
     const chamadas: unknown[] = []
     const originais = { log: console.log, error: console.error, warn: console.warn, info: console.info }

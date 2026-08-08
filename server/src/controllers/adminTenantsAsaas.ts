@@ -63,6 +63,32 @@ const CAMPOS_BILLING = [
   'billing_cidade', 'billing_estado', 'billing_cep',
 ] as const
 
+function apenasDigitos(valor: string): string {
+  return valor.replace(/\D/g, '')
+}
+
+// Normalização defensiva por campo — espelha as máscaras do frontend (ver
+// web/src/utils/mascaras.ts), mas roda de novo aqui porque o frontend NUNCA
+// é a fonte de verdade: esta rota pode ser chamada direto (Postman, outro
+// cliente) sem passar pela máscara. cpf_cnpj/telefone/cep guardados só com
+// dígitos (formato que o Asaas espera, ver corpoClienteAsaas em
+// asaasClient.ts); estado sempre A-Z maiúsculo, no máximo 2 letras; e-mail
+// trim + minúsculas; os demais campos só trim.
+function normalizarValorBilling(campo: (typeof CAMPOS_BILLING)[number], valor: string): string {
+  switch (campo) {
+    case 'billing_cpf_cnpj':
+    case 'billing_telefone':
+    case 'billing_cep':
+      return apenasDigitos(valor)
+    case 'billing_estado':
+      return valor.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2)
+    case 'billing_email':
+      return valor.trim().toLowerCase()
+    default:
+      return valor.trim()
+  }
+}
+
 // Nunca loga o body inteiro nem campo a campo (billing_cpf_cnpj é dado
 // sensível, ver comentário no schema.prisma) — únicos console.error deste
 // arquivo logam só o objeto Error (mensagem/stack), nunca `req.body`. Pura
@@ -72,7 +98,8 @@ export function extrairDadosBilling(body: BillingBody): Prisma.TenantUpdateInput
   const dados: Prisma.TenantUpdateInput = {}
   for (const campo of CAMPOS_BILLING) {
     const valor = body[campo]
-    if (valor !== undefined) dados[campo] = valor?.trim() || null
+    if (valor === undefined) continue
+    dados[campo] = valor ? (normalizarValorBilling(campo, valor) || null) : null
   }
   return dados
 }
