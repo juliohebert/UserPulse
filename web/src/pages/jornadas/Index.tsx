@@ -130,17 +130,14 @@ export function JornadasIndex() {
     <div>
       <section className="px-4 lg:px-margin-desktop py-5">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div>
-            <nav className="flex text-label-md text-outline mb-1 gap-2">
-              <button onClick={() => navigate('/')} className="hover:text-primary transition-colors">UserPulse</button>
-              <span>/</span>
-              <span className="font-bold text-on-surface">Jornadas</span>
-            </nav>
-            <h2 className="text-headline-lg font-bold text-on-surface">Jornadas</h2>
+            <h2 className="text-title-lg font-bold text-on-surface">Jornadas</h2>
             {!loading && !error && (
               <p className="text-body-md text-on-surface-variant mt-0.5">
-                {jornadas.length} {jornadas.length === 1 ? 'jornada' : 'jornadas'} no total
+                {jornadas.length === 0
+                  ? 'Ainda não foram criadas jornadas.'
+                  : `${jornadas.length} ${jornadas.length === 1 ? 'jornada' : 'jornadas'} no total`}
               </p>
             )}
           </div>

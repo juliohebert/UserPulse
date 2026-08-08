@@ -140,12 +140,7 @@ export function CampanhaPreview() {
     <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
-          <nav className="flex gap-2 text-label-md text-outline mb-1">
-            <button onClick={() => navigate('/campanhas')} className="hover:text-primary transition-colors">Campanhas</button>
-            <span>/</span>
-            <span className="text-on-surface">Preview</span>
-          </nav>
-          <h2 className="text-headline-lg font-bold text-on-surface">{campanha.titulo}</h2>
+          <h2 className="text-title-lg font-bold text-on-surface">{campanha.titulo}</h2>
           <p className="text-body-md text-on-surface-variant mt-0.5">Modo teste: nenhum feedback será registrado.</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">

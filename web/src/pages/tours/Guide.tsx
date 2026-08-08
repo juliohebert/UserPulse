@@ -128,17 +128,13 @@ export function TourGuide() {
   return (
     <div className="relative">
       {/* Header */}
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
+      <div className="px-4 lg:px-margin-desktop py-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <nav className="flex gap-2 text-label-md text-outline mb-0.5">
-              <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">
-                Tours Guiados
-              </button>
-              <span>/</span>
-              <span className="text-on-surface">Guia</span>
-            </nav>
-            <h2 className="text-title-lg font-bold text-on-surface leading-tight">Guia de Tours Guiados</h2>
+            <h2 className="text-title-lg font-bold text-on-surface">Guia de Tours Guiados</h2>
+            <p className="text-body-md text-on-surface-variant mt-0.5">
+              Aprenda quando usar tours guiados, como configurar passos e como validar a experiência.
+            </p>
           </div>
           <button
             onClick={() => navigate('/tours/novo')}
@@ -150,7 +146,7 @@ export function TourGuide() {
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px] space-y-4">
         {/* A — O que é / quando usar */}
         <SectionCard
           icon="map"

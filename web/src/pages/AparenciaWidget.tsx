@@ -76,11 +76,11 @@ export function AparenciaWidgetPage() {
 
   return (
     <>
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
+      <div className="px-4 lg:px-margin-desktop py-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-headline-md font-bold text-on-surface leading-tight">Aparência do Widget</h2>
-            <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
+            <h2 className="text-title-lg font-bold text-on-surface">Aparência do Widget</h2>
+            <p className="text-body-md text-on-surface-variant mt-0.5">
               Personalize a cor principal e a logo/ícone exibidos no runtime de Tours, por sistema integrado.
             </p>
           </div>
@@ -95,7 +95,7 @@ export function AparenciaWidgetPage() {
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px] space-y-4">
         {erro && (
           <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]">error</span>

@@ -1155,20 +1155,13 @@ export function TourForm() {
   return (
     <div className="relative">
       {/* Page action bar */}
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
+      <div className="px-4 lg:px-margin-desktop py-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <nav className="flex gap-2 text-label-md text-outline mb-0.5">
-              <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">
-                Tours Guiados
-              </button>
-              <span>/</span>
-              <span className="text-on-surface">{isEdit ? 'Editar' : 'Criar Novo'}</span>
-            </nav>
-            <h2 className="text-headline-md font-bold text-on-surface leading-tight">
+            <h2 className="text-title-lg font-bold text-on-surface">
               {isEdit ? 'Editar Tour Guiado' : 'Novo Tour Guiado'}
             </h2>
-            <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
+            <p className="text-body-md text-on-surface-variant mt-0.5">
               {isEdit
                 ? 'Ajuste os passos e o destino deste tour guiado.'
                 : 'Monte um passo a passo para guiar usuários dentro do produto.'}
@@ -1211,7 +1204,7 @@ export function TourForm() {
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px]">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px]">
         {!isEdit && !form.ativo && (
           <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]">info</span>

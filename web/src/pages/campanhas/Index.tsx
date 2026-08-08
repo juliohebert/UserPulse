@@ -324,24 +324,16 @@ export function CampanhasIndex() {
   return (
     <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div className="flex items-start gap-3">
-          <span className="hidden sm:flex w-11 h-11 rounded-xl bg-primary/10 text-primary items-center justify-center shrink-0 mt-0.5">
-            <span className="material-symbols-outlined text-[22px]">campaign</span>
-          </span>
-          <div>
-            <nav className="flex text-label-md text-outline mb-1 gap-2">
-              <button onClick={() => navigate('/')} className="hover:text-primary transition-colors">UserPulse</button>
-              <span>/</span>
-              <span className="font-bold text-on-surface">Campanhas</span>
-            </nav>
-            <h2 className="text-headline-lg font-bold text-on-surface leading-tight">Biblioteca de Campanhas</h2>
-            {!loading && !error && (
-              <p className="text-body-md text-on-surface-variant mt-0.5">
-                {campanhas.length} {campanhas.length === 1 ? 'campanha' : 'campanhas'} no total
-              </p>
-            )}
-          </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <div>
+          <h2 className="text-title-lg font-bold text-on-surface">Biblioteca de Campanhas</h2>
+          {!loading && !error && (
+            <p className="text-body-md text-on-surface-variant mt-0.5">
+              {campanhas.length === 0
+                ? 'Ainda não foram criadas campanhas.'
+                : `${campanhas.length} ${campanhas.length === 1 ? 'campanha' : 'campanhas'} no total`}
+            </p>
+          )}
         </div>
         {podeEscrever && (
           <button

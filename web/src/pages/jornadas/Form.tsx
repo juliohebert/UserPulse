@@ -269,20 +269,13 @@ export function JornadaForm() {
   return (
     <div className="relative">
       {/* Page action bar */}
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
+      <div className="px-4 lg:px-margin-desktop py-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <nav className="flex gap-2 text-label-md text-outline mb-0.5">
-              <button onClick={() => navigate('/jornadas')} className="hover:text-primary transition-colors">
-                Jornadas
-              </button>
-              <span>/</span>
-              <span className="text-on-surface">{isEdit ? 'Editar' : 'Criar Nova'}</span>
-            </nav>
-            <h2 className="text-headline-md font-bold text-on-surface leading-tight">
+            <h2 className="text-title-lg font-bold text-on-surface">
               {isEdit ? 'Editar Jornada' : 'Nova Jornada'}
             </h2>
-            <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
+            <p className="text-body-md text-on-surface-variant mt-0.5">
               {isEdit
                 ? 'Ajuste os pacotes e o destino desta jornada de onboarding.'
                 : 'Monte uma central de onboarding guiada, organizada em pacotes de etapas.'}
@@ -308,7 +301,7 @@ export function JornadaForm() {
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1000px]">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1000px]">
         {successMsg && (
           <div className="mb-5 p-4 bg-tertiary/10 rounded-xl">
             <p className="text-body-md text-tertiary font-semibold flex items-center gap-2 mb-3">

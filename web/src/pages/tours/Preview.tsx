@@ -65,12 +65,7 @@ export function TourPreview() {
     <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px]">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
-          <nav className="flex gap-2 text-label-md text-outline mb-1">
-            <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">Tours Guiados</button>
-            <span>/</span>
-            <span className="text-on-surface">Testar</span>
-          </nav>
-          <h2 className="text-headline-lg font-bold text-on-surface">{tour.titulo}</h2>
+          <h2 className="text-title-lg font-bold text-on-surface">{tour.titulo}</h2>
           <p className="text-body-md text-on-surface-variant mt-0.5">
             O teste acontece no ambiente embed (host real ou test-embed.html) — nenhum evento é registrado a partir desta página.
           </p>

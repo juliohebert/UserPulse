@@ -227,22 +227,17 @@ export function IntegracaoPage() {
     <div className="relative">
 
       {/* ── Header ── */}
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
-        <div className="flex items-center gap-3">
-          <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">
-            integration_instructions
-          </span>
-          <div>
-            <h2 className="text-title-lg font-bold text-on-surface leading-tight">Integração</h2>
-            <p className="text-label-md text-on-surface-variant">
-              Guia de integração do UserPulse com sistemas externos
-            </p>
-          </div>
+      <div className="px-4 lg:px-margin-desktop py-5">
+        <div>
+          <h2 className="text-title-lg font-bold text-on-surface">Integração</h2>
+          <p className="text-body-md text-on-surface-variant mt-0.5">
+            Guia de integração do UserPulse com sistemas externos
+          </p>
         </div>
       </div>
 
       {/* ── Content ── */}
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px] space-y-4">
 
         {/* A — Instalação */}
         <SectionCard
