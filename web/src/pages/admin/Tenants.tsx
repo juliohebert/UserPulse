@@ -6,6 +6,10 @@ import { Select } from '../../components/ui/Select'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
 import { gerarSlug, formatDate, formatDateTime, toInputDate } from '../../utils/campanha'
+import {
+  formatarCpfCnpj, formatarTelefone, formatarCep, formatarEstado,
+  normalizarCpfCnpj, normalizarTelefone, normalizarCep, normalizarEmail, emailValido,
+} from '../../utils/mascaras'
 
 const STATUS_OPCOES: { value: TenantStatus; label: string }[] = [
   { value: 'TRIAL', label: 'Teste grátis' },
@@ -140,6 +144,25 @@ const EMPTY_BILLING_FORM = {
   billing_cep: '',
 }
 
+type BillingForm = typeof EMPTY_BILLING_FORM
+type BillingErros = Partial<Record<keyof BillingForm, string>>
+
+// Validação pura (sem estado) dos "Dados de cobrança" — chamada a cada
+// render (formulário pequeno, sem custo perceptível) e só EXIBIDA depois de
+// uma tentativa de salvar (ver billingTentouSalvar), pra não mostrar erro
+// em campo vazio assim que o modal abre. Usada tanto pra desenhar as
+// mensagens quanto pra bloquear o submit (ver salvarBillingHandler).
+function validarBillingForm(form: BillingForm): BillingErros {
+  const erros: BillingErros = {}
+  if (!form.billing_nome_responsavel.trim()) erros.billing_nome_responsavel = 'Informe o nome do responsável.'
+  if (!form.billing_cpf_cnpj.trim()) erros.billing_cpf_cnpj = 'Informe o CPF/CNPJ.'
+  if (!form.billing_email.trim()) erros.billing_email = 'Informe o e-mail.'
+  else if (!emailValido(form.billing_email)) erros.billing_email = 'E-mail inválido.'
+  if (form.billing_endereco.trim() && !normalizarCep(form.billing_cep)) erros.billing_cep = 'Informe o CEP (endereço preenchido).'
+  if (form.billing_estado.trim() && form.billing_estado.trim().length !== 2) erros.billing_estado = 'Estado deve ter 2 letras (UF).'
+  return erros
+}
+
 const EMPTY_FORM = {
   nome: '',
   slug: '',
@@ -230,6 +253,11 @@ export function AdminTenantsIndex() {
   const [billingForm, setBillingForm] = useState(EMPTY_BILLING_FORM)
   const [salvandoBilling, setSalvandoBilling] = useState(false)
   const [billingSucesso, setBillingSucesso] = useState<string | null>(null)
+  // Erros só aparecem depois da primeira tentativa de salvar — evita
+  // "Informe o nome do responsável" já piscando assim que o modal abre com
+  // o formulário vazio.
+  const [billingTentouSalvar, setBillingTentouSalvar] = useState(false)
+  const billingErros = validarBillingForm(billingForm)
 
   // Histórico de eventos Asaas do tenant selecionado (Fase 2).
   const [asaasEventos, setAsaasEventos] = useState<AsaasEventoTenant[]>([])
@@ -554,18 +582,22 @@ export function AdminTenantsIndex() {
     get<AsaasVinculoTenant>(`/admin/tenants/${tenantId}/asaas`)
       .then(vinculo => {
         setAsaasVinculo(vinculo)
+        // Reaplica a máscara em cima do que veio salvo — funciona tanto pra
+        // dados já normalizados (só dígitos, ver Fase de normalização) quanto
+        // pra dados antigos eventualmente salvos com pontuação (as funções
+        // de máscara sempre extraem os dígitos primeiro, ver utils/mascaras.ts).
         setBillingForm({
           billing_nome_responsavel: vinculo.billing_nome_responsavel ?? '',
           billing_email: vinculo.billing_email ?? '',
-          billing_cpf_cnpj: vinculo.billing_cpf_cnpj ?? '',
-          billing_telefone: vinculo.billing_telefone ?? '',
+          billing_cpf_cnpj: formatarCpfCnpj(vinculo.billing_cpf_cnpj ?? ''),
+          billing_telefone: formatarTelefone(vinculo.billing_telefone ?? ''),
           billing_endereco: vinculo.billing_endereco ?? '',
           billing_numero: vinculo.billing_numero ?? '',
           billing_complemento: vinculo.billing_complemento ?? '',
           billing_bairro: vinculo.billing_bairro ?? '',
           billing_cidade: vinculo.billing_cidade ?? '',
-          billing_estado: vinculo.billing_estado ?? '',
-          billing_cep: vinculo.billing_cep ?? '',
+          billing_estado: formatarEstado(vinculo.billing_estado ?? ''),
+          billing_cep: formatarCep(vinculo.billing_cep ?? ''),
         })
       })
       .catch(e => setAsaasError(e instanceof Error ? e.message : 'Erro ao carregar vínculo Asaas.'))
@@ -586,6 +618,7 @@ export function AdminTenantsIndex() {
     setAsaasVinculo(null)
     setBillingForm(EMPTY_BILLING_FORM)
     setBillingSucesso(null)
+    setBillingTentouSalvar(false)
     setAsaasEventos([])
     setSyncMensagem(null)
     setAsaasError(null)
@@ -601,13 +634,33 @@ export function AdminTenantsIndex() {
   const salvarBillingHandler = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!asaasModalTenant) return
+    setBillingTentouSalvar(true)
+    // Impede o envio quando há erro de validação (campo obrigatório vazio,
+    // e-mail inválido, CEP faltando com endereço preenchido, etc.) — nunca
+    // um alert(), só os erros já visíveis abaixo de cada campo.
+    if (Object.keys(billingErros).length > 0) return
+
     setSalvandoBilling(true)
     setAsaasError(null)
     setBillingSucesso(null)
     try {
-      const payload = Object.fromEntries(
-        Object.entries(billingForm).map(([chave, valor]) => [chave, valor.trim() || null])
-      )
+      // Enviado sempre normalizado (só dígitos em cpf_cnpj/telefone/cep,
+      // e-mail em minúsculas) — a máscara é só apresentação em tela (ver
+      // utils/mascaras.ts); o backend também normaliza de forma defensiva
+      // (ver extrairDadosBilling em adminTenantsAsaas.ts).
+      const payload = {
+        billing_nome_responsavel: billingForm.billing_nome_responsavel.trim() || null,
+        billing_email: normalizarEmail(billingForm.billing_email) || null,
+        billing_cpf_cnpj: normalizarCpfCnpj(billingForm.billing_cpf_cnpj) || null,
+        billing_telefone: normalizarTelefone(billingForm.billing_telefone) || null,
+        billing_endereco: billingForm.billing_endereco.trim() || null,
+        billing_numero: billingForm.billing_numero.trim() || null,
+        billing_complemento: billingForm.billing_complemento.trim() || null,
+        billing_bairro: billingForm.billing_bairro.trim() || null,
+        billing_cidade: billingForm.billing_cidade.trim() || null,
+        billing_estado: billingForm.billing_estado.trim() || null,
+        billing_cep: normalizarCep(billingForm.billing_cep) || null,
+      }
       const resposta = await put<AtualizarCobrancaResposta>(`/admin/tenants/${asaasModalTenant.id}/asaas/billing`, payload)
       if (resposta.asaas_sync_erro) {
         setAsaasError(`Dados salvos, mas não foi possível sincronizar com o Asaas: ${resposta.asaas_sync_erro}`)
@@ -1266,39 +1319,51 @@ export function AdminTenantsIndex() {
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">Nome do responsável</label>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">Nome do responsável <span className="text-error">*</span></label>
                       <input
                         value={billingForm.billing_nome_responsavel}
                         onChange={e => setBillingForm(prev => ({ ...prev, billing_nome_responsavel: e.target.value }))}
                         placeholder={asaasModalTenant.nome}
                         className={field}
                       />
+                      {billingTentouSalvar && billingErros.billing_nome_responsavel && (
+                        <p className="text-[12px] text-error mt-1">{billingErros.billing_nome_responsavel}</p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">CPF/CNPJ <span className="text-error">*</span></label>
                       <input
                         value={billingForm.billing_cpf_cnpj}
-                        onChange={e => setBillingForm(prev => ({ ...prev, billing_cpf_cnpj: e.target.value }))}
-                        placeholder="Somente números"
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_cpf_cnpj: formatarCpfCnpj(e.target.value) }))}
+                        placeholder="000.000.000-00"
+                        inputMode="numeric"
                         className={field}
                       />
+                      {billingTentouSalvar && billingErros.billing_cpf_cnpj && (
+                        <p className="text-[12px] text-error mt-1">{billingErros.billing_cpf_cnpj}</p>
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail</label>
+                      <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail <span className="text-error">*</span></label>
                       <input
                         type="email"
                         value={billingForm.billing_email}
                         onChange={e => setBillingForm(prev => ({ ...prev, billing_email: e.target.value }))}
                         className={field}
                       />
+                      {billingTentouSalvar && billingErros.billing_email && (
+                        <p className="text-[12px] text-error mt-1">{billingErros.billing_email}</p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-label-md text-on-surface-variant mb-1.5">Telefone</label>
                       <input
                         value={billingForm.billing_telefone}
-                        onChange={e => setBillingForm(prev => ({ ...prev, billing_telefone: e.target.value }))}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_telefone: formatarTelefone(e.target.value) }))}
+                        placeholder="(00) 00000-0000"
+                        inputMode="numeric"
                         className={field}
                       />
                     </div>
@@ -1342,9 +1407,14 @@ export function AdminTenantsIndex() {
                       <label className="block text-label-md text-on-surface-variant mb-1.5">CEP</label>
                       <input
                         value={billingForm.billing_cep}
-                        onChange={e => setBillingForm(prev => ({ ...prev, billing_cep: e.target.value }))}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_cep: formatarCep(e.target.value) }))}
+                        placeholder="00000-000"
+                        inputMode="numeric"
                         className={field}
                       />
+                      {billingTentouSalvar && billingErros.billing_cep && (
+                        <p className="text-[12px] text-error mt-1">{billingErros.billing_cep}</p>
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1360,11 +1430,14 @@ export function AdminTenantsIndex() {
                       <label className="block text-label-md text-on-surface-variant mb-1.5">Estado</label>
                       <input
                         value={billingForm.billing_estado}
-                        onChange={e => setBillingForm(prev => ({ ...prev, billing_estado: e.target.value }))}
+                        onChange={e => setBillingForm(prev => ({ ...prev, billing_estado: formatarEstado(e.target.value) }))}
                         placeholder="UF"
                         maxLength={2}
                         className={field}
                       />
+                      {billingTentouSalvar && billingErros.billing_estado && (
+                        <p className="text-[12px] text-error mt-1">{billingErros.billing_estado}</p>
+                      )}
                     </div>
                   </div>
                   <div className="flex justify-end">
