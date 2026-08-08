@@ -3,6 +3,7 @@ import { get, post, put } from '../../services/api'
 import type { AdminDoTenant, AdminRole, AsaasEventoTenant, AsaasVinculoTenant, AtualizarCobrancaResposta, PlanoAdmin, TenantAdminItem, TenantStatus } from '../../types'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
+import { Button } from '../../components/ui/Button'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
 import { gerarSlug, formatDate, formatDateTime, toInputDate } from '../../utils/campanha'
@@ -719,13 +720,13 @@ export function AdminTenantsIndex() {
             Clientes do UserPulse — venda, teste grátis e liberação de acesso.
           </p>
         </div>
-        <button
+        <Button
           onClick={abrirNovo}
-          className="shrink-0 flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-sm hover:opacity-90 transition-all active:scale-95"
+          className="shrink-0"
+          iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
         >
-          <span className="material-symbols-outlined text-[18px]">add</span>
           Novo Cliente
-        </button>
+        </Button>
       </div>
 
       {/* Filtros — tudo client-side em cima da lista já carregada (painel
@@ -1020,12 +1021,12 @@ export function AdminTenantsIndex() {
               </div>
 
               <div className="shrink-0 flex justify-end gap-2 px-5 py-4 border-t border-outline-variant">
-                <button type="button" onClick={fecharForm} className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors">
+                <Button type="button" onClick={fecharForm} variant="ghost">
                   Cancelar
-                </button>
-                <button type="submit" disabled={saving} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60">
+                </Button>
+                <Button type="submit" disabled={saving} size="md">
                   {saving ? 'Salvando…' : editando ? 'Salvar' : 'Criar'}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -1050,13 +1051,12 @@ export function AdminTenantsIndex() {
               {acessosError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{acessosError}</div>}
 
               {!mostrarFormAcesso && (
-                <button
+                <Button
                   onClick={abrirNovoAcesso}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95"
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
                 >
-                  <span className="material-symbols-outlined text-[18px]">add</span>
                   Novo acesso
-                </button>
+                </Button>
               )}
 
               {mostrarFormAcesso && (
@@ -1128,12 +1128,12 @@ export function AdminTenantsIndex() {
                   )}
 
                   <div className="flex justify-end gap-2 pt-1">
-                    <button type="button" onClick={fecharFormAcesso} className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors">
+                    <Button type="button" onClick={fecharFormAcesso} variant="ghost">
                       Cancelar
-                    </button>
-                    <button type="submit" disabled={salvandoAcesso} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60">
+                    </Button>
+                    <Button type="submit" disabled={salvandoAcesso} size="md">
                       {salvandoAcesso ? 'Salvando…' : editandoAcesso ? 'Salvar' : 'Criar acesso'}
-                    </button>
+                    </Button>
                   </div>
                 </form>
               )}
@@ -1368,9 +1368,9 @@ export function AdminTenantsIndex() {
                     </div>
                   </div>
                   <div className="flex justify-end">
-                    <button type="submit" disabled={salvandoBilling} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60">
+                    <Button type="submit" disabled={salvandoBilling} size="md">
                       {salvandoBilling ? 'Salvando…' : 'Salvar dados de cobrança'}
-                    </button>
+                    </Button>
                   </div>
                 </form>
               )}
@@ -1382,13 +1382,13 @@ export function AdminTenantsIndex() {
                     Usa os dados de cobrança salvos acima (nome e CPF/CNPJ são obrigatórios).
                   </p>
                   <div className="flex justify-end">
-                    <button
+                    <Button
                       onClick={criarClienteAsaasHandler}
                       disabled={criandoClienteAsaas || !billingForm.billing_cpf_cnpj.trim()}
-                      className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+                      size="md"
                     >
                       {criandoClienteAsaas ? 'Criando…' : 'Criar cliente Asaas'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1400,13 +1400,13 @@ export function AdminTenantsIndex() {
                     Usa o plano e o valor de assinatura configurados em Gestão SaaS &gt; Planos.
                   </p>
                   <div className="flex justify-end">
-                    <button
+                    <Button
                       onClick={criarAssinaturaAsaasHandler}
                       disabled={criandoAssinaturaAsaas}
-                      className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+                      size="md"
                     >
                       {criandoAssinaturaAsaas ? 'Criando…' : 'Criar assinatura Asaas'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1463,9 +1463,9 @@ export function AdminTenantsIndex() {
               <div className="px-5 py-4 space-y-4">
                 <p className="text-body-md text-on-surface bg-tertiary/10 text-tertiary rounded-xl px-3 py-2">{resetSucesso}</p>
                 <div className="flex justify-end">
-                  <button onClick={fecharResetSenha} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95">
+                  <Button onClick={fecharResetSenha} size="md">
                     Fechar
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : (
@@ -1487,12 +1487,12 @@ export function AdminTenantsIndex() {
                   A senha temporária deve ser enviada manualmente ao cliente. O usuário será obrigado a trocar a senha no primeiro acesso.
                 </p>
                 <div className="flex justify-end gap-2 pt-1">
-                  <button type="button" onClick={fecharResetSenha} className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors">
+                  <Button type="button" onClick={fecharResetSenha} variant="ghost">
                     Cancelar
-                  </button>
-                  <button type="submit" disabled={resetSaving} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60">
+                  </Button>
+                  <Button type="submit" disabled={resetSaving} size="md">
                     {resetSaving ? 'Salvando…' : 'Redefinir senha'}
-                  </button>
+                  </Button>
                 </div>
               </form>
             )}

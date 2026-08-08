@@ -6,6 +6,7 @@ import { formatDateTime } from '../../utils/campanha'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
 
@@ -143,13 +144,13 @@ export function JornadasIndex() {
           </div>
           {podeEscrever && (
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
-              <button
+              <Button
                 onClick={() => navigate('/jornadas/novo')}
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 w-full sm:w-auto"
+                fullWidthMobile
+                iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
               >
-                <span className="material-symbols-outlined text-[18px]">add</span>
                 Nova Jornada
-              </button>
+              </Button>
             </div>
           )}
         </div>

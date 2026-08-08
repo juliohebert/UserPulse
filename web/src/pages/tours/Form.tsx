@@ -5,6 +5,7 @@ import type { TourGuiado, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSe
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
+import { Button } from '../../components/ui/Button'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
 import { buildGravadorUrl, buildPreviewUrl, comandoTestarSeletor, type GravadorUrlResultado, type PreviewUrlResultado } from '../../utils/tour'
 
@@ -1176,30 +1177,30 @@ export function TourForm() {
             </button>
           </div>
           <div className="flex gap-2 shrink-0">
-            <button
+            <Button
               type="button"
               onClick={() => navigate('/tours')}
-              className="px-4 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-all"
+              variant="ghost"
             >
               Cancelar
-            </button>
+            </Button>
             {isEdit && (
-              <button
+              <Button
                 type="button"
                 onClick={() => navigate(`/tours/${id}/preview`)}
-                className="px-4 py-2 border border-primary text-primary rounded-xl text-label-md font-bold hover:bg-primary-fixed transition-all"
+                variant="ghost"
               >
                 Testar tour
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               form="tour-form"
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+              size="md"
             >
               {submitting ? 'Salvando…' : isEdit ? 'Salvar' : 'Publicar'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -6,6 +6,7 @@ import { getStatus, formatDate } from '../utils/campanha'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { TypeBadge } from '../components/ui/TypeBadge'
 import { LoadingSpinner, ErrorState } from '../components/ui/EmptyState'
+import { Button } from '../components/ui/Button'
 import { useAuth } from '../hooks/useAuth'
 import { podeEscreverConteudo, podeEscreverConfiguracao } from '../utils/permissions'
 
@@ -122,29 +123,31 @@ function OnboardingState({ navigate, podeEscrever }: { navigate: (path: string) 
       <div className="flex flex-wrap justify-center gap-3">
         {podeEscrever && (
           <>
-            <button
+            <Button
               onClick={() => navigate('/campanhas/nova')}
-              className="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95"
+              size="md"
+              iconLeft={<span className="material-symbols-outlined text-[18px]">add_circle</span>}
             >
-              <span className="material-symbols-outlined text-[18px]">add_circle</span>
               Criar campanha
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => navigate('/tours/novo')}
-              className="flex items-center gap-2 px-5 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-colors"
+              variant="ghost"
+              size="md"
+              iconLeft={<span className="material-symbols-outlined text-[18px]">map</span>}
             >
-              <span className="material-symbols-outlined text-[18px]">map</span>
               Criar tour guiado
-            </button>
+            </Button>
           </>
         )}
-        <button
+        <Button
           onClick={() => navigate('/integracao')}
-          className="flex items-center gap-2 px-5 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-colors"
+          variant="ghost"
+          size="md"
+          iconLeft={<span className="material-symbols-outlined text-[18px]">integration_instructions</span>}
         >
-          <span className="material-symbols-outlined text-[18px]">integration_instructions</span>
           Ver integração
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -335,20 +338,22 @@ export function Dashboard() {
           </div>
           {podeEscrever && (
             <div className="flex flex-wrap gap-3 shrink-0">
-              <button
+              <Button
                 onClick={() => navigate('/campanhas/nova')}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white text-primary rounded-xl text-label-md font-bold shadow-md hover:scale-[1.03] active:scale-95 transition-transform duration-200 ease-out"
+                size="md"
+                className="!bg-white !text-primary shadow-md hover:opacity-95"
+                iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
               >
-                <span className="material-symbols-outlined text-[18px]">add</span>
                 Nova campanha
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={() => navigate('/tours/gravador')}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white text-error rounded-xl text-label-md font-bold shadow-md hover:scale-[1.03] active:scale-95 transition-transform duration-200 ease-out"
+                size="md"
+                className="!bg-white !text-error shadow-md hover:opacity-95"
+                iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
               >
-                <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
                 Gravar fluxo
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -574,13 +579,15 @@ export function Dashboard() {
                     )}
 
                     {podeEscrever && (
-                      <button
+                      <Button
                         onClick={() => navigate('/tours/gravador')}
-                        className="w-full mt-3 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface-variant hover:bg-surface-container-low transition-colors flex items-center justify-center gap-1.5"
+                        variant="ghost"
+                        size="md"
+                        className="w-full mt-3"
+                        iconLeft={<span className="material-symbols-outlined text-[16px]">radio_button_checked</span>}
                       >
-                        <span className="material-symbols-outlined text-[16px]">radio_button_checked</span>
                         Gravar novo fluxo
-                      </button>
+                      </Button>
                     )}
                   </div>
 
@@ -619,12 +626,14 @@ export function Dashboard() {
                         ))}
                       </div>
                     )}
-                    <button
+                    <Button
                       onClick={() => navigate('/campanhas')}
-                      className="w-full mt-2 py-2.5 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface-variant hover:bg-surface-container-low transition-colors"
+                      variant="ghost"
+                      size="md"
+                      className="w-full mt-2"
                     >
                       Ver todas as campanhas
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>

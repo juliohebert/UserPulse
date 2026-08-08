@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Button } from '../../components/ui/Button'
 
 const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 
@@ -136,13 +137,14 @@ export function TourGuide() {
               Aprenda quando usar tours guiados, como configurar passos e como validar a experiência.
             </p>
           </div>
-          <button
+          <Button
             onClick={() => navigate('/tours/novo')}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 shrink-0 w-full sm:w-auto"
+            className="shrink-0"
+            fullWidthMobile
+            iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
           >
-            <span className="material-symbols-outlined text-[18px]">add</span>
             Criar Tour Guiado
-          </button>
+          </Button>
         </div>
       </div>
 

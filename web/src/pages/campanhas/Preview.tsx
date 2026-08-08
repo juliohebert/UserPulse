@@ -4,6 +4,7 @@ import { get, post } from '../../services/api'
 import type { Campanha, Criterio, ResultadoElegibilidade } from '../../types'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { gerarEmbed, gerarEmbedParts } from '../../utils/campanha'
 import { useAuth } from '../../hooks/useAuth'
 
@@ -144,20 +145,19 @@ export function CampanhaPreview() {
           <p className="text-body-md text-on-surface-variant mt-0.5">Modo teste: nenhum feedback será registrado.</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
-          <button
+          <Button
             type="button"
             onClick={resetSimulation}
-            className="px-4 py-2 border border-primary text-primary rounded-xl text-label-md font-bold hover:bg-primary-fixed transition-all"
+            variant="ghost"
           >
             Testar exibição
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => navigate(`/campanhas/${campanha.id}/editar`)}
-            className="px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all"
           >
             Editar
-          </button>
+          </Button>
         </div>
       </div>
 

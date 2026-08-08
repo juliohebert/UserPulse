@@ -7,6 +7,7 @@ import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { Stepper } from '../../components/ui/Stepper'
+import { Button } from '../../components/ui/Button'
 import { TEMPLATES } from '../../utils/templates'
 import { DestinoCampanha } from '../../components/campanhas/DestinoCampanha'
 
@@ -493,22 +494,23 @@ export function CampanhaForm() {
             </div>
             <div className="flex gap-2 shrink-0">
               {id && (
-                <button
+                <Button
                   type="button"
                   onClick={() => navigate(`/campanhas/${id}/preview`)}
-                  className="hidden sm:flex items-center gap-1.5 px-4 py-2 border border-primary text-primary rounded-xl text-label-md font-bold hover:bg-primary-fixed transition-all"
+                  variant="ghost"
+                  className="hidden sm:inline-flex"
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">visibility</span>}
                 >
-                  <span className="material-symbols-outlined text-[18px]">visibility</span>
                   Preview
-                </button>
+                </Button>
               )}
-              <button
+              <Button
                 type="button"
                 onClick={() => navigate('/campanhas')}
-                className="px-4 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-all"
+                variant="ghost"
               >
                 Cancelar
-              </button>
+              </Button>
             </div>
           </div>
         </div>

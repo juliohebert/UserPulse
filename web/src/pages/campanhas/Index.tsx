@@ -9,6 +9,7 @@ import { TypeBadge } from '../../components/ui/TypeBadge'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { CampanhaQuickView } from './CampanhaQuickView'
 
 const PER_PAGE = 10
@@ -336,13 +337,14 @@ export function CampanhasIndex() {
           )}
         </div>
         {podeEscrever && (
-          <button
+          <Button
             onClick={() => navigate('/campanhas/nova')}
-            className="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 hover:opacity-95 transition-all active:scale-95 shrink-0"
+            size="md"
+            className="shrink-0"
+            iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
           >
-            <span className="material-symbols-outlined text-[18px]">add</span>
             Nova Campanha
-          </button>
+          </Button>
         )}
       </div>
 

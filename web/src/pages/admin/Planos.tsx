@@ -4,6 +4,7 @@ import type { PlanoAdmin } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Select } from '../../components/ui/Select'
+import { Button } from '../../components/ui/Button'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
 import { gerarSlug } from '../../utils/campanha'
@@ -281,13 +282,13 @@ export function AdminPlanosIndex() {
           <h2 className="text-title-lg font-bold text-on-surface">Planos</h2>
           <p className="text-body-md text-on-surface-variant mt-0.5">Planos comerciais disponíveis para vincular a um cliente.</p>
         </div>
-        <button
+        <Button
           onClick={abrirNovo}
-          className="shrink-0 flex items-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-sm hover:opacity-90 transition-all active:scale-95"
+          className="shrink-0"
+          iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
         >
-          <span className="material-symbols-outlined text-[18px]">add</span>
           Novo Plano
-        </button>
+        </Button>
       </div>
 
       {/* Filtro — client-side sobre a lista já carregada, mesmo padrão dos
@@ -522,12 +523,12 @@ export function AdminPlanosIndex() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={fecharForm} className="px-4 py-2 rounded-xl border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-low transition-colors">
+                <Button type="button" onClick={fecharForm} variant="ghost">
                   Cancelar
-                </button>
-                <button type="submit" disabled={saving} className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold hover:opacity-90 transition-all active:scale-95 disabled:opacity-60">
+                </Button>
+                <Button type="submit" disabled={saving} size="md">
                   {saving ? 'Salvando…' : editando ? 'Salvar' : 'Criar'}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

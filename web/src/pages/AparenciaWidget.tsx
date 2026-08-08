@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { get, put } from '../services/api'
 import type { AparenciaWidget } from '../types'
 import { CardHeader } from '../components/ui/CardHeader'
+import { Button } from '../components/ui/Button'
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
@@ -84,14 +85,15 @@ export function AparenciaWidgetPage() {
               Personalize a cor principal e a logo/ícone exibidos no runtime de Tours, por sistema integrado.
             </p>
           </div>
-          <button
+          <Button
             type="button"
             onClick={salvar}
             disabled={salvando || !carregado}
-            className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-60 shrink-0"
+            size="md"
+            className="shrink-0"
           >
             {salvando ? 'Salvando…' : 'Salvar'}
-          </button>
+          </Button>
         </div>
       </div>
 

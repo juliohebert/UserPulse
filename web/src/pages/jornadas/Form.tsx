@@ -6,6 +6,7 @@ import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { Select } from '../../components/ui/Select'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
+import { Button } from '../../components/ui/Button'
 
 interface FormState {
   titulo: string
@@ -282,21 +283,21 @@ export function JornadaForm() {
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
-            <button
+            <Button
               type="button"
               onClick={() => navigate('/jornadas')}
-              className="px-4 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-all"
+              variant="ghost"
             >
               Cancelar
-            </button>
-            <button
+            </Button>
+            <Button
               form="jornada-form"
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+              size="md"
             >
               {submitting ? 'Salvando…' : isEdit ? 'Salvar' : 'Publicar'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -427,14 +428,14 @@ export function JornadaForm() {
               title="Pacotes da jornada"
               description="Agrupe as etapas em pacotes — o usuário navega pacote por pacote."
               action={
-                <button
+                <Button
                   type="button"
                   onClick={addBloco}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-on-primary rounded-lg text-label-sm font-bold hover:opacity-90 transition-all active:scale-95"
+                  size="sm"
+                  iconLeft={<span className="material-symbols-outlined text-[16px]">add</span>}
                 >
-                  <span className="material-symbols-outlined text-[16px]">add</span>
                   Adicionar pacote
-                </button>
+                </Button>
               }
             />
 
@@ -444,13 +445,12 @@ export function JornadaForm() {
                 <p className="text-body-md text-on-surface-variant max-w-sm">
                   Nenhum pacote adicionado ainda. Cada pacote agrupa um conjunto de etapas (tour, campanha ou link).
                 </p>
-                <button
+                <Button
                   type="button"
                   onClick={addBloco}
-                  className="px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold"
                 >
                   Adicionar pacote
-                </button>
+                </Button>
               </div>
             ) : (
               <div className="space-y-4">

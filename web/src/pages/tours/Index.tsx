@@ -7,6 +7,7 @@ import { downloadJson } from '../../utils/tour'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
@@ -248,38 +249,41 @@ export function ToursIndex() {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
-            <button
+            <Button
+              variant="ghost"
               onClick={() => navigate('/tours/guia')}
-              className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+              fullWidthMobile
+              iconLeft={<span className="material-symbols-outlined text-[18px]">menu_book</span>}
             >
-              <span className="material-symbols-outlined text-[18px]">menu_book</span>
               Guia de Uso
-            </button>
+            </Button>
             {podeExcluirOuImportar && (
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => { setImportarViaGravador(false); setModalImportarAberto(true) }}
-                className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+                fullWidthMobile
+                iconLeft={<span className="material-symbols-outlined text-[18px]">upload_file</span>}
               >
-                <span className="material-symbols-outlined text-[18px]">upload_file</span>
                 Importar JSON
-              </button>
+              </Button>
             )}
             {podeEscrever && (
               <>
-                <button
+                <Button
+                  variant="ghost"
                   onClick={() => navigate('/tours/gravador')}
-                  className="flex items-center justify-center gap-1.5 px-4 py-2 border border-outline-variant text-on-surface-variant rounded-xl text-label-md font-bold hover:bg-surface-container-low transition-all w-full sm:w-auto"
+                  fullWidthMobile
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
                 >
-                  <span className="material-symbols-outlined text-[18px]">radio_button_checked</span>
                   Gravar fluxo
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={() => navigate('/tours/novo')}
-                  className="flex items-center justify-center gap-2 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-opacity active:scale-95 w-full sm:w-auto"
+                  fullWidthMobile
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
                 >
-                  <span className="material-symbols-outlined text-[18px]">add</span>
                   Novo Tour Guiado
-                </button>
+                </Button>
               </>
             )}
           </div>
