@@ -76,7 +76,7 @@ export function Sidebar({ collapsed, onToggle }: Props) {
           </div>
           <div className={`overflow-hidden ${collapsed ? 'hidden' : 'hidden md:block'}`}>
             <h1 className="text-headline-md font-bold text-primary leading-tight whitespace-nowrap">UserPulse</h1>
-            <p className="text-label-md text-outline whitespace-nowrap">Feedback Engine</p>
+            <p className="text-body-md font-medium text-on-surface-variant whitespace-nowrap truncate max-w-[150px]" title={user?.tenant.nome}>{user?.tenant.nome ?? 'UserPulse'}</p>
           </div>
         </div>
         <button

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import type { AdminUser } from '../../types'
+import type { Campanha, Jornada, TourGuiadoListaPaginada } from '../../types'
 import { podeEscreverConteudo } from '../../utils/permissions'
+import { get } from '../../services/api'
 
 interface Props {
   collapsed: boolean
@@ -14,6 +15,17 @@ const opcoesNovo = [
   { label: 'Tour', description: 'Criar um passo a passo dentro do produto.', icon: 'map', to: '/tours/novo' },
 ]
 
+type ResultadoBusca = {
+  id: string
+  tipo: 'campanha' | 'tour' | 'jornada'
+  titulo: string
+  subtitulo: string
+  icon: string
+  to: string
+}
+
+const BUSCA_DEBOUNCE_MS = 250
+
 // Iniciais pro avatar (fallback "UP" se, por algum motivo, o nome vier vazio
 // — nunca deveria acontecer, mas evita um avatar em branco).
 function iniciais(nome: string): string {
@@ -23,40 +35,17 @@ function iniciais(nome: string): string {
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase()
 }
 
-// Aviso simples de estado da conta (ver contexto SaaS multi-tenant) — nada de
-// tela de billing/checkout ainda, só sinalizar quando a conta não está 100%
-// operacional. Baseado em situacao_comercial (calculada no backend, ver
-// obterSituacaoComercialTenant em server/src/lib/tenantGuards.ts) em vez de
-// só `status` — trial_ativo/licenca_ativa não mostram nada (estado normal,
-// sem ruído visual); o aviso mais completo de "vence em X dias"/vencido fica
-// a cargo do banner (ver AvisoComercial.tsx), este badge é só um resumo
-// compacto sempre visível no topo.
-function badgeStatusTenant(tenant: AdminUser['tenant']): { label: string; className: string } | null {
-  switch (tenant.situacao_comercial) {
-    case 'trial_ativo': {
-      const dias = tenant.trial_fim ? Math.max(0, Math.ceil((new Date(tenant.trial_fim).getTime() - Date.now()) / 86400000)) : null
-      return { label: dias != null ? `Teste grátis · ${dias}d` : 'Teste grátis', className: 'bg-primary/10 text-primary' }
-    }
-    case 'trial_vencido':
-      return { label: 'Teste expirado', className: 'bg-error-container text-error' }
-    case 'licenca_vencida':
-      return { label: 'Licença vencida', className: 'bg-error-container text-error' }
-    case 'suspenso':
-      return { label: 'Conta suspensa', className: 'bg-error-container text-error' }
-    case 'cancelado':
-      return { label: 'Conta cancelada', className: 'bg-outline-variant/30 text-outline' }
-    default:
-      return null // licenca_ativa
-  }
-}
-
 export function Topbar({ collapsed }: Props) {
   const [search, setSearch] = useState('')
   const [novoAberto, setNovoAberto] = useState(false)
+  const [buscaAberta, setBuscaAberta] = useState(false)
+  const [buscaLoading, setBuscaLoading] = useState(false)
+  const [resultadosBusca, setResultadosBusca] = useState<ResultadoBusca[]>([])
   const novoRef = useRef<HTMLDivElement>(null)
+  const buscaRef = useRef<HTMLFormElement>(null)
   const navigate = useNavigate()
+  const location = useLocation()
   const { user } = useAuth()
-  const badge = user ? badgeStatusTenant(user.tenant) : null
   const podeCriarConteudo = podeEscreverConteudo(user?.role)
 
   useEffect(() => {
@@ -75,12 +64,109 @@ export function Topbar({ collapsed }: Props) {
     }
   }, [novoAberto])
 
+  useEffect(() => {
+    if (!buscaAberta) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (buscaRef.current && !buscaRef.current.contains(e.target as Node)) setBuscaAberta(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setBuscaAberta(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [buscaAberta])
+
+  useEffect(() => {
+    const termo = search.trim()
+    if (!termo) {
+      setResultadosBusca([])
+      setBuscaLoading(false)
+      return
+    }
+
+    let cancelado = false
+    setBuscaLoading(true)
+    const t = window.setTimeout(async () => {
+      try {
+        const [campanhas, tours, jornadas] = await Promise.all([
+          get<Campanha[]>('/campanhas'),
+          get<TourGuiadoListaPaginada>(`/tours?busca=${encodeURIComponent(termo)}&page=1&pageSize=5`),
+          get<Jornada[]>('/jornadas'),
+        ])
+        if (cancelado) return
+
+        const q = termo.toLowerCase()
+        const campanhasFiltradas = campanhas
+          .filter(c => [c.titulo, c.subtitulo ?? '', c.slug, c.sistema, c.tela, c.categoria ?? '', c.tipo]
+            .some(v => v.toLowerCase().includes(q)))
+          .slice(0, 5)
+          .map<ResultadoBusca>(c => ({
+            id: `campanha-${c.id}`,
+            tipo: 'campanha',
+            titulo: c.titulo,
+            subtitulo: `Campanha · ${c.sistema} · ${c.tela}`,
+            icon: 'campaign',
+            to: `/campanhas?busca=${encodeURIComponent(c.titulo)}`,
+          }))
+
+        const toursFiltrados = tours.items.slice(0, 5).map<ResultadoBusca>(t => ({
+          id: `tour-${t.id}`,
+          tipo: 'tour',
+          titulo: t.titulo,
+          subtitulo: `Tour · ${t.sistema} · ${t._count?.passos ?? 0} passo${(t._count?.passos ?? 0) === 1 ? '' : 's'}`,
+          icon: 'map',
+          to: `/tours?busca=${encodeURIComponent(t.titulo)}`,
+        }))
+
+        const jornadasFiltradas = jornadas
+          .filter(j => `${j.titulo} ${j.slug}`.toLowerCase().includes(q))
+          .slice(0, 5)
+          .map<ResultadoBusca>(j => ({
+            id: `jornada-${j.id}`,
+            tipo: 'jornada',
+            titulo: j.titulo,
+            subtitulo: `Jornada · ${j.slug}`,
+            icon: 'route',
+            to: `/jornadas?busca=${encodeURIComponent(j.titulo)}`,
+          }))
+
+        setResultadosBusca([...campanhasFiltradas, ...toursFiltrados, ...jornadasFiltradas].slice(0, 12))
+      } catch {
+        if (!cancelado) setResultadosBusca([])
+      } finally {
+        if (!cancelado) setBuscaLoading(false)
+      }
+    }, BUSCA_DEBOUNCE_MS)
+
+    return () => {
+      cancelado = true
+      window.clearTimeout(t)
+    }
+  }, [search])
+
+  const navegarBusca = (to: string) => {
+    setBuscaAberta(false)
+    setSearch('')
+    navigate(to)
+  }
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    if (search.trim()) {
-      navigate(`/campanhas?busca=${encodeURIComponent(search.trim())}`)
-      setSearch('')
-    }
+    const termo = search.trim()
+    if (!termo) return
+    const destino = location.pathname.startsWith('/tours')
+      ? '/tours'
+      : location.pathname.startsWith('/jornadas')
+      ? '/jornadas'
+      : location.pathname.startsWith('/campanhas')
+      ? '/campanhas'
+      : null
+    if (destino) navegarBusca(`${destino}?busca=${encodeURIComponent(termo)}`)
+    else setBuscaAberta(true)
   }
 
   const navegarParaCriacao = (to: string) => {
@@ -92,19 +178,53 @@ export function Topbar({ collapsed }: Props) {
     <header
       className={`fixed top-0 right-0 left-16 ${collapsed ? 'md:left-16' : 'md:left-[248px]'} h-16 bg-surface border-b border-outline-variant/30 flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200`}
     >
-      <form onSubmit={handleSearch} className="flex items-center flex-1 max-w-lg">
+      <form ref={buscaRef} onSubmit={handleSearch} className="relative flex items-center flex-1 max-w-lg">
         <div className="relative w-full">
           <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[20px]">
             search
           </span>
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setBuscaAberta(Boolean(e.target.value.trim())) }}
+            onFocus={() => setBuscaAberta(Boolean(search.trim()))}
             className="w-full pl-10 pr-3 py-2 bg-surface-container-low border-none rounded-xl focus:ring-2 focus:ring-primary text-body-md outline-none transition-all"
-            placeholder="Buscar campanhas..."
+            placeholder="Buscar campanhas, tours ou jornadas..."
             type="text"
           />
         </div>
+        {buscaAberta && search.trim() && (
+          <div className="absolute left-0 top-full z-50 mt-2 w-full overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface p-2 shadow-lg">
+            {buscaLoading && (
+              <div className="flex items-center gap-2 px-3 py-4 text-body-md text-on-surface-variant">
+                <span>Buscando</span>
+                <span className="flex items-center gap-1" aria-hidden="true">
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary animate-[search-dot_900ms_ease-in-out_infinite]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary animate-[search-dot_900ms_ease-in-out_150ms_infinite]" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary animate-[search-dot_900ms_ease-in-out_300ms_infinite]" />
+                </span>
+              </div>
+            )}
+            {!buscaLoading && resultadosBusca.length === 0 && (
+              <div className="px-3 py-4 text-body-md text-on-surface-variant">Nenhum resultado encontrado.</div>
+            )}
+            {!buscaLoading && resultadosBusca.map(resultado => (
+                <button
+                  key={resultado.id}
+                  type="button"
+                  onClick={() => navegarBusca(resultado.to)}
+                  className="flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-container-low"
+                >
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <span className="material-symbols-outlined text-[19px]">{resultado.icon}</span>
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-body-md font-bold text-on-surface">{resultado.titulo}</span>
+                    <span className="mt-0.5 block truncate text-label-md text-on-surface-variant">{resultado.subtitulo}</span>
+                  </span>
+                </button>
+              ))}
+          </div>
+        )}
       </form>
 
       <div className="flex items-center gap-1.5 sm:gap-2 ml-3 sm:ml-5">
@@ -117,8 +237,8 @@ export function Topbar({ collapsed }: Props) {
               aria-haspopup="menu"
               aria-expanded={novoAberto}
             >
-              <span>Novo</span>
               <span className={`material-symbols-outlined text-[18px] transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${novoAberto ? 'rotate-45 scale-110' : 'rotate-0 scale-100'}`}>add</span>
+              <span>Novo</span>
             </button>
             {novoAberto && (
               <div className="absolute right-0 z-50 mt-2 w-72 origin-top-right overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface p-2 shadow-lg animate-[novo-menu-in_240ms_cubic-bezier(0.16,1,0.3,1)]" role="menu">
@@ -151,17 +271,6 @@ export function Topbar({ collapsed }: Props) {
         <button type="button" title="Ajuda" aria-label="Ajuda" className="hidden sm:block p-2 rounded-full hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors">
           <span className="material-symbols-outlined">help_outline</span>
         </button>
-
-        {user && (
-          <div className="hidden lg:flex items-center gap-2">
-            <span className="text-label-md font-semibold text-on-surface-variant">{user.tenant.nome}</span>
-            {badge && (
-              <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${badge.className}`}>
-                {badge.label}
-              </span>
-            )}
-          </div>
-        )}
 
         <div className="hidden sm:block h-8 w-px bg-outline-variant mx-1" />
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { get, del, put } from '../../services/api'
 import type { Jornada } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
@@ -59,7 +59,8 @@ export function JornadasIndex() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
-  const [busca, setBusca] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [busca, setBusca] = useState(() => searchParams.get('busca') ?? '')
   const [filterAtivo, setFilterAtivo] = useState<'todos' | 'ativos' | 'inativos'>('todos')
   const [excluindoId, setExcluindoId] = useState<string | null>(null)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
@@ -75,6 +76,21 @@ export function JornadasIndex() {
   }
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    const buscaUrl = searchParams.get('busca') ?? ''
+    setBusca(prev => (prev === buscaUrl ? prev : buscaUrl))
+  }, [searchParams])
+
+  useEffect(() => {
+    const termo = busca.trim()
+    const atual = searchParams.get('busca') ?? ''
+    if (termo === atual) return
+    const next = new URLSearchParams(searchParams)
+    if (termo) next.set('busca', termo)
+    else next.delete('busca')
+    setSearchParams(next, { replace: true })
+  }, [busca, searchParams, setSearchParams])
 
   const q = busca.trim().toLowerCase()
   const filtered = jornadas.filter(j => {

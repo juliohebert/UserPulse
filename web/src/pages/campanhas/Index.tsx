@@ -201,6 +201,11 @@ export function CampanhasIndex() {
   const [filterBusca, setFilterBusca] = useState(() => searchParams.get('busca') ?? '')
 
   useEffect(() => {
+    const buscaUrl = searchParams.get('busca') ?? ''
+    setFilterBusca(prev => (prev === buscaUrl ? prev : buscaUrl))
+  }, [searchParams])
+
+  useEffect(() => {
     if (filterBusca.trim()) {
       setSearchParams({ busca: filterBusca.trim() }, { replace: true })
     } else {
