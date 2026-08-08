@@ -408,6 +408,9 @@ export interface PlanoResumo {
   permite_white_label: boolean
   limite_campanhas_ativas: number | null
   limite_tours_ativos: number | null
+  // Fase 6A (fundação do trial) — mesma convenção dos dois limites acima
+  // (null = sem limite), agora pra jornadas.
+  limite_jornadas_ativas: number | null
   limite_eventos_mes: number | null
   limite_usuarios_admin: number | null
 }
@@ -466,6 +469,10 @@ export interface PlanoAdmin {
   preco_mensal: string | null
   limite_campanhas_ativas: number | null
   limite_tours_ativos: number | null
+  // Fase 6A (fundação do trial) — mesma convenção de limite_campanhas_ativas/
+  // limite_tours_ativos (null = sem limite), agora pra jornadas (ver
+  // checarLimiteJornadasAtivas em server/src/lib/tenantGuards.ts).
+  limite_jornadas_ativas: number | null
   limite_eventos_mes: number | null
   limite_usuarios_admin: number | null
   permite_tours: boolean
@@ -476,6 +483,12 @@ export interface PlanoAdmin {
   // de plano do Cliente, nunca removível (ver server/src/controllers/
   // adminPlanos.ts, remover()).
   interno: boolean
+  // Fase 6A (fundação do trial) — marca o plano usado como fonte de limites/
+  // duração do cadastro self-service (ainda não implementado). Deve haver
+  // exatamente 1 plano com eh_plano_trial=true (ver resolverPlanoTrial em
+  // server/src/lib/tenantGuards.ts); trial_dias null usa o default de 14.
+  eh_plano_trial: boolean
+  trial_dias: number | null
   // Config da assinatura Asaas correspondente (fundação/sandbox, ver
   // server/src/services/asaasClient.ts). asaas_subscription_value serializa
   // como string via JSON (Prisma.Decimal.toJSON()), mesmo padrão de
@@ -515,6 +528,11 @@ export interface TenantAdminItem {
   observacao_comercial: string | null
   plano_id: string | null
   plano: PlanoAdmin | null
+  // Fase 6A (fundação do trial) — plano escolhido ao converter/trocar de
+  // plano, ainda não pago (aplicado em plano_id só quando o webhook Asaas
+  // confirmar o pagamento — ver server/prisma/schema.prisma). Nenhuma rota
+  // desta fase escreve este campo ainda, sempre null na prática.
+  plano_pendente_id: string | null
   // Vínculo com o Asaas (fundação/sandbox) — ver GET /admin/tenants/:id/asaas
   // e server/src/services/asaasClient.ts. asaas_status é só espelho pra
   // exibição, nunca usado no frontend pra decidir nada.

@@ -137,26 +137,40 @@ export function motivoBloqueioAtivacao(tenant: TenantParaSituacao, agora: Date =
   return motivoBloqueioEscrita(tenant, agora)
 }
 
-// Sem plano vinculado = sem limite algum (mesmo padrão de "limite nulo =
-// ilimitado" já usado nos campos limite_* do Plano) — permite operar num
-// tenant que ainda não tem plano definido (ex.: recém-criado, aguardando
-// contratação).
+// Decisão pura da checagem de limite "X ativos simultâneos" (campanhas,
+// tours, jornadas) — separada da consulta ao banco (cada checarLimite*
+// abaixo só busca o `total` e delega a decisão pra cá) só pra poder ser
+// testada sem Prisma, mesmo padrão de motivoBloqueioEscrita/
+// obterSituacaoComercialTenant acima. `limite` nulo/undefined = sem limite
+// (mesmo padrão de "limite nulo = ilimitado" já usado em todos os campos
+// limite_* do Plano) — permite operar num tenant que ainda não tem plano
+// definido (ex.: recém-criado, aguardando contratação) ou cujo plano não
+// restringe aquele recurso.
+export function motivoLimiteAtivosAtingido(limite: number | null | undefined, total: number, rotulo: string): string | null {
+  if (!limite) return null
+  if (total >= limite) return `Limite de ${limite} ${rotulo} do plano atingido.`
+  return null
+}
+
 export async function checarLimiteCampanhasAtivas(tenantId: string, plano: Plano | null): Promise<string | null> {
   if (!plano?.limite_campanhas_ativas) return null
   const total = await prisma.campanha.count({ where: { tenant_id: tenantId, ativo: true } })
-  if (total >= plano.limite_campanhas_ativas) {
-    return `Limite de ${plano.limite_campanhas_ativas} campanha(s) ativa(s) do plano atingido.`
-  }
-  return null
+  return motivoLimiteAtivosAtingido(plano.limite_campanhas_ativas, total, 'campanha(s) ativa(s)')
 }
 
 export async function checarLimiteToursAtivos(tenantId: string, plano: Plano | null): Promise<string | null> {
   if (!plano?.limite_tours_ativos) return null
   const total = await prisma.tourGuiado.count({ where: { tenant_id: tenantId, ativo: true } })
-  if (total >= plano.limite_tours_ativos) {
-    return `Limite de ${plano.limite_tours_ativos} tour(s) ativo(s) do plano atingido.`
-  }
-  return null
+  return motivoLimiteAtivosAtingido(plano.limite_tours_ativos, total, 'tour(s) ativo(s)')
+}
+
+// Fase 6A (fundação do trial) — mesmo padrão de checarLimiteCampanhasAtivas/
+// checarLimiteToursAtivos acima, agora pra jornadas (antes só tinham o gate
+// booleano permite_jornadas, sem nenhuma contagem de ativas simultâneas).
+export async function checarLimiteJornadasAtivas(tenantId: string, plano: Plano | null): Promise<string | null> {
+  if (!plano?.limite_jornadas_ativas) return null
+  const total = await prisma.jornada.count({ where: { tenant_id: tenantId, ativo: true } })
+  return motivoLimiteAtivosAtingido(plano.limite_jornadas_ativas, total, 'jornada(s) ativa(s)')
 }
 
 // Usado só na criação de um novo acesso (ver criarAcesso em adminTenants.ts)
@@ -180,4 +194,49 @@ export function motivoRecursoNaoPermitido(plano: Plano | null, campo: 'permite_t
     return `${nome} não estão disponíveis no plano atual.`
   }
   return null
+}
+
+// ─── Fase 6A — fundação do trial (cadastro público ainda não existe) ────────
+// A experiência de trial é única: deve existir exatamente 1 Plano com
+// eh_plano_trial=true em uso normal — 0 (ninguém configurado) ou mais de 1
+// (ambíguo, qual usar?) nunca são resolvidos arbitrariamente (ex.: "pega o
+// primeiro"), porque isso esconderia um erro de configuração atrás de um
+// comportamento que parece funcionar. Decisão pura (sem banco) — o caller
+// (futuro endpoint de cadastro público) busca os planos com
+// `prisma.plano.findMany({ where: { eh_plano_trial: true } })` e passa o
+// resultado pra cá.
+export type ResolucaoPlanoTrial =
+  | { ok: true; plano: Pick<Plano, 'id' | 'trial_dias'> }
+  | { ok: false; motivo: string }
+
+export function resolverPlanoTrial(planosMarcados: Pick<Plano, 'id' | 'trial_dias'>[]): ResolucaoPlanoTrial {
+  if (planosMarcados.length === 0) {
+    return { ok: false, motivo: 'Nenhum plano está marcado como plano de trial (eh_plano_trial=true) — configure um antes de liberar o cadastro público.' }
+  }
+  if (planosMarcados.length > 1) {
+    return { ok: false, motivo: `Mais de um plano está marcado como plano de trial (${planosMarcados.length}) — configuração ambígua, corrija antes de liberar o cadastro público.` }
+  }
+  return { ok: true, plano: planosMarcados[0]! }
+}
+
+// Duração efetiva do trial em dias — plano.trial_dias tem prioridade; null/
+// undefined cai no default de 14 (mesmo valor já usado por seedAdmin.ts para
+// o bootstrap manual). Decisão pura separada de resolverPlanoTrial porque o
+// default só faz sentido depois que já se sabe qual plano é o de trial.
+// trial_dias <=0 é configuração inválida (nunca um trial de duração zero ou
+// negativa) — mesmo padrão de retorno de resolverPlanoTrial acima
+// ({ok:false, motivo}), não lança exceção. Sem teto máximo de propósito
+// (não pedido, não inventar limite arbitrário).
+export const TRIAL_DIAS_PADRAO = 14
+
+export type ResolucaoDuracaoTrialDias =
+  | { ok: true; dias: number }
+  | { ok: false; motivo: string }
+
+export function resolverDuracaoTrialDias(planoTrialDias: number | null | undefined): ResolucaoDuracaoTrialDias {
+  if (planoTrialDias == null) return { ok: true, dias: TRIAL_DIAS_PADRAO }
+  if (planoTrialDias <= 0) {
+    return { ok: false, motivo: `trial_dias inválido (${planoTrialDias}) — deve ser um número de dias positivo.` }
+  }
+  return { ok: true, dias: planoTrialDias }
 }

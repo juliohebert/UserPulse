@@ -32,15 +32,23 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     nome: 'Teste grátis',
     descricao: 'Período de teste grátis padrão oferecido a novos clientes.',
     preco_mensal: 0,
-    limite_campanhas_ativas: 3,
+    // Fase 6A (fundação do trial) — referência inicial: 10 campanhas / 1
+    // tour / 1 jornada. eh_plano_trial=true marca este como O plano de
+    // trial (deve haver exatamente 1, ver resolverPlanoTrial em
+    // tenantGuards.ts); trial_dias=14 é o valor usado quando o cadastro
+    // público (ainda não implementado) calcular trial_fim.
+    limite_campanhas_ativas: 10,
     limite_tours_ativos: 1,
+    limite_jornadas_ativas: 1,
     limite_eventos_mes: 5000,
     limite_usuarios_admin: 1,
     permite_tours: true,
-    permite_jornadas: false,
+    permite_jornadas: true,
     permite_white_label: false,
     ativo: true,
     interno: false,
+    eh_plano_trial: true,
+    trial_dias: 14,
   },
   {
     slug: 'starter',

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
-import { motivoBloqueioAtivacao, motivoBloqueioEscrita, motivoRecursoNaoPermitido } from '../lib/tenantGuards'
+import { checarLimiteJornadasAtivas, motivoBloqueioAtivacao, motivoBloqueioEscrita, motivoRecursoNaoPermitido } from '../lib/tenantGuards'
 
 const TIPOS_ETAPA = ['tour', 'campanha', 'link']
 
@@ -249,6 +249,8 @@ export async function criar(req: Request, res: Response) {
     if (ativoBool) {
       const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
+      const limite = await checarLimiteJornadasAtivas(tenantId, tenant.plano)
+      if (limite) return res.status(403).json({ erro: limite })
     }
 
     const slug = await slugUnico(tenantId, gerarSlugBase(titulo))
@@ -309,6 +311,8 @@ export async function atualizar(req: Request, res: Response) {
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
       const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_jornadas')
       if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
+      const limite = await checarLimiteJornadasAtivas(req.adminUser!.tenant_id, tenant.plano)
+      if (limite) return res.status(403).json({ erro: limite })
     }
 
     let listaBlocos: BlocoValidado[] | null = null

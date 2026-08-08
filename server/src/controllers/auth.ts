@@ -42,6 +42,9 @@ function tenantPublico(t: Tenant & { plano: Plano | null }) {
       permite_white_label: t.plano.permite_white_label,
       limite_campanhas_ativas: t.plano.limite_campanhas_ativas,
       limite_tours_ativos: t.plano.limite_tours_ativos,
+      // Fase 6A (fundação do trial) — mesma convenção dos dois limites
+      // acima (null = sem limite), agora pra jornadas.
+      limite_jornadas_ativas: t.plano.limite_jornadas_ativas,
       limite_eventos_mes: t.plano.limite_eventos_mes,
       limite_usuarios_admin: t.plano.limite_usuarios_admin,
     },
