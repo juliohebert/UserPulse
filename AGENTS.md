@@ -3,7 +3,7 @@
 ## Projeto
 
 - UserPulse é SaaS multi-tenant de mensagens in-app: API Express + Prisma/PostgreSQL em `server/`, painel React + Vite em `web/`, widget vanilla JS em `web/public/widget.js`.
-- Código, UI, comentários e mensagens de commit são em português; mantenha esse padrão ao editar.
+- Código, UI e comentários são em português; mensagens de commit e PRs são em inglês.
 - `server/` e `web/` são pacotes independentes, com `node_modules` e `tsconfig` próprios; não há pacote compartilhado.
 - `web/src/types.ts` espelha manualmente as respostas da API. Ao mudar Prisma/controllers, atualize esses tipos.
 

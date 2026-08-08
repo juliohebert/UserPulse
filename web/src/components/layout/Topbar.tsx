@@ -110,7 +110,7 @@ export function Topbar({ collapsed }: Props) {
             titulo: c.titulo,
             subtitulo: `Campanha · ${c.sistema} · ${c.tela}`,
             icon: 'campaign',
-            to: `/campanhas?busca=${encodeURIComponent(c.titulo)}`,
+            to: `/campanhas/${c.id}/dashboard`,
           }))
 
         const toursFiltrados = tours.items.slice(0, 5).map<ResultadoBusca>(t => ({
@@ -119,7 +119,7 @@ export function Topbar({ collapsed }: Props) {
           titulo: t.titulo,
           subtitulo: `Tour · ${t.sistema} · ${t._count?.passos ?? 0} passo${(t._count?.passos ?? 0) === 1 ? '' : 's'}`,
           icon: 'map',
-          to: `/tours?busca=${encodeURIComponent(t.titulo)}`,
+          to: `/tours/${t.id}/dashboard`,
         }))
 
         const jornadasFiltradas = jornadas
@@ -131,7 +131,7 @@ export function Topbar({ collapsed }: Props) {
             titulo: j.titulo,
             subtitulo: `Jornada · ${j.slug}`,
             icon: 'route',
-            to: `/jornadas?busca=${encodeURIComponent(j.titulo)}`,
+            to: `/jornadas/${j.id}/editar`,
           }))
 
         setResultadosBusca([...campanhasFiltradas, ...toursFiltrados, ...jornadasFiltradas].slice(0, 12))
@@ -158,6 +158,12 @@ export function Topbar({ collapsed }: Props) {
     e.preventDefault()
     const termo = search.trim()
     if (!termo) return
+    const primeiroResultado = resultadosBusca[0]
+    if (primeiroResultado) {
+      navegarBusca(primeiroResultado.to)
+      return
+    }
+
     const destino = location.pathname.startsWith('/tours')
       ? '/tours'
       : location.pathname.startsWith('/jornadas')
