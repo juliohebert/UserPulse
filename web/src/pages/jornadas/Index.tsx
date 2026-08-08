@@ -12,29 +12,6 @@ import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils
 
 const PER_PAGE = 10
 
-// Mesmo padrão visual dos KPIs de /campanhas e /tours (ícone + número grande + rótulo).
-function KpiCard({
-  label, icon, iconBg, iconColor, value,
-}: {
-  label: string
-  icon: string
-  iconBg: string
-  iconColor: string
-  value: string | number
-}) {
-  return (
-    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:border-primary/40 transition-all p-5 flex flex-col gap-3">
-      <div className="min-w-0 flex items-center gap-2.5">
-        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
-          <span className="material-symbols-outlined text-[19px]">{icon}</span>
-        </span>
-        <p className="text-label-md font-medium text-on-surface-variant truncate">{label}</p>
-      </div>
-      <p className="text-headline-md font-bold text-on-surface leading-none">{value}</p>
-    </div>
-  )
-}
-
 // Ponto + texto em vez de pill preenchida — mesmo padrão leve usado em /tours e /campanhas.
 function StatusBadge({ ativo }: { ativo: boolean }) {
   return (
@@ -104,8 +81,6 @@ export function JornadasIndex() {
 
   const ativas = jornadas.filter(j => j.ativo).length
   const inativas = jornadas.length - ativas
-  const totalEtapas = jornadas.reduce((s, j) => s + (j._count?.etapas ?? 0), 0)
-
   const clearFilters = () => {
     setBusca('')
     setFilterAtivo('todos')
@@ -150,13 +125,6 @@ export function JornadasIndex() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div>
             <h2 className="text-title-lg font-bold text-on-surface">Jornadas</h2>
-            {!loading && !error && (
-              <p className="text-body-md text-on-surface-variant mt-0.5">
-                {jornadas.length === 0
-                  ? 'Ainda não foram criadas jornadas.'
-                  : `${jornadas.length} ${jornadas.length === 1 ? 'jornada' : 'jornadas'} no total`}
-              </p>
-            )}
           </div>
           {podeEscrever && (
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
@@ -170,16 +138,6 @@ export function JornadasIndex() {
             </div>
           )}
         </div>
-
-        {/* KPIs */}
-        {!loading && !error && jornadas.length > 0 && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-            <KpiCard label="Total de Jornadas" icon="route" iconBg="bg-primary/10" iconColor="text-primary" value={jornadas.length} />
-            <KpiCard label="Jornadas Ativas" icon="play_circle" iconBg="bg-tertiary/10" iconColor="text-tertiary" value={ativas} />
-            <KpiCard label="Jornadas Inativas" icon="pause_circle" iconBg="bg-outline-variant/40" iconColor="text-on-surface-variant" value={inativas} />
-            <KpiCard label="Total de Etapas" icon="checklist" iconBg="bg-secondary/10" iconColor="text-secondary" value={totalEtapas} />
-          </div>
-        )}
 
         {mensagem && (
           <div className={`mb-4 p-3 rounded-xl text-body-md flex items-center gap-2 ${
@@ -249,11 +207,6 @@ export function JornadasIndex() {
         <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-outline-variant/30">
             <h3 className="text-title-lg font-bold text-on-surface">Jornadas</h3>
-            <p className="text-label-md text-on-surface-variant mt-0.5">
-              {loading
-                ? 'Carregando jornadas…'
-                : `Mostrando ${filtered.length} ${filtered.length === 1 ? 'jornada' : 'jornadas'} conforme os filtros aplicados`}
-            </p>
           </div>
 
           {loading ? (

@@ -26,32 +26,6 @@ const STATUS_DOT: Record<StatusCampanha, { label: string; dot: string; text: str
   encerrada: { label: 'Encerrada', dot: 'bg-outline',  text: 'text-outline' },
 }
 
-function KpiCard({
-  label, shortLabel, icon, iconBg, iconColor, value,
-}: {
-  label: string
-  shortLabel: string
-  icon: string
-  iconBg: string
-  iconColor: string
-  value: string | number
-}) {
-  return (
-    <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:border-primary/40 hover:-translate-y-0.5 transition-all p-3.5 sm:p-5 flex flex-col gap-3">
-      <div className="min-w-0 flex items-center gap-2.5">
-        <span className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
-          <span className="material-symbols-outlined text-[17px] sm:text-[19px]">{icon}</span>
-        </span>
-        <p className="min-w-0 text-label-md font-medium text-on-surface-variant truncate">
-          <span className="lg:hidden">{shortLabel}</span>
-          <span className="hidden lg:inline">{label}</span>
-        </p>
-      </div>
-      <p className="text-title-lg sm:text-headline-md font-bold text-on-surface leading-none truncate">{value}</p>
-    </div>
-  )
-}
-
 // Card de campanha para telas mobile (< md) — substitui a linha da tabela,
 // que fica ilegível e com ações apertadas em telas estreitas.
 function CampanhaCard({
@@ -323,8 +297,6 @@ export function CampanhasIndex() {
     }
   }
 
-  const totalFeedbacks = campanhas.reduce((s, c) => s + (c._count?.feedbacks ?? 0), 0)
-  const ativas = campanhas.filter(c => getStatus(c) === 'ativa').length
   const inativas = campanhas.filter(c => !c.ativo).length
 
   const STATUS_TABS = [
@@ -338,14 +310,7 @@ export function CampanhasIndex() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
-          <h2 className="text-title-lg font-bold text-on-surface">Biblioteca de Campanhas</h2>
-          {!loading && !error && (
-            <p className="text-body-md text-on-surface-variant mt-0.5">
-              {campanhas.length === 0
-                ? 'Ainda não foram criadas campanhas.'
-                : `${campanhas.length} ${campanhas.length === 1 ? 'campanha' : 'campanhas'} no total`}
-            </p>
-          )}
+          <h2 className="text-title-lg font-bold text-on-surface">Campanhas</h2>
         </div>
         {podeEscrever && (
           <Button
@@ -358,16 +323,6 @@ export function CampanhasIndex() {
           </Button>
         )}
       </div>
-
-      {/* KPIs */}
-      {!loading && !error && campanhas.length > 0 && (
-        <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-          <KpiCard label="Total de Campanhas" shortLabel="Total" icon="list_alt" iconBg="bg-primary/10" iconColor="text-primary" value={campanhas.length} />
-          <KpiCard label="Campanhas Ativas" shortLabel="Ativas" icon="play_circle" iconBg="bg-tertiary/10" iconColor="text-tertiary" value={ativas} />
-          <KpiCard label="Campanhas Inativas" shortLabel="Inativas" icon="pause_circle" iconBg="bg-outline-variant/40" iconColor="text-on-surface-variant" value={inativas} />
-          <KpiCard label="Total de Feedbacks" shortLabel="Feedbacks" icon="forum" iconBg="bg-secondary/10" iconColor="text-secondary" value={totalFeedbacks.toLocaleString('pt-BR')} />
-        </div>
-      )}
 
       {/* Filters */}
       <div className="relative z-20 w-full max-w-full overflow-visible bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 mb-6 shadow-sm space-y-3">
@@ -535,11 +490,6 @@ export function CampanhasIndex() {
           </span>
           <div className="min-w-0">
             <h3 className="text-title-lg font-bold text-on-surface">Campanhas</h3>
-            <p className="text-label-md text-on-surface-variant mt-0.5">
-              {loading
-                ? 'Carregando campanhas…'
-                : `Mostrando ${filtered.length} ${filtered.length === 1 ? 'campanha' : 'campanhas'} conforme os filtros aplicados`}
-            </p>
           </div>
         </div>
 

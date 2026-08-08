@@ -33,29 +33,6 @@ function montarQueryTours(busca: string, sistema: string, status: StatusFiltro, 
   return `?${params.toString()}`
 }
 
-// Mesmo padrão visual dos KPIs de /campanhas (ícone + número grande + rótulo).
-function KpiCard({
-  label, icon, iconBg, iconColor, value,
-}: {
-  label: string
-  icon: string
-  iconBg: string
-  iconColor: string
-  value: string | number
-}) {
-  return (
-    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:border-primary/40 transition-all p-5 flex flex-col gap-3">
-      <div className="min-w-0 flex items-center gap-2.5">
-        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
-          <span className="material-symbols-outlined text-[19px]">{icon}</span>
-        </span>
-        <p className="text-label-md font-medium text-on-surface-variant truncate">{label}</p>
-      </div>
-      <p className="text-headline-md font-bold text-on-surface leading-none">{value}</p>
-    </div>
-  )
-}
-
 export function ToursIndex() {
   const { user } = useAuth()
   // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — VIEWER
@@ -258,11 +235,6 @@ export function ToursIndex() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
           <div>
             <h2 className="text-title-lg font-bold text-on-surface">Tours Guiados</h2>
-            <p className="text-body-md text-on-surface-variant mt-0.5">
-              {resumo.total === 0
-                ? 'Ainda não foram criados tours.'
-                : `${resumo.total} ${resumo.total === 1 ? 'tour' : 'tours'} no total`}
-            </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
             <Button
@@ -304,17 +276,6 @@ export function ToursIndex() {
             )}
           </div>
         </div>
-
-        {/* KPIs — sempre os totais da base inteira (resumo, vindo do servidor
-            sem filtro nenhum), igual ao comportamento de antes. */}
-        {resumo.total > 0 && (
-          <div className={`grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5 ${loading ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}`}>
-            <KpiCard label="Total de Tours" icon="list_alt" iconBg="bg-primary/10" iconColor="text-primary" value={resumo.total} />
-            <KpiCard label="Tours Ativos" icon="play_circle" iconBg="bg-tertiary/10" iconColor="text-tertiary" value={resumo.ativos} />
-            <KpiCard label="Tours Inativos" icon="pause_circle" iconBg="bg-outline-variant/40" iconColor="text-on-surface-variant" value={resumo.inativos} />
-            <KpiCard label="Total de Passos" icon="route" iconBg="bg-secondary/10" iconColor="text-secondary" value={resumo.total_passos.toLocaleString('pt-BR')} />
-          </div>
-        )}
 
         {mensagem && (
           <div className={`mb-4 p-3 rounded-xl text-body-md flex items-center gap-2 ${
@@ -396,9 +357,6 @@ export function ToursIndex() {
         <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-outline-variant/30">
             <h3 className="text-title-lg font-bold text-on-surface">Tours</h3>
-            <p className="text-label-md text-on-surface-variant mt-0.5">
-              {`Mostrando ${totalFiltrado} ${totalFiltrado === 1 ? 'tour' : 'tours'} conforme os filtros aplicados`}
-            </p>
           </div>
 
           {error && (
