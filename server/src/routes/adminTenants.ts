@@ -19,5 +19,6 @@ router.post('/:id/asaas/subscription', adminTenantsAsaas.criarAssinatura)
 router.get('/:id/asaas/events', adminTenantsAsaas.listarEventos)
 router.post('/:id/asaas/sync', adminTenantsAsaas.sincronizar)
 router.get('/:id/asaas/payments', adminTenantsAsaas.listarCobrancas)
+router.get('/:id/asaas/diagnostico', adminTenantsAsaas.diagnosticar)
 
 export default router

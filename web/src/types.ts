@@ -596,6 +596,19 @@ export interface CobrancasAsaasResposta {
   hasMore: boolean
 }
 
+// Fase 4 — diagnóstico de billing, read-only (ver GET .../asaas/diagnostico
+// e calcularSituacaoAsaas em server/src/services/asaasClient.ts). Nunca
+// altera Tenant.status/licença/plano — só exibição.
+export type SituacaoAsaasDecisao = 'OK' | 'INADIMPLENTE' | 'ASSINATURA_INATIVA' | 'INDETERMINADO'
+
+export interface DiagnosticoAsaasResposta {
+  decisao: SituacaoAsaasDecisao
+  motivo: string
+  statusAssinatura: string | null
+  quantidadeCobrancasVencidas: number
+  consultadoEm: string
+}
+
 export interface TenantAdminDetail extends Omit<TenantAdminItem, '_count'> {
   admins: AdminDoTenant[]
 }

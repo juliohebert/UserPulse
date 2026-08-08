@@ -218,6 +218,125 @@ export async function listarCobrancasAsaas(subscriptionId: string): Promise<Cobr
   return { data: resposta.data, hasMore: resposta.hasMore }
 }
 
+// ─── Diagnóstico de billing (Fase 4) — read-only, sem efeito nenhum ────────
+// Calcula uma situação "o que o Asaas diz agora" pra exibição no painel
+// (ver GET .../asaas/diagnostico em adminTenantsAsaas.ts). NUNCA escreve em
+// Tenant.status/licenca_*/plano, nunca chama tenantGuards, nunca cria/
+// cancela/reembolsa nada no Asaas — puramente informativo pro SUPER_ADMIN.
+//
+// Decide direto pelo Subscription.status/Payment.status vindos AO VIVO do
+// Asaas (buscarAssinaturaAsaas/listarCobrancasAsaas), não por
+// Tenant.asaas_status — esse campo é só o último valor sincronizado/
+// espelhado (pode estar desatualizado); o diagnóstico consulta o Asaas na
+// hora. Não confundir com interpretarAsaasStatusAssinatura acima: aquela
+// função resolve um problema diferente (o que confiar pra REATIVAR
+// automaticamente via webhook), não o que mostrar num diagnóstico sob
+// demanda.
+
+export type SituacaoAsaasDecisao = 'OK' | 'INADIMPLENTE' | 'ASSINATURA_INATIVA' | 'INDETERMINADO'
+
+export interface SituacaoAsaasResultado {
+  decisao: SituacaoAsaasDecisao
+  motivo: string
+  statusAssinatura: string | null
+  quantidadeCobrancasVencidas: number
+}
+
+// Entrada da decisão pura — o controller decide qual variante montar
+// (sem vínculo Asaas, falha ao consultar, ou dados buscados com sucesso),
+// nunca a própria calcularSituacaoAsaas faz I/O (mesmo padrão de
+// mapearEventoAsaas/calcularAtualizacaoTenant acima). hasMore é o mesmo
+// campo de listarCobrancasAsaas (LIMITE_COBRANCAS=50): true significa que
+// existem cobranças além das analisadas aqui — sem isso, "nenhuma OVERDUE
+// nas 50 mais recentes" seria lido como "nenhuma OVERDUE", o que é um falso
+// OK quando a vencida está justamente fora do lote analisado.
+export type EntradaSituacaoAsaas =
+  | { tipo: 'sem_vinculo' }
+  | { tipo: 'falha_consulta'; erro: string }
+  | { tipo: 'dados'; assinatura: AssinaturaAsaas; cobrancas: CobrancaAsaas[]; hasMore: boolean }
+
+// Decisão pura (sem banco/rede) da situação de billing — testável isolada
+// (ver asaasClient.test.ts). Regras mínimas da Fase 4:
+// 1. sem vínculo/assinatura           -> INDETERMINADO
+// 2. assinatura INACTIVE ou EXPIRED   -> ASSINATURA_INATIVA
+// 3. assinatura ACTIVE + cobrança OVERDUE analisada -> INADIMPLENTE
+// 4. assinatura ACTIVE, nenhuma OVERDUE analisada, hasMore=false -> OK
+// 4b. assinatura ACTIVE, nenhuma OVERDUE analisada, hasMore=true -> INDETERMINADO
+//     (pode haver uma OVERDUE fora do lote de até 50 cobranças analisado —
+//     ver comentário em EntradaSituacaoAsaas; sem paginação nesta fase, só
+//     evita o falso OK)
+// 5. falha ao consultar o Asaas       -> INDETERMINADO
+// Um status de assinatura fora do domínio conhecido (Asaas introduzindo um
+// valor novo no futuro) também cai em INDETERMINADO — nunca presume OK/
+// ACTIVE por um valor desconhecido (mesmo espírito defensivo de
+// interpretarAsaasStatusAssinatura, mas aqui o dado já vem fresco do Asaas,
+// não é um problema de dado legado).
+export function calcularSituacaoAsaas(entrada: EntradaSituacaoAsaas): SituacaoAsaasResultado {
+  if (entrada.tipo === 'sem_vinculo') {
+    return {
+      decisao: 'INDETERMINADO',
+      motivo: 'Tenant sem assinatura Asaas vinculada — nada para diagnosticar.',
+      statusAssinatura: null,
+      quantidadeCobrancasVencidas: 0,
+    }
+  }
+
+  if (entrada.tipo === 'falha_consulta') {
+    return {
+      decisao: 'INDETERMINADO',
+      motivo: `Não foi possível consultar o Asaas agora: ${entrada.erro}`,
+      statusAssinatura: null,
+      quantidadeCobrancasVencidas: 0,
+    }
+  }
+
+  const statusAssinatura = entrada.assinatura.status
+  const quantidadeCobrancasVencidas = entrada.cobrancas.filter(c => c.status === 'OVERDUE').length
+
+  if (statusAssinatura === 'INACTIVE' || statusAssinatura === 'EXPIRED') {
+    return {
+      decisao: 'ASSINATURA_INATIVA',
+      motivo: `Assinatura está ${statusAssinatura === 'INACTIVE' ? 'inativa' : 'expirada'} no Asaas.`,
+      statusAssinatura,
+      quantidadeCobrancasVencidas,
+    }
+  }
+
+  if (statusAssinatura === 'ACTIVE' && quantidadeCobrancasVencidas > 0) {
+    return {
+      decisao: 'INADIMPLENTE',
+      motivo: `Assinatura ativa, mas há ${quantidadeCobrancasVencidas} cobrança(s) vencida(s).`,
+      statusAssinatura,
+      quantidadeCobrancasVencidas,
+    }
+  }
+
+  if (statusAssinatura === 'ACTIVE' && entrada.hasMore) {
+    return {
+      decisao: 'INDETERMINADO',
+      motivo: 'Existem cobranças adicionais que não foram analisadas.',
+      statusAssinatura,
+      quantidadeCobrancasVencidas,
+    }
+  }
+
+  if (statusAssinatura === 'ACTIVE') {
+    return {
+      decisao: 'OK',
+      motivo: 'Assinatura ativa, sem cobranças vencidas.',
+      statusAssinatura,
+      quantidadeCobrancasVencidas,
+    }
+  }
+
+  return {
+    decisao: 'INDETERMINADO',
+    motivo: `Status de assinatura retornado pelo Asaas não reconhecido: "${statusAssinatura}".`,
+    statusAssinatura,
+    quantidadeCobrancasVencidas,
+  }
+}
+
 export async function cancelarAssinaturaAsaas(id: string): Promise<{ deleted: boolean; id: string }> {
   return asaasFetch(`/subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
