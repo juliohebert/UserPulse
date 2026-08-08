@@ -72,7 +72,7 @@ Two separate resolution paths:
 - `checarLimiteCampanhasAtivas` / `checarLimiteToursAtivos` / `checarLimiteUsuariosAdmin` — enforce the tenant's `Plano` limits (`null` limit = unlimited).
 - `motivoRecursoNaoPermitido` — gates `permite_tours`/`permite_jornadas` per plan.
 
-There's no billing integration (Asaas or otherwise) — licensing/status is 100% set manually by SUPER_ADMIN in Gestão SaaS. `prisma/seedPlanos.ts` has a `TODO(Asaas)` marking where that would eventually plug in; don't build toward it unless asked.
+Licensing/status is *not* purely manual anymore: `tratarWebhookAsaas` (`server/src/services/asaasClient.ts`) auto-activates/renews (`status: ACTIVE`, `licenca_fim` advanced) on `PAYMENT_CONFIRMED`/`PAYMENT_RECEIVED`, but only when the tenant's `asaas_status` is already trustworthily `ACTIVE` (allowlist via `interpretarAsaasStatusAssinatura` — unknown/legacy/null never auto-activates). `PAYMENT_OVERDUE` never touches `status`/`licenca_fim` directly; expiry is left to `licenca_fim` passing + `motivoBloqueioEscrita`. `SUBSCRIPTION_DELETED`/`SUBSCRIPTION_INACTIVATED` auto-suspend (`status: SUSPENDED`, never `CANCELED`). `asaas_status` itself means *only* Asaas subscription status (`ACTIVE`/`EXPIRED`/`INACTIVE`) — payment events never write it. `sincronizar()` (manual "refresh" button) stays read-only re: licensing — it only refreshes `asaas_status`/`asaas_ultima_sincronizacao` from a live Asaas lookup, never `status`/`licenca_fim`. Everything else (editing `licenca_inicio`/`licenca_fim` by hand, `plano_id`, `CANCELED`) is still 100% manual by SUPER_ADMIN.
 
 ### Two independent permission layers — don't conflate them
 

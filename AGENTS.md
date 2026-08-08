@@ -38,7 +38,7 @@
 - Admin resolve tenant via sessão em `requireAdminAuth`; widget público resolve via `public_key` em `resolverTenantPublico`. O fallback hardcoded para tenant `quark` é compatibilidade temporária, não padrão para novos tenants.
 - `AparenciaWidget.sistema` é globalmente único de propósito porque a rota pública consulta por `sistema` sem tenant.
 - Status/limites de plano bloqueiam escritas, não leituras. Use `tenantGuards.ts` antes de create/update/delete em controllers admin.
-- Não há integração de billing/Asaas; status/licença/plano são gestão manual do SUPER_ADMIN.
+- Billing Asaas parcialmente automatizado via webhook (`tratarWebhookAsaas`, `asaasClient.ts`): `PAYMENT_CONFIRMED`/`RECEIVED` ativa/renova licença só com `asaas_status` local confiavelmente `ACTIVE` (allowlist); `PAYMENT_OVERDUE` não mexe em `status`/`licenca_fim` direto; `SUBSCRIPTION_DELETED`/`INACTIVATED` suspende. `asaas_status` é só status de assinatura (nunca de pagamento). `sincronizar()` é read-only quanto a licença/status. Fora isso (editar `licenca_*`, `plano_id`, `CANCELED`), segue manual do SUPER_ADMIN.
 
 ## Permissões
 
