@@ -73,3 +73,17 @@ describe('EmailService.enviarBoasVindas — sem provider configurado (comportame
     await assert.doesNotReject(() => service.enviarBoasVindas('ana@acme.com', DADOS))
   })
 })
+
+// Fase 6D (correção pós-revisão) — o scheduler de alertas de trial
+// (services/trialAlertasScheduler.ts) precisa distinguir "sem provider" de
+// "enviado com sucesso" pra nunca marcar um alerta como ENVIADO sem
+// nenhum e-mail de verdade ter saído. providerConfigurado é a checagem
+// síncrona que ele usa antes de chamar enviarAlertaTrial.
+describe('EmailService.providerConfigurado', () => {
+  test('false quando o provider é null', () => {
+    assert.equal(new EmailService(null).providerConfigurado, false)
+  })
+  test('true quando há um provider configurado', () => {
+    assert.equal(new EmailService(new ProviderFake()).providerConfigurado, true)
+  })
+})

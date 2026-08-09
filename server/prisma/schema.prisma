@@ -36,6 +36,35 @@ enum AdminRole {
   VIEWER
 }
 
+// Fase 6D — os 4 marcos do alerta automático de trial por e-mail (ver
+// lib/trialAlertas.ts, decidirMarcoAlertaTrial). Nomes fixos (não
+// "7_DIAS"/"3_DIAS" porque enum do Prisma não aceita começar com dígito).
+enum MarcoAlertaTrial {
+  D7
+  D3
+  D1
+  VENCIDO
+}
+
+// ENVIADO nunca é revertido (garante "uma única vez", mesmo após reinício —
+// ver TrialEmailAlerta abaixo). FALHOU permite nova tentativa na próxima
+// execução do scheduler — nunca vira ENVIADO sem confirmação real de envio.
+// ENVIANDO (correção pós-revisão) é a trava atômica de reivindicação: uma
+// linha existente (FALHOU de uma tentativa anterior) só pode ser
+// reprocessada depois de um UPDATE condicional FALHOU->ENVIANDO que afete
+// exatamente 1 linha — sem isso, duas instâncias do processo rodando o
+// scheduler ao mesmo tempo (2+ réplicas, ou reinício sobrepondo a execução
+// anterior) podiam ler o MESMO registro FALHOU e enviar o e-mail duas
+// vezes, já que a unique constraint só protege o create() inicial, nunca
+// o retry de um registro que já existe. Ver deveEnviarAlerta em
+// lib/trialAlertas.ts e reivindicarRegistro em
+// services/trialAlertasScheduler.ts.
+enum StatusAlertaTrial {
+  ENVIADO
+  FALHOU
+  ENVIANDO
+}
+
 // public_key é o identificador PÚBLICO do tenant, enviado pelo widget em toda
 // chamada pública (Fase 2 do widget multi-tenant — ver resolverTenantPublico
 // em tenantGuards.ts) pra resolver qual tenant está falando. codigo é um
@@ -121,6 +150,7 @@ model Tenant {
   aparenciasWidget  AparenciaWidget[]
   telasCatalogo     TelaCatalogo[]
   eventosUsuario    EventoUsuario[]
+  trialEmailAlertas TrialEmailAlerta[]
 
   @@map("tenants")
 }
@@ -639,4 +669,49 @@ model AsaasWebhookEvent {
   processado_em   DateTime?
 
   @@map("asaas_webhook_events")
+}
+
+// ─── Fase 6D — alertas automáticos de trial por e-mail ───────────────────────
+// Controle de idempotência do scheduler interno (ver
+// services/trialAlertasScheduler.ts): 1 linha por tenant+marco+destinatário.
+// status=ENVIADO bloqueia qualquer reenvio pra sempre (mesmo depois de
+// reinício/deploy do processo, já que o estado vive no banco, não em
+// memória) — garante "uma única vez" por marco (D7/D3/D1/VENCIDO).
+// status=ENVIANDO é a reivindicação atômica (ver reivindicarRegistro em
+// trialAlertasScheduler.ts): a linha nasce assim no create() (só uma
+// instância consegue criar, protegida pela unique abaixo) ou é promovida
+// pra lá via UPDATE condicional a partir de FALHOU — só quem consegue esse
+// UPDATE/create é quem efetivamente tenta enviar, o que fecha a brecha de
+// 2 processos reenviando o MESMO registro FALHOU ao mesmo tempo (a unique
+// sozinha só protegia a criação inicial, não o retry). status=FALHOU é o
+// único estado (além de um ENVIANDO "travado" havia muito tempo, indicando
+// um crash no meio do envio) que permite nova tentativa numa execução
+// futura (ver deveEnviarAlerta em lib/trialAlertas.ts) — nunca vira ENVIADO
+// sem confirmação real do provider. destinatario_email é guardado como
+// string solta (não uma FK pra AdminUser) de propósito: o histórico do
+// alerta precisa sobreviver mesmo se aquele AdminUser for desativado ou
+// removido depois do envio.
+model TrialEmailAlerta {
+  id                 String             @id @default(uuid())
+  tenant_id          String
+  marco              MarcoAlertaTrial
+  destinatario_email String
+  status             StatusAlertaTrial
+  tentativas         Int                @default(0)
+  ultimo_erro        String?
+  enviado_em         DateTime?
+  criado_em          DateTime           @default(now())
+  atualizado_em      DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  // Unicidade que garante a idempotência: nunca mais de 1 linha pro mesmo
+  // tenant+marco+destinatário. Protege tanto a criação concorrente (P2002,
+  // ver reivindicarRegistro em services/trialAlertasScheduler.ts) quanto o
+  // retry de uma linha FALHOU já existente (reivindicada via UPDATE
+  // condicional FALHOU/ENVIANDO-travado -> ENVIANDO antes de qualquer
+  // tentativa de envio) — é o índice que efetivamente impede duplicação,
+  // não só a checagem em memória antes do insert/update.
+  @@unique([tenant_id, marco, destinatario_email])
+  @@map("trial_email_alertas")
 }

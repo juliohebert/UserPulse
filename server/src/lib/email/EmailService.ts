@@ -2,6 +2,8 @@ import type { EmailProvider, EnviarOpcoes } from './EmailProvider'
 import { resolverEmailProvider } from './provider'
 import { montarEmailBoasVindas, type DadosBoasVindas } from './templates/boasVindas'
 import { montarEmailRedefinicaoSenha, type DadosRedefinicaoSenha } from './templates/redefinirSenha'
+import { montarEmailAlertaTrial, type DadosAlertaTrial } from './templates/alertaTrial'
+import type { MarcoAlertaTrial } from '../trialAlertas'
 
 // Camada de negócio: sabe qual template usar pra cada evento, nunca chama um
 // provider HTTP diretamente de um controller (regra explícita da tarefa —
@@ -17,6 +19,18 @@ import { montarEmailRedefinicaoSenha, type DadosRedefinicaoSenha } from './templ
 export class EmailService {
   constructor(private readonly provider: EmailProvider | null) {}
 
+  // Fase 6D (correção) — enviarBoasVindas/enviarRedefinicaoSenha resolvem
+  // silenciosamente sem provider de propósito (best-effort, nunca deveriam
+  // quebrar cadastro/reset). O scheduler de alertas de trial (ver
+  // services/trialAlertasScheduler.ts) precisa da distinção: sem provider,
+  // ele NUNCA pode marcar o alerta como ENVIADO (perderia o alerta pra
+  // sempre) — precisa continuar tentando quando o provider for configurado.
+  // Esta checagem síncrona deixa o caller decidir isso sem mudar o
+  // comportamento dos outros dois métodos.
+  get providerConfigurado(): boolean {
+    return this.provider != null
+  }
+
   async enviarBoasVindas(destinatario: string, dados: DadosBoasVindas, opcoes?: EnviarOpcoes): Promise<void> {
     const mensagem = montarEmailBoasVindas(destinatario, dados)
     if (!this.provider) {
@@ -30,6 +44,23 @@ export class EmailService {
     const mensagem = montarEmailRedefinicaoSenha(destinatario, dados)
     if (!this.provider) {
       console.warn(`[email] Nenhum provider configurado — e-mail de redefinição de senha NÃO enviado para ${destinatario}.`)
+      return
+    }
+    await this.provider.enviar(mensagem, opcoes)
+  }
+
+  // Fase 6D — alertas automáticos de trial (7/3/1 dias restantes e
+  // vencido), disparados pelo scheduler (ver services/trialAlertasScheduler.ts).
+  // Mesmo padrão dos dois métodos acima: sem provider, só loga e resolve
+  // (nunca lança) — o scheduler é quem precisa checar `providerConfigurado`
+  // ANTES de chamar este método pra nunca confundir "sem provider" com
+  // "enviado" (ver correção de concorrência/idempotência no próprio
+  // scheduler). Nunca engole o erro do provider quando ele existe (propaga
+  // a rejeição, quem decide o que fazer é sempre o caller).
+  async enviarAlertaTrial(destinatario: string, marco: MarcoAlertaTrial, dados: DadosAlertaTrial, opcoes?: EnviarOpcoes): Promise<void> {
+    const mensagem = montarEmailAlertaTrial(destinatario, marco, dados)
+    if (!this.provider) {
+      console.warn(`[email] Nenhum provider configurado — alerta de trial (${marco}) NÃO enviado para ${destinatario}.`)
       return
     }
     await this.provider.enviar(mensagem, opcoes)

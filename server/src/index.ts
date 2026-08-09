@@ -20,6 +20,7 @@ import { requireAdminAuth } from './middleware/requireAdminAuth'
 import { requireSuperAdmin } from './middleware/requireSuperAdmin'
 import { requireAcessoOperacional } from './middleware/requireAcessoOperacional'
 import { getSessionSecret } from './lib/auth'
+import { iniciarSchedulerAlertasTrial } from './services/trialAlertasScheduler'
 
 dotenv.config()
 
@@ -145,6 +146,11 @@ app.use(express.static(WEB_DIST))
 app.get('*', (_req, res) => {
   res.sendFile(path.join(WEB_DIST, 'index.html'))
 })
+
+// Fase 6D — alertas automáticos de trial por e-mail (7/3/1 dias restantes e
+// vencido). Scheduler interno (setInterval, sem serviço externo pago) — ver
+// services/trialAlertasScheduler.ts pra idempotência/retry.
+iniciarSchedulerAlertasTrial()
 
 app.listen(PORT, () => {
   console.log(`Server rodando em http://localhost:${PORT}`)
