@@ -424,6 +424,12 @@ export interface PlanoResumo {
   limite_jornadas_ativas: number | null
   limite_eventos_mes: number | null
   limite_usuarios_admin: number | null
+  // Fase 6E — mesmo sinal usado pelo backend (checarLimite*Ativas em
+  // server/src/lib/tenantGuards.ts) pra decidir se o limite conta TOTAL
+  // cadastrado (trial) ou só ativos (pago) — nunca inferir isso a partir de
+  // tenant.status/situacao_comercial no front (podem divergir, ver
+  // server/src/controllers/auth.ts).
+  eh_plano_trial: boolean
 }
 
 export interface TenantResumo {
@@ -442,6 +448,10 @@ export interface TenantResumo {
   trial_fim: string | null
   licenca_fim: string | null
   situacao_comercial: SituacaoComercialTenant
+  // Fase 6C — dias restantes de trial, já calculado pelo backend a partir
+  // de trial_fim (ver server/src/lib/tenantGuards.ts, diasRestantesTrial) —
+  // nunca recalcular esta conta no frontend. null quando trial_fim é null.
+  trial_dias_restantes: number | null
   plano: PlanoResumo | null
 }
 

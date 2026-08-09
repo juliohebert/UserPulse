@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import { AdminRole, Plano, Prisma, Tenant, TenantStatus } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { ADMIN_SESSION_COOKIE, SESSION_MAX_AGE, sessionCookieOptions, signSessionToken } from '../lib/auth'
-import { obterSituacaoComercialTenant, resolverDuracaoTrialDias, resolverPlanoTrial } from '../lib/tenantGuards'
+import { diasRestantesTrial, obterSituacaoComercialTenant, resolverDuracaoTrialDias, resolverPlanoTrial } from '../lib/tenantGuards'
 import { emailService } from '../lib/email/EmailService'
 import {
   REDEFINICAO_SENHA_VALIDADE_MINUTOS, calcularExpiracaoRedefinicaoSenha,
@@ -38,6 +38,12 @@ function tenantPublico(t: Tenant & { plano: Plano | null }) {
     // recalcula essa regra sozinho, só lê o valor já calculado aqui.
     licenca_fim: t.licenca_fim,
     situacao_comercial: obterSituacaoComercialTenant(t),
+    // Fase 6C — dias restantes de trial calculados em runtime a partir de
+    // trial_fim (nunca persistido, sem cron) — o front nunca recalcula essa
+    // conta sozinho, só formata o número (ver AvisoComercial.tsx). null
+    // quando o tenant não tem trial_fim definido, mesmo caso de
+    // situacao_comercial acima.
+    trial_dias_restantes: diasRestantesTrial(t.trial_fim),
     plano: t.plano && {
       id: t.plano.id,
       nome: t.plano.nome,
@@ -52,6 +58,14 @@ function tenantPublico(t: Tenant & { plano: Plano | null }) {
       limite_jornadas_ativas: t.plano.limite_jornadas_ativas,
       limite_eventos_mes: t.plano.limite_eventos_mes,
       limite_usuarios_admin: t.plano.limite_usuarios_admin,
+      // Fase 6E — o frontend precisa saber SE o limite de campanhas/tours/
+      // jornadas conta total cadastrado (trial) ou só ativos (pago) pra
+      // espelhar a mesma decisão do backend (ver checarLimite*Ativas em
+      // tenantGuards.ts) ao desabilitar o botão "Novo"/bloquear a rota
+      // direta — nunca inferir isso a partir de tenant.status/situacao_comercial
+      // no front (SUPER_ADMIN pode atribuir um plano não-trial a um tenant
+      // TRIAL manualmente, ver adminTenants.ts, então os dois podem divergir).
+      eh_plano_trial: t.plano.eh_plano_trial,
     },
   }
 }

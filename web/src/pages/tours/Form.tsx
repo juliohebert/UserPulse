@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { TourGuiado, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour } from '../../types'
-import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
+import type { TourGuiado, TourGuiadoListaPaginada, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour } from '../../types'
+import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { Button } from '../../components/ui/Button'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
 import { buildGravadorUrl, buildPreviewUrl, comandoTestarSeletor, type GravadorUrlResultado, type PreviewUrlResultado } from '../../utils/tour'
+import { useAuth } from '../../hooks/useAuth'
+import { limiteTrial, LIMITE_TRIAL_NAO_ATINGIDO, type LimiteTrialInfo } from '../../utils/limiteTrial'
 
 interface PassoState {
   id?: string
@@ -536,6 +538,7 @@ export function TourForm() {
   const isEdit = Boolean(id)
   const navigate = useNavigate()
   const location = useLocation()
+  const { user } = useAuth()
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [passos, setPassos] = useState<PassoState[]>([{ ...PASSO_VAZIO }])
@@ -544,6 +547,13 @@ export function TourForm() {
   // segmentado abaixo, mesmo padrão de isSegmented em campanhas/Form.tsx).
   const [regrasSegmentacao, setRegrasSegmentacao] = useState<RegraSegmentacaoTour[]>([])
   const [loadingTour, setLoadingTour] = useState(isEdit)
+  // Fase 6E — só relevante na criação (isEdit=false): busca resumo.total
+  // (mesmo endpoint paginado já usado em tours/Index.tsx, ver
+  // server/src/controllers/tours.ts listar()) pra saber se o trial já
+  // bateu no limite antes de liberar o formulário — sem endpoint novo,
+  // pageSize=1 só pra não trazer os tours inteiros à toa.
+  const [carregandoLimite, setCarregandoLimite] = useState(!isEdit)
+  const [limiteTours, setLimiteTours] = useState<LimiteTrialInfo>(LIMITE_TRIAL_NAO_ATINGIDO)
   // Separado de `error` (usado só para validação/erro de salvar) de
   // propósito — sem essa separação, uma falha no GET /tours/:id ainda
   // renderizava o formulário normalmente, caindo no PASSO_VAZIO default (só
@@ -592,6 +602,18 @@ export function TourForm() {
   // em vez de editar os passos existentes diretamente na lista abaixo.
   const [urlGravadorPendente, setUrlGravadorPendente] = useState<string | null>(null)
   const [copiadoPassosGravador, setCopiadoPassosGravador] = useState(false)
+
+  // Fase 6E — ver comentário de carregandoLimite/limiteTours acima.
+  useEffect(() => {
+    if (isEdit) return
+    get<TourGuiadoListaPaginada>('/tours?page=1&pageSize=1')
+      .then(data => {
+        setLimiteTours(limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_tours_ativos, data.resumo.total, 'tour'))
+      })
+      .catch(() => {})
+      .finally(() => setCarregandoLimite(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit])
 
   // Feedback de "salvo com sucesso" sobrevive ao redirecionamento pós-criação
   // (de /tours/novo para /tours/:id/editar) via router state, em vez de um
@@ -1131,7 +1153,24 @@ export function TourForm() {
     }
   }
 
-  if (loadingTour) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+  if (loadingTour || carregandoLimite) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+
+  // Fase 6E — trial no limite: bloqueia acesso direto à rota /tours/novo
+  // (nunca a edição — isEdit já exclui esse caso). Mesma mensagem usada pelo
+  // backend (que continua validando de verdade no POST) e pelo botão "Novo
+  // Tour Guiado" da listagem (ver tours/Index.tsx).
+  if (!isEdit && limiteTours.atingido) {
+    return (
+      <div className="px-4 lg:px-margin-desktop py-10">
+        <EmptyState
+          icon="lock"
+          title="Limite do teste grátis atingido"
+          description={limiteTours.mensagem!}
+          action={<Button onClick={() => navigate('/tours')}>Voltar para Tours</Button>}
+        />
+      </div>
+    )
+  }
 
   // Nunca renderiza o formulário (nem o fallback de "nenhum passo
   // preenchido ainda") se o GET por id falhou — sem essa checagem, um erro

@@ -6,6 +6,7 @@ import type { Campanha, StatusCampanha } from '../../types'
 import { getStatus } from '../../utils/campanha'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo } from '../../utils/permissions'
+import { limiteTrial } from '../../utils/limiteTrial'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { CategoryBadge } from '../../components/ui/CategoryBadge'
 import { Pagination } from '../../components/ui/Pagination'
@@ -410,6 +411,10 @@ export function CampanhasIndex() {
   const totalRespostas = campanhas.reduce((total, c) => total + (c._count?.feedbacks ?? 0), 0)
   const mediaRespostas = campanhas.length > 0 ? totalRespostas / campanhas.length : 0
   const totalAtivas = campanhas.filter(c => getStatus(c) === 'ativa').length
+  // Fase 6E — campanhas.length já é o TOTAL cadastrado do tenant (GET
+  // /campanhas não filtra por ativo, ver server/src/controllers/campanhas.ts
+  // listar()) — reaproveitado direto, sem endpoint novo.
+  const limiteCampanhas = limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_campanhas_ativas, campanhas.length, 'campanha')
   const totalColunasSelecionadas = TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).length
   const totalFiltrosAtivos = [
     filtroStatus !== 'todas',
@@ -522,7 +527,14 @@ export function CampanhasIndex() {
           </div>
           {podeEscrever && (
             <Button
-              onClick={() => navigate('/campanhas/nova')}
+              onClick={() => {
+                // Fase 6E — trial no limite: nem navega pro formulário, só
+                // avisa (mesma mensagem do backend). Continua permitido
+                // editar/desativar/excluir campanhas existentes — só a
+                // criação de uma nova é impedida aqui.
+                if (limiteCampanhas.atingido) { alert(limiteCampanhas.mensagem!); return }
+                navigate('/campanhas/nova')
+              }}
               variant="gradient"
               size="lg"
               className="shrink-0"

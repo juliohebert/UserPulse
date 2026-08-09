@@ -3,7 +3,10 @@ import assert from 'node:assert/strict'
 import {
   tenantPublicoPermiteAcesso, obterSituacaoComercialTenant, motivoBloqueioEscrita,
   motivoLimiteAtivosAtingido, resolverPlanoTrial, resolverDuracaoTrialDias, TRIAL_DIAS_PADRAO,
+  diasRestantesTrial, motivoBloqueioOperacionalTrial,
+  motivoLimiteTrialAtingido, deveChecarLimiteCadastro,
 } from './tenantGuards'
+import type { Plano } from '@prisma/client'
 
 const AGORA = new Date('2026-07-10T12:00:00Z')
 const DIA_MS = 86_400_000
@@ -192,5 +195,133 @@ describe('resolverDuracaoTrialDias — default de 14 dias, trial_dias<=0 é conf
   test('negativo é inválido', () => {
     const resultado = resolverDuracaoTrialDias(-1)
     assert.equal(resultado.ok, false)
+  })
+})
+
+// Fase 6C — diasRestantesTrial: cálculo dinâmico (sem persistência) de
+// quantos dias faltam pro trial vencer, sempre a partir de trial_fim.
+describe('diasRestantesTrial — dias restantes calculados em runtime a partir de trial_fim', () => {
+  test('trial_fim null => null (trial sem prazo definido)', () => {
+    assert.equal(diasRestantesTrial(null, AGORA), null)
+  })
+  test('14 dias no futuro => 14 dias restantes', () => {
+    assert.equal(diasRestantesTrial(futuro(14), AGORA), 14)
+  })
+  test('1 dia no futuro => 1 dia restante', () => {
+    assert.equal(diasRestantesTrial(futuro(1), AGORA), 1)
+  })
+  test('menos de 24h no futuro (1h) => arredonda pra cima, 1 dia restante', () => {
+    assert.equal(diasRestantesTrial(new Date(AGORA.getTime() + 60 * 60 * 1000), AGORA), 1)
+  })
+  test('23h59min no futuro => ainda 1 dia restante (ceil, não floor)', () => {
+    assert.equal(diasRestantesTrial(new Date(AGORA.getTime() + DIA_MS - 1), AGORA), 1)
+  })
+  test('exatamente 2 dias no futuro => 2 dias restantes (sem arredondar pra cima à toa)', () => {
+    assert.equal(diasRestantesTrial(futuro(2), AGORA), 2)
+  })
+  test('exatamente no vencimento (trial_fim === agora) => 0 dias restantes', () => {
+    assert.equal(diasRestantesTrial(AGORA, AGORA), 0)
+  })
+  test('trial_fim no passado (expirado) => 0 dias restantes, nunca negativo', () => {
+    assert.equal(diasRestantesTrial(passado(5), AGORA), 0)
+  })
+  test('trial_fim 1ms no passado => 0 dias restantes', () => {
+    assert.equal(diasRestantesTrial(new Date(AGORA.getTime() - 1), AGORA), 0)
+  })
+})
+
+// Fase 6C — motivoBloqueioOperacionalTrial: bloqueio de USO OPERACIONAL
+// inteiro (não só escrita), exclusivo de trial vencido — licença paga
+// vencida/suspenso/cancelado continuam só sob motivoBloqueioEscrita, sem
+// mudança (ver requireAcessoOperacional.test.ts pro middleware completo).
+describe('motivoBloqueioOperacionalTrial — só bloqueia por TRIAL vencido', () => {
+  test('trial ativo permite (não bloqueia)', () => {
+    assert.equal(motivoBloqueioOperacionalTrial({ status: 'TRIAL', trial_fim: futuro(5), licenca_fim: null }, AGORA), null)
+  })
+  test('trial vencido bloqueia com mensagem de "escolha um plano"', () => {
+    const motivo = motivoBloqueioOperacionalTrial({ status: 'TRIAL', trial_fim: passado(1), licenca_fim: null }, AGORA)
+    assert.match(motivo ?? '', /teste grátis terminou/i)
+    assert.match(motivo ?? '', /escolha um plano/i)
+  })
+  test('tenant pago (ACTIVE, licença em dia) não é afetado', () => {
+    assert.equal(motivoBloqueioOperacionalTrial({ status: 'ACTIVE', trial_fim: null, licenca_fim: futuro(30) }, AGORA), null)
+  })
+  test('ACTIVE com licença vencida NÃO usa este bloqueio (continua só sob motivoBloqueioEscrita)', () => {
+    assert.equal(motivoBloqueioOperacionalTrial({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(1) }, AGORA), null)
+  })
+  test('SUSPENDED não usa este bloqueio (continua só sob motivoBloqueioEscrita)', () => {
+    assert.equal(motivoBloqueioOperacionalTrial({ status: 'SUSPENDED', trial_fim: null, licenca_fim: null }, AGORA), null)
+  })
+  test('CANCELED não usa este bloqueio (continua só sob motivoBloqueioEscrita)', () => {
+    assert.equal(motivoBloqueioOperacionalTrial({ status: 'CANCELED', trial_fim: null, licenca_fim: null }, AGORA), null)
+  })
+})
+
+// Fase 6D — limite de trial conta TOTAL cadastrado (ativo ou não), não só
+// ativos: sem isso, dava pra contornar o limite exibido ("1 tour") criando
+// vários itens inativos e alternando qual fica ativo. As duas funções
+// abaixo (motivoLimiteTrialAtingido e deveChecarLimiteCadastro) são as
+// decisões puras por trás de checarLimiteCampanhasAtivas/ToursAtivos/
+// JornadasAtivas (cada uma só busca o `total` via prisma.count — com o
+// WHERE certo pra cada modo, ver o próprio arquivo — e delega a decisão pra
+// cá); a contagem em si (prisma.count com tenant_id/ativo/id:{not}) segue o
+// mesmo padrão já usado no resto do arquivo e foi validada manualmente
+// contra um servidor local (mesmo critério do restante do projeto pra
+// Prisma — ver CLAUDE.md, "Tests"): criar N itens inativos até o limite
+// bloqueia o N+1º mesmo com 0 ativos; excluir um deles libera a vaga
+// (COUNT reflete o estado atual da tabela, sem lógica própria a testar
+// aqui); tenant_id no WHERE (idêntico ao já usado em checarLimite*Ativas
+// antes desta fase) garante isolamento entre tenants.
+describe('motivoLimiteTrialAtingido — mensagem do limite de trial (conta TOTAL, não só ativos)', () => {
+  test('limite null = sem limite, nunca bloqueia', () => {
+    assert.equal(motivoLimiteTrialAtingido(null, 999, 'campanha'), null)
+  })
+  test('total abaixo do limite libera', () => {
+    assert.equal(motivoLimiteTrialAtingido(10, 9, 'campanha'), null)
+  })
+  test('total igual ao limite bloqueia — trial com limite atingido, mesmo que os itens estejam todos inativos (total, não ativos)', () => {
+    const motivo = motivoLimiteTrialAtingido(1, 1, 'tour')
+    assert.match(motivo ?? '', /Limite do teste grátis atingido\. Seu plano permite até 1 tour durante o período gratuito\./)
+  })
+  test('total acima do limite bloqueia', () => {
+    const motivo = motivoLimiteTrialAtingido(1, 2, 'jornada')
+    assert.match(motivo ?? '', /Limite do teste grátis atingido\. Seu plano permite até 1 jornada durante o período gratuito\./)
+  })
+  test('limite=1 usa singular ("1 tour", não "1 tours")', () => {
+    const motivo = motivoLimiteTrialAtingido(1, 5, 'tour')
+    assert.match(motivo ?? '', /até 1 tour durante/)
+  })
+  test('limite>1 usa plural ("10 campanhas")', () => {
+    const motivo = motivoLimiteTrialAtingido(10, 10, 'campanha')
+    assert.match(motivo ?? '', /até 10 campanhas durante/)
+  })
+  test('excluir um item libera vaga — total abaixo do limite depois de descontar a exclusão volta a liberar', () => {
+    // Simula o efeito de uma exclusão: total cai de 1 (no limite) para 0.
+    assert.notEqual(motivoLimiteTrialAtingido(1, 1, 'tour'), null)
+    assert.equal(motivoLimiteTrialAtingido(1, 0, 'tour'), null)
+  })
+})
+
+// deveChecarLimiteCadastro decide QUANDO a checagem de limite roda numa
+// criação — é o que garante que, em trial, um POST com ativo:false não
+// escapa do limite (a checagem não fica presa a "só quando ativa").
+describe('deveChecarLimiteCadastro — quando a checagem de limite entra em jogo na criação', () => {
+  const planoTrial: Plano = { eh_plano_trial: true } as Plano
+  const planoPago: Plano = { eh_plano_trial: false } as Plano
+
+  test('trial + criando inativo (ativo:false) => precisa checar (impede contornar o limite com itens inativos)', () => {
+    assert.equal(deveChecarLimiteCadastro(false, planoTrial), true)
+  })
+  test('trial + criando ativo => precisa checar', () => {
+    assert.equal(deveChecarLimiteCadastro(true, planoTrial), true)
+  })
+  test('plano pago + criando inativo => NÃO precisa checar (comportamento atual preservado — só ativos contam)', () => {
+    assert.equal(deveChecarLimiteCadastro(false, planoPago), false)
+  })
+  test('plano pago + criando ativo => precisa checar (comportamento atual preservado)', () => {
+    assert.equal(deveChecarLimiteCadastro(true, planoPago), true)
+  })
+  test('sem plano vinculado + criando inativo => NÃO precisa checar (mesmo raciocínio do plano pago)', () => {
+    assert.equal(deveChecarLimiteCadastro(false, null), false)
   })
 })

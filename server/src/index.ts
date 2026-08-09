@@ -18,6 +18,7 @@ import webhooksAsaasRouter from './routes/webhooksAsaas'
 import billingRouter from './routes/billing'
 import { requireAdminAuth } from './middleware/requireAdminAuth'
 import { requireSuperAdmin } from './middleware/requireSuperAdmin'
+import { requireAcessoOperacional } from './middleware/requireAcessoOperacional'
 import { getSessionSecret } from './lib/auth'
 
 dotenv.config()
@@ -110,13 +111,19 @@ app.get('/test-embed.html', (_req, res) => {
 // sem sessão (é o próprio jeito de criar uma); /me e /logout se protegem
 // sozinhas dentro do router (ver routes/auth.ts).
 app.use('/api/auth', corsAdmin, authRouter)
-app.use('/api/campanhas', corsAdmin, requireAdminAuth, campanhasRouter)
-app.use('/api/catalogo-telas', corsAdmin, requireAdminAuth, catalogoTelasRouter)
-app.use('/api/tours', corsAdmin, requireAdminAuth, toursRouter)
-app.use('/api/jornadas', corsAdmin, requireAdminAuth, jornadasRouter)
-app.use('/api/aparencia-widget', corsAdmin, requireAdminAuth, aparenciaWidgetRouter)
+// requireAcessoOperacional (Fase 6C) bloqueia estes 6 routers inteiros
+// (leitura incluída) quando o trial do tenant já venceu — ver comentário no
+// próprio middleware. Nunca aplicado a /api/auth, /api/billing, /api/admin/*
+// nem /api/webhooks/asaas (regra explícita da tarefa: login, Minha Conta,
+// Minha Assinatura, planos/cobrança/pagamento, Gestão SaaS e o webhook do
+// Asaas continuam acessíveis mesmo com o trial vencido).
+app.use('/api/campanhas', corsAdmin, requireAdminAuth, requireAcessoOperacional, campanhasRouter)
+app.use('/api/catalogo-telas', corsAdmin, requireAdminAuth, requireAcessoOperacional, catalogoTelasRouter)
+app.use('/api/tours', corsAdmin, requireAdminAuth, requireAcessoOperacional, toursRouter)
+app.use('/api/jornadas', corsAdmin, requireAdminAuth, requireAcessoOperacional, jornadasRouter)
+app.use('/api/aparencia-widget', corsAdmin, requireAdminAuth, requireAcessoOperacional, aparenciaWidgetRouter)
 app.use('/api/widget', corsWidget, widgetRouter)
-app.use('/api/dashboard', corsAdmin, requireAdminAuth, dashboardRouter)
+app.use('/api/dashboard', corsAdmin, requireAdminAuth, requireAcessoOperacional, dashboardRouter)
 // Fase 5 — "Minha assinatura" self-service. Guard de papel (ADMIN-only)
 // fica dentro do router, em cada rota (ver routes/billing.ts) — igual ao
 // padrão de /api/aparencia-widget acima.

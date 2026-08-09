@@ -146,31 +146,84 @@ export function motivoBloqueioAtivacao(tenant: TenantParaSituacao, agora: Date =
 // limite_* do Plano) — permite operar num tenant que ainda não tem plano
 // definido (ex.: recém-criado, aguardando contratação) ou cujo plano não
 // restringe aquele recurso.
-export function motivoLimiteAtivosAtingido(limite: number | null | undefined, total: number, rotulo: string): string | null {
-  if (!limite) return null
-  if (total >= limite) return `Limite de ${limite} ${rotulo} do plano atingido.`
-  return null
+function excedeuLimite(limite: number | null | undefined, total: number): boolean {
+  return Boolean(limite) && total >= (limite as number)
 }
 
-export async function checarLimiteCampanhasAtivas(tenantId: string, plano: Plano | null): Promise<string | null> {
+export function motivoLimiteAtivosAtingido(limite: number | null | undefined, total: number, rotulo: string): string | null {
+  if (!excedeuLimite(limite, total)) return null
+  return `Limite de ${limite} ${rotulo} do plano atingido.`
+}
+
+// Fase 6D — mensagem do limite de trial, quando o TOTAL cadastrado (ativo ou
+// não, ver checarLimite*Ativas abaixo) já bateu no limite do plano — texto
+// próprio (não reaproveita motivoLimiteAtivosAtingido, que fala de "ativas")
+// pedido explicitamente pela tarefa. `entidadeSingular` já resolve
+// singular/plural aqui dentro (limite=1 → singular), pra não duplicar essa
+// regrinha nos 3 call sites abaixo.
+export function motivoLimiteTrialAtingido(limite: number | null | undefined, total: number, entidadeSingular: string): string | null {
+  if (!excedeuLimite(limite, total)) return null
+  const entidade = limite === 1 ? entidadeSingular : `${entidadeSingular}s`
+  return `Limite do teste grátis atingido. Seu plano permite até ${limite} ${entidade} durante o período gratuito.`
+}
+
+// `excluirId` desconsidera o próprio registro da contagem — usado só ao
+// REATIVAR um item já existente (ver controllers/campanhas.ts, atualizar):
+// sem isso, o item sendo reativado contaria contra si mesmo no modo trial
+// (que conta TOTAL, não só ativos) e bloquearia uma reativação que não cria
+// linha nenhuma. Nunca usado na criação (o registro ainda não existe).
+//
+// Fase 6D — em plano de trial (eh_plano_trial=true), o limite passa a valer
+// pro TOTAL cadastrado (ativo ou inativo), não só ativos — sem isso, dava
+// pra contornar o limite exibido ("1 tour", "1 jornada"...) criando vários
+// itens inativos e alternando qual fica ativo. Planos pagos continuam
+// exatamente como antes (só conta ativos). Ver deveChecarLimiteCadastro
+// abaixo pra quando essa checagem entra em jogo na criação.
+export async function checarLimiteCampanhasAtivas(tenantId: string, plano: Plano | null, excluirId?: string): Promise<string | null> {
   if (!plano?.limite_campanhas_ativas) return null
-  const total = await prisma.campanha.count({ where: { tenant_id: tenantId, ativo: true } })
+  const excluir = excluirId ? { id: { not: excluirId } } : {}
+  if (plano.eh_plano_trial) {
+    const total = await prisma.campanha.count({ where: { tenant_id: tenantId, ...excluir } })
+    return motivoLimiteTrialAtingido(plano.limite_campanhas_ativas, total, 'campanha')
+  }
+  const total = await prisma.campanha.count({ where: { tenant_id: tenantId, ativo: true, ...excluir } })
   return motivoLimiteAtivosAtingido(plano.limite_campanhas_ativas, total, 'campanha(s) ativa(s)')
 }
 
-export async function checarLimiteToursAtivos(tenantId: string, plano: Plano | null): Promise<string | null> {
+export async function checarLimiteToursAtivos(tenantId: string, plano: Plano | null, excluirId?: string): Promise<string | null> {
   if (!plano?.limite_tours_ativos) return null
-  const total = await prisma.tourGuiado.count({ where: { tenant_id: tenantId, ativo: true } })
+  const excluir = excluirId ? { id: { not: excluirId } } : {}
+  if (plano.eh_plano_trial) {
+    const total = await prisma.tourGuiado.count({ where: { tenant_id: tenantId, ...excluir } })
+    return motivoLimiteTrialAtingido(plano.limite_tours_ativos, total, 'tour')
+  }
+  const total = await prisma.tourGuiado.count({ where: { tenant_id: tenantId, ativo: true, ...excluir } })
   return motivoLimiteAtivosAtingido(plano.limite_tours_ativos, total, 'tour(s) ativo(s)')
 }
 
 // Fase 6A (fundação do trial) — mesmo padrão de checarLimiteCampanhasAtivas/
 // checarLimiteToursAtivos acima, agora pra jornadas (antes só tinham o gate
 // booleano permite_jornadas, sem nenhuma contagem de ativas simultâneas).
-export async function checarLimiteJornadasAtivas(tenantId: string, plano: Plano | null): Promise<string | null> {
+export async function checarLimiteJornadasAtivas(tenantId: string, plano: Plano | null, excluirId?: string): Promise<string | null> {
   if (!plano?.limite_jornadas_ativas) return null
-  const total = await prisma.jornada.count({ where: { tenant_id: tenantId, ativo: true } })
+  const excluir = excluirId ? { id: { not: excluirId } } : {}
+  if (plano.eh_plano_trial) {
+    const total = await prisma.jornada.count({ where: { tenant_id: tenantId, ...excluir } })
+    return motivoLimiteTrialAtingido(plano.limite_jornadas_ativas, total, 'jornada')
+  }
+  const total = await prisma.jornada.count({ where: { tenant_id: tenantId, ativo: true, ...excluir } })
   return motivoLimiteAtivosAtingido(plano.limite_jornadas_ativas, total, 'jornada(s) ativa(s)')
+}
+
+// Fase 6D — decide SE a checagem de limite precisa rodar numa criação: em
+// plano de trial, sempre (o limite é sobre o TOTAL cadastrado, então até uma
+// criação com ativo:false conta); em plano pago (ou sem plano), só quando o
+// novo registro nasce ativo (comportamento já existente, inalterado — uma
+// campanha/tour/jornada inativa nunca esbarrava no limite de ativos). Usada
+// tanto nos criar() quanto em duplicar()/importar() (que sempre criam
+// ativo:false — nesses, `ativo` é sempre `false` na chamada).
+export function deveChecarLimiteCadastro(ativo: boolean, plano: Plano | null): boolean {
+  return ativo || plano?.eh_plano_trial === true
 }
 
 // Usado só na criação de um novo acesso (ver criarAcesso em adminTenants.ts)
@@ -239,4 +292,42 @@ export function resolverDuracaoTrialDias(planoTrialDias: number | null | undefin
     return { ok: false, motivo: `trial_dias inválido (${planoTrialDias}) — deve ser um número de dias positivo.` }
   }
   return { ok: true, dias: planoTrialDias }
+}
+
+// ─── Fase 6C — expiração dinâmica do trial + bloqueio operacional ───────────
+// Nada disto é persistido (sem contador diário no banco, sem cron) — sempre
+// recalculado em runtime a partir de trial_fim, mesmo espírito de
+// obterSituacaoComercialTenant acima.
+
+const DIA_MS = 24 * 60 * 60 * 1000
+
+// Dias restantes de trial, arredondado pra cima: qualquer fração de dia
+// (inclusive menos de 24h) conta como 1 dia inteiro. Nunca negativo — uma
+// vez vencido (ms <= 0), sempre 0. null quando o tenant não tem trial_fim
+// definido (trial sem prazo, nunca vence sozinho — mesmo caso já tratado em
+// obterSituacaoComercialTenant, que devolve trial_ativo nesta situação).
+// Não recalcula a fronteira de vencimento em si (isso continua sendo
+// exclusivamente obterSituacaoComercialTenant, "< estrito" — ver teste
+// "trial_fim exatamente agora ainda não venceu"); esta função só traduz o
+// tempo restante em dias pra exibição, e no instante exato do vencimento
+// (ms=0) devolve 0 mesmo com a situação ainda sendo trial_ativo por 1ms —
+// diferença sem efeito prático (front nunca observa esse instante exato).
+export function diasRestantesTrial(trialFim: Date | null, agora: Date = new Date()): number | null {
+  if (trialFim == null) return null
+  const ms = trialFim.getTime() - agora.getTime()
+  if (ms <= 0) return 0
+  return Math.ceil(ms / DIA_MS)
+}
+
+// Mensagem estável usada pelo 403 de requireAcessoOperacional (ver
+// middleware/requireAcessoOperacional.ts) — null quando o tenant pode
+// operar normalmente. Só bloqueia por TRIAL vencido; licença paga vencida/
+// suspenso/cancelado continuam exclusivamente sob motivoBloqueioEscrita
+// (bloqueio só de escrita, não de uso operacional inteiro) — regra
+// explícita da tarefa: não alterar o comportamento já existente desses três
+// estados, só endurecer o de trial vencido (que hoje só bloqueava escrita,
+// igual aos outros três).
+export function motivoBloqueioOperacionalTrial(tenant: TenantParaSituacao, agora: Date = new Date()): string | null {
+  if (obterSituacaoComercialTenant(tenant, agora) !== 'trial_vencido') return null
+  return 'Seu teste grátis terminou. Escolha um plano para continuar usando o UserPulse.'
 }

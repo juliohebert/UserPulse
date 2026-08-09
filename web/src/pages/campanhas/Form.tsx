@@ -4,12 +4,14 @@ import { get, post, put } from '../../services/api'
 import type { Campanha, TelaCatalogo } from '../../types'
 import { gerarSlug, toInputDate } from '../../utils/campanha'
 import { NpsScale } from '../../components/widget/NpsScale'
-import { LoadingSpinner } from '../../components/ui/EmptyState'
+import { LoadingSpinner, EmptyState } from '../../components/ui/EmptyState'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { Stepper } from '../../components/ui/Stepper'
 import { Button } from '../../components/ui/Button'
 import { TEMPLATES } from '../../utils/templates'
 import { DestinoCampanha } from '../../components/campanhas/DestinoCampanha'
+import { useAuth } from '../../hooks/useAuth'
+import { limiteTrial } from '../../utils/limiteTrial'
 
 const TIPOS = ['comunicado', 'melhoria', 'pesquisa']
 const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
@@ -205,6 +207,7 @@ export function CampanhaForm() {
   const { id } = useParams<{ id: string }>()
   const isEdit = Boolean(id)
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [step, setStep] = useState(1)
@@ -214,6 +217,11 @@ export function CampanhaForm() {
   const [telas, setTelas] = useState<string[]>([])
   const [todasCampanhas, setTodasCampanhas] = useState<Campanha[]>([])
   const [loadingCampanha, setLoadingCampanha] = useState(isEdit)
+  // Fase 6E — só relevante na criação (isEdit=false): espera o total de
+  // campanhas carregar (mesmo GET /campanhas de sempre, ver efeito abaixo)
+  // antes de decidir se mostra o formulário ou o bloqueio de limite —
+  // evita um flash do formulário antes do bloqueio aparecer.
+  const [carregandoLimite, setCarregandoLimite] = useState(!isEdit)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -228,7 +236,7 @@ export function CampanhaForm() {
       setTodasCampanhas(cs)
       setSistemas([...new Set(cs.map(c => c.sistema).filter(Boolean))])
       setTelas([...new Set(cs.map(c => c.tela).filter(Boolean))])
-    }).catch(() => {})
+    }).catch(() => {}).finally(() => setCarregandoLimite(false))
   }, [])
 
   useEffect(() => {
@@ -436,7 +444,27 @@ export function CampanhaForm() {
     submeterCampanha()
   }
 
-  if (loadingCampanha) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+  if (loadingCampanha || carregandoLimite) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+
+  // Fase 6E — trial no limite: bloqueia acesso direto à rota /campanhas/nova
+  // (nunca a edição — isEdit já exclui esse caso). Mesma mensagem usada pelo
+  // backend (que continua validando de verdade no POST) e pelo botão "Nova
+  // Campanha" da listagem (ver campanhas/Index.tsx).
+  if (!isEdit) {
+    const limite = limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_campanhas_ativas, todasCampanhas.length, 'campanha')
+    if (limite.atingido) {
+      return (
+        <div className="px-4 lg:px-margin-desktop py-10">
+          <EmptyState
+            icon="lock"
+            title="Limite do teste grátis atingido"
+            description={limite.mensagem!}
+            action={<Button onClick={() => navigate('/campanhas')}>Voltar para Campanhas</Button>}
+          />
+        </div>
+      )
+    }
+  }
 
   const urlNorm = normalizeUrlContem(form.url_contem)
   const campanhaConflitante =

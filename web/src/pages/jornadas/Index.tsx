@@ -10,6 +10,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { DesignStatusBadge } from '../../components/ui/DesignStatusBadge'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
+import { limiteTrial } from '../../utils/limiteTrial'
 
 const PER_PAGE = 10
 
@@ -214,6 +215,11 @@ export function JornadasIndex() {
 
   const ativas = jornadas.filter(j => j.ativo).length
   const inativas = jornadas.length - ativas
+  // Fase 6E — jornadas.length já é o TOTAL cadastrado do tenant (GET
+  // /jornadas sem filtro `ativo` não filtra por status, ver
+  // server/src/controllers/jornadas.ts listar()) — reaproveitado direto,
+  // sem endpoint novo.
+  const limiteJornadas = limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_jornadas_ativas, jornadas.length, 'jornada')
   const clearFilters = () => {
     setBusca('')
     setFilterAtivo('todos')
@@ -279,7 +285,13 @@ export function JornadasIndex() {
             </div>
             {podeEscrever && (
               <Button
-                onClick={() => navigate('/jornadas/novo')}
+                onClick={() => {
+                  // Fase 6E — trial no limite: nem navega pro formulário, só
+                  // avisa (mesma mensagem do backend). Continua permitido
+                  // editar/desativar/excluir jornadas existentes.
+                  if (limiteJornadas.atingido) { setMensagem({ tipo: 'erro', texto: limiteJornadas.mensagem! }); return }
+                  navigate('/jornadas/novo')
+                }}
                 variant="gradient"
                 size="lg"
                 className="shrink-0"
