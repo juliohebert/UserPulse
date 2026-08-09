@@ -61,6 +61,36 @@ type JornadaSeed = {
   }>
 }
 
+type FeedbackSeed = {
+  id: string
+  campanhaSlug: string
+  diasAtras: number
+  nota: number
+  observacao?: string
+  usuario_id: string
+  usuario_nome: string
+  usuario_email: string
+  sistema: string
+  tela: string
+  navegador: string
+  dispositivo: string
+  telefone_contato?: string
+  contexto: Record<string, string>
+}
+
+type EventoCampanhaSeed = {
+  id: string
+  campanhaSlug: string
+  diasAtras: number
+  tipo_evento: string
+  usuario_id: string
+  sistema: string
+  tela: string
+  navegador: string
+  dispositivo: string
+  contexto: Record<string, string>
+}
+
 const campanhasSeed: CampanhaSeed[] = [
   {
     slug: 'quarkclinic-agenda-demo',
@@ -350,6 +380,235 @@ const jornadasSeed: JornadaSeed[] = [
   },
 ]
 
+const feedbacksManuaisSeed: FeedbackSeed[] = [
+  {
+    id: '10000000-0000-0000-0000-000000000001',
+    campanhaSlug: 'quarkclinic-agenda-demo',
+    diasAtras: 1,
+    nota: 5,
+    observacao: 'A confirmação por WhatsApp reduziu bastante as ligações da recepção.',
+    usuario_id: 'user-ana-recepcao',
+    usuario_nome: 'Ana Recepção',
+    usuario_email: 'ana.recepcao@quarkclinic.demo',
+    sistema: 'QuarkClinic',
+    tela: 'agenda',
+    navegador: 'Chrome',
+    dispositivo: 'Desktop',
+    telefone_contato: '+55 11 90000-1001',
+    contexto: { cliente: 'Clínica Jardim', unidade: 'Matriz', perfil: 'Recepção', estado: 'SP' },
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000002',
+    campanhaSlug: 'quarkclinic-agenda-demo',
+    diasAtras: 2,
+    nota: 4,
+    observacao: 'Gostei dos filtros, mas queria salvar uma visualização padrão.',
+    usuario_id: 'user-bruno-coord',
+    usuario_nome: 'Bruno Coordenador',
+    usuario_email: 'bruno.coord@quarkclinic.demo',
+    sistema: 'QuarkClinic',
+    tela: 'agenda',
+    navegador: 'Edge',
+    dispositivo: 'Desktop',
+    contexto: { cliente: 'Clínica Jardim', unidade: 'Matriz', perfil: 'Coordenação', estado: 'SP' },
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000003',
+    campanhaSlug: 'quarkclinic-agenda-demo',
+    diasAtras: 6,
+    nota: 3,
+    observacao: 'A agenda ficou melhor, mas o relatório de ausências ainda demora para carregar.',
+    usuario_id: 'user-carla-recepcao',
+    usuario_nome: 'Carla Atendimento',
+    usuario_email: 'carla@quarkclinic.demo',
+    sistema: 'QuarkClinic',
+    tela: 'agenda',
+    navegador: 'Chrome',
+    dispositivo: 'Notebook',
+    contexto: { cliente: 'Quark Saúde', unidade: 'Zona Sul', perfil: 'Recepção', estado: 'RJ' },
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000004',
+    campanhaSlug: 'quarkclinic-pesquisa-atendimento',
+    diasAtras: 0,
+    nota: 4,
+    observacao: 'O fluxo está mais claro para encaixes, principalmente no período da manhã.',
+    usuario_id: 'user-diego-atendimento',
+    usuario_nome: 'Diego Atendimento',
+    usuario_email: 'diego@quarkclinic.demo',
+    sistema: 'QuarkClinic',
+    tela: 'atendimento',
+    navegador: 'Chrome',
+    dispositivo: 'Desktop',
+    telefone_contato: '+55 21 90000-2002',
+    contexto: { cliente: 'Quark Saúde', unidade: 'Centro', perfil: 'Atendimento', estado: 'RJ' },
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000005',
+    campanhaSlug: 'quarkclinic-pesquisa-atendimento',
+    diasAtras: 4,
+    nota: 2,
+    observacao: 'Ainda preciso abrir muitas telas para concluir um atendimento simples.',
+    usuario_id: 'user-elisa-atendimento',
+    usuario_nome: 'Elisa Atendimento',
+    usuario_email: 'elisa@quarkclinic.demo',
+    sistema: 'QuarkClinic',
+    tela: 'atendimento',
+    navegador: 'Firefox',
+    dispositivo: 'Desktop',
+    contexto: { cliente: 'Clínica Norte', unidade: 'Unidade 2', perfil: 'Atendimento', estado: 'MG' },
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000006',
+    campanhaSlug: 'quarkclinic-prontuario-novo',
+    diasAtras: 3,
+    nota: 5,
+    observacao: 'Os anexos no prontuário facilitaram a revisão antes da consulta.',
+    usuario_id: 'user-felipe-medico',
+    usuario_nome: 'Dr. Felipe Moura',
+    usuario_email: 'felipe@quarkclinic.demo',
+    sistema: 'QuarkClinic',
+    tela: 'prontuario',
+    navegador: 'Safari',
+    dispositivo: 'MacBook',
+    contexto: { cliente: 'Clínica Jardim', unidade: 'Matriz', perfil: 'Médico', estado: 'SP' },
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000007',
+    campanhaSlug: 'quarkclinic-faturamento-recursos',
+    diasAtras: 8,
+    nota: 4,
+    observacao: 'Filtro por convênio ajudou na conferência mensal.',
+    usuario_id: 'user-gabi-financeiro',
+    usuario_nome: 'Gabriela Financeiro',
+    usuario_email: 'gabriela@quarkclinic.demo',
+    sistema: 'QuarkClinic',
+    tela: 'faturamento',
+    navegador: 'Chrome',
+    dispositivo: 'Desktop',
+    contexto: { cliente: 'Quark Saúde', unidade: 'Centro', perfil: 'Financeiro', estado: 'RJ' },
+  },
+  {
+    id: '10000000-0000-0000-0000-000000000008',
+    campanhaSlug: 'userpulse-pesquisa-produto',
+    diasAtras: 10,
+    nota: 5,
+    observacao: 'Os dashboards ficaram mais úteis para priorizar melhorias.',
+    usuario_id: 'user-hugo-produto',
+    usuario_nome: 'Hugo Produto',
+    usuario_email: 'hugo@userpulse.demo',
+    sistema: 'UserPulse',
+    tela: 'dashboard',
+    navegador: 'Chrome',
+    dispositivo: 'Desktop',
+    contexto: { cliente: 'Quark', unidade: 'Produto', perfil: 'Admin', estado: 'SP' },
+  },
+]
+
+const usuariosDemo = [
+  { id: 'ana-recepcao', nome: 'Ana Recepção', email: 'ana.recepcao@quarkclinic.demo', perfil: 'Recepção', estado: 'SP', unidade: 'Matriz', cliente: 'Clínica Jardim' },
+  { id: 'bruno-coord', nome: 'Bruno Coordenador', email: 'bruno.coord@quarkclinic.demo', perfil: 'Coordenação', estado: 'SP', unidade: 'Matriz', cliente: 'Clínica Jardim' },
+  { id: 'carla-atendimento', nome: 'Carla Atendimento', email: 'carla@quarkclinic.demo', perfil: 'Atendimento', estado: 'RJ', unidade: 'Zona Sul', cliente: 'Quark Saúde' },
+  { id: 'diego-atendimento', nome: 'Diego Atendimento', email: 'diego@quarkclinic.demo', perfil: 'Atendimento', estado: 'RJ', unidade: 'Centro', cliente: 'Quark Saúde' },
+  { id: 'elisa-atendimento', nome: 'Elisa Atendimento', email: 'elisa@quarkclinic.demo', perfil: 'Atendimento', estado: 'MG', unidade: 'Unidade 2', cliente: 'Clínica Norte' },
+  { id: 'felipe-medico', nome: 'Dr. Felipe Moura', email: 'felipe@quarkclinic.demo', perfil: 'Médico', estado: 'SP', unidade: 'Matriz', cliente: 'Clínica Jardim' },
+  { id: 'gabi-financeiro', nome: 'Gabriela Financeiro', email: 'gabriela@quarkclinic.demo', perfil: 'Financeiro', estado: 'RJ', unidade: 'Centro', cliente: 'Quark Saúde' },
+  { id: 'hugo-produto', nome: 'Hugo Produto', email: 'hugo@userpulse.demo', perfil: 'Admin', estado: 'SP', unidade: 'Produto', cliente: 'Quark' },
+]
+
+const OBSERVACOES_DEMO = [
+  'Ficou mais fácil entender o próximo passo do fluxo.',
+  'A melhoria ajudou, mas ainda tenho dúvidas em alguns casos.',
+  'Gostei da novidade e já comecei a usar com a equipe.',
+  'O aviso apareceu no momento certo e economizou tempo.',
+  'Preciso testar mais, mas a primeira impressão foi boa.',
+  'A tela ficou mais clara para usuários novos.',
+  'Seria útil ter um exemplo prático junto do aviso.',
+  'A comunicação está objetiva e fácil de entender.',
+]
+
+function feedbackDemo(
+  sequencia: number,
+  campanhaSlug: string,
+  total: number,
+  sistema: string,
+  tela: string,
+  notaBase: number,
+): FeedbackSeed[] {
+  return Array.from({ length: total }, (_, index) => {
+    const usuario = usuariosDemo[index % usuariosDemo.length]
+    const nota = Math.max(1, Math.min(5, notaBase + ((index % 5) - 2)))
+    const numero = sequencia + index
+    return {
+      id: `11000000-0000-0000-0000-${String(numero).padStart(12, '0')}`,
+      campanhaSlug,
+      diasAtras: index % 45,
+      nota,
+      observacao: index % 3 === 0 ? OBSERVACOES_DEMO[index % OBSERVACOES_DEMO.length] : undefined,
+      usuario_id: `user-${usuario.id}-${index + 1}`,
+      usuario_nome: usuario.nome,
+      usuario_email: usuario.email,
+      sistema,
+      tela,
+      navegador: index % 4 === 0 ? 'Safari' : index % 4 === 1 ? 'Edge' : 'Chrome',
+      dispositivo: index % 5 === 0 ? 'Mobile' : index % 3 === 0 ? 'Notebook' : 'Desktop',
+      telefone_contato: index % 7 === 0 ? `+55 11 9${String(10000000 + index).padStart(8, '0')}` : undefined,
+      contexto: {
+        cliente: usuario.cliente,
+        unidade: usuario.unidade,
+        perfil: usuario.perfil,
+        estado: usuario.estado,
+      },
+    }
+  })
+}
+
+const feedbacksGeradosSeed: FeedbackSeed[] = [
+  ...feedbackDemo(1, 'quarkclinic-agenda-demo', 47, 'QuarkClinic', 'agenda', 4),
+  ...feedbackDemo(101, 'quarkclinic-pesquisa-atendimento', 30, 'QuarkClinic', 'atendimento', 3),
+  ...feedbackDemo(201, 'quarkclinic-faturamento-recursos', 23, 'QuarkClinic', 'faturamento', 4),
+  ...feedbackDemo(301, 'quarkclinic-prontuario-novo', 17, 'QuarkClinic', 'prontuario', 5),
+  ...feedbackDemo(401, 'userpulse-pesquisa-produto', 11, 'UserPulse', 'dashboard', 4),
+]
+
+const feedbacksSeed: FeedbackSeed[] = [...feedbacksManuaisSeed, ...feedbacksGeradosSeed]
+
+const eventosCampanhaSeed: EventoCampanhaSeed[] = [
+  ...feedbacksSeed.map((f, index) => ({
+    id: `20000000-0000-0000-0000-${String(index + 1).padStart(12, '0')}`,
+    campanhaSlug: f.campanhaSlug,
+    diasAtras: f.diasAtras,
+    tipo_evento: 'feedback_enviado',
+    usuario_id: f.usuario_id,
+    sistema: f.sistema,
+    tela: f.tela,
+    navegador: f.navegador,
+    dispositivo: f.dispositivo,
+    contexto: f.contexto,
+  })),
+  ...[
+    'quarkclinic-agenda-demo',
+    'quarkclinic-agenda-demo',
+    'quarkclinic-agenda-demo',
+    'quarkclinic-pesquisa-atendimento',
+    'quarkclinic-prontuario-novo',
+    'quarkclinic-faturamento-recursos',
+    'quarkclinic-estoque-alerta',
+    'userpulse-onboarding-widget',
+  ].map((campanhaSlug, index) => ({
+    id: `20000000-0000-0000-0000-${String(index + 101).padStart(12, '0')}`,
+    campanhaSlug,
+    diasAtras: index + 1,
+    tipo_evento: index % 3 === 0 ? 'visualizada' : index % 3 === 1 ? 'cta_clicado' : 'fechada',
+    usuario_id: `user-demo-${index + 1}`,
+    sistema: campanhaSlug.startsWith('userpulse') ? 'UserPulse' : 'QuarkClinic',
+    tela: campanhaSlug.startsWith('userpulse') ? 'campanhas' : 'agenda',
+    navegador: index % 2 === 0 ? 'Chrome' : 'Edge',
+    dispositivo: index % 2 === 0 ? 'Desktop' : 'Notebook',
+    contexto: { cliente: index % 2 === 0 ? 'Clínica Jardim' : 'Quark Saúde', perfil: index % 2 === 0 ? 'Recepção' : 'Admin' },
+  })),
+]
+
 async function resolverTenant() {
   const slug = process.env.ADMIN_TENANT_SLUG?.trim().toLowerCase() || 'quark'
   const nome = process.env.ADMIN_TENANT_NOME?.trim() || 'Quark'
@@ -486,6 +745,91 @@ async function seedJornadas(
   console.log(`✓ Jornadas seed: ${total} registro(s)`)
 }
 
+function dataRelativa(diasAtras: number) {
+  const data = new Date()
+  data.setDate(data.getDate() - diasAtras)
+  data.setHours(10 + (diasAtras % 8), 15, 0, 0)
+  return data
+}
+
+async function seedInteracoesCampanhas(campanhas: Map<string, { id: string }>) {
+  let feedbacks = 0
+  for (const item of feedbacksSeed) {
+    const campanha = campanhas.get(item.campanhaSlug)
+    if (!campanha) continue
+    await prisma.feedback.upsert({
+      where: { id: item.id },
+      create: {
+        id: item.id,
+        campanha_id: campanha.id,
+        nota: item.nota,
+        observacao: item.observacao,
+        usuario_id: item.usuario_id,
+        usuario_nome: item.usuario_nome,
+        usuario_email: item.usuario_email,
+        sistema: item.sistema,
+        tela: item.tela,
+        navegador: item.navegador,
+        dispositivo: item.dispositivo,
+        contexto: item.contexto,
+        telefone_contato: item.telefone_contato,
+        criado_em: dataRelativa(item.diasAtras),
+      },
+      update: {
+        campanha_id: campanha.id,
+        nota: item.nota,
+        observacao: item.observacao,
+        usuario_id: item.usuario_id,
+        usuario_nome: item.usuario_nome,
+        usuario_email: item.usuario_email,
+        sistema: item.sistema,
+        tela: item.tela,
+        navegador: item.navegador,
+        dispositivo: item.dispositivo,
+        contexto: item.contexto,
+        telefone_contato: item.telefone_contato,
+        criado_em: dataRelativa(item.diasAtras),
+      },
+    })
+    feedbacks += 1
+  }
+
+  let eventos = 0
+  for (const item of eventosCampanhaSeed) {
+    const campanha = campanhas.get(item.campanhaSlug)
+    if (!campanha) continue
+    await prisma.eventoCampanha.upsert({
+      where: { id: item.id },
+      create: {
+        id: item.id,
+        campanha_id: campanha.id,
+        tipo_evento: item.tipo_evento,
+        usuario_id: item.usuario_id,
+        sistema: item.sistema,
+        tela: item.tela,
+        navegador: item.navegador,
+        dispositivo: item.dispositivo,
+        contexto: item.contexto,
+        criado_em: dataRelativa(item.diasAtras),
+      },
+      update: {
+        campanha_id: campanha.id,
+        tipo_evento: item.tipo_evento,
+        usuario_id: item.usuario_id,
+        sistema: item.sistema,
+        tela: item.tela,
+        navegador: item.navegador,
+        dispositivo: item.dispositivo,
+        contexto: item.contexto,
+        criado_em: dataRelativa(item.diasAtras),
+      },
+    })
+    eventos += 1
+  }
+
+  console.log(`✓ Interações de campanhas seed: ${feedbacks} feedback(s), ${eventos} evento(s)`)
+}
+
 async function seedCatalogo(tenant_id: string) {
   const telas = [
     { nome: 'Agendamentos', sistema: 'QuarkClinic', categoria: 'Atendimento', url_contem: '/app/atendimento/agendamentos' },
@@ -543,6 +887,7 @@ async function main() {
   const tenant = await resolverTenant()
   console.log(`✓ Tenant seed: ${tenant.nome} (${tenant.slug})`)
   const campanhas = await seedCampanhas(tenant.id)
+  await seedInteracoesCampanhas(campanhas)
   const tours = await seedTours(tenant.id)
   await seedJornadas(tenant.id, campanhas, tours)
   await seedCatalogo(tenant.id)

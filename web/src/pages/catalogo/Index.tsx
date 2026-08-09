@@ -229,6 +229,8 @@ export function CatalogoTelasIndex() {
         </div>
         <Button
           onClick={openNova}
+          variant="gradient"
+          size="lg"
           className="shrink-0"
           iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
         >

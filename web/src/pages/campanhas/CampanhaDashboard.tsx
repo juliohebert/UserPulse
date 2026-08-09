@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, getBlob } from '../../services/api'
 import type { DashboardData, EventoCampanha, Feedback } from '../../types'
-import { formatDate, formatDateTime } from '../../utils/campanha'
+import { formatDateTime, getStatus } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
+import { StatusBadge } from '../../components/ui/StatusBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 
 // ─── filter types ─────────────────────────────────────────────────────────────
@@ -463,21 +464,23 @@ export function CampanhaDashboard() {
     <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
 
       {/* ── Cabeçalho ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-5">
-        <div className="flex items-start gap-3 min-w-0">
-          <span className="hidden sm:flex w-11 h-11 rounded-xl bg-primary/10 text-primary items-center justify-center shrink-0 mt-0.5">
-            <span className="material-symbols-outlined text-[22px]">query_stats</span>
-          </span>
-          <div className="min-w-0">
-            <nav className="flex gap-2 text-label-md text-outline mb-1">
-              <button onClick={() => navigate('/campanhas')} className="hover:text-primary transition-colors">Campanhas</button>
-              <span>/</span>
-              <span className="text-on-surface">Dashboard</span>
-            </nav>
-            <h2 className="text-headline-lg font-bold text-on-surface leading-tight break-words">
-              {data?.campanha.titulo ?? 'Dashboard da Campanha'}
-            </h2>
-          </div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+        <div className="min-w-0">
+          <nav className="flex gap-2 text-label-md text-outline mb-1">
+            <button onClick={() => navigate('/campanhas')} className="hover:text-primary transition-colors">Campanhas</button>
+            <span>/</span>
+            <span className="text-on-surface">Dashboard</span>
+          </nav>
+          <h2 className="text-headline-lg font-bold text-on-surface leading-tight break-words">
+            {data?.campanha.titulo ?? 'Dashboard da Campanha'}
+          </h2>
+          {data && (
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <TypeBadge tipo={data.campanha.tipo} />
+              <StatusBadge status={getStatus(data.campanha)} />
+              <span className="text-label-md text-outline">{data.campanha.sistema} · {data.campanha.tela}</span>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
           <button
@@ -502,17 +505,6 @@ export function CampanhaDashboard() {
 
       {!loading && !error && data && (
         <>
-          {/* ── Meta da campanha ──────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center gap-2 mb-5">
-            <TypeBadge tipo={data.campanha.tipo} />
-            {data.campanha.ativo
-              ? <span className="text-[12px] font-semibold text-tertiary bg-tertiary/10 px-2.5 py-0.5 rounded-full">Ativa</span>
-              : <span className="text-[12px] font-semibold text-outline bg-surface-container px-2.5 py-0.5 rounded-full">Inativa</span>
-            }
-            <span className="text-label-md text-outline">{data.campanha.sistema} · {data.campanha.tela}</span>
-            <span className="text-label-md text-outline">Criada em {formatDate(data.campanha.criado_em)}</span>
-          </div>
-
           {/* ── Filtro de período ──────────────────────────────────────────── */}
           <div className="w-full max-w-full flex flex-wrap items-center gap-1.5 sm:gap-2 mb-6 p-3.5 sm:p-4 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm">
             <span className="material-symbols-outlined text-[16px] text-outline shrink-0">date_range</span>

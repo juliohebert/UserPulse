@@ -25,8 +25,8 @@ const fallback = {
 export function TypeBadge({ tipo }: { tipo: string }) {
   const { label, icon, className } = config[tipo] ?? { ...fallback, label: tipo }
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase ${className}`}>
-      <span className="material-symbols-outlined text-[13px] leading-none">{icon}</span>
+    <span className={`inline-flex min-h-6 items-center gap-1 rounded-full px-[9px] py-1 text-[10px] font-bold uppercase leading-none tracking-[0.04em] ${className}`}>
+      <span className="material-symbols-outlined text-[11px] leading-none">{icon}</span>
       {label}
     </span>
   )

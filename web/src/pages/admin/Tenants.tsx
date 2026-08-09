@@ -991,6 +991,8 @@ export function AdminTenantsIndex() {
         </div>
         <Button
           onClick={abrirNovo}
+          variant="gradient"
+          size="lg"
           className="shrink-0"
           iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
         >
