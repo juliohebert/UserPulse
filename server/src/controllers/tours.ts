@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import {
   checarLimiteToursAtivos,
+  deveChecarLimiteCadastro,
   motivoBloqueioAtivacao,
   motivoBloqueioEscrita,
   motivoRecursoNaoPermitido,
@@ -313,6 +314,10 @@ export async function criar(req: Request, res: Response) {
     if (ativoBool) {
       const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
+    }
+    // Fase 6D — em trial, o limite conta TOTAL cadastrado, então precisa
+    // checar mesmo criando com ativo:false (ver deveChecarLimiteCadastro).
+    if (deveChecarLimiteCadastro(ativoBool, tenant.plano)) {
       const limite = await checarLimiteToursAtivos(tenantId, tenant.plano)
       if (limite) return res.status(403).json({ erro: limite })
     }
@@ -404,7 +409,9 @@ export async function atualizar(req: Request, res: Response) {
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
       const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_tours')
       if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
-      const limite = await checarLimiteToursAtivos(tenantId, tenant.plano)
+      // excluirId: o próprio tour já existe (só está inativo) — não pode
+      // contar contra si mesmo na contagem de trial (ver checarLimiteToursAtivos).
+      const limite = await checarLimiteToursAtivos(tenantId, tenant.plano, existente.id)
       if (limite) return res.status(403).json({ erro: limite })
     }
 
@@ -531,6 +538,16 @@ export async function duplicar(req: Request, res: Response) {
     const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_tours')
     if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
 
+    // Fase 6D — a cópia nasce sempre inativa (ver `ativo: false` abaixo), mas
+    // em trial o limite conta TOTAL cadastrado: sem esta checagem, duplicar
+    // seria um jeito de contornar o limite (nunca dispara o bloqueio de
+    // "ativação", já que a cópia nunca nasce ativa). Planos pagos continuam
+    // podendo duplicar livremente (deveChecarLimiteCadastro(false, plano)).
+    if (deveChecarLimiteCadastro(false, tenant.plano)) {
+      const limite = await checarLimiteToursAtivos(tenantId, tenant.plano)
+      if (limite) return res.status(403).json({ erro: limite })
+    }
+
     const id = req.params.id as string
     const original = await prisma.tourGuiado.findFirst({
       where: { id, tenant_id: tenantId },
@@ -636,6 +653,15 @@ export async function importar(req: Request, res: Response) {
     if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
     const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_tours')
     if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
+
+    // Fase 6D — tour importado nasce sempre inativo (ver "ativo do JSON é
+    // ignorado" mais abaixo), mas em trial o limite conta TOTAL cadastrado:
+    // mesmo raciocínio de duplicar() acima, senão importar vira outro jeito
+    // de contornar o limite.
+    if (deveChecarLimiteCadastro(false, tenant.plano)) {
+      const limite = await checarLimiteToursAtivos(tenantId, tenant.plano)
+      if (limite) return res.status(403).json({ erro: limite })
+    }
 
     // Aceita tanto o envelope completo ({ formato, tour }) quanto o objeto do
     // tour colado direto, sem envelope.

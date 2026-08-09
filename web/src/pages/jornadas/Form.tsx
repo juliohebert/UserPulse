@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
 import type { Campanha, Jornada, TipoEtapaJornada, TourGuiado } from '../../types'
-import { LoadingSpinner } from '../../components/ui/EmptyState'
+import { LoadingSpinner, EmptyState } from '../../components/ui/EmptyState'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { Select } from '../../components/ui/Select'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Button } from '../../components/ui/Button'
+import { useAuth } from '../../hooks/useAuth'
+import { limiteTrial } from '../../utils/limiteTrial'
 
 interface FormState {
   titulo: string
@@ -71,13 +73,19 @@ export function JornadaForm() {
   const isEdit = Boolean(id)
   const navigate = useNavigate()
   const location = useLocation()
+  const { user } = useAuth()
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [slug, setSlug] = useState('')
   const [blocos, setBlocos] = useState<BlocoFormState[]>([])
   const [tours, setTours] = useState<TourGuiado[]>([])
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
+  const [todasJornadas, setTodasJornadas] = useState<Jornada[]>([])
   const [loadingJornada, setLoadingJornada] = useState(isEdit)
+  // Fase 6E — só relevante na criação (isEdit=false): espera o total de
+  // jornadas carregar (mesmo GET /jornadas de sempre, reaproveitado abaixo)
+  // antes de decidir se mostra o formulário ou o bloqueio de limite.
+  const [carregandoLimite, setCarregandoLimite] = useState(!isEdit)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
@@ -97,6 +105,11 @@ export function JornadaForm() {
   useEffect(() => {
     get<TourGuiado[]>('/tours').then(setTours).catch(() => {})
     get<Campanha[]>('/campanhas').then(setCampanhas).catch(() => {})
+  }, [])
+
+  // Fase 6E — ver comentário de carregandoLimite acima.
+  useEffect(() => {
+    get<Jornada[]>('/jornadas').then(setTodasJornadas).catch(() => {}).finally(() => setCarregandoLimite(false))
   }, [])
 
   useEffect(() => {
@@ -262,7 +275,27 @@ export function JornadaForm() {
     }
   }
 
-  if (loadingJornada) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+  if (loadingJornada || carregandoLimite) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+
+  // Fase 6E — trial no limite: bloqueia acesso direto à rota /jornadas/novo
+  // (nunca a edição — isEdit já exclui esse caso). Mesma mensagem usada pelo
+  // backend (que continua validando de verdade no POST) e pelo botão "Nova
+  // Jornada" da listagem (ver jornadas/Index.tsx).
+  if (!isEdit) {
+    const limite = limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_jornadas_ativas, todasJornadas.length, 'jornada')
+    if (limite.atingido) {
+      return (
+        <div className="px-4 lg:px-margin-desktop py-10">
+          <EmptyState
+            icon="lock"
+            title="Limite do teste grátis atingido"
+            description={limite.mensagem!}
+            action={<Button onClick={() => navigate('/jornadas')}>Voltar para Jornadas</Button>}
+          />
+        </div>
+      )
+    }
+  }
 
   let stepCounter = 0
   const nextStep = () => ++stepCounter

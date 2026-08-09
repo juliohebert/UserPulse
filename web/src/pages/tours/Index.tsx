@@ -11,6 +11,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { DesignStatusBadge } from '../../components/ui/DesignStatusBadge'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
+import { limiteTrial } from '../../utils/limiteTrial'
 
 const PAGE_SIZE = 10
 // Só a busca dispara a cada tecla (status/sistema são clique único, sem
@@ -241,6 +242,10 @@ export function ToursIndex() {
   const sistemas = data?.sistemas ?? []
   const items = data?.items ?? []
   const resumo = data?.resumo ?? { total: 0, ativos: 0, inativos: 0, total_passos: 0 }
+  // Fase 6E — resumo.total já é o TOTAL cadastrado do tenant, sem depender
+  // de filtro/busca (ver server/src/controllers/tours.ts listar()) —
+  // reaproveitado direto, sem endpoint novo.
+  const limiteTours = limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_tours_ativos, resumo.total, 'tour')
   const totalFiltrado = data?.total ?? 0
   const paginaAtual = data?.page ?? 1
   const perPageAtual = data?.per_page ?? PAGE_SIZE
@@ -370,7 +375,14 @@ export function ToursIndex() {
               {podeExcluirOuImportar && (
                 <Button
                   variant="ghost"
-                  onClick={() => { setImportarViaGravador(false); setModalImportarAberto(true) }}
+                  onClick={() => {
+                    // Fase 6E — trial no limite: importar também cria um tour
+                    // novo (mesmo bloqueio do backend em tours.ts importar()),
+                    // então nem abre o modal, só avisa.
+                    if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
+                    setImportarViaGravador(false)
+                    setModalImportarAberto(true)
+                  }}
                   fullWidthMobile
                   iconLeft={<span className="material-symbols-outlined text-[18px]">upload_file</span>}
                 >
@@ -381,14 +393,25 @@ export function ToursIndex() {
                 <>
                   <Button
                     variant="ghost"
-                    onClick={() => navigate('/tours/gravador')}
+                    onClick={() => {
+                      // Fase 6E — o gravador termina criando um tour novo, então
+                      // recebe o mesmo bloqueio de "Novo Tour Guiado" abaixo.
+                      if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
+                      navigate('/tours/gravador')
+                    }}
                     fullWidthMobile
                     iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
                   >
                     Gravar fluxo
                   </Button>
                   <Button
-                    onClick={() => navigate('/tours/novo')}
+                    onClick={() => {
+                      // Fase 6E — trial no limite: nem navega pro formulário,
+                      // só avisa (mesma mensagem do backend). Continua
+                      // permitido editar/desativar/excluir tours existentes.
+                      if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
+                      navigate('/tours/novo')
+                    }}
                     variant="gradient"
                     size="lg"
                     fullWidthMobile

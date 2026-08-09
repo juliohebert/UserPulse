@@ -1,7 +1,7 @@
 import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
-import { checarLimiteJornadasAtivas, motivoBloqueioAtivacao, motivoBloqueioEscrita, motivoRecursoNaoPermitido } from '../lib/tenantGuards'
+import { checarLimiteJornadasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, motivoRecursoNaoPermitido } from '../lib/tenantGuards'
 
 const TIPOS_ETAPA = ['tour', 'campanha', 'link']
 
@@ -249,6 +249,10 @@ export async function criar(req: Request, res: Response) {
     if (ativoBool) {
       const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
+    }
+    // Fase 6D — em trial, o limite conta TOTAL cadastrado, então precisa
+    // checar mesmo criando com ativo:false (ver deveChecarLimiteCadastro).
+    if (deveChecarLimiteCadastro(ativoBool, tenant.plano)) {
       const limite = await checarLimiteJornadasAtivas(tenantId, tenant.plano)
       if (limite) return res.status(403).json({ erro: limite })
     }
@@ -311,7 +315,9 @@ export async function atualizar(req: Request, res: Response) {
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
       const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_jornadas')
       if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
-      const limite = await checarLimiteJornadasAtivas(req.adminUser!.tenant_id, tenant.plano)
+      // excluirId: a própria jornada já existe (só está inativa) — não pode
+      // contar contra si mesma na contagem de trial (ver checarLimiteJornadasAtivas).
+      const limite = await checarLimiteJornadasAtivas(req.adminUser!.tenant_id, tenant.plano, existente.id)
       if (limite) return res.status(403).json({ erro: limite })
     }
 
