@@ -22,6 +22,13 @@ router.get('/situacao', requireEscritaConfiguracao, billing.obterSituacao)
 router.get('/planos-disponiveis', requireEscritaConfiguracao, billing.listarPlanosDisponiveis)
 router.put('/dados-cobranca', requireEscritaConfiguracao, billing.atualizarDadosCobranca)
 router.post('/assinatura', requireEscritaConfiguracao, billing.criarAssinatura)
+// Fase 8A — upgrade self-service pra plano superior (tenant já pago). Mesmo
+// guard das demais rotas financeiras deste router (ADMIN-only). preview
+// nunca tem efeito colateral (não chama o Asaas, não escreve no banco) —
+// existe só pra Minha Assinatura mostrar o valor proporcional ANTES de
+// confirmar, sem o frontend calcular nada sozinho.
+router.get('/upgrade/preview', requireEscritaConfiguracao, billing.previewUpgrade)
+router.post('/upgrade', requireEscritaConfiguracao, billing.solicitarUpgrade)
 router.post('/cobrancas/:cobrancaId/pagar', requireEscritaConfiguracao, billing.pagarCobranca)
 // POST /reativar (reativação self-service de assinatura INACTIVE) foi
 // removida nesta Fase — correção de segurança: não há hoje como distinguir

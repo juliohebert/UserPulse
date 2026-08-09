@@ -191,6 +191,63 @@ export async function buscarCobrancaAsaas(id: string): Promise<CobrancaAsaas> {
   return asaasFetch<CobrancaAsaas>(`/payments/${encodeURIComponent(id)}`)
 }
 
+// ─── Upgrade de plano self-service (Fase 8A) ────────────────────────────────
+// Cobrança AVULSA (fora do ciclo da assinatura) — usada só pra cobrar a
+// diferença proporcional do upgrade (ver calcularValorProporcionalUpgrade
+// abaixo). Nunca tem `subscription`: se tivesse, o Asaas trataria como uma
+// cobrança do próprio ciclo recorrente, o que criaria uma cobrança extra
+// inesperada na assinatura em vez de um cobrança avulsa única. billingType
+// fixo em 'UNDEFINED' (mesmo padrão de criarAssinaturaAsaas — quem escolhe
+// Pix ou cartão é o pagador, na página hospedada).
+export interface DadosCobrancaAvulsaAsaas {
+  value: number
+  dueDate: string
+  description: string
+  externalReference?: string
+}
+
+export async function criarCobrancaAvulsaAsaas(customerId: string, dados: DadosCobrancaAvulsaAsaas): Promise<CobrancaAsaas> {
+  return asaasFetch<CobrancaAsaas>('/payments', {
+    method: 'POST',
+    body: JSON.stringify({
+      customer: customerId,
+      billingType: 'UNDEFINED',
+      value: dados.value,
+      dueDate: dados.dueDate,
+      description: dados.description,
+      externalReference: dados.externalReference,
+    }),
+  })
+}
+
+// Atualiza o VALOR da assinatura recorrente já existente — usado só depois
+// que um upgrade é confirmado (ver tratarWebhookAsaas), pra garantir que o
+// PRÓXIMO ciclo cobre o valor cheio do plano novo (a cobrança avulsa acima
+// só cobre a diferença proporcional do ciclo atual, nunca ajusta o valor
+// recorrente sozinha). Chamar de novo com o MESMO valor é seguro/idempotente
+// — o Asaas simplesmente regrava o mesmo número, sem efeito colateral —
+// então um retry deste PUT (reentrega de webhook, nova tentativa após falha)
+// nunca duplica nem distorce nada.
+//
+// updatePendingPayments:true (correção pós-revisão) — cobre o caso do Asaas
+// já ter gerado a cobrança do PRÓXIMO ciclo antes deste upgrade ser
+// confirmado: sem isso, essa cobrança PENDING ficaria com o valor antigo
+// até o ciclo seguinte. Só afeta cobranças PENDING da PRÓPRIA assinatura
+// (nunca a cobrança avulsa da diferença proporcional, que nunca tem
+// `subscription` vinculada — ver criarCobrancaAvulsaAsaas — então este PUT
+// estruturalmente não alcança ela). O risco de bumping indevido de uma
+// cobrança PENDING do ciclo ATUAL (ainda não vencida) é mitigado por quem
+// chama este código nunca deixar solicitar upgrade fora de "em dia" (ver
+// validarECalcularUpgrade em controllers/billing.ts) — só permitido sem
+// nenhuma cobrança vencida em aberto, então a única PENDING esperada na
+// assinatura nesse momento é a do próximo ciclo.
+export async function atualizarValorAssinaturaAsaas(subscriptionId: string, value: number): Promise<AssinaturaAsaas> {
+  return asaasFetch<AssinaturaAsaas>(`/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value, updatePendingPayments: true }),
+  })
+}
+
 // Regularização self-service (Fase 5) — libera a escolha do meio de
 // pagamento numa cobrança PENDING/OVERDUE já existente (sem isso, uma
 // cobrança criada com billingType fixo, ex. BOLETO, só aceitaria boleto na
@@ -451,6 +508,113 @@ export function validarCobrancaParaRegularizacao(
   return null
 }
 
+// ─── Upgrade de plano self-service (Fase 8A) — decisões puras ──────────────
+// Nenhuma faz I/O; o controller (POST /billing/upgrade em controllers/
+// billing.ts) busca os dados e só aplica a decisão, mesmo padrão do resto
+// deste arquivo.
+
+type PlanoParaUpgrade = {
+  id: string
+  ativo: boolean
+  interno: boolean
+  eh_plano_trial: boolean
+  asaas_subscription_value: Prisma.Decimal | number | string | null
+}
+
+// Reaproveita validarPlanoParaAssinaturaSelfService (interno/trial/sem
+// valor) pro plano NOVO — upgrade nunca é uma forma de contratar um plano
+// que nem self-service normal aceitaria. Regras adicionais, exclusivas de
+// upgrade: plano precisa estar `ativo` (comprar um plano desativado não é
+// permitido, diferente de só trocar dados de um já contratado), precisa ser
+// DIFERENTE do atual, e precisa ser SUPERIOR (nunca downgrade nesta fase) —
+// "superior" é decidido pelo valor de assinatura (asaas_subscription_value),
+// única ordenação de planos que já existe no sistema hoje (é a mesma usada
+// por listarPlanosDisponiveis, orderBy asaas_subscription_value asc).
+export function validarUpgradePlano(
+  planoAtual: PlanoParaUpgrade | null,
+  planoNovo: PlanoParaUpgrade | null
+): string | null {
+  const motivoBase = validarPlanoParaAssinaturaSelfService(planoNovo)
+  if (motivoBase) return motivoBase
+  // validarPlanoParaAssinaturaSelfService já garante planoNovo não-nulo
+  // acima (senão teria devolvido "Plano não encontrado."), mas o TypeScript
+  // não sabe disso — a checagem abaixo é só pra ele, nunca alcançada na
+  // prática com planoNovo null.
+  if (!planoNovo) return 'Plano não encontrado.'
+  if (!planoNovo.ativo) return 'Este plano não está disponível para contratação no momento.'
+  if (!planoAtual) return 'Tenant sem plano atual — não é possível calcular upgrade.'
+  if (planoNovo.id === planoAtual.id) return 'Você já está neste plano.'
+  const valorAtual = Number(planoAtual.asaas_subscription_value ?? 0)
+  const valorNovo = Number(planoNovo.asaas_subscription_value)
+  if (valorNovo <= valorAtual) {
+    return 'Só é possível fazer upgrade para um plano superior ao atual.'
+  }
+  return null
+}
+
+// Impede solicitar um upgrade novo enquanto já existe uma troca pendente de
+// confirmação (regra explícita da tarefa) — nunca deixa dois
+// plano_pendente_id concorrentes, o que deixaria ambíguo qual pagamento
+// confirmado deveria aplicar qual plano.
+export function motivoUpgradePendenteBloqueiaNovaTroca(planoPendenteId: string | null): string | null {
+  if (planoPendenteId) {
+    return 'Já existe uma troca de plano pendente de confirmação. Aguarde o pagamento ser confirmado antes de solicitar outra troca.'
+  }
+  return null
+}
+
+const DIA_MS = 24 * 60 * 60 * 1000
+
+// Duração REAL (calendário de verdade, não aproximação) do ciclo atual —
+// correção pós-revisão: a versão anterior usava mês=30/ano=360 fixos,
+// distorcendo o proporcional em meses de 28/29/31 dias. Agora acha o
+// INÍCIO do ciclo invertendo calcularProximoVencimento (calcularVencimentoAnterior,
+// ver acima) a partir do vencimento (licenca_fim) e mede a distância real
+// em dias — funciona porque licenca_fim É o fim do ciclo atual por
+// definição (é a mesma data que calcularProximoVencimento produziu na
+// última renovação/troca de plano).
+export function duracaoCicloDiasReal(licencaFim: Date, ciclo: string | null | undefined): number {
+  const inicioCiclo = calcularVencimentoAnterior(licencaFim, ciclo)
+  return (licencaFim.getTime() - inicioCiclo.getTime()) / DIA_MS
+}
+
+// Dias restantes até o próximo vencimento (licenca_fim) — fracionário (não
+// arredondado pra cima/baixo, diferente de diasRestantesTrial/
+// diasRestantesTolerancia em tenantGuards.ts, que são pra EXIBIÇÃO): aqui o
+// número entra direto numa conta monetária, arredondar dias artificialmente
+// pra mais ou pra menos distorceria o valor cobrado. Nunca negativo (ciclo
+// já vencido = nada restante) nem maior que o próprio ciclo (proteção
+// defensiva — licenca_fim no futuro distante não deveria acontecer pra um
+// tenant ACTIVE em dia, mas nunca gera uma "proporção" acima de 100%).
+export function diasRestantesCicloAtual(licencaFim: Date, cicloDias: number, agora: Date = new Date()): number {
+  const ms = licencaFim.getTime() - agora.getTime()
+  const dias = ms / DIA_MS
+  return Math.min(cicloDias, Math.max(0, dias))
+}
+
+// Valor proporcional do upgrade — cobra só a DIFERENÇA entre plano novo e
+// atual, multiplicada pela fração do ciclo atual que ainda falta (regra
+// explícita da tarefa: "próximo ciclo cobra o valor cheio do novo plano",
+// então só o restante do ciclo ATUAL é rateado aqui). Valores monetários
+// tratados em CENTAVOS (inteiros) internamente — nunca aritmética de ponto
+// flutuante direto em reais, pra não acumular erro de arredondamento num
+// cálculo que efetivamente gera uma cobrança real no Asaas. Nunca negativo
+// (Math.max(0, ...) só como proteção defensiva — validarUpgradePlano já
+// garante valorNovo > valorAtual antes de chegar aqui).
+export function calcularValorProporcionalUpgrade(params: {
+  valorAtual: number
+  valorNovo: number
+  diasRestantesCiclo: number
+  cicloDias: number
+}): number {
+  const { valorAtual, valorNovo, diasRestantesCiclo, cicloDias } = params
+  if (cicloDias <= 0) return 0
+  const diferencaCentavos = Math.round((valorNovo - valorAtual) * 100)
+  const proporcao = diasRestantesCiclo / cicloDias
+  const proporcionalCentavos = Math.round(diferencaCentavos * proporcao)
+  return Math.max(0, proporcionalCentavos) / 100
+}
+
 // Reativação self-service de assinatura INACTIVE foi retirada desta Fase
 // (correção de segurança pós-revisão): um tenant com assinatura INACTIVE no
 // Asaas normalmente já está SUSPENDED, e hoje não existe campo que
@@ -582,6 +746,24 @@ export function calcularProximoVencimento(dataBase: Date, ciclo: string | null |
   return resultado
 }
 
+// Fase 8A (correção pós-revisão) — inverso exato de calcularProximoVencimento
+// (mesma aritmética de calendário, só subtraindo em vez de somar), usado
+// pra achar o INÍCIO do ciclo atual a partir do vencimento (licenca_fim) —
+// ver duracaoCicloDiasReal abaixo. Calendário real de propósito (respeita
+// meses de 28 a 31 dias, ano bissexto): "voltar 1 mês" de 2026-03-31 dá
+// 2026-02-28 (setMonth já cuida disso sozinho), nunca uma aproximação fixa
+// de dias.
+export function calcularVencimentoAnterior(dataBase: Date, ciclo: string | null | undefined): Date {
+  const cicloNormalizado = (ciclo || 'MONTHLY').toUpperCase()
+  if (cicloNormalizado in CICLOS_EM_DIAS) {
+    return new Date(dataBase.getTime() - CICLOS_EM_DIAS[cicloNormalizado] * 86_400_000)
+  }
+  const meses = CICLOS_EM_MESES[cicloNormalizado] ?? 1
+  const resultado = new Date(dataBase)
+  resultado.setMonth(resultado.getMonth() - meses)
+  return resultado
+}
+
 // ─── Processamento do webhook (com banco — idempotência + efeito no Tenant) ─
 
 export interface ResultadoWebhookAsaas {
@@ -672,9 +854,30 @@ function interpretarAsaasStatusAssinatura(valor: string | null): 'ACTIVE' | 'EXP
 // "CONFIRMED", "OVERDUE"), misturando os dois domínios. SUBSCRIPTION_DELETED/
 // INACTIVATED gravam o valor real de assinatura inativa do Asaas
 // ("INACTIVE"), nunca o nome bruto do evento.
+// Fase 8A (correção pós-revisão) — decide se UM pagamento confirmado
+// específico é o que estava sendo esperado pra aplicar plano_pendente_id.
+// null em planoPendentePaymentId é permissivo de propósito (mantém o
+// comportamento antigo pra conversão trial->pago, que nunca captura o
+// payment.id esperado — ver criarAssinatura em controllers/billing.ts, não
+// alterada nesta fase): sem um id específico pra comparar, qualquer
+// pagamento confirmado do tenant ainda aplica. Quando HÁ um id esperado
+// (sempre o caso pra upgrade, ver solicitarUpgrade), só esse pagamento
+// exato aplica — uma renovação normal da assinatura (ou qualquer outra
+// cobrança) confirmando enquanto um upgrade está pendente NUNCA aplica o
+// plano novo por engano.
+export function pagamentoConfirmaPendencia(paymentId: string, planoPendentePaymentId: string | null | undefined): boolean {
+  return planoPendentePaymentId == null || planoPendentePaymentId === paymentId
+}
+
 export function calcularAtualizacaoTenant(
   acao: Extract<AcaoWebhookAsaas, { tipo: 'pagamento_confirmado' | 'pagamento_vencido' | 'assinatura_cancelada' }>,
-  tenantAtual: { asaas_status: string | null; licenca_inicio: Date | null; status: TenantStatus; plano_pendente_id?: string | null },
+  tenantAtual: {
+    asaas_status: string | null
+    licenca_inicio: Date | null
+    status: TenantStatus
+    plano_pendente_id?: string | null
+    plano_pendente_payment_id?: string | null
+  },
   cicloPlano: string | null,
   agora: Date = new Date()
 ): AtualizacaoTenantAsaas {
@@ -769,32 +972,66 @@ export function calcularAtualizacaoTenant(
   }
 
   // Fase 6B (conversão trial->pago / troca de plano): plano_pendente_id é
-  // gravado por criarAssinatura (billing.ts) no momento em que o cliente
-  // escolhe um plano pago, SEM nunca tocar plano_id — o Tenant continua no
-  // plano atual (ex.: teste-gratis) até este exato momento, o pagamento
-  // confirmado sendo o único evento que aplica o plano escolhido de
-  // verdade. Depois de aplicado, plano_pendente_id é limpo (disconnect) —
-  // nunca fica "pendente" depois de já confirmado. Os bloqueios de
-  // SUSPENDED/CANCELED acima já rodaram antes de chegar aqui, então esta
-  // troca de plano herda a mesma proteção sem precisar repeti-la.
-  if (tenantAtual.plano_pendente_id) {
+  // gravado por criarAssinatura/solicitarUpgrade (billing.ts) no momento em
+  // que o cliente escolhe um plano pago, SEM nunca tocar plano_id — o
+  // Tenant continua no plano atual (ex.: teste-gratis) até este exato
+  // momento, o pagamento confirmado sendo o único evento que aplica o
+  // plano escolhido de verdade. Depois de aplicado, plano_pendente_id (e
+  // plano_pendente_payment_id, Fase 8A) são limpos — nunca ficam
+  // "pendentes" depois de já confirmado. Os bloqueios de SUSPENDED/CANCELED
+  // acima já rodaram antes de chegar aqui, então esta troca de plano herda
+  // a mesma proteção sem precisar repeti-la.
+  //
+  // Fase 8A (correção pós-revisão) — só aplica se este pagamento
+  // ESPECIFICAMENTE corresponde ao esperado (pagamentoConfirmaPendencia).
+  // Quando não corresponde (ex.: renovação normal da assinatura confirmando
+  // enquanto um upgrade está pendente), a licença ainda é estendida
+  // normalmente (dadosBase), só o plano NÃO muda — a troca continua
+  // pendente, esperando o pagamento certo.
+  if (tenantAtual.plano_pendente_id && pagamentoConfirmaPendencia(acao.paymentId, tenantAtual.plano_pendente_payment_id)) {
     return {
       dados: {
         ...dadosBase,
         plano: { connect: { id: tenantAtual.plano_pendente_id } },
         plano_pendente: { disconnect: true },
+        plano_pendente_payment_id: null,
       },
     }
   }
   return { dados: dadosBase }
 }
 
+// Fase 8A — decide SE a assinatura recorrente no Asaas precisa ser
+// sincronizada (PUT /subscriptions/:id) ANTES de aplicar resultado.dados no
+// Tenant — só quando este pagamento_confirmado está de fato aplicando um
+// plano_pendente_id (troca de plano: primeira assinatura paga OU upgrade).
+// `pagamentoCorresponde` (correção pós-revisão) é o resultado de
+// pagamentoConfirmaPendencia: sem ele, uma renovação normal confirmando
+// enquanto um upgrade está pendente (dadosAplicados ainda não-null, já que
+// vira dadosBase — estender a licença é legítimo mesmo sem trocar de
+// plano) sincronizaria a assinatura Asaas pro valor do plano PENDENTE
+// mesmo sem estar de fato aplicando a troca agora — inconsistência exatamente
+// oposta ao que esta correção evita.
+export function deveSincronizarAssinaturaAntesDeAplicar(
+  tipoAcao: AcaoWebhookAsaas['tipo'],
+  tinhaPendenciaAntes: boolean,
+  dadosAplicados: Prisma.TenantUpdateInput | null,
+  pagamentoCorresponde: boolean
+): boolean {
+  return tipoAcao === 'pagamento_confirmado' && tinhaPendenciaAntes && dadosAplicados !== null && pagamentoCorresponde
+}
+
 // Ponto único chamado pelo controller do webhook (ver
 // controllers/webhooksAsaas.ts) — faz idempotência (via asaas_event_id),
 // mapeamento (mapearEventoAsaas) e aplica o efeito no Tenant vinculado
 // (calcularAtualizacaoTenant). Sempre resolve com ok:true (2xx pro Asaas)
-// exceto quando algo realmente inesperado lança (erro de banco etc.) — o
-// controller trata esse throw como erro controlado (não-2xx).
+// exceto quando algo realmente inesperado lança (erro de banco etc.) OU
+// quando a sincronização da assinatura Asaas falha antes de aplicar um
+// plano pendente (Fase 8A, ver bloco logo antes do prisma.tenant.update
+// abaixo) — as duas situações propagam (throw), e o controller trata isso
+// como erro controlado (não-2xx), o que faz o Asaas reentregar o webhook
+// depois (o evento fica com processado=false, nunca marcado como tratado
+// enquanto a sincronização não for bem-sucedida).
 export async function tratarWebhookAsaas(payloadBruto: unknown): Promise<ResultadoWebhookAsaas> {
   const eventId = extrairEventId(payloadBruto)
 
@@ -856,6 +1093,43 @@ export async function tratarWebhookAsaas(payloadBruto: unknown): Promise<Resulta
       data: { processado: true, processado_em: new Date(), erro: resultado.ignorado ?? null },
     })
     return { ok: true, ignorado: resultado.ignorado }
+  }
+
+  // Fase 8A — só true quando este pagamento_confirmado É o payment.id
+  // esperado (ou quando não há um id esperado pra comparar, ver
+  // pagamentoConfirmaPendencia) — decide tanto o que calcularAtualizacaoTenant
+  // já aplicou em resultado.dados quanto se este bloco de sincronização
+  // Asaas deve rodar agora.
+  const pagamentoCorresponde = acao.tipo === 'pagamento_confirmado'
+    ? pagamentoConfirmaPendencia(acao.paymentId, tenant.plano_pendente_payment_id)
+    : false
+
+  // Fase 8A — este pagamento está aplicando uma troca de plano
+  // (plano_pendente_id, e é exatamente o payment.id esperado pra essa
+  // troca): a assinatura recorrente no Asaas PRECISA já refletir o valor
+  // do plano novo antes de aplicarmos a troca localmente, nunca depois
+  // (nunca "best-effort" — deixaria o plano superior liberado enquanto o
+  // Asaas ainda cobraria o valor antigo no próximo ciclo). Se isso falhar,
+  // a troca NÃO é aplicada, plano_pendente_id permanece, o evento NÃO é
+  // marcado processado (fica retryable) e o erro propaga.
+  if (deveSincronizarAssinaturaAntesDeAplicar(acao.tipo, Boolean(tenant.plano_pendente_id), resultado.dados, pagamentoCorresponde)) {
+    const valorPlanoNovo = tenant.plano_pendente?.asaas_subscription_value
+    if (!tenant.asaas_subscription_id || valorPlanoNovo == null) {
+      const erro = `Sincronização da assinatura Asaas abortada para o tenant ${tenant.id}: asaas_subscription_id ou plano_pendente.asaas_subscription_value ausente.`
+      await prisma.asaasWebhookEvent.update({ where: { id: evento.id }, data: { erro } })
+      throw new Error(erro)
+    }
+    try {
+      // Seguro de repetir com o mesmo valor (idempotente do lado do Asaas —
+      // ver comentário em atualizarValorAssinaturaAsaas) — um retry deste
+      // webhook nunca duplica nem distorce a assinatura.
+      await atualizarValorAssinaturaAsaas(tenant.asaas_subscription_id, Number(valorPlanoNovo))
+    } catch (err) {
+      const detalhe = err instanceof Error ? err.message : 'Erro desconhecido ao atualizar valor da assinatura no Asaas.'
+      const erro = `Falha ao sincronizar assinatura Asaas antes de aplicar plano pendente do tenant ${tenant.id}: ${detalhe}`
+      await prisma.asaasWebhookEvent.update({ where: { id: evento.id }, data: { erro } })
+      throw new Error(erro)
+    }
   }
 
   await prisma.tenant.update({ where: { id: tenant.id }, data: resultado.dados })

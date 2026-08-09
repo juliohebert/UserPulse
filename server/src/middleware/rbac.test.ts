@@ -142,6 +142,12 @@ describe('RBAC — wiring das rotas de billing self-service (Fase 5)', () => {
   test('POST /cobrancas/:cobrancaId/pagar usa requireEscritaConfiguracao', () => {
     assert.ok(handlersDaRota(billingRouter, 'post', '/cobrancas/:cobrancaId/pagar').includes(requireEscritaConfiguracao))
   })
+  test('GET /upgrade/preview usa requireEscritaConfiguracao (Fase 8A)', () => {
+    assert.ok(handlersDaRota(billingRouter, 'get', '/upgrade/preview').includes(requireEscritaConfiguracao))
+  })
+  test('POST /upgrade usa requireEscritaConfiguracao (Fase 8A)', () => {
+    assert.ok(handlersDaRota(billingRouter, 'post', '/upgrade').includes(requireEscritaConfiguracao))
+  })
   // Correção de segurança pós-revisão: reativação self-service foi
   // removida — não existe hoje forma confiável de saber se uma assinatura
   // INACTIVE reflete suspensão manual ou causada pelo billing (ver

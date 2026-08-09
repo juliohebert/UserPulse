@@ -5,6 +5,9 @@ import {
   validarPlanoParaAssinaturaSelfService, validarCobrancaParaRegularizacao, bloqueioOperacaoFinanceiraSelfService,
   criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas,
   atualizarBillingTypeCobrancaAsaas,
+  validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, calcularVencimentoAnterior, duracaoCicloDiasReal,
+  diasRestantesCicloAtual, calcularValorProporcionalUpgrade, deveSincronizarAssinaturaAntesDeAplicar,
+  pagamentoConfirmaPendencia, criarCobrancaAvulsaAsaas, atualizarValorAssinaturaAsaas,
 } from './asaasClient'
 import type { AssinaturaAsaas, CobrancaAsaas } from './asaasClient'
 
@@ -265,7 +268,47 @@ describe('calcularAtualizacaoTenant', () => {
       proxima_cobranca: new Date('2026-09-08T00:00:00Z'),
       plano: { connect: { id: 'plano-growth-id' } },
       plano_pendente: { disconnect: true },
+      plano_pendente_payment_id: null,
     })
+  })
+
+  // Fase 8A (correção pós-revisão) — plano_pendente_payment_id presente:
+  // só aplica quando o payment.id confirmado é EXATAMENTE o esperado.
+  test('pagamento confirmado com plano_pendente_id E plano_pendente_payment_id CORRETO aplica o plano pendente', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_upgrade_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'),
+      dataVencimento: new Date('2026-08-08T00:00:00Z'),
+    }
+    const resultado = calcularAtualizacaoTenant(
+      acao,
+      { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'ACTIVE', plano_pendente_id: 'plano-growth-id', plano_pendente_payment_id: 'pay_upgrade_1' },
+      'MONTHLY',
+      agora
+    )
+    assert.ok(resultado.dados && 'plano' in resultado.dados)
+    assert.deepEqual((resultado.dados as { plano?: unknown }).plano, { connect: { id: 'plano-growth-id' } })
+  })
+
+  test('pagamento confirmado com plano_pendente_id mas payment.id ERRADO (renovação normal chegando enquanto upgrade pendente) NÃO aplica o plano — só estende a licença', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_renovacao_normal', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'),
+      dataVencimento: new Date('2026-08-08T00:00:00Z'),
+    }
+    const resultado = calcularAtualizacaoTenant(
+      acao,
+      { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'ACTIVE', plano_pendente_id: 'plano-growth-id', plano_pendente_payment_id: 'pay_upgrade_1' },
+      'MONTHLY',
+      agora
+    )
+    // Licença ainda estende normalmente (renovação legítima)...
+    assert.equal((resultado.dados as { licenca_fim?: Date } | null)?.licenca_fim?.toISOString(), '2026-09-08T00:00:00.000Z')
+    // ...mas o plano pendente NUNCA é aplicado por esse pagamento.
+    assert.equal(resultado.dados !== null && 'plano' in resultado.dados, false)
+    assert.equal(resultado.dados !== null && 'plano_pendente' in resultado.dados, false)
   })
 
   test('pagamento confirmado sem plano_pendente_id nunca mexe em plano/plano_pendente (renovação normal, comportamento preservado)', () => {
@@ -586,6 +629,200 @@ describe('bloqueioOperacaoFinanceiraSelfService (correção de segurança pós-r
   })
 })
 
+// ─── Fase 8A — upgrade de plano self-service ────────────────────────────────
+const PLANO_STARTER = { id: 'plano-starter', ativo: true, interno: false, eh_plano_trial: false, asaas_subscription_value: 100 }
+const PLANO_GROWTH = { id: 'plano-growth', ativo: true, interno: false, eh_plano_trial: false, asaas_subscription_value: 200 }
+
+describe('validarUpgradePlano', () => {
+  test('plano novo não encontrado é bloqueado (reaproveita validarPlanoParaAssinaturaSelfService)', () => {
+    assert.match(validarUpgradePlano(PLANO_STARTER, null) ?? '', /plano não encontrado/i)
+  })
+  test('plano novo interno é bloqueado (reaproveita validarPlanoParaAssinaturaSelfService)', () => {
+    const motivo = validarUpgradePlano(PLANO_STARTER, { ...PLANO_GROWTH, interno: true })
+    assert.match(motivo ?? '', /não está disponível para contratação self-service/)
+  })
+  test('plano novo de trial é bloqueado (reaproveita validarPlanoParaAssinaturaSelfService)', () => {
+    const motivo = validarUpgradePlano(PLANO_STARTER, { ...PLANO_GROWTH, eh_plano_trial: true })
+    assert.match(motivo ?? '', /teste grátis não pode ser contratado/)
+  })
+  test('plano novo desativado é bloqueado', () => {
+    const motivo = validarUpgradePlano(PLANO_STARTER, { ...PLANO_GROWTH, ativo: false })
+    assert.match(motivo ?? '', /não está disponível para contratação/)
+  })
+  test('sem plano atual (tenant sem plano vinculado) é bloqueado', () => {
+    assert.match(validarUpgradePlano(null, PLANO_GROWTH) ?? '', /sem plano atual/i)
+  })
+  test('tentativa para o MESMO plano é bloqueada', () => {
+    const motivo = validarUpgradePlano(PLANO_STARTER, PLANO_STARTER)
+    assert.match(motivo ?? '', /já está neste plano/i)
+  })
+  test('plano INFERIOR (valor menor) é bloqueado — downgrade não é permitido nesta fase', () => {
+    const motivo = validarUpgradePlano(PLANO_GROWTH, PLANO_STARTER)
+    assert.match(motivo ?? '', /superior ao atual/i)
+  })
+  test('plano de MESMO valor (não é upgrade de verdade) é bloqueado', () => {
+    const motivo = validarUpgradePlano(PLANO_STARTER, { ...PLANO_GROWTH, asaas_subscription_value: PLANO_STARTER.asaas_subscription_value })
+    assert.match(motivo ?? '', /superior ao atual/i)
+  })
+  test('upgrade válido (plano novo superior, diferente, ativo, comercial) é permitido', () => {
+    assert.equal(validarUpgradePlano(PLANO_STARTER, PLANO_GROWTH), null)
+  })
+})
+
+describe('motivoUpgradePendenteBloqueiaNovaTroca', () => {
+  test('já existe plano_pendente_id => bloqueia com mensagem clara', () => {
+    const motivo = motivoUpgradePendenteBloqueiaNovaTroca('algum-plano-id')
+    assert.match(motivo ?? '', /já existe uma troca de plano pendente/i)
+  })
+  test('sem plano_pendente_id => libera', () => {
+    assert.equal(motivoUpgradePendenteBloqueiaNovaTroca(null), null)
+  })
+})
+
+// Fase 8A (correção pós-revisão) — substitui a aproximação fixa (mês=30/
+// ano=360) por calendário real: calcularVencimentoAnterior é o inverso
+// exato de calcularProximoVencimento (já testada acima), e
+// duracaoCicloDiasReal mede a distância de verdade entre o início do
+// ciclo (achado invertendo a partir de licenca_fim) e o próprio
+// licenca_fim.
+describe('calcularVencimentoAnterior — inverso de calcularProximoVencimento (calendário real)', () => {
+  test('MONTHLY: 1 mês pra trás', () => {
+    const resultado = calcularVencimentoAnterior(new Date('2026-08-10T12:00:00Z'), 'MONTHLY')
+    assert.equal(resultado.toISOString(), new Date('2026-07-10T12:00:00Z').toISOString())
+  })
+  test('YEARLY: 1 ano pra trás', () => {
+    const resultado = calcularVencimentoAnterior(new Date('2026-08-10T12:00:00Z'), 'YEARLY')
+    assert.equal(resultado.toISOString(), new Date('2025-08-10T12:00:00Z').toISOString())
+  })
+  test('WEEKLY: 7 dias corridos pra trás (ciclo em dias fixos, não mês de calendário)', () => {
+    const resultado = calcularVencimentoAnterior(new Date('2026-08-10T12:00:00Z'), 'WEEKLY')
+    assert.equal(resultado.toISOString(), new Date('2026-08-03T12:00:00Z').toISOString())
+  })
+  test('é o inverso exato de calcularProximoVencimento — ida e volta reproduz a mesma data', () => {
+    const dataOriginal = new Date('2026-05-15T09:00:00Z')
+    const proximo = calcularProximoVencimento(dataOriginal, 'MONTHLY')
+    const volta = calcularVencimentoAnterior(proximo, 'MONTHLY')
+    assert.equal(volta.toISOString(), dataOriginal.toISOString())
+  })
+})
+
+describe('duracaoCicloDiasReal — duração REAL do ciclo (calendário de verdade, não aproximação 30/360)', () => {
+  test('ciclo MONTHLY que atravessa fevereiro (28 dias em 2026, não bissexto) => 28, não 30', () => {
+    // licenca_fim = 10/mar; início do ciclo (calcularVencimentoAnterior) = 10/fev.
+    const licencaFim = new Date('2026-03-10T00:00:00Z')
+    assert.equal(duracaoCicloDiasReal(licencaFim, 'MONTHLY'), 28)
+  })
+  test('ciclo MONTHLY num mês de 31 dias (julho) => 31, não 30', () => {
+    // licenca_fim = 10/ago; início do ciclo = 10/jul (31 dias).
+    const licencaFim = new Date('2026-08-10T00:00:00Z')
+    assert.equal(duracaoCicloDiasReal(licencaFim, 'MONTHLY'), 31)
+  })
+  test('ciclo WEEKLY => sempre 7 dias exatos (dias fixos, sem variação de calendário)', () => {
+    const licencaFim = new Date('2026-08-10T00:00:00Z')
+    assert.equal(duracaoCicloDiasReal(licencaFim, 'WEEKLY'), 7)
+  })
+  test('ciclo YEARLY sem fevereiro bissexto no meio => 365, não 360', () => {
+    const licencaFim = new Date('2026-08-10T00:00:00Z')
+    assert.equal(duracaoCicloDiasReal(licencaFim, 'YEARLY'), 365)
+  })
+})
+
+describe('diasRestantesCicloAtual', () => {
+  const AGORA = new Date('2026-07-10T12:00:00Z')
+  const DIA_MS = 86_400_000
+
+  test('metade do ciclo restante', () => {
+    const licencaFim = new Date(AGORA.getTime() + 15 * DIA_MS)
+    assert.equal(diasRestantesCicloAtual(licencaFim, 30, AGORA), 15)
+  })
+  test('ciclo inteiro restante (acabou de renovar)', () => {
+    const licencaFim = new Date(AGORA.getTime() + 30 * DIA_MS)
+    assert.equal(diasRestantesCicloAtual(licencaFim, 30, AGORA), 30)
+  })
+  test('licenca_fim além do ciclo (não deveria acontecer, mas nunca ultrapassa 100% do ciclo)', () => {
+    const licencaFim = new Date(AGORA.getTime() + 90 * DIA_MS)
+    assert.equal(diasRestantesCicloAtual(licencaFim, 30, AGORA), 30)
+  })
+  test('licenca_fim já vencido => 0 dias restantes, nunca negativo', () => {
+    const licencaFim = new Date(AGORA.getTime() - 5 * DIA_MS)
+    assert.equal(diasRestantesCicloAtual(licencaFim, 30, AGORA), 0)
+  })
+})
+
+describe('calcularValorProporcionalUpgrade — valores monetários em centavos, nunca ponto flutuante direto', () => {
+  test('metade do ciclo restante => metade da diferença', () => {
+    const valor = calcularValorProporcionalUpgrade({ valorAtual: 100, valorNovo: 200, diasRestantesCiclo: 15, cicloDias: 30 })
+    assert.equal(valor, 50)
+  })
+  test('ciclo inteiro restante => diferença cheia', () => {
+    const valor = calcularValorProporcionalUpgrade({ valorAtual: 100, valorNovo: 200, diasRestantesCiclo: 30, cicloDias: 30 })
+    assert.equal(valor, 100)
+  })
+  test('nenhum dia restante (upgrade no último instante do ciclo) => 0', () => {
+    const valor = calcularValorProporcionalUpgrade({ valorAtual: 100, valorNovo: 200, diasRestantesCiclo: 0, cicloDias: 30 })
+    assert.equal(valor, 0)
+  })
+  test('cicloDias <= 0 (proteção defensiva, nunca deveria acontecer) => 0, nunca divide por zero', () => {
+    const valor = calcularValorProporcionalUpgrade({ valorAtual: 100, valorNovo: 200, diasRestantesCiclo: 10, cicloDias: 0 })
+    assert.equal(valor, 0)
+  })
+  test('nunca negativo, mesmo se valorNovo < valorAtual por engano (proteção defensiva — validarUpgradePlano já bloqueia isso antes)', () => {
+    const valor = calcularValorProporcionalUpgrade({ valorAtual: 200, valorNovo: 100, diasRestantesCiclo: 15, cicloDias: 30 })
+    assert.equal(valor, 0)
+  })
+  test('centavos: valores com fração não acumulam erro de ponto flutuante', () => {
+    // (219.90 - 99.90) * (10/30) = 120 * 0.333... = 40.00 (arredondado em
+    // centavos, não em ponto flutuante direto)
+    const valor = calcularValorProporcionalUpgrade({ valorAtual: 99.9, valorNovo: 219.9, diasRestantesCiclo: 10, cicloDias: 30 })
+    assert.equal(valor, 40)
+  })
+})
+
+// Fase 8A (correção pós-revisão) — o gate que decide se o webhook precisa
+// sincronizar a assinatura Asaas ANTES de aplicar um plano pendente (ver
+// tratarWebhookAsaas). Só verdadeiro pra pagamento_confirmado que está de
+// fato aplicando uma troca de plano (tinha pendência + dados!=null).
+// Fase 8A (correção pós-revisão) — pagamentoConfirmaPendencia é o novo 4º
+// sinal que deveSincronizarAssinaturaAntesDeAplicar passou a exigir: sem
+// isso, uma renovação normal confirmando enquanto um upgrade está pendente
+// sincronizaria a assinatura Asaas pro valor do plano PENDENTE mesmo sem
+// aplicar a troca de verdade (ver comentário na função).
+describe('pagamentoConfirmaPendencia', () => {
+  test('sem payment.id esperado (null) => permissivo, qualquer pagamento corresponde', () => {
+    assert.equal(pagamentoConfirmaPendencia('pay_qualquer', null), true)
+  })
+  test('sem payment.id esperado (undefined) => permissivo, mesmo raciocínio', () => {
+    assert.equal(pagamentoConfirmaPendencia('pay_qualquer', undefined), true)
+  })
+  test('payment.id esperado e o pagamento confirmado é EXATAMENTE esse => true', () => {
+    assert.equal(pagamentoConfirmaPendencia('pay_upgrade_1', 'pay_upgrade_1'), true)
+  })
+  test('payment.id esperado mas o pagamento confirmado é OUTRO (ex.: renovação normal) => false', () => {
+    assert.equal(pagamentoConfirmaPendencia('pay_renovacao_2', 'pay_upgrade_1'), false)
+  })
+})
+
+describe('deveSincronizarAssinaturaAntesDeAplicar', () => {
+  test('pagamento_confirmado + tinha pendência + dados aplicados + payment correto => true', () => {
+    assert.equal(deveSincronizarAssinaturaAntesDeAplicar('pagamento_confirmado', true, { status: 'ACTIVE' }, true), true)
+  })
+  test('pagamento_confirmado + tinha pendência + dados aplicados MAS payment NÃO corresponde (renovação normal) => false', () => {
+    assert.equal(deveSincronizarAssinaturaAntesDeAplicar('pagamento_confirmado', true, { status: 'ACTIVE' }, false), false)
+  })
+  test('pagamento_confirmado sem pendência (renovação normal) => false', () => {
+    assert.equal(deveSincronizarAssinaturaAntesDeAplicar('pagamento_confirmado', false, { status: 'ACTIVE' }, true), false)
+  })
+  test('pagamento_confirmado com pendência mas dados=null (ex.: SUSPENDED bloqueou antes) => false', () => {
+    assert.equal(deveSincronizarAssinaturaAntesDeAplicar('pagamento_confirmado', true, null, true), false)
+  })
+  test('pagamento_vencido nunca sincroniza, mesmo com pendência e payment correspondente', () => {
+    assert.equal(deveSincronizarAssinaturaAntesDeAplicar('pagamento_vencido', true, { status: 'ACTIVE' }, true), false)
+  })
+  test('assinatura_cancelada nunca sincroniza, mesmo com pendência e payment correspondente', () => {
+    assert.equal(deveSincronizarAssinaturaAntesDeAplicar('assinatura_cancelada', true, { status: 'SUSPENDED' }, true), false)
+  })
+})
+
 describe('asaasClient — nunca vaza a API key', () => {
   test('erro de uma chamada Asaas com falha não contém a API key configurada', async () => {
     const apiKeyOriginal = process.env.ASAAS_API_KEY
@@ -833,6 +1070,121 @@ describe('atualizarBillingTypeCobrancaAsaas — regularização self-service (Fa
       assert.deepEqual(corpo, { billingType: 'UNDEFINED', value: 149.9, dueDate: '2026-09-08' })
     } finally {
       globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+})
+
+describe('criarCobrancaAvulsaAsaas / atualizarValorAssinaturaAsaas — upgrade self-service (Fase 8A)', () => {
+  test('criarCobrancaAvulsaAsaas faz POST /payments SEM subscription (cobrança avulsa, não do ciclo recorrente)', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+
+    let urlChamada: string | undefined
+    let metodoChamado: string | undefined
+    let corpoChamado: string | undefined
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      urlChamada = String(url)
+      metodoChamado = init?.method
+      corpoChamado = init?.body as string
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          id: 'pay_avulso_1', status: 'PENDING', value: 40, customer: 'cus_1', subscription: null,
+          dueDate: '2026-07-10', paymentDate: null, invoiceUrl: 'https://sandbox.asaas.com/i/pay_avulso_1',
+        }),
+      } as Response
+    }) as typeof fetch
+
+    try {
+      const cobranca = await criarCobrancaAvulsaAsaas('cus_1', {
+        value: 40, dueDate: '2026-07-10', description: 'Upgrade de plano', externalReference: 'plano-growth',
+      })
+      assert.match(urlChamada ?? '', /\/payments$/)
+      assert.equal(metodoChamado, 'POST')
+      const corpo = JSON.parse(corpoChamado ?? '{}')
+      assert.equal(corpo.customer, 'cus_1')
+      assert.equal(corpo.billingType, 'UNDEFINED')
+      assert.equal(corpo.value, 40)
+      assert.equal(corpo.subscription, undefined)
+      assert.equal(cobranca.invoiceUrl, 'https://sandbox.asaas.com/i/pay_avulso_1')
+    } finally {
+      globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('atualizarValorAssinaturaAsaas faz PUT /subscriptions/:id com value e updatePendingPayments:true (repetir com o mesmo valor é seguro/idempotente do lado do Asaas)', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+
+    let urlChamada: string | undefined
+    let metodoChamado: string | undefined
+    let corpoChamado: string | undefined
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      urlChamada = String(url)
+      metodoChamado = init?.method
+      corpoChamado = init?.body as string
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: 'sub_1', status: 'ACTIVE', nextDueDate: '2026-08-10' }),
+      } as Response
+    }) as typeof fetch
+
+    try {
+      await atualizarValorAssinaturaAsaas('sub_1', 200)
+      assert.match(urlChamada ?? '', /\/subscriptions\/sub_1$/)
+      assert.equal(metodoChamado, 'PUT')
+      assert.deepEqual(JSON.parse(corpoChamado ?? '{}'), { value: 200, updatePendingPayments: true })
+    } finally {
+      globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('criarCobrancaAvulsaAsaas também bloqueia produção, mesmo padrão das demais chamadas Asaas', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    process.env.ASAAS_API_KEY = 'qualquer-coisa'
+    process.env.ASAAS_ENV = 'production'
+    try {
+      await assert.rejects(
+        () => criarCobrancaAvulsaAsaas('cus_1', { value: 40, dueDate: '2026-07-10', description: 'x' }),
+        /não é permitido nesta fase/
+      )
+    } finally {
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('atualizarValorAssinaturaAsaas também bloqueia produção, mesmo padrão das demais chamadas Asaas', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    process.env.ASAAS_API_KEY = 'qualquer-coisa'
+    process.env.ASAAS_ENV = 'production'
+    try {
+      await assert.rejects(() => atualizarValorAssinaturaAsaas('sub_1', 200), /não é permitido nesta fase/)
+    } finally {
       if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
       else process.env.ASAAS_API_KEY = apiKeyOriginal
       if (envOriginal === undefined) delete process.env.ASAAS_ENV

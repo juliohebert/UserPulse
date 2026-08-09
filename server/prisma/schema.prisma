@@ -104,6 +104,18 @@ model Tenant {
   // fase). Nenhuma rota desta fase escreve neste campo ainda — só a base de
   // dados está sendo preparada (ver docs da Fase 6 completa).
   plano_pendente_id String?
+  // Fase 8A — correlaciona o plano_pendente_id acima com a cobrança Asaas
+  // exata que precisa confirmar pra aplicá-lo (ver solicitarUpgrade em
+  // controllers/billing.ts, que grava o payment.id da cobrança proporcional
+  // avulsa aqui). Sem isso, QUALQUER pagamento confirmado do tenant
+  // aplicava o plano pendente (renovação normal da assinatura, por
+  // exemplo) — agora tratarWebhookAsaas só aplica quando
+  // acao.paymentId === este campo. null é permissivo de propósito
+  // (mantém o comportamento antigo pra conversão trial->pago, que nunca
+  // captura o payment.id — ver criarAssinatura, não alterado nesta fase):
+  // sem um payment.id esperado pra comparar, qualquer pagamento confirmado
+  // do tenant ainda aplica, exatamente como sempre funcionou.
+  plano_pendente_payment_id String?
   // Vínculo com o Asaas (gateway de pagamento, integração fundação/sandbox —
   // ver server/src/services/asaasClient.ts). Nada aqui é escrito automático
   // fora de: ação explícita do SUPER_ADMIN (criar cliente/assinatura, ver

@@ -712,6 +712,42 @@ export interface PagarCobrancaResposta {
   invoiceUrl: string | null
 }
 
+// Fase 8A — upgrade self-service pra plano superior (tenant já pago). Nunca
+// inclui preço calculado pelo frontend — valorProporcional/planoNovo.valor
+// vêm sempre do backend (ver GET /billing/upgrade/preview e POST
+// /billing/upgrade em controllers/billing.ts, validarECalcularUpgrade).
+interface PlanoResumoUpgrade {
+  id: string
+  nome: string
+  valor: string | number | null
+  ciclo: string | null
+}
+
+// GET /billing/upgrade/preview — sem efeito colateral nenhum (nunca chama o
+// Asaas, nunca escreve no banco), só pra mostrar o resumo antes de
+// confirmar (plano atual, plano novo, valor proporcional do restante do
+// ciclo, próximo ciclo com valor integral).
+export interface UpgradePreviewResposta {
+  planoAtual: PlanoResumoUpgrade | null
+  planoNovo: PlanoResumoUpgrade
+  valorProporcional: number
+  diasRestantesCiclo: number
+  cicloDias: number
+}
+
+// POST /billing/upgrade — mesmos campos da prévia, mais o link de
+// pagamento da cobrança proporcional avulsa recém-criada. plano_id nunca é
+// aplicado aqui: fica em plano_pendente_id até o webhook confirmar (ver
+// SituacaoBillingResposta.planoPendente acima, reaproveitado tanto pro
+// fluxo de contratação quanto pro de upgrade).
+export interface UpgradeSolicitadoResposta {
+  valorProporcional: number
+  diasRestantesCiclo: number
+  cicloDias: number
+  invoiceUrl: string | null
+  planoNovo: PlanoResumoUpgrade
+}
+
 export interface TenantAdminDetail extends Omit<TenantAdminItem, '_count'> {
   admins: AdminDoTenant[]
 }

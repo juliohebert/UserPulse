@@ -1,11 +1,14 @@
 import { Request, Response } from 'express'
+import type { Plano, Tenant } from '@prisma/client'
 import prisma from '../lib/prisma'
-import { obterSituacaoComercialTenant } from '../lib/tenantGuards'
+import { obterSituacaoComercialTenant, situacaoAdimplenciaTenant, type TenantComPlano } from '../lib/tenantGuards'
 import {
   criarClienteAsaas, criarAssinaturaAsaas, atualizarClienteAsaas, buscarCobrancaAsaas,
   listarCobrancasAsaas, atualizarBillingTypeCobrancaAsaas,
   calcularSituacaoAsaas, buscarEntradaSituacaoAsaas, validarPlanoParaAssinaturaSelfService,
   validarCobrancaParaRegularizacao, bloqueioOperacaoFinanceiraSelfService,
+  validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, duracaoCicloDiasReal,
+  diasRestantesCicloAtual, calcularValorProporcionalUpgrade, criarCobrancaAvulsaAsaas,
 } from '../services/asaasClient'
 import { extrairDadosBilling, dadosCobrancaAsaas, type BillingBody } from './adminTenantsAsaas'
 
@@ -317,5 +320,177 @@ export async function pagarCobranca(req: Request, res: Response) {
   } catch (err) {
     console.error('Erro ao preparar pagamento de cobrança self-service:', err)
     res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao preparar pagamento no Asaas.' })
+  }
+}
+
+// ─── Fase 8A — upgrade de plano self-service ────────────────────────────────
+// Só pra tenant que já É pago (asaas_subscription_id/asaas_customer_id já
+// vinculados — quem ainda não tem assinatura usa POST /billing/assinatura
+// acima, não esta rota). Cobra só a diferença proporcional do restante do
+// ciclo atual como uma cobrança AVULSA (criarCobrancaAvulsaAsaas — nunca
+// mexe na assinatura recorrente aqui: isso só acontece depois que o
+// pagamento confirma, ver tratarWebhookAsaas em asaasClient.ts, que
+// atualiza o VALOR da assinatura ANTES de aplicar a troca, nunca depois).
+// plano_id NUNCA é escrito aqui — só plano_pendente_id, mesmo padrão de
+// criarAssinatura: o Tenant continua no plano atual até a confirmação
+// financeira aplicar de verdade. Preço/plano SEMPRE recarregados do banco
+// por id (nunca confia em valor vindo do frontend).
+
+type ValidacaoUpgrade =
+  | { ok: true; planoNovo: Plano; valorProporcional: number; diasRestantesCiclo: number; cicloDias: number }
+  | { ok: false; status: number; erro: string }
+
+// Recorte mínimo de campos que validarECalcularUpgrade realmente lê — Pick<>
+// (não TenantComPlano inteiro) de propósito, mesmo padrão de
+// TenantParaSituacao em tenantGuards.ts: mantém a função testável com um
+// objeto pequeno em vez de precisar simular um Tenant completo (ver
+// billing.test.ts, que testa os 4 bloqueios — SUSPENDED/CANCELED/
+// tolerância/inadimplência — sem tocar Prisma, já que todos retornam antes
+// de qualquer consulta ao banco).
+export type TenantParaUpgrade = Pick<Tenant, 'status' | 'trial_fim' | 'licenca_fim' | 'asaas_subscription_id' | 'plano_pendente_id'> & {
+  plano: Pick<Plano, 'id' | 'nome' | 'ativo' | 'interno' | 'eh_plano_trial' | 'asaas_subscription_value' | 'asaas_billing_cycle'> | null
+}
+
+// Reaproveitada por previewUpgrade (só calcula, nunca escreve nada) e
+// solicitarUpgrade (calcula e efetivamente cobra) — a MESMA validação e o
+// MESMO cálculo, pra nunca a prévia mostrar um valor e a confirmação cobrar
+// outro. Nenhuma chamada ao Asaas aqui dentro (só leitura no banco) —
+// segura de chamar livremente, sem efeito colateral. Exportada só pra
+// teste direto (ver billing.test.ts) — nunca importada por outro
+// controller, continua de uso interno deste arquivo.
+export async function validarECalcularUpgrade(tenant: TenantParaUpgrade, planoIdBruto: unknown): Promise<ValidacaoUpgrade> {
+  const motivoBloqueio = bloqueioOperacaoFinanceiraSelfService(tenant.status)
+  if (motivoBloqueio) return { ok: false, status: 403, erro: motivoBloqueio }
+
+  // Fase 8A (correção pós-revisão) — nunca permite upgrade fora de "em dia"
+  // (situacaoAdimplenciaTenant, Fase 7): cobre tanto tolerância (ainda
+  // opera normalmente, mas tem cobrança vencida em aberto) quanto
+  // tolerância expirada (inadimplência de verdade). Reaproveitada sem
+  // alteração — nunca duplica a regra. Motivo prático: misturar uma
+  // cobrança vencida com uma troca de plano complicaria demais o
+  // updatePendingPayments do PUT da assinatura (ver atualizarValorAssinaturaAsaas)
+  // — com o tenant sempre em dia antes de chegar aqui, a única cobrança
+  // PENDING que pode existir na assinatura é a do próximo ciclo, nunca uma
+  // vencida do ciclo atual.
+  if (situacaoAdimplenciaTenant(tenant) !== 'em_dia') {
+    return { ok: false, status: 403, erro: 'Regularize os pagamentos em aberto antes de solicitar um upgrade de plano.' }
+  }
+
+  if (!tenant.asaas_subscription_id) {
+    return { ok: false, status: 400, erro: 'Tenant ainda não tem uma assinatura ativa. Contrate um plano antes de solicitar upgrade.' }
+  }
+
+  const motivoPendencia = motivoUpgradePendenteBloqueiaNovaTroca(tenant.plano_pendente_id)
+  if (motivoPendencia) return { ok: false, status: 409, erro: motivoPendencia }
+
+  const planoId = typeof planoIdBruto === 'string' ? planoIdBruto.trim() : ''
+  if (!planoId) return { ok: false, status: 400, erro: 'plano_id é obrigatório.' }
+
+  const planoNovo = await prisma.plano.findUnique({ where: { id: planoId } })
+  const motivoPlano = validarUpgradePlano(tenant.plano, planoNovo)
+  if (motivoPlano) return { ok: false, status: 400, erro: motivoPlano }
+
+  // Fase 8A (correção pós-revisão) — precisa de licenca_fim de verdade pra
+  // calcular a duração REAL do ciclo (duracaoCicloDiasReal inverte o
+  // cálculo de vencimento a partir dele, ver asaasClient.ts) — sem essa
+  // data não dá pra saber onde o ciclo atual começou, então bloqueia em vez
+  // de arriscar uma aproximação (não deveria acontecer pra um tenant já
+  // pago e em dia, mas defensivo).
+  if (!tenant.licenca_fim) {
+    return { ok: false, status: 400, erro: 'Não foi possível calcular o ciclo atual da assinatura (sem data de vencimento). Sincronize a assinatura antes de tentar novamente.' }
+  }
+  const cicloDias = duracaoCicloDiasReal(tenant.licenca_fim, tenant.plano!.asaas_billing_cycle)
+  const diasRestantes = diasRestantesCicloAtual(tenant.licenca_fim, cicloDias)
+  const valorProporcional = calcularValorProporcionalUpgrade({
+    valorAtual: Number(tenant.plano!.asaas_subscription_value ?? 0),
+    valorNovo: Number(planoNovo!.asaas_subscription_value),
+    diasRestantesCiclo: diasRestantes,
+    cicloDias,
+  })
+
+  // Fase 8A (correção pós-revisão) — nunca cria cobrança de valor zero no
+  // Asaas (provavelmente nem seria aceita) nem aplica o plano de graça sem
+  // nenhuma confirmação financeira (quebraria "nunca altera plano_id antes
+  // da confirmação"). Acontece só num upgrade solicitado bem perto do fim
+  // do ciclo atual — tentar de novo já no próximo ciclo resolve.
+  if (valorProporcional <= 0) {
+    return { ok: false, status: 400, erro: 'Não há valor proporcional a cobrar neste ciclo. Você poderá fazer o upgrade após a próxima renovação.' }
+  }
+
+  return { ok: true, planoNovo: planoNovo!, valorProporcional, diasRestantesCiclo: Math.ceil(diasRestantes), cicloDias }
+}
+
+// Prévia SEM efeito colateral nenhum (nunca chama o Asaas, nunca escreve no
+// banco) — existe pra Minha Assinatura mostrar plano atual/novo/valor
+// proporcional/próximo ciclo ANTES do cliente confirmar, sem o frontend
+// precisar calcular nada sozinho (regra explícita da tarefa).
+export async function previewUpgrade(req: Request, res: Response) {
+  try {
+    const tenant = req.adminUser!.tenant
+    const resultado = await validarECalcularUpgrade(tenant, req.query.plano_id)
+    if (!resultado.ok) { res.status(resultado.status).json({ erro: resultado.erro }); return }
+
+    res.json({
+      planoAtual: tenant.plano && {
+        id: tenant.plano.id, nome: tenant.plano.nome,
+        valor: tenant.plano.asaas_subscription_value, ciclo: tenant.plano.asaas_billing_cycle,
+      },
+      planoNovo: {
+        id: resultado.planoNovo.id, nome: resultado.planoNovo.nome,
+        valor: resultado.planoNovo.asaas_subscription_value, ciclo: resultado.planoNovo.asaas_billing_cycle,
+      },
+      valorProporcional: resultado.valorProporcional,
+      diasRestantesCiclo: resultado.diasRestantesCiclo,
+      cicloDias: resultado.cicloDias,
+    })
+  } catch (err) {
+    console.error('Erro ao calcular prévia de upgrade de plano:', err)
+    res.status(500).json({ erro: 'Erro ao calcular prévia de upgrade.' })
+  }
+}
+
+export async function solicitarUpgrade(req: Request, res: Response) {
+  try {
+    const tenant = req.adminUser!.tenant
+    const { plano_id } = req.body as { plano_id?: string }
+    const resultado = await validarECalcularUpgrade(tenant, plano_id)
+    if (!resultado.ok) { res.status(resultado.status).json({ erro: resultado.erro }); return }
+
+    const hoje = new Date().toISOString().slice(0, 10)
+    const cobranca = await criarCobrancaAvulsaAsaas(tenant.asaas_customer_id!, {
+      value: resultado.valorProporcional,
+      dueDate: hoje,
+      description: `Upgrade de plano: ${tenant.plano!.nome} para ${resultado.planoNovo.nome} (proporcional do ciclo atual)`,
+      externalReference: resultado.planoNovo.id,
+    })
+
+    // plano_pendente_id/plano_pendente_payment_id gravados só DEPOIS que a
+    // cobrança foi criada com sucesso no Asaas — se a criação falhar (catch
+    // abaixo), nada muda no Tenant, nenhuma pendência órfã sem cobrança
+    // nenhuma pra confirmar. plano_pendente_payment_id (Fase 8A, correção
+    // pós-revisão) é o que o webhook usa pra só aplicar este upgrade quando
+    // EXATAMENTE esta cobrança confirmar — nunca uma renovação normal ou
+    // qualquer outro pagamento do tenant (ver pagamentoConfirmaPendencia em
+    // asaasClient.ts).
+    await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { plano_pendente_id: resultado.planoNovo.id, plano_pendente_payment_id: cobranca.id },
+    })
+
+    res.status(201).json({
+      valorProporcional: resultado.valorProporcional,
+      diasRestantesCiclo: resultado.diasRestantesCiclo,
+      cicloDias: resultado.cicloDias,
+      invoiceUrl: cobranca.invoiceUrl || cobranca.bankSlipUrl || null,
+      planoNovo: {
+        id: resultado.planoNovo.id,
+        nome: resultado.planoNovo.nome,
+        valor: resultado.planoNovo.asaas_subscription_value,
+        ciclo: resultado.planoNovo.asaas_billing_cycle,
+      },
+    })
+  } catch (err) {
+    console.error('Erro ao solicitar upgrade de plano self-service:', err)
+    res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao solicitar upgrade no Asaas.' })
   }
 }
