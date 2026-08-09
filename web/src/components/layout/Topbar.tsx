@@ -239,7 +239,7 @@ export function Topbar({ collapsed }: Props) {
             <button
               type="button"
               onClick={() => setNovoAberto(v => !v)}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-full bg-primary px-5 text-label-md font-bold text-on-primary shadow-sm shadow-primary/20 transition-all hover:scale-[1.03] active:scale-95"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-gradient-to-br from-primary via-[#0457cb] to-[#003a8c] px-6 text-body-md font-bold text-on-primary shadow-sm shadow-primary/20 transition-all hover:opacity-95 active:scale-95"
               aria-haspopup="menu"
               aria-expanded={novoAberto}
             >

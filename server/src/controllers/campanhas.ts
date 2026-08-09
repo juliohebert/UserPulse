@@ -682,6 +682,77 @@ export async function remover(req: Request, res: Response) {
   }
 }
 
+export async function duplicar(req: Request, res: Response) {
+  try {
+    const tenantId = req.adminUser!.tenant_id
+    const tenant = req.adminUser!.tenant
+
+    const bloqueioEscrita = motivoBloqueioEscrita(tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+
+    const id = req.params.id as string
+    const original = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId } })
+    if (!original) return res.status(404).json({ erro: 'Campanha não encontrada.' })
+
+    const tituloCopia = `Cópia de ${original.titulo}`
+    const slug = await slugUnico(tenantId, gerarSlugBase(tituloCopia))
+
+    // A cópia nasce inativa para não publicar automaticamente e não herda
+    // feedbacks, eventos, confirmações nem etapas de jornada da campanha original.
+    const copia = await prisma.campanha.create({
+      data: {
+        tenant_id: tenantId,
+        slug,
+        titulo: tituloCopia,
+        subtitulo: original.subtitulo,
+        descricao: original.descricao,
+        tipo: original.tipo,
+        sistema: original.sistema,
+        tela: original.tela,
+        imagem_url: original.imagem_url,
+        video_url: original.video_url,
+        texto_botao: original.texto_botao,
+        url_botao: original.url_botao,
+        feedback_habilitado: original.feedback_habilitado,
+        modo_exibicao: original.modo_exibicao,
+        gatilho: original.gatilho,
+        evento: original.evento,
+        modo_identificacao: original.modo_identificacao,
+        data_cy: original.data_cy,
+        url_contem: original.url_contem,
+        atraso_ms: original.atraso_ms,
+        mostrar_uma_vez: original.mostrar_uma_vez,
+        prioridade: original.prioridade,
+        ordem: original.ordem,
+        ativo: false,
+        data_inicio: original.data_inicio,
+        data_fim: original.data_fim,
+        pergunta_feedback: original.pergunta_feedback,
+        observacao_obrigatoria: original.observacao_obrigatoria,
+        exige_confirmacao_leitura: original.exige_confirmacao_leitura,
+        permitir_fechar_modal: original.permitir_fechar_modal,
+        intervalo_reexibicao_dias: original.intervalo_reexibicao_dias,
+        politica_reexibicao: original.politica_reexibicao,
+        reexibir_apos_dias: original.reexibir_apos_dias,
+        encerrar_apos_evento: original.encerrar_apos_evento,
+        evento_conclusao: original.evento_conclusao,
+        categoria: original.categoria,
+        segmentar_cliente_ids: original.segmentar_cliente_ids,
+        segmentar_unidade_ids: original.segmentar_unidade_ids,
+        segmentar_perfis: original.segmentar_perfis,
+        segmentar_usuario_tipos: original.segmentar_usuario_tipos,
+        segmentar_estados: original.segmentar_estados,
+      },
+      include: { _count: { select: { feedbacks: true } } },
+    })
+
+    res.status(201).json(copia)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao duplicar campanha.' })
+  }
+}
+
 export async function testarElegibilidade(req: Request, res: Response) {
   try {
     const id = req.params.id as string

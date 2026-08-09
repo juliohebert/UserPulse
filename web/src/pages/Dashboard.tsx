@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/ui/StatusBadge'
 import { TypeBadge } from '../components/ui/TypeBadge'
 import { LoadingSpinner, ErrorState } from '../components/ui/EmptyState'
 import { Button } from '../components/ui/Button'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useAuth } from '../hooks/useAuth'
 import { podeEscreverConteudo, podeEscreverConfiguracao } from '../utils/permissions'
 
@@ -187,6 +188,9 @@ export function Dashboard() {
   const [tours, setTours] = useState<TourGuiado[]>([])
   const [toursLoading, setToursLoading] = useState(true)
   const [toursError, setToursError] = useState(false)
+  const [campanhaInativar, setCampanhaInativar] = useState<Campanha | null>(null)
+  const [inativandoId, setInativandoId] = useState<string | null>(null)
+  const [erroConfirmacao, setErroConfirmacao] = useState<string | null>(null)
   const navigate = useNavigate()
 
   const load = () => {
@@ -314,13 +318,19 @@ export function Dashboard() {
     ? 'Comece criando sua primeira campanha ou tour guiado para engajar os usuários.'
     : `${ativas} campanha${ativas === 1 ? '' : 's'} ativa${ativas === 1 ? '' : 's'} e ${toursAtivos} tour${toursAtivos === 1 ? '' : 's'} guiado${toursAtivos === 1 ? '' : 's'} ajudando seus usuários agora.`
 
-  const handleInativar = async (id: string) => {
-    if (!window.confirm('Deseja inativar esta campanha? Ela deixará de ser exibida para os usuários, mas o histórico será preservado.')) return
+  const confirmarInativacao = async () => {
+    if (!campanhaInativar) return
+    const id = campanhaInativar.id
+    setInativandoId(id)
+    setErroConfirmacao(null)
     try {
       await del(`/campanhas/${id}`)
       setCampanhas(prev => prev.map(c => c.id === id ? { ...c, ativo: false } : c))
+      setCampanhaInativar(null)
     } catch {
-      alert('Erro ao inativar campanha.')
+      setErroConfirmacao('Erro ao inativar campanha. Tente novamente.')
+    } finally {
+      setInativandoId(null)
     }
   }
 
@@ -473,7 +483,7 @@ export function Dashboard() {
                         <thead>
                           <tr className="border-y border-outline-variant/30">
                             <th className="px-5 py-2.5 text-label-md text-on-surface-variant font-semibold">Título</th>
-                            <th className="px-5 py-2.5 text-label-md text-on-surface-variant font-semibold">Status</th>
+                            <th className="px-5 py-2.5 text-label-md text-on-surface-variant font-semibold text-center">Status</th>
                             <th className="px-5 py-2.5 text-label-md text-on-surface-variant font-semibold">Tipo</th>
                             <th className="px-5 py-2.5 text-label-md text-on-surface-variant font-semibold">Respostas</th>
                             <th className="px-5 py-2.5 text-label-md text-on-surface-variant font-semibold text-right">Ações</th>
@@ -490,7 +500,7 @@ export function Dashboard() {
                                     <span className="text-[11px] text-on-surface-variant">{c.sistema} · {c.tela}</span>
                                   </div>
                                 </td>
-                                <td className="px-5 py-4">
+                                <td className="px-5 py-4 text-center">
                                   <StatusBadge status={getStatus(c)} />
                                 </td>
                                 <td className="px-5 py-4">
@@ -515,7 +525,7 @@ export function Dashboard() {
                                       <span className="material-symbols-outlined text-[18px]">query_stats</span>
                                     </button>
                                     {podeEscrever && (
-                                      <button onClick={() => handleInativar(c.id)} title="Inativar" aria-label={`Inativar ${c.titulo}`} className="p-2 text-on-surface-variant hover:text-error rounded-lg transition-colors">
+                                      <button onClick={() => { setErroConfirmacao(null); setCampanhaInativar(c) }} title="Inativar" aria-label={`Inativar ${c.titulo}`} className="p-2 text-on-surface-variant hover:text-error rounded-lg transition-colors">
                                         <span className="material-symbols-outlined text-[18px]">block</span>
                                       </button>
                                     )}
@@ -640,6 +650,18 @@ export function Dashboard() {
             </>
           )}
         </>
+      )}
+      {campanhaInativar && (
+        <ConfirmDialog
+          title={`Inativar "${campanhaInativar.titulo}"?`}
+          description="Ela deixará de ser exibida para os usuários, mas o histórico de respostas será preservado."
+          confirmLabel="Inativar campanha"
+          variant="danger"
+          loading={inativandoId === campanhaInativar.id}
+          erro={erroConfirmacao}
+          onConfirm={confirmarInativacao}
+          onCancel={() => { setCampanhaInativar(null); setErroConfirmacao(null) }}
+        />
       )}
     </section>
   )

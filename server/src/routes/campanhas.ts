@@ -6,6 +6,7 @@ const router = Router()
 
 router.get('/', campanhas.listar)
 router.post('/', requireEscritaConteudo, campanhas.criar)
+router.post('/:id/duplicar', requireEscritaConteudo, campanhas.duplicar)
 router.get('/:id', campanhas.buscarPorId)
 router.put('/:id', requireEscritaConteudo, campanhas.atualizar)
 // DELETE aqui é "inativar" (o controller só marca ativo:false, nunca

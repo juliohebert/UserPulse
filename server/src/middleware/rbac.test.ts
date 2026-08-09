@@ -82,6 +82,9 @@ describe('RBAC — wiring das rotas de escrita', () => {
   test('PUT /campanhas/:id usa requireEscritaConteudo', () => {
     assert.ok(handlersDaRota(campanhasRouter, 'put', '/:id').includes(requireEscritaConteudo))
   })
+  test('POST /campanhas/:id/duplicar usa requireEscritaConteudo', () => {
+    assert.ok(handlersDaRota(campanhasRouter, 'post', '/:id/duplicar').includes(requireEscritaConteudo))
+  })
   test('DELETE /campanhas/:id (inativar, não exclui de verdade) usa requireEscritaConteudo — não a exclusão restrita a ADMIN', () => {
     const handlers = handlersDaRota(campanhasRouter, 'delete', '/:id')
     assert.ok(handlers.includes(requireEscritaConteudo))

@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams, type NavigateFunction } from 'react-router-dom'
-import { del, get, post, put } from '../../services/api'
+import { del, get, post } from '../../services/api'
 import type { TourExportEnvelope, TourGuiado, TourGuiadoListaPaginada } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
 import { downloadJson } from '../../utils/tour'
-import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
-import { Select } from '../../components/ui/Select'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { DesignStatusBadge } from '../../components/ui/DesignStatusBadge'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
 
@@ -18,42 +18,104 @@ const PAGE_SIZE = 10
 const BUSCA_DEBOUNCE_MS = 300
 
 type StatusFiltro = 'todos' | 'ativos' | 'inativos'
+type SortKey = 'tour' | 'sistema' | 'status' | 'passos' | 'atualizado'
+type SortDirection = 'asc' | 'desc'
+type ColumnKey = SortKey | 'acoes'
+type FiltroPassos = 'todos' | 'com' | 'sem'
+
+const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
+  { label: 'Tour', key: 'tour', sortKey: 'tour' },
+  { label: 'Sistema', key: 'sistema', sortKey: 'sistema' },
+  { label: 'Status', key: 'status', sortKey: 'status' },
+  { label: 'Passos', key: 'passos', sortKey: 'passos' },
+  { label: 'Atualizado em', key: 'atualizado', sortKey: 'atualizado' },
+  { label: 'Ações', key: 'acoes', sortKey: null },
+]
+
+const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
+  tour: true,
+  sistema: true,
+  status: true,
+  passos: true,
+  atualizado: true,
+  acoes: true,
+}
+
+const STATUS_FILTRO: Array<{ value: StatusFiltro; label: string }> = [
+  { value: 'todos', label: 'Todos' },
+  { value: 'ativos', label: 'Ativos' },
+  { value: 'inativos', label: 'Inativos' },
+]
+
+function MetricCard({ label, value, icon }: { label: string; value: string | number; icon: string }) {
+  return (
+    <div className="rounded-2xl border border-l-[8px] border-outline-variant/40 border-l-primary bg-surface-container-lowest px-5 py-4 shadow-sm transition-shadow hover:shadow-md">
+      <div className="flex items-center gap-2">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <span className="material-symbols-outlined text-[16px]">{icon}</span>
+        </span>
+        <p className="text-label-md font-bold text-on-surface-variant">{label}</p>
+      </div>
+      <p className="mt-2 text-headline-md font-bold leading-none text-on-surface">{value}</p>
+    </div>
+  )
+}
+
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-label-md font-bold text-primary">
+      {label}
+      <button type="button" onClick={onRemove} aria-label={`Remover filtro ${label}`} className="rounded-full p-0.5 transition-colors hover:text-error">
+        <span className="material-symbols-outlined text-[14px] leading-none">close</span>
+      </button>
+    </span>
+  )
+}
+
+function FilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: Array<{ value: string; label: string }>
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-label-md font-bold text-on-surface-variant">{label}</span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="h-10 w-full rounded-xl border border-outline-variant bg-surface-bright px-3 text-body-md text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+      >
+        {options.map(option => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  )
+}
 
 // Sem nenhum filtro preenchido isso vira uma query string só com page/pageSize
 // — a listagem chama a mesma consulta de sempre, preservando o comportamento
 // atual quando nenhum filtro é aplicado (mesmo padrão de montarQuery em
 // web/src/pages/tours/Dashboard.tsx).
-function montarQueryTours(busca: string, sistema: string, status: StatusFiltro, pagina: number): string {
+function montarQueryTours(busca: string, sistema: string, status: StatusFiltro, passos: FiltroPassos, pagina: number, sort: { key: SortKey; direction: SortDirection } | null): string {
   const params = new URLSearchParams()
   params.set('page', String(pagina))
   params.set('pageSize', String(PAGE_SIZE))
   if (busca.trim()) params.set('busca', busca.trim())
   if (sistema) params.set('sistema', sistema)
   if (status !== 'todos') params.set('status', status)
+  if (passos !== 'todos') params.set('passos', passos)
+  if (sort) {
+    params.set('sortKey', sort.key)
+    params.set('sortDirection', sort.direction)
+  }
   return `?${params.toString()}`
-}
-
-// Mesmo padrão visual dos KPIs de /campanhas (ícone + número grande + rótulo).
-function KpiCard({
-  label, icon, iconBg, iconColor, value,
-}: {
-  label: string
-  icon: string
-  iconBg: string
-  iconColor: string
-  value: string | number
-}) {
-  return (
-    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:border-primary/40 transition-all p-5 flex flex-col gap-3">
-      <div className="min-w-0 flex items-center gap-2.5">
-        <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
-          <span className="material-symbols-outlined text-[19px]">{icon}</span>
-        </span>
-        <p className="text-label-md font-medium text-on-surface-variant truncate">{label}</p>
-      </div>
-      <p className="text-headline-md font-bold text-on-surface leading-none">{value}</p>
-    </div>
-  )
 }
 
 export function ToursIndex() {
@@ -69,16 +131,25 @@ export function ToursIndex() {
   const [error, setError] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const [busca, setBusca] = useState(() => searchParams.get('busca') ?? '')
+  const [buscaAberta, setBuscaAberta] = useState(false)
+  const [colunasAberto, setColunasAberto] = useState(false)
+  const [filtrosAberto, setFiltrosAberto] = useState(false)
+  const [colunasVisiveis, setColunasVisiveis] = useState(COLUNAS_INICIAIS)
+  const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
   const [filterSistema, setFilterSistema] = useState('')
   const [filterAtivo, setFilterAtivo] = useState<StatusFiltro>('todos')
+  const [filterPassos, setFilterPassos] = useState<FiltroPassos>('todos')
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [exportandoId, setExportandoId] = useState<string | null>(null)
   const [removendoId, setRemovendoId] = useState<string | null>(null)
+  const [tourRemover, setTourRemover] = useState<TourGuiado | null>(null)
   const [modalImportarAberto, setModalImportarAberto] = useState(false)
   const [importarViaGravador, setImportarViaGravador] = useState(false)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   const navigate = useNavigate()
   const redirectTimer = useRef<number | null>(null)
+  const colunasRef = useRef<HTMLDivElement | null>(null)
+  const filtrosRef = useRef<HTMLDivElement | null>(null)
   // Ignora o primeiro disparo do efeito de debounce da busca — a carga
   // inicial (mount) já é feita à parte, logo abaixo.
   const primeiraRenderRef = useRef(true)
@@ -102,6 +173,34 @@ export function ToursIndex() {
     setSearchParams(next, { replace: true })
   }, [busca, searchParams, setSearchParams])
 
+  useEffect(() => {
+    if (!colunasAberto) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (colunasRef.current && !colunasRef.current.contains(e.target as Node)) setColunasAberto(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setColunasAberto(false) }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [colunasAberto])
+
+  useEffect(() => {
+    if (!filtrosAberto) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (filtrosRef.current && !filtrosRef.current.contains(e.target as Node)) setFiltrosAberto(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setFiltrosAberto(false) }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [filtrosAberto])
+
   // Vindo do Gravador de Fluxo ("Copiar e abrir importação" no widget): o JSON
   // já foi copiado pra área de transferência lá — aqui só abre o modal
   // sozinho, pra o usuário colar. O parâmetro nunca carrega o JSON em si (só
@@ -118,17 +217,17 @@ export function ToursIndex() {
   // page é sempre o pedido explicitamente por quem chama load() — nunca lido
   // de volta de `data` no meio do caminho, pra não haver corrida entre um
   // clique de página e um filtro mudando ao mesmo tempo.
-  const load = (buscaAtual: string, sistemaAtual: string, statusAtual: StatusFiltro, pagina: number) => {
+  const load = (buscaAtual: string, sistemaAtual: string, statusAtual: StatusFiltro, pagina: number, sortAtual = sort, passosAtual = filterPassos) => {
     setLoading(true)
     setError(null)
-    get<TourGuiadoListaPaginada>(`/tours${montarQueryTours(buscaAtual, sistemaAtual, statusAtual, pagina)}`)
+    get<TourGuiadoListaPaginada>(`/tours${montarQueryTours(buscaAtual, sistemaAtual, statusAtual, passosAtual, pagina, sortAtual)}`)
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(busca, '', 'todos', 1) }, [])
+  useEffect(() => { load(busca, '', 'todos', 1, null, 'todos') }, [])
 
   // Debounce só da busca — status/sistema mudam por clique único (sem
   // motivo pra atrasar) e já chamam load() direto nos próprios handlers.
@@ -150,37 +249,26 @@ export function ToursIndex() {
     setBusca('')
     setFilterSistema('')
     setFilterAtivo('todos')
-    load('', '', 'todos', 1)
+    setFilterPassos('todos')
+    load('', '', 'todos', 1, sort, 'todos')
   }
-  const hasFilters = Boolean(busca || filterSistema || filterAtivo !== 'todos')
+  const totalFiltrosAtivos = [Boolean(filterSistema), filterAtivo !== 'todos', filterPassos !== 'todos'].filter(Boolean).length
+  const hasFilters = Boolean(busca || totalFiltrosAtivos > 0)
+  const totalColunasSelecionadas = TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).length
 
   const mudarSistema = (v: string) => { setFilterSistema(v); load(busca, v, filterAtivo, 1) }
   const mudarStatus = (v: StatusFiltro) => { setFilterAtivo(v); load(busca, filterSistema, v, 1) }
   const mudarPagina = (p: number) => load(busca, filterSistema, filterAtivo, p)
-
-  const STATUS_TABS = [
-    { key: 'todos' as const, label: 'Todos', icon: 'apps', count: resumo.total },
-    { key: 'ativos' as const, label: 'Ativos', icon: 'play_circle', count: resumo.ativos },
-    { key: 'inativos' as const, label: 'Inativos', icon: 'pause_circle', count: resumo.inativos },
-  ]
-
-  // Otimista, igual antes — só na página atual (data.items). O resumo/KPIs
-  // (contagens da base inteira, vindas do servidor) só ficam 100% em dia de
-  // novo na próxima busca/troca de página; aceitável pela mesma razão de não
-  // recarregar a lista inteira a cada toggle.
-  const toggleAtivo = async (tour: TourGuiado) => {
-    setData(prev => prev && {
-      ...prev,
-      items: prev.items.map(t => (t.id === tour.id ? { ...t, ativo: !t.ativo } : t)),
-    })
-    try {
-      await put(`/tours/${tour.id}`, { ativo: !tour.ativo })
-    } catch {
-      setData(prev => prev && {
-        ...prev,
-        items: prev.items.map(t => (t.id === tour.id ? { ...t, ativo: tour.ativo } : t)),
-      })
-    }
+  const limparBusca = () => { setBusca(''); setBuscaAberta(false); load('', filterSistema, filterAtivo, 1) }
+  const alternarColuna = (key: ColumnKey) => {
+    if (key === 'tour') return
+    setColunasVisiveis(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+  const mudarPassos = (v: FiltroPassos) => { setFilterPassos(v); load(busca, filterSistema, filterAtivo, 1, sort, v) }
+  const ordenarPor = (key: SortKey) => {
+    const next = sort?.key === key ? { key, direction: sort.direction === 'asc' ? 'desc' as const : 'asc' as const } : { key, direction: 'asc' as const }
+    setSort(next)
+    load(busca, filterSistema, filterAtivo, 1, next)
   }
 
   const duplicarTour = async (tour: TourGuiado) => {
@@ -198,13 +286,15 @@ export function ToursIndex() {
     }
   }
 
-  const removerTour = async (tour: TourGuiado) => {
-    if (!window.confirm('Remover este item? Esta ação não poderá ser desfeita.')) return
+  const removerTour = async () => {
+    if (!tourRemover) return
+    const tour = tourRemover
     setRemovendoId(tour.id)
     setMensagem(null)
     try {
       await del(`/tours/${tour.id}`)
       setMensagem({ tipo: 'sucesso', texto: 'Tour removido com sucesso.' })
+      setTourRemover(null)
       // Recarrega a página atual — remover muda o total/paginação (não dá pra
       // só tirar o item da lista local sem também reconferir total/resumo).
       load(busca, filterSistema, filterAtivo, paginaAtual)
@@ -253,69 +343,7 @@ export function ToursIndex() {
 
   return (
     <div>
-      <section className="px-4 lg:px-margin-desktop py-5">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-          <div>
-            <h2 className="text-title-lg font-bold text-on-surface">Tours Guiados</h2>
-            <p className="text-body-md text-on-surface-variant mt-0.5">
-              {resumo.total === 0
-                ? 'Ainda não foram criados tours.'
-                : `${resumo.total} ${resumo.total === 1 ? 'tour' : 'tours'} no total`}
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto shrink-0">
-            <Button
-              variant="ghost"
-              onClick={() => navigate('/tours/guia')}
-              fullWidthMobile
-              iconLeft={<span className="material-symbols-outlined text-[18px]">menu_book</span>}
-            >
-              Guia de Uso
-            </Button>
-            {podeExcluirOuImportar && (
-              <Button
-                variant="ghost"
-                onClick={() => { setImportarViaGravador(false); setModalImportarAberto(true) }}
-                fullWidthMobile
-                iconLeft={<span className="material-symbols-outlined text-[18px]">upload_file</span>}
-              >
-                Importar JSON
-              </Button>
-            )}
-            {podeEscrever && (
-              <>
-                <Button
-                  variant="ghost"
-                  onClick={() => navigate('/tours/gravador')}
-                  fullWidthMobile
-                  iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
-                >
-                  Gravar fluxo
-                </Button>
-                <Button
-                  onClick={() => navigate('/tours/novo')}
-                  fullWidthMobile
-                  iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
-                >
-                  Novo Tour Guiado
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* KPIs — sempre os totais da base inteira (resumo, vindo do servidor
-            sem filtro nenhum), igual ao comportamento de antes. */}
-        {resumo.total > 0 && (
-          <div className={`grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5 ${loading ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}`}>
-            <KpiCard label="Total de Tours" icon="list_alt" iconBg="bg-primary/10" iconColor="text-primary" value={resumo.total} />
-            <KpiCard label="Tours Ativos" icon="play_circle" iconBg="bg-tertiary/10" iconColor="text-tertiary" value={resumo.ativos} />
-            <KpiCard label="Tours Inativos" icon="pause_circle" iconBg="bg-outline-variant/40" iconColor="text-on-surface-variant" value={resumo.inativos} />
-            <KpiCard label="Total de Passos" icon="route" iconBg="bg-secondary/10" iconColor="text-secondary" value={resumo.total_passos.toLocaleString('pt-BR')} />
-          </div>
-        )}
-
+      <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
         {mensagem && (
           <div className={`mb-4 p-3 rounded-xl text-body-md flex items-center gap-2 ${
             mensagem.tipo === 'sucesso' ? 'bg-tertiary/10 text-tertiary' : 'bg-error-container text-on-error-container'
@@ -325,81 +353,197 @@ export function ToursIndex() {
           </div>
         )}
 
-        {/* Filters */}
-        <div className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant mb-5 shadow-sm space-y-2.5">
-          {/* Search */}
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline text-[18px] pointer-events-none">search</span>
-            <input
-              value={busca}
-              onChange={e => setBusca(e.target.value)}
-              placeholder="Buscar tour por título ou sistema..."
-              className="w-full h-11 pl-9 pr-3 bg-surface-bright border border-outline-variant rounded-xl text-body-md focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
+        <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-visible">
+          <div className="px-5 py-4 border-b border-outline-variant/30 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0">
+              <h3 className="text-title-lg font-bold text-on-surface">Tours Guiados</h3>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto shrink-0">
+              <Button
+                variant="ghost"
+                onClick={() => navigate('/tours/guia')}
+                fullWidthMobile
+                iconLeft={<span className="material-symbols-outlined text-[18px]">menu_book</span>}
+              >
+                Guia de Uso
+              </Button>
+              {podeExcluirOuImportar && (
+                <Button
+                  variant="ghost"
+                  onClick={() => { setImportarViaGravador(false); setModalImportarAberto(true) }}
+                  fullWidthMobile
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">upload_file</span>}
+                >
+                  Importar JSON
+                </Button>
+              )}
+              {podeEscrever && (
+                <>
+                  <Button
+                    variant="ghost"
+                    onClick={() => navigate('/tours/gravador')}
+                    fullWidthMobile
+                    iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
+                  >
+                    Gravar fluxo
+                  </Button>
+                  <Button
+                    onClick={() => navigate('/tours/novo')}
+                    variant="gradient"
+                    size="lg"
+                    fullWidthMobile
+                    iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
+                  >
+                    Novo Tour Guiado
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
 
-          {/* Status tabs + sistema + limpar filtros */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <div className="grid grid-cols-3 sm:flex sm:items-center gap-1 p-1 bg-surface-container rounded-xl w-full sm:w-fit">
-              {STATUS_TABS.map(tab => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 p-5 border-b border-outline-variant/30 bg-surface-container-low/30">
+            <MetricCard label="Total de tours" value={resumo.total.toLocaleString('pt-BR')} icon="map" />
+            <MetricCard label="Tours ativos" value={resumo.ativos.toLocaleString('pt-BR')} icon="play_circle" />
+            <MetricCard label="Tours inativos" value={resumo.inativos.toLocaleString('pt-BR')} icon="pause_circle" />
+            <MetricCard label="Total de passos" value={resumo.total_passos.toLocaleString('pt-BR')} icon="format_list_numbered" />
+          </div>
+
+          <div className="flex flex-col gap-3 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-lowest xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="flex items-center gap-1.5 text-label-md font-bold uppercase tracking-wide text-on-surface-variant">
+                <span className="material-symbols-outlined text-[16px] text-primary">list_alt</span>
+                Localizados
+              </p>
+              <p className="text-label-md text-outline">
+                {totalFiltrado.toLocaleString('pt-BR')} de {resumo.total.toLocaleString('pt-BR')} tour{resumo.total === 1 ? '' : 's'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 xl:justify-end">
+              {buscaAberta ? (
+                <div className="relative w-full min-w-[220px] xl:w-80">
+                  <span className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-outline">search</span>
+                  <input
+                    autoFocus
+                    value={busca}
+                    onChange={e => setBusca(e.target.value)}
+                    placeholder="Filtrar por título ou sistema..."
+                    className="h-9 w-full rounded-xl border border-outline-variant bg-surface-bright pl-9 pr-9 text-body-md focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={limparBusca}
+                    aria-label="Limpar busca"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-outline transition-colors hover:text-on-surface"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">close</span>
+                  </button>
+                </div>
+              ) : busca ? (
                 <button
-                  key={tab.key}
-                  onClick={() => mudarStatus(tab.key)}
-                  className={`flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-label-md font-bold transition-all ${
-                    filterAtivo === tab.key
-                      ? 'bg-surface-bright text-on-surface shadow-sm'
-                      : 'text-on-surface-variant hover:text-on-surface'
-                  }`}
+                  type="button"
+                  onClick={() => { setBuscaAberta(true); setColunasAberto(false); setFiltrosAberto(false) }}
+                  className="inline-flex h-9 max-w-[260px] items-center gap-2 rounded-xl border border-outline-variant bg-surface-bright px-3 text-label-md font-bold text-on-surface transition-colors hover:border-primary/50 hover:text-primary"
                 >
-                  <span className={`material-symbols-outlined text-[16px] ${
-                    filterAtivo === tab.key
-                      ? tab.key === 'ativos' ? 'text-tertiary' : tab.key === 'inativos' ? 'text-outline' : 'text-primary'
-                      : ''
-                  }`}>
-                    {tab.icon}
-                  </span>
-                  {tab.label}
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                    filterAtivo === tab.key ? 'bg-primary/10 text-primary' : 'bg-surface-container-high text-on-surface-variant'
-                  }`}>
-                    {tab.count}
-                  </span>
+                  <span className="material-symbols-outlined text-[18px]">search</span>
+                  <span className="truncate">{busca}</span>
                 </button>
-              ))}
-            </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setBuscaAberta(true); setColunasAberto(false); setFiltrosAberto(false) }}
+                  aria-label="Buscar tour"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-outline-variant bg-surface-bright text-on-surface transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  <span className="material-symbols-outlined text-[20px]">search</span>
+                </button>
+              )}
 
-            <div className="w-full sm:w-56">
-              <Select
-                value={filterSistema}
-                onChange={mudarSistema}
-                placeholder="Todos os sistemas"
-                options={[
-                  { value: '', label: 'Todos os sistemas' },
-                  ...sistemas.map(s => ({ value: s, label: s })),
-                ]}
-              />
-            </div>
+              <div className="relative" ref={colunasRef}>
+                <button
+                  type="button"
+                  onClick={() => { setColunasAberto(v => !v); setBuscaAberta(false); setFiltrosAberto(false) }}
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-outline-variant bg-surface-bright px-3 text-label-md font-bold text-on-surface transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  <span className="material-symbols-outlined text-[18px]">view_column</span>
+                  Colunas
+                  <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">{totalColunasSelecionadas}</span>
+                </button>
+                {colunasAberto && (
+                  <div className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-xl">
+                    <div className="border-b border-outline-variant/30 px-4 py-3"><p className="text-label-md font-bold text-on-surface">Colunas visíveis</p></div>
+                    <div className="p-2">
+                      <button type="button" onClick={() => setColunasVisiveis(COLUNAS_INICIAIS)} className="mb-1 flex w-full items-center justify-between rounded-xl px-3 py-2 text-body-md font-bold text-primary transition-colors hover:bg-primary-fixed">
+                        Mostrar todas
+                        <span className="material-symbols-outlined text-[16px]">select_all</span>
+                      </button>
+                      {TABLE_COLUMNS.map(col => (
+                        <label key={col.key} className="flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-body-md text-on-surface transition-colors hover:bg-surface-container-low">
+                          <input type="checkbox" checked={colunasVisiveis[col.key]} disabled={col.key === 'tour'} onChange={() => alternarColuna(col.key)} className="h-4 w-4 rounded border-outline-variant text-primary focus:ring-primary" />
+                          <span className={col.key === 'tour' ? 'text-on-surface-variant' : ''}>{col.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
 
-            {hasFilters && (
-              <button
-                onClick={clearFilters}
-                className="flex items-center gap-1 sm:ml-auto text-label-md text-on-surface-variant hover:text-error transition-colors"
-              >
-                <span className="material-symbols-outlined text-[16px]">filter_list_off</span>
+              <div className="relative" ref={filtrosRef}>
+                <button
+                  type="button"
+                  onClick={() => { setFiltrosAberto(v => !v); setColunasAberto(false); setBuscaAberta(false) }}
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-outline-variant bg-surface-bright px-3 text-label-md font-bold text-on-surface transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  <span className="material-symbols-outlined text-[18px]">filter_list</span>
+                  Filtros
+                  {totalFiltrosAtivos > 0 && <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">{totalFiltrosAtivos}</span>}
+                </button>
+                {filtrosAberto && (
+                  <div className="absolute right-0 z-[80] mt-2 max-h-[min(32rem,calc(100vh-8rem))] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-xl">
+                    <div className="flex items-center justify-between gap-3 border-b border-outline-variant/30 px-4 py-3">
+                      <p className="text-label-md font-bold text-on-surface">Filtrar tours</p>
+                      {totalFiltrosAtivos > 0 && <button type="button" onClick={clearFilters} className="text-label-md font-bold text-primary hover:underline">Limpar</button>}
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 p-4">
+                      <FilterSelect label="Status" value={filterAtivo} options={STATUS_FILTRO} onChange={value => mudarStatus(value as StatusFiltro)} />
+                      <FilterSelect
+                        label="Sistema"
+                        value={filterSistema}
+                        options={[{ value: '', label: 'Todos os sistemas' }, ...sistemas.map(s => ({ value: s, label: s }))]}
+                        onChange={mudarSistema}
+                      />
+                      <FilterSelect
+                        label="Passos"
+                        value={filterPassos}
+                        options={[
+                          { value: 'todos', label: 'Todos' },
+                          { value: 'com', label: 'Com passos' },
+                          { value: 'sem', label: 'Sem passos' },
+                        ]}
+                        onChange={value => mudarPassos(value as FiltroPassos)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {hasFilters && (
+            <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-low/30">
+              {busca && <FilterChip label={busca} onRemove={() => { setBusca(''); load('', filterSistema, filterAtivo, 1) }} />}
+              {filterSistema && <FilterChip label={filterSistema} onRemove={() => mudarSistema('')} />}
+              {filterAtivo !== 'todos' && (
+                <FilterChip label={filterAtivo === 'ativos' ? 'Ativos' : 'Inativos'} onRemove={() => mudarStatus('todos')} />
+              )}
+              {filterPassos !== 'todos' && (
+                <FilterChip label={filterPassos === 'com' ? 'Com passos' : 'Sem passos'} onRemove={() => mudarPassos('todos')} />
+              )}
+              <button type="button" onClick={clearFilters} className="ml-auto text-label-md font-bold text-on-surface-variant transition-colors hover:text-error">
                 Limpar filtros
               </button>
-            )}
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-outline-variant/30">
-            <h3 className="text-title-lg font-bold text-on-surface">Tours</h3>
-            <p className="text-label-md text-on-surface-variant mt-0.5">
-              {`Mostrando ${totalFiltrado} ${totalFiltrado === 1 ? 'tour' : 'tours'} conforme os filtros aplicados`}
-            </p>
-          </div>
+            </div>
+          )}
 
           {error && (
             <p className="px-5 py-3 text-label-md text-error flex items-center gap-1.5 border-b border-outline-variant/30">
@@ -432,48 +576,57 @@ export function ToursIndex() {
                   cortando a coluna de Ações. xl (1280px) garante ~1032px de conteúdo,
                   e overflow-x-auto é a rede de segurança para telas ainda mais
                   apertadas (não deixa as ações serem cortadas, rola em vez disso). */}
-              <div className="overflow-x-auto hidden xl:block">
-                <table className="w-full">
+              <div className="hidden xl:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-outline-variant/40 text-left">
-                      <th className="px-5 py-3 text-label-md font-semibold text-on-surface-variant">Título</th>
-                      <th className="px-5 py-3 text-label-md font-semibold text-on-surface-variant whitespace-nowrap">Sistema</th>
-                      <th className="px-5 py-3 text-label-md font-semibold text-on-surface-variant whitespace-nowrap">Status</th>
-                      <th className="px-5 py-3 text-label-md font-semibold text-on-surface-variant whitespace-nowrap">Passos</th>
-                      <th className="px-5 py-3 text-label-md font-semibold text-on-surface-variant whitespace-nowrap">Atualizado em</th>
-                      <th className="px-5 py-3 text-label-md font-semibold text-on-surface-variant text-right whitespace-nowrap">Ações</th>
+                    <tr className="bg-surface-container-low/50 border-b border-outline-variant/40">
+                      {TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).map(col => {
+                        const active = sort?.key === col.sortKey
+                        const align = col.key === 'acoes' ? ' text-right' : col.key === 'status' || col.key === 'passos' ? ' text-center' : ''
+                        return (
+                          <th key={col.key} className={`px-4 py-3 text-[11px] text-on-surface-variant font-bold uppercase tracking-wide whitespace-nowrap${align}`}>
+                            {col.sortKey ? (
+                              <button type="button" onClick={() => ordenarPor(col.sortKey!)} className="inline-flex items-center gap-1 rounded-lg transition-colors hover:text-primary">
+                                {col.label}
+                                <span className={`material-symbols-outlined text-[14px] leading-none transition-opacity ${active ? 'opacity-100' : 'opacity-35'}`}>
+                                  {active && sort.direction === 'desc' ? 'keyboard_arrow_down' : 'keyboard_arrow_up'}
+                                </span>
+                              </button>
+                            ) : col.label}
+                          </th>
+                        )
+                      })}
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-outline-variant/20">
                     {items.map(tour => (
-                      <tr key={tour.id} className="group border-b border-outline-variant/20 last:border-0 hover:bg-surface-container-low/60 transition-colors">
-                        <td className="px-5 py-3.5 align-middle">
+                      <tr key={tour.id} className={`group transition-colors ${!tour.ativo ? 'opacity-60' : ''} hover:bg-surface-container-low/60`}>
+                        {colunasVisiveis.tour && <td className="px-4 py-4 align-middle max-w-[360px]">
                           {podeEscrever ? (
                             <button
                               onClick={() => navigate(`/tours/${tour.id}/editar`)}
-                              className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left"
+                              className="text-body-md font-bold text-on-surface hover:text-primary transition-colors text-left"
                             >
                               {tour.titulo}
                             </button>
                           ) : (
-                            <span className="text-body-md font-semibold text-on-surface">{tour.titulo}</span>
+                            <span className="text-body-md font-bold text-on-surface">{tour.titulo}</span>
                           )}
                           {tour.descricao && (
                             <p className="text-label-sm text-on-surface-variant truncate max-w-xs">{tour.descricao}</p>
                           )}
-                        </td>
-                        <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{tour.sistema}</td>
-                        <td className="px-5 py-3.5 align-middle whitespace-nowrap">
-                          <div className="flex items-center gap-2.5">
-                            {podeEscrever && <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />}
+                        </td>}
+                        {colunasVisiveis.sistema && <td className="px-4 py-4 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{tour.sistema}</td>}
+                        {colunasVisiveis.status && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-2.5">
                             <StatusBadge ativo={tour.ativo} />
                           </div>
-                        </td>
-                        <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">
+                        </td>}
+                        {colunasVisiveis.passos && <td className="px-4 py-4 align-middle text-body-md font-bold text-center text-on-surface whitespace-nowrap">
                           {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
-                        </td>
-                        <td className="px-5 py-3.5 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{formatDateTime(tour.atualizado_em)}</td>
-                        <td className="px-5 py-3.5 align-middle whitespace-nowrap">
+                        </td>}
+                        {colunasVisiveis.atualizado && <td className="px-4 py-4 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{formatDateTime(tour.atualizado_em)}</td>}
+                        {colunasVisiveis.acoes && <td className="px-4 py-4 align-middle whitespace-nowrap">
                           <div className="flex items-center justify-end opacity-70 group-hover:opacity-100 transition-opacity">
                             <TourActions
                               tour={tour}
@@ -483,12 +636,12 @@ export function ToursIndex() {
                               exportandoId={exportandoId}
                               onExportar={exportarTour}
                               removendoId={removendoId}
-                              onRemover={removerTour}
+                              onRemover={setTourRemover}
                               podeEscrever={podeEscrever}
                               podeExcluir={podeExcluirOuImportar}
                             />
                           </div>
-                        </td>
+                        </td>}
                       </tr>
                     ))}
                   </tbody>
@@ -496,19 +649,19 @@ export function ToursIndex() {
               </div>
 
               {/* Abaixo de xl (mobile, tablet e telas menores com sidebar aberta): cards */}
-              <div className="xl:hidden divide-y divide-outline-variant/50">
+              <div className="xl:hidden divide-y divide-outline-variant/20">
                 {items.map(tour => (
-                  <div key={tour.id} className="p-4">
+                  <div key={tour.id} className={`p-4 ${!tour.ativo ? 'opacity-60' : ''}`}>
                     <div className="flex items-start justify-between gap-3 mb-1.5">
                       {podeEscrever ? (
                         <button
                           onClick={() => navigate(`/tours/${tour.id}/editar`)}
-                          className="text-body-md font-semibold text-on-surface hover:text-primary transition-colors text-left min-w-0 truncate"
+                          className="text-body-md font-bold text-on-surface hover:text-primary transition-colors text-left min-w-0 truncate"
                         >
                           {tour.titulo}
                         </button>
                       ) : (
-                        <span className="text-body-md font-semibold text-on-surface min-w-0 truncate">{tour.titulo}</span>
+                        <span className="text-body-md font-bold text-on-surface min-w-0 truncate">{tour.titulo}</span>
                       )}
                     </div>
                     {tour.descricao && (
@@ -516,7 +669,6 @@ export function ToursIndex() {
                     )}
                     <div className="flex flex-wrap items-center gap-2 mb-3">
                       <div className="flex items-center gap-2">
-                        <ToggleSwitch checked={tour.ativo} onChange={() => toggleAtivo(tour)} />
                         <StatusBadge ativo={tour.ativo} />
                       </div>
                       <span className="text-label-sm text-on-surface-variant">{tour.sistema}</span>
@@ -535,7 +687,7 @@ export function ToursIndex() {
                           exportandoId={exportandoId}
                           onExportar={exportarTour}
                           removendoId={removendoId}
-                          onRemover={removerTour}
+                          onRemover={setTourRemover}
                           podeEscrever={podeEscrever}
                           podeExcluir={podeExcluirOuImportar}
                           size="lg"
@@ -560,21 +712,24 @@ export function ToursIndex() {
           avisoColar={importarViaGravador}
         />
       )}
+
+      {tourRemover && (
+        <ConfirmDialog
+          title={`Remover "${tourRemover.titulo}"?`}
+          description="Esta ação não poderá ser desfeita. O tour e seus passos serão removidos permanentemente."
+          confirmLabel="Remover tour"
+          variant="danger"
+          loading={removendoId === tourRemover.id}
+          onConfirm={removerTour}
+          onCancel={() => setTourRemover(null)}
+        />
+      )}
     </div>
   )
 }
 
-// Ponto + texto em vez de pill preenchida — mesmo padrão leve usado em
-// /campanhas, pra não competir visualmente com o ToggleSwitch ao lado.
 function StatusBadge({ ativo }: { ativo: boolean }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold whitespace-nowrap ${
-      ativo ? 'text-tertiary' : 'text-outline'
-    }`}>
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ativo ? 'bg-tertiary' : 'bg-outline'}`} />
-      {ativo ? 'Ativo' : 'Inativo'}
-    </span>
-  )
+  return <DesignStatusBadge variant={ativo ? 'success' : 'neutral'}>{ativo ? 'Ativo' : 'Inativo'}</DesignStatusBadge>
 }
 
 function TourActions({
@@ -593,14 +748,14 @@ function TourActions({
   size?: 'md' | 'lg'
 }) {
   const btnPad = size === 'lg' ? 'p-2' : 'p-1.5'
-  const btnCls = `${btnPad} rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors`
+  const btnCls = `${btnPad} rounded-full text-on-surface-variant hover:bg-surface-container-high transition-colors`
   return (
     <>
-      <button onClick={() => navigate(`/tours/${tour.id}/dashboard`)} title="Dashboard" aria-label={`Abrir dashboard de ${tour.titulo}`} className={btnCls}>
-        <span className="material-symbols-outlined text-[18px]">monitoring</span>
+      <button onClick={() => navigate(`/tours/${tour.id}/preview`)} title="Preview" aria-label={`Abrir preview de ${tour.titulo}`} className={`${btnPad} rounded-full text-on-surface-variant hover:text-primary hover:bg-primary-fixed transition-colors`}>
+        <span className="material-symbols-outlined text-[18px]">visibility</span>
       </button>
-      <button onClick={() => navigate(`/tours/${tour.id}/preview`)} title="Testar tour" aria-label={`Testar ${tour.titulo}`} className={btnCls}>
-        <span className="material-symbols-outlined text-[18px]">play_circle</span>
+      <button onClick={() => navigate(`/tours/${tour.id}/dashboard`)} title="Ver dashboard" aria-label={`Abrir dashboard de ${tour.titulo}`} className={`${btnPad} rounded-full text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed transition-colors`}>
+        <span className="material-symbols-outlined text-[18px]">query_stats</span>
       </button>
       {podeEscrever && (
         <button onClick={() => navigate(`/tours/${tour.id}/editar`)} title="Editar" aria-label={`Editar ${tour.titulo}`} className={btnCls}>
@@ -625,7 +780,7 @@ function TourActions({
           disabled={removendoId === tour.id}
           title="Remover"
           aria-label={`Remover ${tour.titulo}`}
-          className={`${btnPad} rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-40`}
+          className={`${btnPad} rounded-full text-error hover:bg-error-container transition-colors disabled:opacity-40`}
         >
           <span className={`material-symbols-outlined text-[18px] ${removendoId === tour.id ? 'animate-spin' : ''}`}>
             {removendoId === tour.id ? 'progress_activity' : 'delete'}

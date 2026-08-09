@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
-type ButtonSize = 'sm' | 'md'
+type ButtonVariant = 'primary' | 'gradient' | 'secondary' | 'ghost' | 'danger'
+type ButtonSize = 'sm' | 'md' | 'lg'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant
@@ -15,6 +15,7 @@ const base = 'inline-flex items-center justify-center gap-2 rounded-full text-la
 
 const variants: Record<ButtonVariant, string> = {
   primary: 'bg-primary text-on-primary shadow-sm hover:opacity-90',
+  gradient: 'bg-gradient-to-br from-primary via-[#0457cb] to-[#003a8c] text-on-primary shadow-sm hover:opacity-95',
   secondary: 'border-2 border-on-surface text-on-surface hover:bg-surface-container-low',
   ghost: 'border border-outline-variant text-on-surface-variant hover:bg-surface-container-low',
   danger: 'bg-error text-on-error hover:opacity-90',
@@ -23,6 +24,7 @@ const variants: Record<ButtonVariant, string> = {
 const sizes: Record<ButtonSize, string> = {
   sm: 'px-4 py-2',
   md: 'px-5 py-2.5',
+  lg: 'px-6 py-3 text-body-md',
 }
 
 export function Button({
