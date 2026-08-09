@@ -452,6 +452,11 @@ export interface TenantResumo {
   // de trial_fim (ver server/src/lib/tenantGuards.ts, diasRestantesTrial) —
   // nunca recalcular esta conta no frontend. null quando trial_fim é null.
   trial_dias_restantes: number | null
+  // Fase 7 — dias restantes da tolerância de inadimplência (assinatura paga
+  // vencida), já calculado pelo backend a partir de licenca_fim (ver
+  // diasRestantesTolerancia em tenantGuards.ts) — nunca recalcular no
+  // frontend. null quando situacao_comercial não é 'licenca_vencida'.
+  tolerancia_dias_restantes: number | null
   plano: PlanoResumo | null
 }
 

@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import { AdminRole, Plano, Prisma, Tenant, TenantStatus } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { ADMIN_SESSION_COOKIE, SESSION_MAX_AGE, sessionCookieOptions, signSessionToken } from '../lib/auth'
-import { diasRestantesTrial, obterSituacaoComercialTenant, resolverDuracaoTrialDias, resolverPlanoTrial } from '../lib/tenantGuards'
+import { diasRestantesTolerancia, diasRestantesTrial, obterSituacaoComercialTenant, resolverDuracaoTrialDias, resolverPlanoTrial } from '../lib/tenantGuards'
 import { emailService } from '../lib/email/EmailService'
 import {
   REDEFINICAO_SENHA_VALIDADE_MINUTOS, calcularExpiracaoRedefinicaoSenha,
@@ -44,6 +44,13 @@ function tenantPublico(t: Tenant & { plano: Plano | null }) {
     // quando o tenant não tem trial_fim definido, mesmo caso de
     // situacao_comercial acima.
     trial_dias_restantes: diasRestantesTrial(t.trial_fim),
+    // Fase 7 — dias restantes da tolerância de inadimplência (assinatura
+    // paga vencida), calculados em runtime a partir de licenca_fim (nunca
+    // persistido). null quando não está em 'licenca_vencida' — nunca expõe
+    // data/status financeiro bruto aqui, só o número de dias (regra
+    // explícita da tarefa; datas/status detalhados continuam exclusivos de
+    // Minha Assinatura, ver GET /api/billing/situacao).
+    tolerancia_dias_restantes: diasRestantesTolerancia(t),
     plano: t.plano && {
       id: t.plano.id,
       nome: t.plano.nome,

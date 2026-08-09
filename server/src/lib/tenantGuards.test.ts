@@ -5,6 +5,8 @@ import {
   motivoLimiteAtivosAtingido, resolverPlanoTrial, resolverDuracaoTrialDias, TRIAL_DIAS_PADRAO,
   diasRestantesTrial, motivoBloqueioOperacionalTrial,
   motivoLimiteTrialAtingido, deveChecarLimiteCadastro,
+  situacaoAdimplenciaTenant, diasRestantesTolerancia, motivoBloqueioOperacionalInadimplencia,
+  TOLERANCIA_INADIMPLENCIA_DIAS,
 } from './tenantGuards'
 import type { Plano } from '@prisma/client'
 
@@ -105,12 +107,26 @@ describe('motivoBloqueioEscrita — bloqueia todo mundo "vencido", libera o rest
   test('ACTIVE com licença em dia não bloqueia', () => {
     assert.equal(motivoBloqueioEscrita({ status: 'ACTIVE', trial_fim: null, licenca_fim: futuro(30) }, AGORA), null)
   })
-  test('ACTIVE com licença vencida bloqueia com mensagem de licença', () => {
-    const motivo = motivoBloqueioEscrita({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(1) }, AGORA)
+  // Fase 7 — licença vencida DENTRO da tolerância (TOLERANCIA_INADIMPLENCIA_DIAS
+  // = 5 dias, ver describe dedicado abaixo) não bloqueia mais escrita; só
+  // além da tolerância continua bloqueando como antes.
+  test('ACTIVE com licença vencida DENTRO da tolerância (1 dia) não bloqueia', () => {
+    assert.equal(motivoBloqueioEscrita({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(1) }, AGORA), null)
+  })
+  test('ACTIVE com licença vencida ALÉM da tolerância (6 dias) bloqueia com mensagem de licença', () => {
+    const motivo = motivoBloqueioEscrita({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(6) }, AGORA)
     assert.match(motivo ?? '', /licença vencida/i)
   })
   test('EXPIRED bloqueia (mesmo sem SUSPENDED/CANCELED)', () => {
     assert.notEqual(motivoBloqueioEscrita({ status: 'EXPIRED', trial_fim: passado(20), licenca_fim: null }, AGORA), null)
+  })
+  // Comportamento atual documentado: EXPIRED com licenca_fim preenchido
+  // vira 'licenca_vencida' (mesmo que ACTIVE vencida, ver
+  // obterSituacaoComercialTenant) e por isso também ganha a tolerância de
+  // 5 dias — não é um caso especial, é consequência direta de
+  // situacaoAdimplenciaTenant decidir pela SITUAÇÃO, nunca pelo status bruto.
+  test('EXPIRED com licenca_fim vencido DENTRO da tolerância também não bloqueia (mesma regra de ACTIVE)', () => {
+    assert.equal(motivoBloqueioEscrita({ status: 'EXPIRED', trial_fim: null, licenca_fim: passado(1) }, AGORA), null)
   })
   test('SUSPENDED bloqueia com mensagem de suspensão', () => {
     const motivo = motivoBloqueioEscrita({ status: 'SUSPENDED', trial_fim: null, licenca_fim: null }, AGORA)
@@ -323,5 +339,136 @@ describe('deveChecarLimiteCadastro — quando a checagem de limite entra em jogo
   })
   test('sem plano vinculado + criando inativo => NÃO precisa checar (mesmo raciocínio do plano pago)', () => {
     assert.equal(deveChecarLimiteCadastro(false, null), false)
+  })
+})
+
+// Fase 7 — tolerância de inadimplência (assinatura paga vencida). Reaproveita
+// licenca_fim (já era a data de vencimento da cobrança em vigor, ver
+// calcularAtualizacaoTenant em services/asaasClient.ts) — nenhum campo novo.
+describe('situacaoAdimplenciaTenant — só se aplica a licença paga vencida (ACTIVE)', () => {
+  test('ACTIVE em dia (licenca_fim futuro) => em_dia', () => {
+    assert.equal(situacaoAdimplenciaTenant({ status: 'ACTIVE', trial_fim: null, licenca_fim: futuro(30) }, AGORA), 'em_dia')
+  })
+  test('vencimento hoje (licenca_fim algumas horas no passado) => tolerancia', () => {
+    const licencaFim = new Date(AGORA.getTime() - 3 * 60 * 60 * 1000) // 3h atrás
+    assert.equal(situacaoAdimplenciaTenant({ status: 'ACTIVE', trial_fim: null, licenca_fim: licencaFim }, AGORA), 'tolerancia')
+  })
+  for (const dias of [1, 2, 3, 4, 5]) {
+    test(`vencida há ${dias} dia(s) => tolerancia (ainda permite)`, () => {
+      assert.equal(situacaoAdimplenciaTenant({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(dias) }, AGORA), 'tolerancia')
+    })
+  }
+  test(`vencida há exatamente ${TOLERANCIA_INADIMPLENCIA_DIAS} dias (limite) => tolerancia (ainda permite, "<=" inclusive)`, () => {
+    assert.equal(
+      situacaoAdimplenciaTenant({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(TOLERANCIA_INADIMPLENCIA_DIAS) }, AGORA),
+      'tolerancia'
+    )
+  })
+  // 1ms além de licenca_fim + TOLERANCIA_INADIMPLENCIA_DIAS — mesmo padrão
+  // de "trial_fim 1ms no passado já venceu" (diasRestantesTrial acima),
+  // agora pra borda da tolerância: com `agora` fixo, não depende do
+  // relógio real.
+  test('1ms após o limite exato (licenca_fim + 5 dias) => tolerancia_expirada', () => {
+    const licencaFim = new Date(passado(TOLERANCIA_INADIMPLENCIA_DIAS).getTime() - 1)
+    assert.equal(situacaoAdimplenciaTenant({ status: 'ACTIVE', trial_fim: null, licenca_fim: licencaFim }, AGORA), 'tolerancia_expirada')
+  })
+  test('vencida há 6 dias (além do limite de 5) => tolerancia_expirada (bloqueia)', () => {
+    assert.equal(situacaoAdimplenciaTenant({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(6) }, AGORA), 'tolerancia_expirada')
+  })
+  test('vencida há 30 dias => tolerancia_expirada', () => {
+    assert.equal(situacaoAdimplenciaTenant({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(30) }, AGORA), 'tolerancia_expirada')
+  })
+  test('pagamento confirmado libera automaticamente — licenca_fim avançado pro futuro volta a em_dia, mesmo tendo estado tolerancia_expirada momentos antes', () => {
+    // Simula o efeito do webhook (calcularAtualizacaoTenant): licenca_fim
+    // passa a apontar pro próximo vencimento, no futuro.
+    assert.equal(situacaoAdimplenciaTenant({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(30) }, AGORA), 'tolerancia_expirada')
+    assert.equal(situacaoAdimplenciaTenant({ status: 'ACTIVE', trial_fim: null, licenca_fim: futuro(30) }, AGORA), 'em_dia')
+  })
+  test('TRIAL vencido não é confundido com inadimplência paga => em_dia (fora do domínio desta função)', () => {
+    assert.equal(situacaoAdimplenciaTenant({ status: 'TRIAL', trial_fim: passado(1), licenca_fim: null }, AGORA), 'em_dia')
+  })
+  test('SUSPENDED nunca entra em tolerância, mesmo com licenca_fim vencido => em_dia (fora do domínio, bloqueio já é outro)', () => {
+    assert.equal(situacaoAdimplenciaTenant({ status: 'SUSPENDED', trial_fim: null, licenca_fim: passado(1) }, AGORA), 'em_dia')
+  })
+  test('CANCELED nunca entra em tolerância, mesmo com licenca_fim vencido => em_dia (fora do domínio, bloqueio já é outro)', () => {
+    assert.equal(situacaoAdimplenciaTenant({ status: 'CANCELED', trial_fim: null, licenca_fim: passado(1) }, AGORA), 'em_dia')
+  })
+  // Comportamento atual documentado explicitamente (não uma mudança desta
+  // revisão): obterSituacaoComercialTenant já trata EXPIRED+licenca_fim
+  // igual a ACTIVE vencida (ambos viram 'licenca_vencida', ver describe
+  // "obterSituacaoComercialTenant — EXPIRED, SUSPENDED, CANCELED" acima) —
+  // situacaoAdimplenciaTenant herda isso por construção (decide a partir da
+  // SITUAÇÃO, nunca do status bruto), então EXPIRED com licenca_fim vencido
+  // recebe a MESMA tolerância de 5 dias que ACTIVE. Nenhuma indicação em
+  // contrário na tarefa — comportamento intencional, agora coberto.
+  test('EXPIRED com licenca_fim vencido recebe a MESMA tolerância de ACTIVE (dentro dos 5 dias) => tolerancia', () => {
+    assert.equal(situacaoAdimplenciaTenant({ status: 'EXPIRED', trial_fim: null, licenca_fim: passado(1) }, AGORA), 'tolerancia')
+  })
+  test('EXPIRED com licenca_fim vencido além dos 5 dias => tolerancia_expirada, igual a ACTIVE', () => {
+    assert.equal(situacaoAdimplenciaTenant({ status: 'EXPIRED', trial_fim: null, licenca_fim: passado(6) }, AGORA), 'tolerancia_expirada')
+  })
+  test('EXPIRED sem licenca_fim (nunca teve licença paga) => em_dia — vira trial_vencido, não licenca_vencida, fora do domínio desta função', () => {
+    assert.equal(situacaoAdimplenciaTenant({ status: 'EXPIRED', trial_fim: passado(20), licenca_fim: null }, AGORA), 'em_dia')
+  })
+})
+
+describe('diasRestantesTolerancia — dias restantes de tolerância, pra exibição', () => {
+  test('ACTIVE em dia => null (não aplicável)', () => {
+    assert.equal(diasRestantesTolerancia({ status: 'ACTIVE', trial_fim: null, licenca_fim: futuro(30) }, AGORA), null)
+  })
+  test('não é licença paga vencida (TRIAL) => null', () => {
+    assert.equal(diasRestantesTolerancia({ status: 'TRIAL', trial_fim: passado(1), licenca_fim: null }, AGORA), null)
+  })
+  test('vencida agora mesmo (licenca_fim === agora - 1ms) => 5 dias restantes (tolerância cheia)', () => {
+    const licencaFim = new Date(AGORA.getTime() - 1)
+    assert.equal(diasRestantesTolerancia({ status: 'ACTIVE', trial_fim: null, licenca_fim: licencaFim }, AGORA), TOLERANCIA_INADIMPLENCIA_DIAS)
+  })
+  test('vencida há 1 dia => 4 dias restantes de tolerância', () => {
+    assert.equal(diasRestantesTolerancia({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(1) }, AGORA), 4)
+  })
+  test('vencida há 2 dias => 3 dias restantes de tolerância', () => {
+    assert.equal(diasRestantesTolerancia({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(2) }, AGORA), 3)
+  })
+  // Faltam pouco menos de 24h pra tolerância acabar (mesmo padrão de "23h59min
+  // no futuro => ainda 1 dia restante" em diasRestantesTrial acima) — ceil
+  // arredonda qualquer fração de dia restante pra cima, nunca mostra "0 dias"
+  // enquanto ainda houver tempo de verdade.
+  test('faltam pouco menos de 24h pro fim da tolerância => ainda 1 dia restante (ceil, não floor)', () => {
+    const licencaFim = new Date(passado(4).getTime() - 1) // 4 dias e ~1ms no passado
+    assert.equal(diasRestantesTolerancia({ status: 'ACTIVE', trial_fim: null, licenca_fim: licencaFim }, AGORA), 1)
+  })
+  test(`vencida há exatamente ${TOLERANCIA_INADIMPLENCIA_DIAS} dias => 0 dias restantes (mas ainda dentro da tolerância, ver situacaoAdimplenciaTenant)`, () => {
+    assert.equal(diasRestantesTolerancia({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(TOLERANCIA_INADIMPLENCIA_DIAS) }, AGORA), 0)
+  })
+  test('tolerância já expirada (6 dias vencida) => 0 dias restantes, nunca negativo', () => {
+    assert.equal(diasRestantesTolerancia({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(6) }, AGORA), 0)
+  })
+})
+
+describe('motivoBloqueioOperacionalInadimplencia — só bloqueia depois da tolerância expirar', () => {
+  test('ACTIVE em dia não bloqueia', () => {
+    assert.equal(motivoBloqueioOperacionalInadimplencia({ status: 'ACTIVE', trial_fim: null, licenca_fim: futuro(30) }, AGORA), null)
+  })
+  test('vencida dentro da tolerância (1 a 5 dias) não bloqueia', () => {
+    for (const dias of [1, 2, 3, 4, 5]) {
+      assert.equal(motivoBloqueioOperacionalInadimplencia({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(dias) }, AGORA), null)
+    }
+  })
+  test('vencida além da tolerância (6 dias) bloqueia com mensagem de "pagamento pendente"', () => {
+    const motivo = motivoBloqueioOperacionalInadimplencia({ status: 'ACTIVE', trial_fim: null, licenca_fim: passado(6) }, AGORA)
+    assert.match(motivo ?? '', /pagamento pendente/i)
+  })
+  test('TRIAL vencido nunca usa este bloqueio (continua sob motivoBloqueioOperacionalTrial)', () => {
+    assert.equal(motivoBloqueioOperacionalInadimplencia({ status: 'TRIAL', trial_fim: passado(30), licenca_fim: null }, AGORA), null)
+  })
+  test('SUSPENDED preservado — nunca usa este bloqueio', () => {
+    assert.equal(motivoBloqueioOperacionalInadimplencia({ status: 'SUSPENDED', trial_fim: null, licenca_fim: passado(30) }, AGORA), null)
+  })
+  test('CANCELED preservado — nunca usa este bloqueio', () => {
+    assert.equal(motivoBloqueioOperacionalInadimplencia({ status: 'CANCELED', trial_fim: null, licenca_fim: passado(30) }, AGORA), null)
+  })
+  test('EXPIRED com licenca_fim vencido segue a mesma regra de ACTIVE (comportamento atual documentado)', () => {
+    assert.equal(motivoBloqueioOperacionalInadimplencia({ status: 'EXPIRED', trial_fim: null, licenca_fim: passado(1) }, AGORA), null)
+    assert.match(motivoBloqueioOperacionalInadimplencia({ status: 'EXPIRED', trial_fim: null, licenca_fim: passado(6) }, AGORA) ?? '', /pagamento pendente/i)
   })
 })
