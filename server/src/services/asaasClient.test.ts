@@ -241,6 +241,76 @@ describe('calcularAtualizacaoTenant', () => {
     })
   })
 
+  // ─── Fase 6B — conversão trial->pago / troca de plano via plano_pendente_id ─
+
+  test('pagamento confirmado com plano_pendente_id aplica o plano pendente e limpa o campo', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'),
+      dataVencimento: new Date('2026-08-08T00:00:00Z'),
+    }
+    const resultado = calcularAtualizacaoTenant(
+      acao,
+      { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'TRIAL', plano_pendente_id: 'plano-growth-id' },
+      'MONTHLY',
+      agora
+    )
+    assert.deepEqual(resultado.dados, {
+      asaas_ultima_sincronizacao: agora,
+      status: 'ACTIVE',
+      ultimo_pagamento_em: acao.dataPagamento,
+      licenca_inicio: acao.dataPagamento,
+      licenca_fim: new Date('2026-09-08T00:00:00Z'),
+      proxima_cobranca: new Date('2026-09-08T00:00:00Z'),
+      plano: { connect: { id: 'plano-growth-id' } },
+      plano_pendente: { disconnect: true },
+    })
+  })
+
+  test('pagamento confirmado sem plano_pendente_id nunca mexe em plano/plano_pendente (renovação normal, comportamento preservado)', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'ACTIVE', plano_pendente_id: null }, 'MONTHLY', agora)
+    assert.equal(resultado.dados !== null && 'plano' in resultado.dados, false)
+    assert.equal(resultado.dados !== null && 'plano_pendente' in resultado.dados, false)
+  })
+
+  test('plano_pendente_id é ignorado quando tenant está SUSPENDED (bloqueio já existente roda antes)', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(
+      acao,
+      { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'SUSPENDED', plano_pendente_id: 'plano-growth-id' },
+      'MONTHLY',
+      agora
+    )
+    assert.equal(resultado.dados, null)
+    assert.match(resultado.ignorado ?? '', /SUSPENDED/)
+  })
+
+  test('plano_pendente_id é ignorado quando tenant está CANCELED (bloqueio já existente roda antes)', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(
+      acao,
+      { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'CANCELED', plano_pendente_id: 'plano-growth-id' },
+      'MONTHLY',
+      agora
+    )
+    assert.equal(resultado.dados, null)
+    assert.match(resultado.ignorado ?? '', /CANCELED/)
+  })
+
   test('licenca_inicio já preenchido não é sobrescrito por um novo pagamento confirmado', () => {
     const acao = {
       tipo: 'pagamento_confirmado' as const,
@@ -438,23 +508,40 @@ describe('calcularSituacaoAsaas', () => {
   })
 })
 
-describe('validarPlanoParaAssinaturaSelfService (Fase 5)', () => {
-  test('plano nulo é bloqueado', () => {
-    assert.match(validarPlanoParaAssinaturaSelfService(null) ?? '', /sem plano vinculado/)
+describe('validarPlanoParaAssinaturaSelfService (Fase 5, plano escolhido pelo cliente desde a Fase 6B)', () => {
+  test('plano nulo (id inválido/inexistente) é bloqueado', () => {
+    assert.match(validarPlanoParaAssinaturaSelfService(null) ?? '', /plano não encontrado/i)
   })
 
   test('plano interno é bloqueado, mesmo com valor Asaas configurado', () => {
-    const motivo = validarPlanoParaAssinaturaSelfService({ interno: true, asaas_subscription_value: 99.9 })
+    const motivo = validarPlanoParaAssinaturaSelfService({ interno: true, eh_plano_trial: false, asaas_subscription_value: 99.9 })
     assert.match(motivo ?? '', /não está disponível para contratação self-service/)
   })
 
+  // Fase 6B — o motivo original do bug: teste-gratis não tem
+  // asaas_subscription_value (nunca deveria ter), então antes desta
+  // checagem específica o cliente via "Plano sem valor de assinatura
+  // configurado" ao tentar assinar o próprio trial. Agora bloqueia com uma
+  // mensagem que faz sentido, mesmo que alguém envie o id do plano de
+  // trial direto (o plano nem aparece em GET /billing/planos-disponiveis,
+  // mas esta é a defesa de verdade).
+  test('plano de trial não pode ser contratado como plano pago', () => {
+    const motivo = validarPlanoParaAssinaturaSelfService({ interno: false, eh_plano_trial: true, asaas_subscription_value: null })
+    assert.match(motivo ?? '', /teste grátis não pode ser contratado/)
+  })
+
+  test('plano de trial é bloqueado mesmo que tenha valor Asaas configurado por engano', () => {
+    const motivo = validarPlanoParaAssinaturaSelfService({ interno: false, eh_plano_trial: true, asaas_subscription_value: 0 })
+    assert.match(motivo ?? '', /teste grátis não pode ser contratado/)
+  })
+
   test('plano sem asaas_subscription_value configurado é bloqueado', () => {
-    const motivo = validarPlanoParaAssinaturaSelfService({ interno: false, asaas_subscription_value: null })
+    const motivo = validarPlanoParaAssinaturaSelfService({ interno: false, eh_plano_trial: false, asaas_subscription_value: null })
     assert.match(motivo ?? '', /sem valor de assinatura configurado/)
   })
 
   test('plano comercial com valor configurado é permitido', () => {
-    assert.equal(validarPlanoParaAssinaturaSelfService({ interno: false, asaas_subscription_value: 149.9 }), null)
+    assert.equal(validarPlanoParaAssinaturaSelfService({ interno: false, eh_plano_trial: false, asaas_subscription_value: 149.9 }), null)
   })
 })
 

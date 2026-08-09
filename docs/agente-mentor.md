@@ -413,6 +413,67 @@ sem depender do SUPER_ADMIN — tela **Minha Assinatura**
   `RECEIVED`) — nenhuma rota de `/api/billing` ativa licença sozinha,
   callback/retorno do Asaas é só UX.
 
+### Fase 6 — cadastro público e experiência de trial (branch `feat/public-signup-trial`)
+
+Self-service completo: visitante cria a própria conta, usa o trial e pode
+contratar um plano pago sem depender de suporte/SUPER_ADMIN.
+
+- **Cadastro público** (`POST /api/auth/cadastro`, `GET /api/auth/cadastro/config`,
+  ambas fora de `requireAdminAuth` — ver `routes/auth.ts`): cria `Tenant`+
+  `AdminUser` (role sempre `ADMIN`) numa única `$transaction` (nenhum órfão
+  se uma etapa falhar). Plano/duração do trial, role, `status: TRIAL` e
+  datas são **sempre** resolvidos no servidor (`resolverPlanoTrial`/
+  `resolverDuracaoTrialDias` em `tenantGuards.ts`) — nunca lidos do body.
+  Exige **exatamente um** `Plano` com `eh_plano_trial=true`; 0 ou mais de 1
+  falha fechado (503 genérico pro cliente, motivo real só no log). Duração
+  do trial é `Plano.trial_dias`, default 14 (`TRIAL_DIAS_PADRAO`) se null.
+- **Senha forte centralizada** (`REGRAS_SENHA_FORTE`/`motivoSenhaFraca` em
+  `controllers/auth.ts`): mesma regra usada por cadastro, troca de senha
+  (`trocarSenha`) e redefinição (`redefinirSenha`) — nunca diverge entre os
+  três. Reset administrativo pelo SUPER_ADMIN (`adminTenants.ts`,
+  `resetarSenha`) continua só exigindo 8 caracteres de propósito (senha
+  temporária, força troca no primeiro login, que já herda a regra forte).
+- **"Esqueci minha senha"** (`POST /api/auth/esqueci-senha`,
+  `POST /api/auth/redefinir-senha`, públicas): resposta idêntica exista ou
+  não o e-mail (nunca permite enumeração). Token de 256 bits só existe em
+  memória/e-mail — banco guarda só o hash SHA-256 (`lib/passwordReset.ts`,
+  model `PasswordResetToken`). Consumo é um `UPDATE` condicional atômico
+  (nunca um SELECT+UPDATE separado) — protege contra reuso concorrente do
+  mesmo token; um lock consultivo por `admin_user_id`
+  (`pg_advisory_xact_lock`) protege contra duas solicitações simultâneas do
+  mesmo usuário. Trocar/redefinir senha atualiza `senha_alterada_em`, e
+  `requireAdminAuth` invalida qualquer sessão JWT com `iat` anterior a esse
+  timestamp (`sessaoInvalidadaPorTrocaSenha` em `lib/auth.ts`) — desloga
+  sessões antigas em outros dispositivos sem precisar de tabela de sessão.
+- **E-mail transacional** (`lib/email/`): `EmailService` só conhece a
+  interface `EmailProvider`, nunca o SDK de um provider específico.
+  `ResendEmailProvider.ts` é o único arquivo que importa o SDK do Resend.
+  Sem `EMAIL_PROVIDER` configurado, `EmailService` loga e segue sem enviar
+  (nunca finge sucesso); `EMAIL_PROVIDER=resend` sem `RESEND_API_KEY`/
+  `EMAIL_FROM` derruba o processo na inicialização com erro claro. Envio de
+  boas-vindas/redefinição é sempre best-effort (`.catch(...)` no
+  controller) — nunca quebra cadastro/pedido de redefinição se o e-mail
+  falhar.
+- **Conversão trial → pago**: `GET /api/billing/planos-disponiveis` (dentro
+  de `requireEscritaConfiguracao`, não pública) lista só planos comerciais
+  contratáveis — nunca `interno`, nunca `eh_plano_trial`, nunca sem
+  `asaas_subscription_value`. `POST /api/billing/assinatura` agora recebe
+  `plano_id` no body (o cliente escolhe), recarrega o `Plano` do banco por
+  id (preço nunca vem do frontend) e grava em `Tenant.plano_pendente_id` —
+  **nunca** em `plano_id` diretamente. Só o webhook `PAYMENT_CONFIRMED`/
+  `RECEIVED` (`calcularAtualizacaoTenant` em `asaasClient.ts`) aplica de
+  fato o plano pendente (`plano_id = plano_pendente_id`, depois limpa
+  `plano_pendente_id`) — herda as mesmas proteções de `SUSPENDED`/
+  `CANCELED` já existentes na Fase 5.
+- **Minha Conta** (`web/src/pages/MinhaConta.tsx`, rota `/minha-conta`):
+  dentro de `RequireAuth`, sem nenhum guard de escrita/configuração/SUPER_ADMIN
+  — qualquer papel autenticado acessa, só edita a própria senha (reaproveita
+  `POST /auth/trocar-senha`).
+- **Minha Assinatura** ganhou um card de trial voltado ao cliente (dias
+  restantes reais, limites do próprio `Plano`) e parou de expor
+  `situacao.motivoSituacaoAsaas`/jargão técnico — nunca menciona
+  `Tenant`/`Asaas` na tela.
+
 ## 8. Comandos úteis (pra reproduzir/validar localmente)
 
 ```bash

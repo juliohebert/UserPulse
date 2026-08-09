@@ -1,8 +1,13 @@
-import { useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { AuthLayout } from '../components/auth/AuthLayout'
+import { get } from '../services/api'
+import type { CadastroConfig } from '../types'
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
+const card = 'bg-surface-container-lowest p-7 rounded-2xl border border-outline-variant/70 shadow-md space-y-4'
+const cta = 'w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:shadow-lg hover:opacity-95 transition-all active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100'
 
 export function LoginPage() {
   const { user, loading, login } = useAuth()
@@ -13,6 +18,16 @@ export function LoginPage() {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState<string | null>(null)
   const [entrando, setEntrando] = useState(false)
+
+  // Config real do trial (dias + limites) pros destaques na coluna
+  // institucional (ver AuthLayout, prop trialConfig) — mesmo endpoint
+  // público já usado por Cadastro.tsx, nunca duplicando a regra comercial
+  // aqui: só repassa o que o backend já resolveu (GET /auth/cadastro/config).
+  // Falha só reduz os destaques exibidos, nunca quebra o login.
+  const [cadastroConfig, setCadastroConfig] = useState<CadastroConfig | null>(null)
+  useEffect(() => {
+    get<CadastroConfig>('/auth/cadastro/config').then(setCadastroConfig).catch(() => setCadastroConfig(null))
+  }, [])
 
   // Já logado (ex.: voltou pra /login manualmente com sessão válida) — manda
   // direto pro painel em vez de mostrar o formulário à toa.
@@ -41,64 +56,60 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm">
-        <div className="flex flex-col items-center mb-6">
-          <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-on-primary mb-3">
-            <span className="material-symbols-outlined ms-fill text-[24px]">pulse_alert</span>
+    <AuthLayout
+      tituloForm="Entrar na sua conta"
+      subtituloForm="Acesse sua conta para continuar criando experiências para seus usuários."
+      mostrarPreview
+      trialConfig={cadastroConfig}
+    >
+      <form onSubmit={handleSubmit} className={card}>
+        <div>
+          <label htmlFor="login-email" className="block text-label-sm text-on-surface-variant mb-1">E-mail</label>
+          <input
+            id="login-email"
+            type="email"
+            autoComplete="username"
+            required
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            className={field}
+            placeholder="voce@empresa.com"
+          />
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label htmlFor="login-senha" className="block text-label-sm text-on-surface-variant">Senha</label>
+            <Link to="/esqueci-senha" className="text-label-sm text-primary font-bold hover:underline">Esqueci minha senha?</Link>
           </div>
-          <h1 className="text-headline-md font-bold text-primary">UserPulse</h1>
-          <p className="text-label-md text-outline">Painel administrativo — acesso restrito</p>
+          <input
+            id="login-senha"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={senha}
+            onChange={e => setSenha(e.target.value)}
+            className={field}
+            placeholder="••••••••"
+          />
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/70 shadow-sm space-y-4"
-        >
-          <div>
-            <label htmlFor="login-email" className="block text-label-sm text-on-surface-variant mb-1">E-mail</label>
-            <input
-              id="login-email"
-              type="email"
-              autoComplete="username"
-              required
-              autoFocus
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              className={field}
-              placeholder="voce@quark.com.br"
-            />
-          </div>
-          <div>
-            <label htmlFor="login-senha" className="block text-label-sm text-on-surface-variant mb-1">Senha</label>
-            <input
-              id="login-senha"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={senha}
-              onChange={e => setSenha(e.target.value)}
-              className={field}
-              placeholder="••••••••"
-            />
-          </div>
+        {erro && (
+          <p className="flex items-center gap-2 p-3 rounded-xl bg-error-container text-on-error-container text-body-sm">
+            <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
+            {erro}
+          </p>
+        )}
 
-          {erro && (
-            <p className="flex items-center gap-2 p-3 rounded-xl bg-error-container text-on-error-container text-body-sm">
-              <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
-              {erro}
-            </p>
-          )}
+        <button type="submit" disabled={entrando} className={cta}>
+          {entrando ? 'Entrando…' : 'Entrar'}
+          {!entrando && <span className="material-symbols-outlined text-[18px]">arrow_forward</span>}
+        </button>
 
-          <button
-            type="submit"
-            disabled={entrando}
-            className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
-          >
-            {entrando ? 'Entrando…' : 'Entrar'}
-          </button>
-        </form>
-      </div>
-    </div>
+        <p className="text-center text-body-sm text-outline">
+          Não tem conta?{' '}
+          <Link to="/cadastro" className="text-primary font-bold hover:underline">Criar conta gratuitamente</Link>
+        </p>
+      </form>
+    </AuthLayout>
   )
 }

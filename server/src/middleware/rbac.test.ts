@@ -4,6 +4,7 @@ import type { Request, Response, NextFunction, Router } from 'express'
 import { AdminRole } from '@prisma/client'
 import { requireEscritaConteudo, requireExclusaoOuImportacaoConteudo, requireEscritaConfiguracao } from './requireEscritaTenant'
 import { requireSuperAdmin } from './requireSuperAdmin'
+import { requireAdminAuth } from './requireAdminAuth'
 import campanhasRouter from '../routes/campanhas'
 import toursRouter from '../routes/tours'
 import jornadasRouter from '../routes/jornadas'
@@ -12,6 +13,7 @@ import catalogoTelasRouter from '../routes/catalogoTelas'
 import widgetRouter from '../routes/widget'
 import dashboardRouter from '../routes/dashboard'
 import billingRouter from '../routes/billing'
+import authRouter from '../routes/auth'
 
 // Cobertura mínima da matriz de permissões RBAC (ADMIN/EDITOR/VIEWER de
 // cliente + SUPER_ADMIN) descrita no contexto da tarefa. Duas frentes, as
@@ -128,6 +130,9 @@ describe('RBAC — wiring das rotas de billing self-service (Fase 5)', () => {
   test('GET /situacao usa requireEscritaConfiguracao', () => {
     assert.ok(handlersDaRota(billingRouter, 'get', '/situacao').includes(requireEscritaConfiguracao))
   })
+  test('GET /planos-disponiveis usa requireEscritaConfiguracao (Fase 6B)', () => {
+    assert.ok(handlersDaRota(billingRouter, 'get', '/planos-disponiveis').includes(requireEscritaConfiguracao))
+  })
   test('PUT /dados-cobranca usa requireEscritaConfiguracao', () => {
     assert.ok(handlersDaRota(billingRouter, 'put', '/dados-cobranca').includes(requireEscritaConfiguracao))
   })
@@ -158,6 +163,34 @@ describe('RBAC — wiring das rotas de billing self-service (Fase 5)', () => {
     for (const caminho of caminhos) {
       assert.ok(!/:id\b|:tenantId\b/.test(caminho), `rota "${caminho}" não deveria aceitar tenant pela URL`)
     }
+  })
+})
+
+// Fase 6B — cadastro público self-service (ver routes/auth.ts). Único par de
+// rotas deste router (fora do login) que precisa ficar acessível sem
+// requireAdminAuth — o teste garante que exatamente essas duas ficam
+// públicas e que as demais (me/trocar-senha) continuam exigindo sessão, sem
+// precisar subir servidor/disparar request de verdade.
+describe('RBAC — wiring do cadastro público (Fase 6B)', () => {
+  test('GET /cadastro/config é pública (sem requireAdminAuth)', () => {
+    assert.ok(!handlersDaRota(authRouter, 'get', '/cadastro/config').includes(requireAdminAuth))
+  })
+  test('POST /cadastro é pública (sem requireAdminAuth)', () => {
+    assert.ok(!handlersDaRota(authRouter, 'post', '/cadastro').includes(requireAdminAuth))
+  })
+  // "Esqueci minha senha" — mesmo raciocínio: quem chega aqui ainda não tem
+  // sessão, então também precisam ficar públicas.
+  test('POST /esqueci-senha é pública (sem requireAdminAuth)', () => {
+    assert.ok(!handlersDaRota(authRouter, 'post', '/esqueci-senha').includes(requireAdminAuth))
+  })
+  test('POST /redefinir-senha é pública (sem requireAdminAuth)', () => {
+    assert.ok(!handlersDaRota(authRouter, 'post', '/redefinir-senha').includes(requireAdminAuth))
+  })
+  test('GET /me continua exigindo requireAdminAuth', () => {
+    assert.ok(handlersDaRota(authRouter, 'get', '/me').includes(requireAdminAuth))
+  })
+  test('POST /trocar-senha continua exigindo requireAdminAuth', () => {
+    assert.ok(handlersDaRota(authRouter, 'post', '/trocar-senha').includes(requireAdminAuth))
   })
 })
 

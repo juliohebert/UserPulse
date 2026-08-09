@@ -60,12 +60,31 @@ export async function obterSituacao(req: Request, res: Response) {
       ? entrada.cobrancas.filter(c => c.status === 'OVERDUE').map(c => ({ id: c.id, value: c.value, dueDate: c.dueDate }))
       : []
 
+    // Fase 6B — plano_pendente não faz parte de req.adminUser.tenant (ver
+    // requireAdminAuth.ts, que só inclui `plano`) — consulta à parte, só
+    // aqui onde é de fato usada, em vez de engordar o include compartilhado
+    // por toda requisição autenticada. null na grande maioria das vezes
+    // (só existe entre "escolheu um plano pago" e "webhook confirmou o
+    // pagamento", ver criarAssinatura/calcularAtualizacaoTenant).
+    const tenantComPendente = await prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: { plano_pendente: { select: { nome: true, asaas_subscription_value: true, asaas_billing_cycle: true } } },
+    })
+
     res.json({
       possuiAssinatura: Boolean(tenant.asaas_subscription_id),
       plano: tenant.plano ? {
         nome: tenant.plano.nome,
         valor: tenant.plano.asaas_subscription_value,
         ciclo: tenant.plano.asaas_billing_cycle,
+      } : null,
+      // Presente só entre a escolha do plano pago e a confirmação do
+      // pagamento (webhook) — depois disso, plano_pendente_id é limpo e
+      // este campo volta a null (ver calcularAtualizacaoTenant).
+      planoPendente: tenantComPendente?.plano_pendente ? {
+        nome: tenantComPendente.plano_pendente.nome,
+        valor: tenantComPendente.plano_pendente.asaas_subscription_value,
+        ciclo: tenantComPendente.plano_pendente.asaas_billing_cycle,
       } : null,
       situacaoComercial,
       situacaoAsaas: situacaoAsaas.decisao,
@@ -117,13 +136,66 @@ export async function atualizarDadosCobranca(req: Request, res: Response) {
   }
 }
 
-// Nova contratação self-service — só quando o tenant AINDA não tem
+// Fase 6B — planos comerciais contratáveis via self-service (ver
+// GET /billing/planos-disponiveis). Nunca inclui: o plano interno (nunca
+// vendido a cliente comum), o plano de trial (não é um plano PAGO — é o que
+// motivou o bug "Plano sem valor de assinatura configurado" ao tentar
+// assinar o teste-gratis), planos desativados (ativo=false, fora de venda)
+// e planos sem asaas_subscription_value configurado (nada a cobrar ainda).
+// valor/ciclo vêm sempre de asaas_subscription_value/asaas_billing_cycle
+// (o que é REALMENTE cobrado), nunca de preco_mensal (só informativo,
+// pode divergir — ver nota em schema.prisma). Nenhum campo administrativo/
+// Asaas (asaas_external_reference, ids) sai daqui.
+export async function listarPlanosDisponiveis(_req: Request, res: Response) {
+  try {
+    const planos = await prisma.plano.findMany({
+      where: { interno: false, eh_plano_trial: false, ativo: true, asaas_subscription_value: { not: null } },
+      orderBy: { asaas_subscription_value: 'asc' },
+      select: {
+        id: true, nome: true, descricao: true,
+        asaas_subscription_value: true, asaas_billing_cycle: true,
+        limite_campanhas_ativas: true, limite_tours_ativos: true, limite_jornadas_ativas: true,
+        permite_tours: true, permite_jornadas: true, permite_white_label: true,
+      },
+    })
+    res.json(planos.map(p => ({
+      id: p.id,
+      nome: p.nome,
+      descricao: p.descricao,
+      valor: p.asaas_subscription_value,
+      ciclo: p.asaas_billing_cycle,
+      limite_campanhas_ativas: p.limite_campanhas_ativas,
+      limite_tours_ativos: p.limite_tours_ativos,
+      limite_jornadas_ativas: p.limite_jornadas_ativas,
+      permite_tours: p.permite_tours,
+      permite_jornadas: p.permite_jornadas,
+      permite_white_label: p.permite_white_label,
+    })))
+  } catch (err) {
+    console.error('Erro ao listar planos disponíveis:', err)
+    res.status(500).json({ erro: 'Erro ao carregar planos disponíveis.' })
+  }
+}
+
+// Contratação self-service — só quando o tenant AINDA não tem
 // asaas_subscription_id (nunca cria assinatura nova em cima de uma
-// existente; reativação de assinatura INACTIVE não existe mais nesta
-// Fase, ver nota no topo do arquivo). Valor SEMPRE de
-// tenant.plano.asaas_subscription_value — nunca lido do body. billingType
-// fixo em 'UNDEFINED': quem escolhe Pix ou cartão é o pagador, na página
-// hospedada do Asaas, nunca o UserPulse.
+// existente — também protege contra duplicar em retry: uma segunda
+// chamada, depois que a primeira já salvou asaas_subscription_id, cai
+// direto neste 400 em vez de chamar o Asaas de novo; reativação de
+// assinatura INACTIVE não existe mais nesta Fase, ver nota no topo do
+// arquivo).
+//
+// Fase 6B — plano_id vem do body (o cliente ESCOLHE, não usa mais
+// tenant.plano automaticamente — era esse o bug: tenant em trial tentando
+// "assinar" o próprio teste-gratis, que nunca teve valor configurado).
+// Plano é sempre recarregado do banco por id (nunca confia em nome/valor
+// vindos do frontend); asaas_subscription_value do Plano recarregado é o
+// que efetivamente vai pro Asaas. O plano escolhido é gravado em
+// plano_pendente_id, NUNCA em plano_id — o Tenant continua no plano atual
+// (ex.: teste-gratis) até o webhook PAYMENT_CONFIRMED aplicar de verdade
+// (ver calcularAtualizacaoTenant em asaasClient.ts). billingType fixo em
+// 'UNDEFINED': quem escolhe Pix ou cartão é o pagador, na página hospedada
+// do Asaas, nunca o UserPulse.
 export async function criarAssinatura(req: Request, res: Response) {
   try {
     const tenant = req.adminUser!.tenant
@@ -135,7 +207,14 @@ export async function criarAssinatura(req: Request, res: Response) {
       res.status(400).json({ erro: 'Este tenant já tem uma assinatura Asaas vinculada.' })
       return
     }
-    const motivoPlano = validarPlanoParaAssinaturaSelfService(tenant.plano)
+
+    const { plano_id } = req.body as { plano_id?: string }
+    if (!plano_id?.trim()) {
+      res.status(400).json({ erro: 'plano_id é obrigatório.' })
+      return
+    }
+    const planoEscolhido = await prisma.plano.findUnique({ where: { id: plano_id.trim() } })
+    const motivoPlano = validarPlanoParaAssinaturaSelfService(planoEscolhido)
     if (motivoPlano) { res.status(400).json({ erro: motivoPlano }); return }
 
     let customerId = tenant.asaas_customer_id
@@ -150,7 +229,7 @@ export async function criarAssinatura(req: Request, res: Response) {
     }
 
     const hoje = new Date().toISOString().slice(0, 10)
-    const assinatura = await criarAssinaturaAsaas(customerId, tenant.plano!, {
+    const assinatura = await criarAssinaturaAsaas(customerId, planoEscolhido!, {
       billingType: 'UNDEFINED',
       nextDueDate: hoje,
     })
@@ -162,6 +241,7 @@ export async function criarAssinatura(req: Request, res: Response) {
         asaas_subscription_id: assinatura.id,
         asaas_status: assinatura.status,
         asaas_ultima_sincronizacao: new Date(),
+        plano_pendente_id: planoEscolhido!.id,
       },
     })
 

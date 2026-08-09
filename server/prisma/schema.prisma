@@ -209,10 +209,37 @@ model AdminUser {
   criado_em     DateTime  @default(now())
   atualizado_em DateTime  @updatedAt
 
-  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  tenant               Tenant                @relation(fields: [tenant_id], references: [id])
+  passwordResetTokens  PasswordResetToken[]
 
   @@index([tenant_id])
   @@map("admin_users")
+}
+
+// "Esqueci minha senha" self-service (ver server/src/controllers/auth.ts,
+// esqueciSenha/redefinirSenha). token_hash é SHA-256 do token bruto enviado
+// por e-mail (nunca bcrypt aqui — precisa ser determinístico pra buscar por
+// where:{token_hash}, o que bcrypt/salt não permite; o token em si já tem
+// entropia suficiente, 256 bits, pra dispensar hash lento). O token bruto
+// NUNCA é persistido, só o hash. admin_user_id sempre resolve o tenant
+// através do próprio AdminUser (nunca um campo tenant_id solto aqui) —
+// mesmo princípio de isolamento das demais tabelas filhas sem tenant_id
+// próprio (ver CLAUDE.md, "Tabelas filhas... herdam isolamento do pai").
+// used_at marca tanto um token efetivamente usado quanto um invalidado por
+// um pedido de redefinição mais novo do mesmo usuário (ver esqueciSenha) —
+// um único campo cobre os dois casos, ambos significam "não usável mais".
+model PasswordResetToken {
+  id            String    @id @default(uuid())
+  admin_user_id String
+  token_hash    String    @unique
+  expires_at    DateTime
+  used_at       DateTime?
+  created_at    DateTime  @default(now())
+
+  adminUser AdminUser @relation(fields: [admin_user_id], references: [id], onDelete: Cascade)
+
+  @@index([admin_user_id])
+  @@map("password_reset_tokens")
 }
 
 model Campanha {

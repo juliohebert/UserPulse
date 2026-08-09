@@ -399,6 +399,17 @@ export type SituacaoComercialTenant =
   | 'suspenso'
   | 'cancelado'
 
+// Fase 6B — resposta pública de GET /auth/cadastro/config (ver
+// server/src/controllers/auth.ts, cadastroConfig). Só o necessário pra
+// montar a UX de /cadastro: nenhum id de plano, preço ou campo
+// administrativo — nunca hardcodar estes valores no frontend.
+export interface CadastroConfig {
+  dias: number
+  limite_campanhas_ativas: number | null
+  limite_tours_ativos: number | null
+  limite_jornadas_ativas: number | null
+}
+
 export interface PlanoResumo {
   id: string
   nome: string
@@ -645,11 +656,36 @@ export interface CobrancaVencidaResumo {
 export interface SituacaoBillingResposta {
   possuiAssinatura: boolean
   plano: { nome: string; valor: string | number | null; ciclo: string | null } | null
+  // Fase 6B — presente só entre a escolha de um plano pago (POST
+  // /billing/assinatura) e a confirmação do pagamento pelo webhook Asaas.
+  // Nesse intervalo, `plano` acima continua sendo o plano ATUAL (ex.:
+  // teste-gratis) — nunca troca antes da confirmação (ver plano_pendente_id
+  // em server/prisma/schema.prisma).
+  planoPendente: { nome: string; valor: string | number | null; ciclo: string | null } | null
   situacaoComercial: SituacaoComercialTenant
   situacaoAsaas: SituacaoAsaasDecisao
   motivoSituacaoAsaas: string
   proximaCobranca: string | null
   cobrancasVencidas: CobrancaVencidaResumo[]
+}
+
+// Fase 6B — GET /billing/planos-disponiveis. Só planos comerciais
+// contratáveis (nunca interno, nunca o de trial) — ver
+// listarPlanosDisponiveis em controllers/billing.ts. valor/ciclo são o que
+// é REALMENTE cobrado (asaas_subscription_value/asaas_billing_cycle), não
+// preco_mensal (só informativo).
+export interface PlanoContratavel {
+  id: string
+  nome: string
+  descricao: string | null
+  valor: string | number | null
+  ciclo: string | null
+  limite_campanhas_ativas: number | null
+  limite_tours_ativos: number | null
+  limite_jornadas_ativas: number | null
+  permite_tours: boolean
+  permite_jornadas: boolean
+  permite_white_label: boolean
 }
 
 export interface AssinaturaSelfServiceResposta {

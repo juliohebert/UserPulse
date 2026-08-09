@@ -16,6 +16,10 @@ import * as billing from '../controllers/billing'
 const router = Router()
 
 router.get('/situacao', requireEscritaConfiguracao, billing.obterSituacao)
+// Fase 6B — planos comerciais contratáveis (nunca o interno, nunca o de
+// trial). Mesmo guard das demais rotas deste router: ADMIN-only dentro do
+// próprio tenant, não uma rota pública.
+router.get('/planos-disponiveis', requireEscritaConfiguracao, billing.listarPlanosDisponiveis)
 router.put('/dados-cobranca', requireEscritaConfiguracao, billing.atualizarDadosCobranca)
 router.post('/assinatura', requireEscritaConfiguracao, billing.criarAssinatura)
 router.post('/cobrancas/:cobrancaId/pagar', requireEscritaConfiguracao, billing.pagarCobranca)

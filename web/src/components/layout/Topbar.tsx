@@ -41,8 +41,10 @@ export function Topbar({ collapsed }: Props) {
   const [buscaAberta, setBuscaAberta] = useState(false)
   const [buscaLoading, setBuscaLoading] = useState(false)
   const [resultadosBusca, setResultadosBusca] = useState<ResultadoBusca[]>([])
+  const [contaAberta, setContaAberta] = useState(false)
   const novoRef = useRef<HTMLDivElement>(null)
   const buscaRef = useRef<HTMLFormElement>(null)
+  const contaRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
@@ -63,6 +65,22 @@ export function Topbar({ collapsed }: Props) {
       document.removeEventListener('keydown', onKeyDown)
     }
   }, [novoAberto])
+
+  useEffect(() => {
+    if (!contaAberta) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (contaRef.current && !contaRef.current.contains(e.target as Node)) setContaAberta(false)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContaAberta(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [contaAberta])
 
   useEffect(() => {
     if (!buscaAberta) return
@@ -280,17 +298,38 @@ export function Topbar({ collapsed }: Props) {
 
         <div className="hidden sm:block h-8 w-px bg-outline-variant mx-1" />
 
-        <div className="flex items-center gap-3">
-          <div className="hidden md:block text-right">
-            <p className="text-label-md font-bold text-on-surface">{user?.nome ?? 'Admin'}</p>
-            <p className="text-[10px] text-outline uppercase tracking-wider truncate max-w-[160px]">{user?.email ?? 'UserPulse'}</p>
-          </div>
-          <div
-            className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm border-2 border-primary-fixed"
-            title={user?.email}
+        <div className="relative" ref={contaRef}>
+          <button
+            type="button"
+            onClick={() => setContaAberta(v => !v)}
+            aria-haspopup="menu"
+            aria-expanded={contaAberta}
+            className="flex items-center gap-3 rounded-full hover:bg-surface-container-high transition-colors pr-1 pl-1 py-1"
           >
-            {iniciais(user?.nome ?? 'UserPulse')}
-          </div>
+            <div className="hidden md:block text-right">
+              <p className="text-label-md font-bold text-on-surface">{user?.nome ?? 'Admin'}</p>
+              <p className="text-[10px] text-outline uppercase tracking-wider truncate max-w-[160px]">{user?.email ?? 'UserPulse'}</p>
+            </div>
+            <div
+              className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm border-2 border-primary-fixed"
+              title={user?.email}
+            >
+              {iniciais(user?.nome ?? 'UserPulse')}
+            </div>
+          </button>
+          {contaAberta && (
+            <div className="absolute right-0 z-50 mt-2 w-56 origin-top-right overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface p-2 shadow-lg" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => { setContaAberta(false); navigate('/minha-conta') }}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-container-low"
+              >
+                <span className="material-symbols-outlined text-[19px] text-on-surface-variant">account_circle</span>
+                <span className="text-body-md font-medium text-on-surface">Minha conta</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>
