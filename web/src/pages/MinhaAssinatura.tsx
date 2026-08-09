@@ -3,6 +3,7 @@ import { get, put, post } from '../services/api'
 import type {
   SituacaoBillingResposta, SituacaoAsaasDecisao, SituacaoComercialTenant,
   AssinaturaSelfServiceResposta, PagarCobrancaResposta, PlanoContratavel,
+  UpgradePreviewResposta, UpgradeSolicitadoResposta,
 } from '../types'
 import { LoadingSpinner, ErrorState } from '../components/ui/EmptyState'
 import { Button } from '../components/ui/Button'
@@ -157,6 +158,19 @@ export function MinhaAssinatura() {
   const [pagandoId, setPagandoId] = useState<string | null>(null)
   const [pagarErro, setPagarErro] = useState<string | null>(null)
 
+  // Fase 8A — upgrade self-service. upgradePlanoId é o plano em análise (o
+  // cliente clicou "Fazer upgrade" nele); upgradePreview é sempre o
+  // resultado de GET /billing/upgrade/preview pra ESSE plano — nunca um
+  // valor calculado aqui (regra explícita da tarefa: nenhum cálculo
+  // financeiro no frontend, o backend recalcula tudo de novo no POST
+  // /billing/upgrade também, nunca confia no que a prévia devolveu).
+  const [upgradePlanoId, setUpgradePlanoId] = useState<string | null>(null)
+  const [upgradePreview, setUpgradePreview] = useState<UpgradePreviewResposta | null>(null)
+  const [upgradePreviewLoading, setUpgradePreviewLoading] = useState(false)
+  const [upgradePreviewErro, setUpgradePreviewErro] = useState<string | null>(null)
+  const [upgradeConfirmando, setUpgradeConfirmando] = useState(false)
+  const [upgradeErro, setUpgradeErro] = useState<string | null>(null)
+
   const carregar = () => {
     setLoading(true)
     setErro(null)
@@ -169,14 +183,35 @@ export function MinhaAssinatura() {
   useEffect(() => { carregar() }, [])
 
   // Planos só são buscados quando de fato precisam aparecer (ver condição
-  // de renderização abaixo) — evita a chamada em quem já é assinante.
+  // de renderização abaixo) — evita a chamada em quem já é assinante e não
+  // pode ver upgrade (ex.: suspenso/cancelado/em trial).
   const precisaEscolherPlano = Boolean(
     situacao && !situacao.planoPendente && !situacao.possuiAssinatura &&
     situacao.situacaoComercial !== 'suspenso' && situacao.situacaoComercial !== 'cancelado'
   )
+  // Fase 8A — mesma lista de planos (GET /billing/planos-disponiveis) serve
+  // pra escolher o primeiro plano E pra oferecer upgrade: só reaproveita os
+  // planos com valor MAIOR que o atual (ver planosSuperiores abaixo) —
+  // "superior" usa a mesma ordenação por valor que o backend usa em
+  // validarUpgradePlano. licenca_vencida também exclui aqui (correção
+  // pós-revisão) — o backend agora bloqueia upgrade fora de "em dia"
+  // (tolerância/inadimplência, ver situacaoAdimplenciaTenant em
+  // validarECalcularUpgrade), então nem oferece o botão nesse caso, em vez
+  // de deixar o cliente cair num 403 depois de escolher um plano.
+  const podeVerUpgrade = Boolean(
+    situacao && situacao.possuiAssinatura && !situacao.planoPendente &&
+    situacao.situacaoComercial !== 'suspenso' && situacao.situacaoComercial !== 'cancelado' &&
+    situacao.situacaoComercial !== 'trial_ativo' && situacao.situacaoComercial !== 'trial_vencido' &&
+    situacao.situacaoComercial !== 'licenca_vencida'
+  )
+  const planosSuperiores = (planos ?? []).filter(p => {
+    if (!podeVerUpgrade || !situacao?.plano) return false
+    if (p.valor == null || situacao.plano.valor == null) return false
+    return Number(p.valor) > Number(situacao.plano.valor)
+  })
 
   useEffect(() => {
-    if (!precisaEscolherPlano || planos !== null) return
+    if ((!precisaEscolherPlano && !podeVerUpgrade) || planos !== null) return
     setPlanosLoading(true)
     setPlanosErro(null)
     get<PlanoContratavel[]>('/billing/planos-disponiveis')
@@ -184,7 +219,7 @@ export function MinhaAssinatura() {
       .catch(e => setPlanosErro(e instanceof Error ? e.message : 'Erro ao carregar planos disponíveis.'))
       .finally(() => setPlanosLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [precisaEscolherPlano])
+  }, [precisaEscolherPlano, podeVerUpgrade])
 
   const salvarDadosCobranca = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -236,6 +271,48 @@ export function MinhaAssinatura() {
       setPagarErro(e instanceof Error ? e.message : 'Erro ao preparar pagamento.')
     } finally {
       setPagandoId(null)
+    }
+  }
+
+  // Fase 8A — busca a prévia (GET /billing/upgrade/preview) pro plano
+  // clicado; nunca calcula valor nenhum aqui, só exibe o que o backend
+  // devolveu. Reaproveitada tanto no clique em "Fazer upgrade" quanto no
+  // "Tentar novamente" do estado de erro.
+  const buscarPreviewUpgrade = (planoId: string) => {
+    setUpgradePlanoId(planoId)
+    setUpgradePreview(null)
+    setUpgradePreviewErro(null)
+    setUpgradeErro(null)
+    setUpgradePreviewLoading(true)
+    get<UpgradePreviewResposta>(`/billing/upgrade/preview?plano_id=${encodeURIComponent(planoId)}`)
+      .then(setUpgradePreview)
+      .catch(e => setUpgradePreviewErro(e instanceof Error ? e.message : 'Erro ao calcular prévia de upgrade.'))
+      .finally(() => setUpgradePreviewLoading(false))
+  }
+
+  const cancelarUpgrade = () => {
+    setUpgradePlanoId(null)
+    setUpgradePreview(null)
+    setUpgradePreviewErro(null)
+    setUpgradeErro(null)
+  }
+
+  // plano_id é o único dado enviado — valor/proporção são sempre
+  // recalculados no backend a partir dele (nunca confia no que a prévia
+  // devolveu, mesmo padrão de "assinar" acima).
+  const confirmarUpgrade = async () => {
+    if (!upgradePlanoId) return
+    setUpgradeConfirmando(true)
+    setUpgradeErro(null)
+    try {
+      const resultado = await post<UpgradeSolicitadoResposta>('/billing/upgrade', { plano_id: upgradePlanoId })
+      if (resultado.invoiceUrl) window.open(resultado.invoiceUrl, '_blank', 'noopener,noreferrer')
+      cancelarUpgrade()
+      carregar()
+    } catch (e) {
+      setUpgradeErro(e instanceof Error ? e.message : 'Erro ao solicitar upgrade.')
+    } finally {
+      setUpgradeConfirmando(false)
     }
   }
 
@@ -320,6 +397,93 @@ export function MinhaAssinatura() {
                         <span className="block text-[12px] text-on-surface-variant">Próxima cobrança</span>
                         <span className="text-on-surface">{formatDate(situacao.proximaCobranca)}</span>
                       </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Fase 8A — upgrade self-service. Só aparece pra quem já é
+                assinante, sem troca pendente, fora de trial/suspenso/
+                cancelado (podeVerUpgrade). Planos superiores vêm da MESMA
+                lista de /billing/planos-disponiveis já usada pra escolher o
+                primeiro plano, filtrados por valor MAIOR que o atual. */}
+            {podeVerUpgrade && (
+              <div>
+                <h3 className="text-title-md font-bold text-on-surface mb-3">Planos superiores</h3>
+                {planosLoading && <LoadingSpinner />}
+                {!planosLoading && planosErro && <ErrorState message={planosErro} onRetry={() => { setPlanos(null) }} />}
+                {!planosLoading && !planosErro && planosSuperiores.length === 0 && (
+                  <p className="text-body-md text-on-surface-variant">Você já está no plano mais completo disponível.</p>
+                )}
+                {!planosLoading && !planosErro && planosSuperiores.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {planosSuperiores.map(p => (
+                      <div key={p.id} className={card}>
+                        <h4 className="text-title-md font-bold text-on-surface mb-1">{p.nome}</h4>
+                        <p className="text-headline-md font-bold text-on-surface mb-3">
+                          {p.valor != null ? formatarValorReais(Number(p.valor)) : 'Sob consulta'}
+                          {p.ciclo && <span className="text-body-md font-normal text-on-surface-variant"> / {CICLO_LABEL[p.ciclo] ?? p.ciclo}</span>}
+                        </p>
+                        <Button size="sm" onClick={() => buscarPreviewUpgrade(p.id)} disabled={upgradePlanoId === p.id}>
+                          Fazer upgrade
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {upgradePlanoId && (
+                  <div className={`${card} mt-4`}>
+                    <h3 className="text-title-md font-bold text-on-surface mb-2">Resumo do upgrade</h3>
+                    {upgradePreviewLoading && <LoadingSpinner />}
+                    {!upgradePreviewLoading && upgradePreviewErro && (
+                      <ErrorState message={upgradePreviewErro} onRetry={() => buscarPreviewUpgrade(upgradePlanoId)} />
+                    )}
+                    {!upgradePreviewLoading && !upgradePreviewErro && upgradePreview && (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-body-md mb-3">
+                          <div>
+                            <span className="block text-[12px] text-on-surface-variant">Plano atual</span>
+                            <span className="text-on-surface font-semibold">
+                              {upgradePreview.planoAtual?.nome ?? 'Nenhum'}
+                              {upgradePreview.planoAtual?.valor != null && ` (${formatarValorReais(Number(upgradePreview.planoAtual.valor))})`}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="block text-[12px] text-on-surface-variant">Novo plano</span>
+                            <span className="text-on-surface font-semibold">
+                              {upgradePreview.planoNovo.nome}
+                              {upgradePreview.planoNovo.valor != null && ` (${formatarValorReais(Number(upgradePreview.planoNovo.valor))})`}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="block text-[12px] text-on-surface-variant">Valor proporcional agora</span>
+                            <span className="text-on-surface font-semibold">{formatarValorReais(upgradePreview.valorProporcional)}</span>
+                          </div>
+                          <div>
+                            <span className="block text-[12px] text-on-surface-variant">Próximo ciclo (valor integral)</span>
+                            <span className="text-on-surface font-semibold">
+                              {upgradePreview.planoNovo.valor != null ? formatarValorReais(Number(upgradePreview.planoNovo.valor)) : 'Sob consulta'}
+                              {upgradePreview.planoNovo.ciclo && ` / ${CICLO_LABEL[upgradePreview.planoNovo.ciclo] ?? upgradePreview.planoNovo.ciclo}`}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-body-sm text-on-surface-variant mb-3">
+                          Você paga agora só a diferença proporcional pelos {upgradePreview.diasRestantesCiclo}{' '}
+                          dia{upgradePreview.diasRestantesCiclo === 1 ? '' : 's'} restantes do ciclo atual. A partir do
+                          próximo ciclo, o valor integral do novo plano passa a ser cobrado automaticamente.
+                        </p>
+                        {upgradeErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{upgradeErro}</div>}
+                        <div className="flex gap-2">
+                          <Button onClick={confirmarUpgrade} disabled={upgradeConfirmando}>
+                            {upgradeConfirmando ? 'Confirmando…' : 'Confirmar upgrade'}
+                          </Button>
+                          <Button variant="ghost" onClick={cancelarUpgrade} disabled={upgradeConfirmando}>
+                            Cancelar
+                          </Button>
+                        </div>
+                      </>
                     )}
                   </div>
                 )}
