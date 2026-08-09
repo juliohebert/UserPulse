@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useCadastroConfig } from '../hooks/useCadastroConfig'
 import { AuthLayout } from '../components/auth/AuthLayout'
-import { get } from '../services/api'
-import type { CadastroConfig } from '../types'
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'bg-surface-container-lowest p-7 rounded-2xl border border-outline-variant/70 shadow-md space-y-4'
@@ -20,14 +19,13 @@ export function LoginPage() {
   const [entrando, setEntrando] = useState(false)
 
   // Config real do trial (dias + limites) pros destaques na coluna
-  // institucional (ver AuthLayout, prop trialConfig) — mesmo endpoint
-  // público já usado por Cadastro.tsx, nunca duplicando a regra comercial
-  // aqui: só repassa o que o backend já resolveu (GET /auth/cadastro/config).
-  // Falha só reduz os destaques exibidos, nunca quebra o login.
-  const [cadastroConfig, setCadastroConfig] = useState<CadastroConfig | null>(null)
-  useEffect(() => {
-    get<CadastroConfig>('/auth/cadastro/config').then(setCadastroConfig).catch(() => setCadastroConfig(null))
-  }, [])
+  // institucional (ver AuthLayout, prop trialConfig) — mesmo hook usado por
+  // Cadastro.tsx (useCadastroConfig, cacheia em memória entre as duas
+  // telas), nunca duplicando a regra comercial aqui: só repassa o que o
+  // backend já resolveu (GET /auth/cadastro/config). `carregando` distingue
+  // ainda-buscando de resolvido-sem-dados, pro AuthLayout mostrar skeleton
+  // em vez de um fallback provisório (ver configCarregando ali).
+  const { config: cadastroConfig, carregando: carregandoConfig } = useCadastroConfig()
 
   // Já logado (ex.: voltou pra /login manualmente com sessão válida) — manda
   // direto pro painel em vez de mostrar o formulário à toa.
@@ -61,6 +59,7 @@ export function LoginPage() {
       subtituloForm="Acesse sua conta para continuar criando experiências para seus usuários."
       mostrarPreview
       trialConfig={cadastroConfig}
+      configCarregando={carregandoConfig}
     >
       <form onSubmit={handleSubmit} className={card}>
         <div>
