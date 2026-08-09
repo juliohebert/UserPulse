@@ -153,6 +153,7 @@ export interface FiltrosListaTours {
   busca?: string
   sistema?: string
   status?: string
+  passos?: string
 }
 
 // Pura — monta só o where do Prisma a partir dos filtros já usados hoje na
@@ -163,6 +164,8 @@ export function montarWhereListaTours(filtros: FiltrosListaTours): Prisma.TourGu
   const where: Prisma.TourGuiadoWhereInput = {}
   if (filtros.status === 'ativos') where.ativo = true
   else if (filtros.status === 'inativos') where.ativo = false
+  if (filtros.passos === 'com') where.passos = { some: {} }
+  else if (filtros.passos === 'sem') where.passos = { none: {} }
   if (filtros.sistema?.trim()) where.sistema = filtros.sistema.trim()
   if (filtros.busca?.trim()) {
     const termo = filtros.busca.trim()
@@ -188,11 +191,26 @@ export function normalizarPaginacaoTours(page: unknown, perPage: unknown): { pag
   return { page: pageNum, perPage: perPageNum }
 }
 
+type SortKeyListaTours = 'tour' | 'sistema' | 'status' | 'passos' | 'atualizado'
+
+function montarOrderByListaTours(sortKey?: string, sortDirection?: string): Prisma.TourGuiadoOrderByWithRelationInput {
+  const direction = sortDirection === 'asc' ? 'asc' : 'desc'
+  switch (sortKey as SortKeyListaTours) {
+    case 'tour': return { titulo: direction }
+    case 'sistema': return { sistema: direction }
+    case 'status': return { ativo: direction }
+    case 'passos': return { passos: { _count: direction } }
+    case 'atualizado': return { atualizado_em: direction }
+    default: return { criado_em: 'desc' }
+  }
+}
+
 export async function listar(req: Request, res: Response) {
   try {
     const tenantId = req.adminUser!.tenant_id
-    const { busca, sistema, status, page, pageSize } = req.query as Record<string, string | undefined>
-    const where = { ...montarWhereListaTours({ busca, sistema, status }), tenant_id: tenantId }
+    const { busca, sistema, status, passos, page, pageSize, sortKey, sortDirection } = req.query as Record<string, string | undefined>
+    const where = { ...montarWhereListaTours({ busca, sistema, status, passos }), tenant_id: tenantId }
+    const orderBy = montarOrderByListaTours(sortKey, sortDirection)
 
     // Sem page/pageSize, devolve o array puro de sempre — compatibilidade com
     // quem já consome /tours sem paginação (web/src/pages/Dashboard.tsx e
@@ -201,7 +219,7 @@ export async function listar(req: Request, res: Response) {
     if (page == null && pageSize == null) {
       const tours = await prisma.tourGuiado.findMany({
         where,
-        orderBy: { criado_em: 'desc' },
+        orderBy,
         include: { _count: { select: { passos: true } } },
       })
       return res.json(tours)
@@ -212,7 +230,7 @@ export async function listar(req: Request, res: Response) {
     const [items, total, totalGeral, ativosGeral, inativosGeral, totalPassosGeral, sistemasRows] = await Promise.all([
       prisma.tourGuiado.findMany({
         where,
-        orderBy: { criado_em: 'desc' },
+        orderBy,
         include: { _count: { select: { passos: true } } },
         skip: (pageNum - 1) * perPageNum,
         take: perPageNum,
