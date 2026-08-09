@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Request, Response, NextFunction, Router } from 'express'
 import { AdminRole } from '@prisma/client'
-import { requireAcessoOperacional, CODIGO_TRIAL_EXPIRADO } from './requireAcessoOperacional'
+import { requireAcessoOperacional, CODIGO_TRIAL_EXPIRADO, CODIGO_INADIMPLENCIA } from './requireAcessoOperacional'
 import billingRouter from '../routes/billing'
 import authRouter from '../routes/auth'
 
@@ -93,6 +93,67 @@ describe('requireAcessoOperacional — comportamento por papel/situação de ten
 
   test('SUSPENDED não leva o 403 de TRIAL_EXPIRADO (continua só bloqueio de escrita, sem mudança)', () => {
     const r = chamar('ADMIN', { status: 'SUSPENDED', trial_fim: null, licenca_fim: null })
+    assert.equal(r.permitido, true)
+    assert.equal(r.status, undefined)
+  })
+})
+
+// Fase 7 — tolerância de inadimplência (assinatura paga vencida). Mesmo
+// middleware, novo motivo de bloqueio (motivoBloqueioOperacionalInadimplencia)
+// e novo código estável (CODIGO_INADIMPLENCIA), só depois que a tolerância
+// de 5 dias expira — dentro dela, acesso operacional continua normal.
+describe('requireAcessoOperacional — tolerância de inadimplência (Fase 7)', () => {
+  // 1 a 4 dias, não 5: este teste usa o relógio real (o middleware chama
+  // motivoBloqueioOperacionalInadimplencia sem injetar `agora`, mesmo padrão
+  // de motivoBloqueioOperacionalTrial acima), então testar exatamente no
+  // limite de 5 dias contra um `passado()` baseado num AGORA fixo é frágil
+  // (o relógio real avança além do AGORA fixo entre quando o teste foi
+  // escrito e quando roda, empurrando pra além do limite). O limite exato
+  // já é coberto de forma determinística em tenantGuards.test.ts
+  // (situacaoAdimplenciaTenant, com `agora` injetado).
+  test('licença vencida DENTRO da tolerância (1 a 4 dias) permite acesso operacional normal', () => {
+    for (const dias of [1, 2, 3, 4]) {
+      const r = chamar('ADMIN', { status: 'ACTIVE', trial_fim: null, licenca_fim: passado(dias) })
+      assert.equal(r.permitido, true)
+      assert.equal(r.status, undefined)
+    }
+  })
+
+  test('licença vencida ALÉM da tolerância (6 dias) bloqueia ADMIN com 403 e código INADIMPLENCIA', () => {
+    const r = chamar('ADMIN', { status: 'ACTIVE', trial_fim: null, licenca_fim: passado(6) })
+    assert.equal(r.permitido, false)
+    assert.equal(r.status, 403)
+    assert.equal((r.body as { codigo: string }).codigo, CODIGO_INADIMPLENCIA)
+  })
+
+  test('licença vencida além da tolerância bloqueia EDITOR e VIEWER também', () => {
+    for (const role of ['EDITOR', 'VIEWER'] as const) {
+      const r = chamar(role, { status: 'ACTIVE', trial_fim: null, licenca_fim: passado(6) })
+      assert.equal(r.permitido, false)
+      assert.equal(r.status, 403)
+    }
+  })
+
+  test('SUPER_ADMIN nunca é bloqueado, mesmo com o próprio tenant além da tolerância', () => {
+    const r = chamar('SUPER_ADMIN', { status: 'ACTIVE', trial_fim: null, licenca_fim: passado(30) })
+    assert.equal(r.permitido, true)
+    assert.equal(r.status, undefined)
+  })
+
+  test('SUSPENDED não leva o 403 de INADIMPLENCIA (preservado — continua só bloqueio de escrita)', () => {
+    const r = chamar('ADMIN', { status: 'SUSPENDED', trial_fim: null, licenca_fim: passado(30) })
+    assert.equal(r.permitido, true)
+    assert.equal(r.status, undefined)
+  })
+
+  test('CANCELED não leva o 403 de INADIMPLENCIA (preservado — continua só bloqueio de escrita)', () => {
+    const r = chamar('ADMIN', { status: 'CANCELED', trial_fim: null, licenca_fim: passado(30) })
+    assert.equal(r.permitido, true)
+    assert.equal(r.status, undefined)
+  })
+
+  test('pagamento confirmado libera automaticamente — licenca_fim no futuro nunca bloqueia, mesmo tendo passado da tolerância antes', () => {
+    const r = chamar('ADMIN', { status: 'ACTIVE', trial_fim: null, licenca_fim: futuro(30) })
     assert.equal(r.permitido, true)
     assert.equal(r.status, undefined)
   })

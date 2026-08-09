@@ -117,9 +117,16 @@ const MOTIVO_POR_SITUACAO: Record<Exclude<SituacaoComercialTenant, 'trial_ativo'
 // trial expirado, licença paga expirada, suspenso e cancelado — todos
 // tratados como bloqueio total de escrita, leitura continua liberada (ver
 // cada controller: só as rotas de escrita chamam isto, GET nunca chama).
+//
+// Fase 7 — exceção: licença paga vencida DENTRO da janela de tolerância
+// (ver situacaoAdimplenciaTenant, mais abaixo) não bloqueia escrita —
+// assinatura inadimplente continua com acesso operacional normal pelos
+// primeiros TOLERANCIA_INADIMPLENCIA_DIAS dias. trial_vencido/suspenso/
+// cancelado nunca têm tolerância — bloqueiam imediatamente, sem mudança.
 export function motivoBloqueioEscrita(tenant: TenantParaSituacao, agora: Date = new Date()): string | null {
   const situacao = obterSituacaoComercialTenant(tenant, agora)
   if (situacao === 'trial_ativo' || situacao === 'licenca_ativa') return null
+  if (situacao === 'licenca_vencida' && situacaoAdimplenciaTenant(tenant, agora) === 'tolerancia') return null
   return MOTIVO_POR_SITUACAO[situacao]
 }
 
@@ -330,4 +337,61 @@ export function diasRestantesTrial(trialFim: Date | null, agora: Date = new Date
 export function motivoBloqueioOperacionalTrial(tenant: TenantParaSituacao, agora: Date = new Date()): string | null {
   if (obterSituacaoComercialTenant(tenant, agora) !== 'trial_vencido') return null
   return 'Seu teste grátis terminou. Escolha um plano para continuar usando o UserPulse.'
+}
+
+// ─── Fase 7 — tolerância de inadimplência (assinatura paga vencida) ────────
+// Reaproveita obterSituacaoComercialTenant/licenca_fim (já era a data de
+// vencimento da cobrança em vigor — ver calcularAtualizacaoTenant em
+// services/asaasClient.ts: pagamento_confirmado grava licenca_fim =
+// próximo vencimento, e pagamento_vencido explicitamente NÃO mexe em
+// licenca_fim, deixando o bloqueio por data cuidar disso sozinho) — nenhum
+// campo novo de "data de vencimento da cobrança pendente" foi criado, essa
+// informação já existia. Nada disto é persistido (sem cron, sem contador
+// gravado) — sempre recalculado em runtime a partir de licenca_fim, mesmo
+// espírito de diasRestantesTrial acima. Só se aplica quando a situação já é
+// 'licenca_vencida' (nunca confunde com trial_vencido/suspenso/cancelado,
+// que têm suas próprias regras, sem tolerância).
+export const TOLERANCIA_INADIMPLENCIA_DIAS = 5
+
+export type SituacaoAdimplencia = 'em_dia' | 'tolerancia' | 'tolerancia_expirada'
+
+function limiteToleranciaInadimplencia(licencaFim: Date): Date {
+  return new Date(licencaFim.getTime() + TOLERANCIA_INADIMPLENCIA_DIAS * DIA_MS)
+}
+
+// 'em_dia' cobre tanto "nunca esteve vencido" quanto trial/suspenso/
+// cancelado (fora do domínio desta função) — só quem chega a
+// 'licenca_vencida' (ACTIVE ou EXPIRED com licenca_fim setado, ver
+// obterSituacaoComercialTenant) pode virar 'tolerancia'/'tolerancia_expirada'.
+// Comparação com "<=" no limite (não "<") de propósito — cobrança vencida
+// há EXATAMENTE TOLERANCIA_INADIMPLENCIA_DIAS dias ainda conta como dentro
+// da tolerância (regra explícita da tarefa: "vencida há <= 5 dias").
+export function situacaoAdimplenciaTenant(tenant: TenantParaSituacao, agora: Date = new Date()): SituacaoAdimplencia {
+  if (obterSituacaoComercialTenant(tenant, agora) !== 'licenca_vencida') return 'em_dia'
+  const limite = limiteToleranciaInadimplencia(tenant.licenca_fim!)
+  return limite.getTime() >= agora.getTime() ? 'tolerancia' : 'tolerancia_expirada'
+}
+
+// Dias restantes de tolerância, arredondado pra cima (mesmo padrão de
+// diasRestantesTrial) — pra exibição ("Você tem X dias para regularizar").
+// null quando não está em 'licenca_vencida' (não aplicável). 0 só no
+// instante exato em que a tolerância expira (mesma borda documentada em
+// diasRestantesTrial) — sem efeito prático, o front nunca observa esse
+// instante.
+export function diasRestantesTolerancia(tenant: TenantParaSituacao, agora: Date = new Date()): number | null {
+  if (obterSituacaoComercialTenant(tenant, agora) !== 'licenca_vencida') return null
+  const limite = limiteToleranciaInadimplencia(tenant.licenca_fim!)
+  const ms = limite.getTime() - agora.getTime()
+  if (ms <= 0) return 0
+  return Math.ceil(ms / DIA_MS)
+}
+
+// Mensagem estável usada pelo 403 de requireAcessoOperacional — mesmo
+// padrão de motivoBloqueioOperacionalTrial, agora pra inadimplência que já
+// passou da tolerância. Antes da tolerância expirar, motivoBloqueioEscrita
+// já libera escrita normalmente (ver acima) — este bloqueio operacional
+// (leitura incluída) só entra em jogo depois, e nunca antes.
+export function motivoBloqueioOperacionalInadimplencia(tenant: TenantParaSituacao, agora: Date = new Date()): string | null {
+  if (situacaoAdimplenciaTenant(tenant, agora) !== 'tolerancia_expirada') return null
+  return 'Sua assinatura está com pagamento pendente. Regularize para continuar usando o UserPulse.'
 }

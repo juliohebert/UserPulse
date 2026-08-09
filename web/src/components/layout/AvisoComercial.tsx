@@ -32,6 +32,16 @@ function textoDiasRestantesTrial(dias: number): string {
   return `Seu teste grátis está ativo. Você tem ${contagem} para explorar o UserPulse.`
 }
 
+// Fase 7 — texto durante a tolerância de inadimplência, a partir de
+// tenant.tolerancia_dias_restantes já calculado pelo backend (ver
+// server/src/lib/tenantGuards.ts, diasRestantesTolerancia) — nunca
+// recalculado aqui, e nunca menciona data/status financeiro, só o número
+// de dias (regra explícita da tarefa).
+function textoToleranciaInadimplencia(dias: number): string {
+  const contagem = dias === 1 ? '1 dia' : `${dias} dias`
+  return `Pagamento pendente. Você tem ${contagem} para regularizar sua assinatura.`
+}
+
 type Variante = 'danger' | 'warning'
 
 interface Aviso {
@@ -62,8 +72,21 @@ function resolverAviso(tenant: AdminUser['tenant'], role: AdminUser['role'] | un
         // o botão, pra não linkar pra uma tela de "acesso restrito".
         cta: podeEscreverConfiguracao(role) ? { label: 'Escolher um plano', to: '/minha-assinatura' } : undefined,
       }
-    case 'licenca_vencida':
-      return { texto: 'Sua licença venceu. Entre em contato para regularizar o acesso.', variante: 'danger' }
+    case 'licenca_vencida': {
+      // Fase 7 — tolerância de inadimplência: dentro da janela (dias > 0),
+      // acesso operacional continua normal (ver motivoBloqueioEscrita no
+      // backend), só avisa. Depois de expirada (dias null ou 0), o
+      // middleware já bloqueia de verdade — mensagem final, sem contagem.
+      const dias = tenant.tolerancia_dias_restantes
+      const emTolerancia = dias != null && dias > 0
+      return {
+        texto: emTolerancia
+          ? textoToleranciaInadimplencia(dias)
+          : 'Sua assinatura está com pagamento pendente. Regularize para continuar usando o UserPulse.',
+        variante: emTolerancia ? 'warning' : 'danger',
+        cta: podeEscreverConfiguracao(role) ? { label: 'Regularizar assinatura', to: '/minha-assinatura' } : undefined,
+      }
+    }
     case 'trial_ativo': {
       const dias = tenant.trial_dias_restantes
       // Sempre exibido enquanto o trial estiver ativo (sem limiar) — ao
