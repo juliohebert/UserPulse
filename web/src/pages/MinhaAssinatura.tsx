@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { get, put, post } from '../services/api'
 import type {
   SituacaoBillingResposta, SituacaoAsaasDecisao, SituacaoComercialTenant,
-  AssinaturaSelfServiceResposta, PagarCobrancaResposta,
+  AssinaturaSelfServiceResposta, PagarCobrancaResposta, PlanoContratavel,
 } from '../types'
 import { LoadingSpinner, ErrorState } from '../components/ui/EmptyState'
 import { Button } from '../components/ui/Button'
@@ -10,15 +10,25 @@ import { formatDate, formatarValorReais } from '../utils/campanha'
 import {
   formatarCpfCnpj, formatarTelefone, normalizarCpfCnpj, normalizarTelefone, normalizarEmail,
 } from '../utils/mascaras'
+import { useAuth } from '../hooks/useAuth'
 
-// "Minha Assinatura" — Fase 5, pagamento self-service. Fora de Gestão SaaS
-// (rota liberada só pra ADMIN do próprio tenant, ver RequireEscritaConfiguracao
-// em App.tsx e requireEscritaConfiguracao no backend). Nunca usa Asaas
-// Checkout nesta fase — todo redirecionamento é pra uma invoiceUrl que o
-// backend já buscou de uma assinatura/cobrança existente (ver
-// server/src/controllers/billing.ts). Esta tela NUNCA decide sozinha se a
-// licença está liberada — só exibe o que o backend calculou; quem confirma
-// pagamento de verdade é sempre o webhook Asaas.
+// "Minha Assinatura" — Fase 5, pagamento self-service; reorganizada na Fase
+// 6B pra corrigir um problema de produto: um tenant em trial via "Plano sem
+// valor de assinatura configurado" e um botão "Assinar agora" tentando
+// contratar o próprio teste-gratis (que nunca teve, nem deveria ter, valor
+// configurado). Agora o fluxo para quem ainda não tem assinatura paga é
+// sempre: situação do teste grátis, planos disponíveis pra escolher, resumo
+// do escolhido, dados de cobrança, CTA. O plano escolhido é gravado como
+// plano_pendente_id (ver POST /billing/assinatura) — o Tenant continua no
+// plano atual até o webhook confirmar o pagamento, nunca antes disso.
+//
+// Fora de Gestão SaaS (rota liberada só pra ADMIN do próprio tenant, ver
+// RequireEscritaConfiguracao em App.tsx e requireEscritaConfiguracao no
+// backend). Nunca usa Asaas Checkout nesta fase — todo redirecionamento é
+// pra uma invoiceUrl que o backend já buscou de uma assinatura/cobrança
+// existente (ver server/src/controllers/billing.ts). Esta tela NUNCA decide
+// sozinha se a licença está liberada, só exibe o que o backend calculou;
+// quem confirma pagamento de verdade é sempre o webhook Asaas.
 
 const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
@@ -55,10 +65,85 @@ const FORM_VAZIO: BillingForm = {
   billing_nome_responsavel: '', billing_email: '', billing_cpf_cnpj: '', billing_telefone: '',
 }
 
+// Texto contextual do card de licença paga vencida, no topo da página —
+// trial_ativo/trial_vencido ganharam um card próprio, mais orientado ao
+// cliente (ver TrialCard abaixo), sem passar por este texto genérico.
+function textoSituacao(situacaoComercial: SituacaoComercialTenant): string {
+  if (situacaoComercial === 'licenca_vencida') return 'Sua licença venceu. Escolha um plano abaixo para regularizar o acesso.'
+  return ''
+}
+
+// Mesmo cálculo de dias restantes já usado em AvisoComercial.tsx (duplicado
+// de propósito, sem util compartilhado no projeto ainda) — nunca lido do
+// backend, sempre derivado de trial_fim (já devolvido em /auth/me).
+function diasRestantes(dataISO: string | null): number | null {
+  if (!dataISO) return null
+  return Math.ceil((new Date(dataISO).getTime() - Date.now()) / 86_400_000)
+}
+
+// Sem trailing "s" hardcoded fora daqui — só usado nos 3 números do card de
+// trial abaixo. null vira "Ilimitado" (nunca um número inventado, mesma
+// convenção de limite nulo = sem limite já usada em Cadastro.tsx).
+function fmtLimite(n: number | null): string {
+  return n != null ? String(n) : 'Ilimitado'
+}
+
+// Card de trial voltado ao cliente — nunca menciona Tenant/Asaas/termos
+// técnicos (regra explícita da tarefa). Limites vêm de user.tenant.plano
+// (já devolvido em /auth/me, nunca hardcoded aqui) — plano do trial é
+// sempre o mesmo plano vinculado ao Tenant nesse momento (ver Fase 6A/6B).
+function TrialCard({ ativo, trialFim, plano }: {
+  ativo: boolean
+  trialFim: string | null
+  plano: { limite_campanhas_ativas: number | null; limite_tours_ativos: number | null; limite_jornadas_ativas: number | null } | null
+}) {
+  const dias = ativo ? diasRestantes(trialFim) : null
+  return (
+    <div className="w-full bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="material-symbols-outlined ms-fill text-primary text-[28px] shrink-0">rocket_launch</span>
+        <div>
+          <h3 className="text-title-md font-bold text-on-surface">
+            {ativo ? 'Seu teste grátis está ativo' : 'Seu teste grátis terminou'}
+          </h3>
+          <p className="text-body-md text-on-surface-variant mt-1">
+            {ativo
+              ? (dias != null ? (dias <= 0 ? 'Vence hoje.' : `Restam ${dias} dia${dias === 1 ? '' : 's'} para explorar o UserPulse.`) : 'Aproveite para explorar o UserPulse.')
+              : 'Escolha um plano abaixo para continuar usando o UserPulse sem interrupções.'}
+          </p>
+        </div>
+      </div>
+
+      {plano && (
+        <div className="grid grid-cols-3 gap-2 mt-5 pt-5 border-t border-outline-variant/60">
+          <div className="text-center">
+            <p className="text-title-md font-bold text-on-surface">{fmtLimite(plano.limite_campanhas_ativas)}</p>
+            <p className="text-label-sm text-on-surface-variant">campanhas</p>
+          </div>
+          <div className="text-center">
+            <p className="text-title-md font-bold text-on-surface">{fmtLimite(plano.limite_tours_ativos)}</p>
+            <p className="text-label-sm text-on-surface-variant">tours</p>
+          </div>
+          <div className="text-center">
+            <p className="text-title-md font-bold text-on-surface">{fmtLimite(plano.limite_jornadas_ativas)}</p>
+            <p className="text-label-sm text-on-surface-variant">jornadas</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function MinhaAssinatura() {
+  const { user } = useAuth()
   const [situacao, setSituacao] = useState<SituacaoBillingResposta | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
+
+  const [planos, setPlanos] = useState<PlanoContratavel[] | null>(null)
+  const [planosLoading, setPlanosLoading] = useState(false)
+  const [planosErro, setPlanosErro] = useState<string | null>(null)
+  const [planoSelecionadoId, setPlanoSelecionadoId] = useState<string | null>(null)
 
   const [form, setForm] = useState<BillingForm>(FORM_VAZIO)
   const [salvandoForm, setSalvandoForm] = useState(false)
@@ -83,6 +168,24 @@ export function MinhaAssinatura() {
 
   useEffect(() => { carregar() }, [])
 
+  // Planos só são buscados quando de fato precisam aparecer (ver condição
+  // de renderização abaixo) — evita a chamada em quem já é assinante.
+  const precisaEscolherPlano = Boolean(
+    situacao && !situacao.planoPendente && !situacao.possuiAssinatura &&
+    situacao.situacaoComercial !== 'suspenso' && situacao.situacaoComercial !== 'cancelado'
+  )
+
+  useEffect(() => {
+    if (!precisaEscolherPlano || planos !== null) return
+    setPlanosLoading(true)
+    setPlanosErro(null)
+    get<PlanoContratavel[]>('/billing/planos-disponiveis')
+      .then(setPlanos)
+      .catch(e => setPlanosErro(e instanceof Error ? e.message : 'Erro ao carregar planos disponíveis.'))
+      .finally(() => setPlanosLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [precisaEscolherPlano])
+
   const salvarDadosCobranca = async (e: React.FormEvent) => {
     e.preventDefault()
     setSalvandoForm(true)
@@ -103,12 +206,17 @@ export function MinhaAssinatura() {
     }
   }
 
+  // Fase 6B — plano_id é sempre o que o cliente escolheu entre os planos
+  // disponíveis (nunca um valor calculado aqui); o backend recarrega o
+  // Plano pelo id e ignora qualquer outro dado financeiro que viesse do
+  // frontend (ver criarAssinatura em controllers/billing.ts).
   const assinar = async () => {
+    if (!planoSelecionadoId) return
     setAssinando(true)
     setAssinaturaErro(null)
     setAssinaturaResultado(null)
     try {
-      const resultado = await post<AssinaturaSelfServiceResposta>('/billing/assinatura', {})
+      const resultado = await post<AssinaturaSelfServiceResposta>('/billing/assinatura', { plano_id: planoSelecionadoId })
       setAssinaturaResultado(resultado)
       carregar()
     } catch (e) {
@@ -131,16 +239,18 @@ export function MinhaAssinatura() {
     }
   }
 
+  const planoSelecionado = planos?.find(p => p.id === planoSelecionadoId) ?? null
+
   return (
     <>
       <div className="px-4 lg:px-margin-desktop py-5">
         <h2 className="text-title-lg font-bold text-on-surface">Minha Assinatura</h2>
         <p className="text-body-md text-on-surface-variant mt-0.5">
-          Plano, valor, ciclo e situação da licença. Pague via Pix ou cartão diretamente pela página segura do Asaas.
+          Situação do seu plano e pagamento via Pix ou cartão diretamente pela página segura do Asaas.
         </p>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[900px] space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1000px] space-y-4">
         {loading && <LoadingSpinner />}
         {!loading && erro && <ErrorState message={erro} onRetry={carregar} />}
 
@@ -154,60 +264,68 @@ export function MinhaAssinatura() {
           // backend deriva os dois direto de Tenant.status, sem duplicar
           // lógica aqui).
           const bloqueadoPorStatus = situacao.situacaoComercial === 'suspenso' || situacao.situacaoComercial === 'cancelado'
+          const estaEmTrial = situacao.situacaoComercial === 'trial_ativo' || situacao.situacaoComercial === 'trial_vencido'
+          const textoTopo = textoSituacao(situacao.situacaoComercial)
+
           return (
           <>
-            <div className={card}>
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <h3 className="text-title-md font-bold text-on-surface">Plano</h3>
-                <button
-                  onClick={carregar}
-                  className="flex items-center gap-1 text-[12px] font-bold text-primary hover:bg-primary/10 rounded-lg px-2 py-1 transition-colors"
-                >
-                  <span className="material-symbols-outlined text-[14px]">refresh</span>
-                  Atualizar
-                </button>
-              </div>
+            {/* 1. Situação atual — nunca mostra "Plano sem valor de
+                assinatura configurado": teste-gratis nunca teve valor, isso
+                nunca foi um erro de configuração pra corrigir, é o estado
+                esperado do trial. Trial ganha um card próprio, mais
+                orientado ao cliente (ver TrialCard acima) — nunca menciona
+                Tenant/assinatura Asaas/termos técnicos. */}
+            {!bloqueadoPorStatus && estaEmTrial && (
+              <TrialCard
+                ativo={situacao.situacaoComercial === 'trial_ativo'}
+                trialFim={user?.tenant.trial_fim ?? null}
+                plano={user?.tenant.plano ?? null}
+              />
+            )}
 
-              {situacao.plano ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-body-md">
-                  <div>
-                    <span className="block text-[12px] text-on-surface-variant">Plano</span>
-                    <span className="text-on-surface font-semibold">{situacao.plano.nome}</span>
-                  </div>
-                  <div>
-                    <span className="block text-[12px] text-on-surface-variant">Valor</span>
-                    <span className="text-on-surface font-semibold">
-                      {situacao.plano.valor != null ? formatarValorReais(Number(situacao.plano.valor)) : '—'}
-                      {situacao.plano.ciclo && ` / ${CICLO_LABEL[situacao.plano.ciclo] ?? situacao.plano.ciclo}`}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="block text-[12px] text-on-surface-variant">Situação comercial</span>
-                    <span className="text-on-surface">{SITUACAO_COMERCIAL_LABEL[situacao.situacaoComercial]}</span>
-                  </div>
-                  <div>
-                    <span className="block text-[12px] text-on-surface-variant">Situação do pagamento</span>
-                    <span className={`inline-block mt-0.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${SITUACAO_ASAAS_LABEL[situacao.situacaoAsaas].className}`}>
-                      {SITUACAO_ASAAS_LABEL[situacao.situacaoAsaas].label}
-                    </span>
-                  </div>
-                  {situacao.proximaCobranca && (
-                    <div>
-                      <span className="block text-[12px] text-on-surface-variant">Próxima cobrança</span>
-                      <span className="text-on-surface">{formatDate(situacao.proximaCobranca)}</span>
-                    </div>
-                  )}
+            {!bloqueadoPorStatus && !estaEmTrial && (
+              <div className={card}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <h3 className="text-title-md font-bold text-on-surface">{SITUACAO_COMERCIAL_LABEL[situacao.situacaoComercial]}</h3>
+                  <button
+                    onClick={carregar}
+                    className="flex items-center gap-1 text-[12px] font-bold text-primary hover:bg-primary/10 rounded-lg px-2 py-1 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">refresh</span>
+                    Atualizar
+                  </button>
                 </div>
-              ) : (
-                <p className="text-body-md text-on-surface-variant">Nenhum plano vinculado — entre em contato com o suporte.</p>
-              )}
-              <p className="mt-3 text-[12px] text-on-surface-variant">{situacao.motivoSituacaoAsaas}</p>
-            </div>
+                {textoTopo && <p className="text-body-md text-on-surface-variant">{textoTopo}</p>}
+                {situacao.possuiAssinatura && !situacao.planoPendente && situacao.plano && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-body-md mt-3">
+                    <div>
+                      <span className="block text-[12px] text-on-surface-variant">Plano</span>
+                      <span className="text-on-surface font-semibold">{situacao.plano.nome}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[12px] text-on-surface-variant">Valor</span>
+                      <span className="text-on-surface font-semibold">
+                        {situacao.plano.valor != null ? formatarValorReais(Number(situacao.plano.valor)) : 'Sem custo'}
+                        {situacao.plano.ciclo && ` / ${CICLO_LABEL[situacao.plano.ciclo] ?? situacao.plano.ciclo}`}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-[12px] text-on-surface-variant">Situação do pagamento</span>
+                      <span className={`inline-block mt-0.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${SITUACAO_ASAAS_LABEL[situacao.situacaoAsaas].className}`}>
+                        {SITUACAO_ASAAS_LABEL[situacao.situacaoAsaas].label}
+                      </span>
+                    </div>
+                    {situacao.proximaCobranca && (
+                      <div>
+                        <span className="block text-[12px] text-on-surface-variant">Próxima cobrança</span>
+                        <span className="text-on-surface">{formatDate(situacao.proximaCobranca)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
-            {/* Regularização — nunca cria cobrança nova, só libera a escolha
-                do meio de pagamento numa cobrança PENDING/OVERDUE já
-                existente e devolve a invoiceUrl (ver pagarCobranca no
-                backend). */}
             {bloqueadoPorStatus && (
               <div className={card}>
                 <div className="flex items-start gap-2">
@@ -217,11 +335,211 @@ export function MinhaAssinatura() {
               </div>
             )}
 
+            {/* Aguardando confirmação: plano já escolhido (plano_pendente_id
+                gravado), assinatura Asaas já criada, só falta o webhook
+                confirmar o pagamento — nunca aplica o plano antes disso. */}
+            {!bloqueadoPorStatus && situacao.planoPendente && (
+              <div className={card}>
+                <div className="flex items-start gap-2.5">
+                  <span className="material-symbols-outlined text-primary shrink-0">hourglass_top</span>
+                  <div>
+                    <h3 className="text-title-md font-bold text-on-surface mb-1">Aguardando confirmação do pagamento</h3>
+                    <p className="text-body-md text-on-surface-variant">
+                      Você escolheu o plano <span className="font-semibold text-on-surface">{situacao.planoPendente.nome}</span>
+                      {situacao.planoPendente.valor != null && (
+                        <> ({formatarValorReais(Number(situacao.planoPendente.valor))}
+                          {situacao.planoPendente.ciclo && ` / ${CICLO_LABEL[situacao.planoPendente.ciclo] ?? situacao.planoPendente.ciclo}`})
+                        </>
+                      )}. Assim que o pagamento for confirmado, o plano é aplicado automaticamente.
+                    </p>
+                    {assinaturaResultado?.invoiceUrl && (
+                      <a
+                        href={assinaturaResultado.invoiceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 mt-3 text-primary font-bold underline"
+                      >
+                        Abrir página de pagamento
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!bloqueadoPorStatus && !situacao.possuiAssinatura && !situacao.planoPendente && (
+              <>
+                {/* 2. Planos disponíveis */}
+                <div>
+                  <h3 className="text-title-md font-bold text-on-surface mb-3">Planos disponíveis</h3>
+                  {planosLoading && <LoadingSpinner />}
+                  {!planosLoading && planosErro && <ErrorState message={planosErro} onRetry={() => { setPlanos(null) }} />}
+                  {!planosLoading && !planosErro && planos && planos.length === 0 && (
+                    <div className="w-full bg-surface-container-lowest p-8 rounded-2xl border border-outline-variant text-center">
+                      <span className="material-symbols-outlined text-on-surface-variant text-[40px]">inventory_2</span>
+                      <p className="text-body-md text-on-surface mt-2">Nenhum plano disponível para contratação no momento.</p>
+                      <p className="text-body-sm text-on-surface-variant mt-1">Fale com a gente para conhecer as opções certas para você.</p>
+                    </div>
+                  )}
+                  {!planosLoading && !planosErro && planos && planos.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {/* Nenhum plano é destacado como "recomendado" — não
+                          existe hoje um campo/regra no Plano indicando isso
+                          (ver Plano em schema.prisma); inventar um critério
+                          aqui divergiria da fonte de verdade no backend. */}
+                      {planos.map(p => {
+                        const selecionado = p.id === planoSelecionadoId
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setPlanoSelecionadoId(p.id)}
+                            className={`text-left p-5 rounded-xl border-2 transition-all ${
+                              selecionado
+                                ? 'border-primary bg-primary/5 shadow-md'
+                                : 'border-outline-variant bg-surface-container-lowest hover:border-primary/50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <h4 className="text-title-md font-bold text-on-surface">{p.nome}</h4>
+                              {selecionado && <span className="material-symbols-outlined ms-fill text-primary text-[22px]">check_circle</span>}
+                            </div>
+                            <p className="text-headline-md font-bold text-on-surface mb-1">
+                              {p.valor != null ? formatarValorReais(Number(p.valor)) : 'Sob consulta'}
+                              {p.ciclo && <span className="text-body-md font-normal text-on-surface-variant"> / {CICLO_LABEL[p.ciclo] ?? p.ciclo}</span>}
+                            </p>
+                            {p.descricao && <p className="text-body-sm text-on-surface-variant mb-3">{p.descricao}</p>}
+                            <ul className="space-y-1.5 text-body-sm text-on-surface-variant">
+                              <li className="flex items-center gap-1.5">
+                                <span className="material-symbols-outlined text-[16px] text-tertiary">check</span>
+                                {p.limite_campanhas_ativas != null ? `${p.limite_campanhas_ativas} campanhas ativas` : 'Campanhas ilimitadas'}
+                              </li>
+                              <li className="flex items-center gap-1.5">
+                                <span className="material-symbols-outlined text-[16px] text-tertiary">check</span>
+                                {p.limite_tours_ativos != null ? `${p.limite_tours_ativos} tours ativos` : 'Tours ilimitados'}
+                              </li>
+                              {p.permite_jornadas && (
+                                <li className="flex items-center gap-1.5">
+                                  <span className="material-symbols-outlined text-[16px] text-tertiary">check</span>
+                                  {p.limite_jornadas_ativas != null ? `${p.limite_jornadas_ativas} jornadas ativas` : 'Jornadas ilimitadas'}
+                                </li>
+                              )}
+                              {p.permite_white_label && (
+                                <li className="flex items-center gap-1.5">
+                                  <span className="material-symbols-outlined text-[16px] text-tertiary">check</span>
+                                  White label
+                                </li>
+                              )}
+                            </ul>
+                            <div className="mt-4 pt-3 border-t border-outline-variant/60">
+                              <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${selecionado ? 'text-primary' : 'text-on-surface-variant'}`}>
+                                {selecionado ? (
+                                  <>
+                                    <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                                    Plano selecionado
+                                  </>
+                                ) : (
+                                  <>
+                                    Escolher plano
+                                    <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Resumo do plano escolhido + dados de cobrança + CTA */}
+                {planoSelecionado && (
+                  <>
+                    <div className={card}>
+                      <h3 className="text-title-md font-bold text-on-surface mb-2">Resumo</h3>
+                      <p className="text-body-md text-on-surface">
+                        Plano <span className="font-semibold">{planoSelecionado.nome}</span>,{' '}
+                        {planoSelecionado.valor != null ? formatarValorReais(Number(planoSelecionado.valor)) : 'valor sob consulta'}
+                        {planoSelecionado.ciclo && ` por ciclo ${CICLO_LABEL[planoSelecionado.ciclo] ?? planoSelecionado.ciclo}`}.
+                      </p>
+                    </div>
+
+                    <form onSubmit={salvarDadosCobranca} className={card}>
+                      <h3 className="text-title-md font-bold text-on-surface mb-3">Dados de cobrança</h3>
+                      {formErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{formErro}</div>}
+                      {formSucesso && <div className="mb-3 p-3 bg-tertiary/10 text-tertiary rounded-xl text-body-md">{formSucesso}</div>}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-label-md text-on-surface-variant mb-1.5">
+                            Nome do responsável <span className="text-error">*</span>
+                          </label>
+                          <input
+                            value={form.billing_nome_responsavel}
+                            onChange={e => setForm(f => ({ ...f, billing_nome_responsavel: e.target.value }))}
+                            className={field}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-label-md text-on-surface-variant mb-1.5">
+                            CPF/CNPJ <span className="text-error">*</span>
+                          </label>
+                          <input
+                            value={form.billing_cpf_cnpj}
+                            onChange={e => setForm(f => ({ ...f, billing_cpf_cnpj: formatarCpfCnpj(e.target.value) }))}
+                            className={field}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail</label>
+                          <input
+                            value={form.billing_email}
+                            onChange={e => setForm(f => ({ ...f, billing_email: e.target.value }))}
+                            className={field}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-label-md text-on-surface-variant mb-1.5">Telefone</label>
+                          <input
+                            value={form.billing_telefone}
+                            onChange={e => setForm(f => ({ ...f, billing_telefone: formatarTelefone(e.target.value) }))}
+                            className={field}
+                          />
+                        </div>
+                      </div>
+                      <div className="mt-3">
+                        <Button type="submit" size="md" disabled={salvandoForm}>
+                          {salvandoForm ? 'Salvando…' : 'Salvar dados de cobrança'}
+                        </Button>
+                      </div>
+                    </form>
+
+                    <div className={card}>
+                      <h3 className="text-title-md font-bold text-on-surface mb-2">Assinar {planoSelecionado.nome}</h3>
+                      <p className="text-body-md text-on-surface-variant mb-2">
+                        Você será redirecionado para a página segura do Asaas, onde escolhe entre Pix ou cartão de crédito.
+                        O UserPulse nunca recebe nem armazena dados do seu cartão.
+                      </p>
+                      <p className="text-body-md text-on-surface-variant mb-3">
+                        No cartão, as cobranças seguintes são renovadas automaticamente. No Pix, cada cobrança do
+                        ciclo precisa ser paga manualmente por aqui quando vencer, sem precisar assinar de novo a
+                        cada ciclo (Pix Automático ainda não é suportado nesta versão).
+                      </p>
+                      {assinaturaErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{assinaturaErro}</div>}
+                      <Button onClick={assinar} disabled={assinando || !planoSelecionadoId}>
+                        {assinando ? 'Gerando…' : `Assinar ${planoSelecionado.nome}`}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
             {!bloqueadoPorStatus && situacao.cobrancasVencidas.length > 0 && (
               <div className={card}>
                 <h3 className="text-title-md font-bold text-on-surface mb-2">Cobranças vencidas</h3>
                 <p className="text-[12px] text-on-surface-variant mb-3">
-                  Se você paga via Pix, é esperado regularizar aqui a cada novo ciclo — no cartão, a cobrança
+                  Se você paga via Pix, é esperado regularizar aqui a cada novo ciclo. No cartão, a cobrança
                   seguinte é renovada automaticamente.
                 </p>
                 {pagarErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{pagarErro}</div>}
@@ -245,101 +563,11 @@ export function MinhaAssinatura() {
                 pós-revisão): um tenant com assinatura INACTIVE no Asaas
                 normalmente já está SUSPENDED, e hoje não existe forma
                 confiável de saber se a suspensão foi manual ou causada pelo
-                billing — ver bloqueioOperacaoFinanceiraSelfService em
-                server/src/services/asaasClient.ts. Assinatura INACTIVA sem
-                bloqueio de status (ex.: EXPIRED) já mostra a orientação de
-                contato via motivoSituacaoAsaas no card "Plano" acima. */}
-
-            {/* Nova contratação — só quando o tenant ainda não tem nenhuma
-                assinatura Asaas vinculada. billingType sempre UNDEFINED no
-                backend: quem escolhe Pix ou cartão é o pagador, na página
-                hospedada do Asaas — nunca o UserPulse. */}
-            {!bloqueadoPorStatus && !situacao.possuiAssinatura && (
-              <>
-                <form onSubmit={salvarDadosCobranca} className={card}>
-                  <h3 className="text-title-md font-bold text-on-surface mb-3">Dados de cobrança</h3>
-                  {formErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{formErro}</div>}
-                  {formSucesso && <div className="mb-3 p-3 bg-tertiary/10 text-tertiary rounded-xl text-body-md">{formSucesso}</div>}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        Nome do responsável <span className="text-error">*</span>
-                      </label>
-                      <input
-                        value={form.billing_nome_responsavel}
-                        onChange={e => setForm(f => ({ ...f, billing_nome_responsavel: e.target.value }))}
-                        className={field}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">
-                        CPF/CNPJ <span className="text-error">*</span>
-                      </label>
-                      <input
-                        value={form.billing_cpf_cnpj}
-                        onChange={e => setForm(f => ({ ...f, billing_cpf_cnpj: formatarCpfCnpj(e.target.value) }))}
-                        className={field}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail</label>
-                      <input
-                        value={form.billing_email}
-                        onChange={e => setForm(f => ({ ...f, billing_email: e.target.value }))}
-                        className={field}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-label-md text-on-surface-variant mb-1.5">Telefone</label>
-                      <input
-                        value={form.billing_telefone}
-                        onChange={e => setForm(f => ({ ...f, billing_telefone: formatarTelefone(e.target.value) }))}
-                        className={field}
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-3">
-                    <Button type="submit" size="md" disabled={salvandoForm}>
-                      {salvandoForm ? 'Salvando…' : 'Salvar dados de cobrança'}
-                    </Button>
-                  </div>
-                </form>
-
-                <div className={card}>
-                  <h3 className="text-title-md font-bold text-on-surface mb-2">Assinar</h3>
-                  <p className="text-body-md text-on-surface-variant mb-2">
-                    Você será redirecionado para a página segura do Asaas, onde escolhe entre Pix ou cartão de crédito.
-                    O UserPulse nunca recebe nem armazena dados do seu cartão.
-                  </p>
-                  <p className="text-body-md text-on-surface-variant mb-3">
-                    No cartão, as cobranças seguintes são renovadas automaticamente. No Pix, cada cobrança do
-                    ciclo precisa ser paga manualmente por aqui quando vencer — a assinatura continua sendo a
-                    mesma, sem precisar assinar de novo a cada mês (Pix Automático ainda não é suportado nesta versão).
-                  </p>
-                  {assinaturaErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{assinaturaErro}</div>}
-                  {assinaturaResultado && !assinaturaResultado.cobrancaDisponivel && (
-                    <div className="mb-3 p-3 bg-tertiary/10 text-tertiary rounded-xl text-body-md">
-                      Assinatura criada! Estamos gerando a primeira cobrança — clique em "Atualizar" acima em instantes.
-                    </div>
-                  )}
-                  {assinaturaResultado?.invoiceUrl && (
-                    <div className="mb-3">
-                      <a
-                        href={assinaturaResultado.invoiceUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-primary font-bold underline"
-                      >
-                        Abrir página de pagamento
-                      </a>
-                    </div>
-                  )}
-                  <Button onClick={assinar} disabled={assinando}>
-                    {assinando ? 'Gerando…' : 'Assinar agora'}
-                  </Button>
-                </div>
-              </>
-            )}
+                billing, ver bloqueioOperacaoFinanceiraSelfService em
+                server/src/services/asaasClient.ts. situacao.motivoSituacaoAsaas
+                (diagnóstico técnico do backend) deixou de ser exibido nesta
+                revisão — nunca fazia sentido pro cliente final, ver card de
+                situação acima. */}
           </>
           )
         })()}

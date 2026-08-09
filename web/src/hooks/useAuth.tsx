@@ -10,6 +10,19 @@ interface AuthContextValue {
   login: (email: string, senha: string) => Promise<void>
   logout: () => Promise<void>
   trocarSenha: (senha_atual: string, nova_senha: string, confirmar_senha: string) => Promise<void>
+  // Fase 6B — cadastro público self-service. Mesmo formato de resposta de
+  // login/me (usuarioPublico) e já autenticado (o backend seta o cookie de
+  // sessão dentro de POST /auth/cadastro) — setUser aqui já é a "entrada
+  // automática" completa, sem precisar de um login separado depois.
+  cadastrar: (dados: { nome: string; empresa: string; email: string; senha: string }) => Promise<void>
+  // "Esqueci minha senha" — nenhum dos dois autentica (não fazem setUser),
+  // são fluxos públicos completos em si mesmos. esqueciSenha devolve sempre
+  // a mesma mensagem genérica (o backend nunca revela se o e-mail existe);
+  // redefinirSenha só confirma sucesso, o próprio caller redireciona pro
+  // /login (regra explícita da tarefa: nunca autenticar automaticamente
+  // depois de um reset).
+  esqueciSenha: (email: string) => Promise<{ mensagem: string }>
+  redefinirSenha: (token: string, nova_senha: string) => Promise<{ mensagem: string }>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -52,8 +65,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(atualizado)
   }
 
+  const cadastrar = async (dados: { nome: string; empresa: string; email: string; senha: string }) => {
+    const criado = await post<AdminUser>('/auth/cadastro', dados)
+    setUser(criado)
+  }
+
+  const esqueciSenha = (email: string) => post<{ mensagem: string }>('/auth/esqueci-senha', { email })
+
+  const redefinirSenha = (token: string, nova_senha: string) =>
+    post<{ mensagem: string }>('/auth/redefinir-senha', { token, nova_senha })
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, trocarSenha }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, trocarSenha, cadastrar, esqueciSenha, redefinirSenha }}>
       {children}
     </AuthContext.Provider>
   )

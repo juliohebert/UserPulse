@@ -6,7 +6,11 @@ import { RequireSenhaAtualizada } from './components/auth/RequireSenhaAtualizada
 import { RequireEscritaConteudo } from './components/auth/RequireEscritaConteudo'
 import { RequireEscritaConfiguracao } from './components/auth/RequireEscritaConfiguracao'
 import { LoginPage } from './pages/Login'
+import { CadastroPage } from './pages/Cadastro'
+import { EsqueciSenhaPage } from './pages/EsqueciSenha'
+import { RedefinirSenhaPage } from './pages/RedefinirSenha'
 import { TrocarSenhaPage } from './pages/TrocarSenha'
+import { MinhaContaPage } from './pages/MinhaConta'
 import { Dashboard } from './pages/Dashboard'
 import { CampanhasIndex } from './pages/campanhas/Index'
 import { CampanhaForm } from './pages/campanhas/Form'
@@ -33,6 +37,13 @@ export default function App() {
     <Routes>
       <Route path="apresentacao" element={<ApresentacaoPage />} />
       <Route path="login" element={<LoginPage />} />
+      {/* Fase 6B — cadastro público self-service. Pública pelo mesmo motivo
+          de /login: é o próprio ato de criar a conta, sem sessão ainda (ver
+          server/src/routes/auth.ts). */}
+      <Route path="cadastro" element={<CadastroPage />} />
+      {/* "Esqueci minha senha" — mesmo motivo, sem sessão ainda. */}
+      <Route path="esqueci-senha" element={<EsqueciSenhaPage />} />
+      <Route path="redefinir-senha" element={<RedefinirSenhaPage />} />
       {/* Todo o painel exige sessão — RequireAuth redireciona pra /login sem
           usuário logado (ver web/src/components/auth/RequireAuth.tsx). */}
       <Route element={<RequireAuth />}>
@@ -53,6 +64,11 @@ export default function App() {
             <Route path="tours/:id/dashboard" element={<TourDashboard />} />
             <Route path="jornadas" element={<JornadasIndex />} />
             <Route path="integracao" element={<IntegracaoPage />} />
+            {/* Minha conta — sem guard de escrita/configuração: qualquer
+                papel autenticado só edita a própria senha aqui, nunca dados
+                de outra pessoa nem nada administrativo (ver MinhaConta.tsx,
+                reaproveita POST /auth/trocar-senha). */}
+            <Route path="minha-conta" element={<MinhaContaPage />} />
             {/* Criação/edição de campanhas, tours e jornadas (inclui o
                 Gravador de fluxo) — RBAC real: VIEWER nunca acessa, o
                 backend (requireEscritaConteudo) bloqueia com 403 mesmo se

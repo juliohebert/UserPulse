@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { AvisoComercial } from './AvisoComercial'
+import { BoasVindasTrial } from './BoasVindasTrial'
 
 const STORAGE_KEY = 'userpulse:sidebar:collapsed'
 
@@ -24,6 +25,7 @@ export function Layout() {
       <Topbar collapsed={collapsed} />
       <main className={`ml-16 ${collapsed ? 'md:ml-16' : 'md:ml-[248px]'} pt-16 min-h-screen transition-[margin-left] duration-200`}>
         <AvisoComercial />
+        <BoasVindasTrial />
         <Outlet />
       </main>
     </div>

@@ -410,15 +410,25 @@ export function bloqueioOperacaoFinanceiraSelfService(status: TenantStatus): str
 }
 
 // Bloqueia geração de assinatura self-service pra plano interno (nunca
-// oferecido a cliente comum, mesma regra de Planos.tsx/adminPlanos.ts) ou
-// sem asaas_subscription_value configurado (nada a cobrar). Nunca valida
-// asaas_billing_cycle aqui — criarAssinaturaAsaas já cai em MONTHLY por
-// padrão quando ausente, sem precisar bloquear por isso.
+// oferecido a cliente comum, mesma regra de Planos.tsx/adminPlanos.ts), pro
+// plano de trial (teste-gratis nunca é contratável como plano pago, mesmo
+// que alguém envie o id dele direto — ver GET /billing/planos-disponiveis,
+// que já nem lista esse plano) ou sem asaas_subscription_value configurado
+// (nada a cobrar). Nunca valida asaas_billing_cycle aqui —
+// criarAssinaturaAsaas já cai em MONTHLY por padrão quando ausente, sem
+// precisar bloquear por isso.
+//
+// Fase 6B: passou a validar o plano ESCOLHIDO pelo cliente (plano_id do
+// body de POST /billing/assinatura), não mais tenant.plano — daí a
+// mensagem de "plano nulo" ter mudado de "Tenant sem plano vinculado" pra
+// "Plano não encontrado" (agora reflete um id inválido/inexistente, não
+// mais a ausência de plano_id no Tenant).
 export function validarPlanoParaAssinaturaSelfService(
-  plano: { interno: boolean; asaas_subscription_value: Prisma.Decimal | number | string | null } | null
+  plano: { interno: boolean; eh_plano_trial: boolean; asaas_subscription_value: Prisma.Decimal | number | string | null } | null
 ): string | null {
-  if (!plano) return 'Tenant sem plano vinculado — entre em contato com o suporte.'
+  if (!plano) return 'Plano não encontrado.'
   if (plano.interno) return 'Este plano não está disponível para contratação self-service — entre em contato com o suporte.'
+  if (plano.eh_plano_trial) return 'O plano de teste grátis não pode ser contratado como plano pago.'
   if (plano.asaas_subscription_value == null) return 'Plano sem valor de assinatura configurado — entre em contato com o suporte.'
   return null
 }
@@ -664,7 +674,7 @@ function interpretarAsaasStatusAssinatura(valor: string | null): 'ACTIVE' | 'EXP
 // ("INACTIVE"), nunca o nome bruto do evento.
 export function calcularAtualizacaoTenant(
   acao: Extract<AcaoWebhookAsaas, { tipo: 'pagamento_confirmado' | 'pagamento_vencido' | 'assinatura_cancelada' }>,
-  tenantAtual: { asaas_status: string | null; licenca_inicio: Date | null; status: TenantStatus },
+  tenantAtual: { asaas_status: string | null; licenca_inicio: Date | null; status: TenantStatus; plano_pendente_id?: string | null },
   cicloPlano: string | null,
   agora: Date = new Date()
 ): AtualizacaoTenantAsaas {
@@ -749,16 +759,34 @@ export function calcularAtualizacaoTenant(
   }
 
   const proximoVencimento = calcularProximoVencimento(acao.dataVencimento ?? acao.dataPagamento, cicloPlano)
-  return {
-    dados: {
-      asaas_ultima_sincronizacao: agora,
-      status: 'ACTIVE',
-      ultimo_pagamento_em: acao.dataPagamento,
-      licenca_inicio: tenantAtual.licenca_inicio ?? acao.dataPagamento,
-      licenca_fim: proximoVencimento,
-      proxima_cobranca: proximoVencimento,
-    },
+  const dadosBase = {
+    asaas_ultima_sincronizacao: agora,
+    status: 'ACTIVE' as const,
+    ultimo_pagamento_em: acao.dataPagamento,
+    licenca_inicio: tenantAtual.licenca_inicio ?? acao.dataPagamento,
+    licenca_fim: proximoVencimento,
+    proxima_cobranca: proximoVencimento,
   }
+
+  // Fase 6B (conversão trial->pago / troca de plano): plano_pendente_id é
+  // gravado por criarAssinatura (billing.ts) no momento em que o cliente
+  // escolhe um plano pago, SEM nunca tocar plano_id — o Tenant continua no
+  // plano atual (ex.: teste-gratis) até este exato momento, o pagamento
+  // confirmado sendo o único evento que aplica o plano escolhido de
+  // verdade. Depois de aplicado, plano_pendente_id é limpo (disconnect) —
+  // nunca fica "pendente" depois de já confirmado. Os bloqueios de
+  // SUSPENDED/CANCELED acima já rodaram antes de chegar aqui, então esta
+  // troca de plano herda a mesma proteção sem precisar repeti-la.
+  if (tenantAtual.plano_pendente_id) {
+    return {
+      dados: {
+        ...dadosBase,
+        plano: { connect: { id: tenantAtual.plano_pendente_id } },
+        plano_pendente: { disconnect: true },
+      },
+    }
+  }
+  return { dados: dadosBase }
 }
 
 // Ponto único chamado pelo controller do webhook (ver
@@ -804,7 +832,7 @@ export async function tratarWebhookAsaas(payloadBruto: unknown): Promise<Resulta
   if (acao.subscriptionId) condicoes.push({ asaas_subscription_id: acao.subscriptionId })
 
   const tenant = condicoes.length > 0
-    ? await prisma.tenant.findFirst({ where: { OR: condicoes }, include: { plano: true } })
+    ? await prisma.tenant.findFirst({ where: { OR: condicoes }, include: { plano: true, plano_pendente: true } })
     : null
 
   if (!tenant) {
@@ -815,7 +843,12 @@ export async function tratarWebhookAsaas(payloadBruto: unknown): Promise<Resulta
     return { ok: true, semTenantVinculado: true }
   }
 
-  const resultado = calcularAtualizacaoTenant(acao, tenant, tenant.plano?.asaas_billing_cycle ?? null)
+  // Ciclo do plano PENDENTE tem prioridade — é o que está sendo pago agora
+  // (conversão/troca de plano, ver calcularAtualizacaoTenant); sem plano
+  // pendente, cai no ciclo do plano atual (renovação normal), mesmo
+  // comportamento de antes da Fase 6B.
+  const cicloPlano = tenant.plano_pendente?.asaas_billing_cycle ?? tenant.plano?.asaas_billing_cycle ?? null
+  const resultado = calcularAtualizacaoTenant(acao, tenant, cicloPlano)
 
   if (resultado.dados === null) {
     await prisma.asaasWebhookEvent.update({

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import { AdminRole } from '@prisma/client'
 import prisma from '../lib/prisma'
-import { ADMIN_SESSION_COOKIE, verifySessionToken } from '../lib/auth'
+import { ADMIN_SESSION_COOKIE, sessaoInvalidadaPorTrocaSenha, verifySessionToken } from '../lib/auth'
 import type { TenantComPlano } from '../lib/tenantGuards'
 
 // Substitui o antigo requireAdminToken (header Authorization: Bearer, opcional
@@ -60,6 +60,17 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
     })
     if (!usuario || !usuario.ativo) {
       res.status(401).json({ erro: 'Não autenticado.' })
+      return
+    }
+    // "Esqueci minha senha"/troca de senha — invalida sessões (JWT
+    // stateless, sem tabela própria) emitidas antes da última troca. Tanto
+    // trocarSenha (fluxo autenticado) quanto redefinirSenha (fluxo público
+    // via token) atualizam senha_alterada_em; trocarSenha também reemite um
+    // cookie novo pra própria sessão continuar funcionando sem precisar
+    // logar de novo, então só sessões DE OUTROS lugares (outro navegador,
+    // aparelho, ou um invasor com uma sessão antiga) caem aqui.
+    if (sessaoInvalidadaPorTrocaSenha(payload.iat, usuario.senha_alterada_em)) {
+      res.status(401).json({ erro: 'Sessão expirada. Faça login novamente.' })
       return
     }
     req.adminUser = {

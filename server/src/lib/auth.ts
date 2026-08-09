@@ -31,9 +31,15 @@ export interface SessionPayload {
   sub: string
   email: string
   role: string
+  // Só presente no retorno de verifySessionToken (o jsonwebtoken preenche
+  // sozinho ao assinar, nunca é passado em signSessionToken) — segundos
+  // desde epoch de quando o token foi emitido. Usado só pra decidir se a
+  // sessão é anterior à última troca de senha (ver
+  // sessaoInvalidadaPorTrocaSenha abaixo).
+  iat?: number
 }
 
-export function signSessionToken(payload: SessionPayload): string {
+export function signSessionToken(payload: Pick<SessionPayload, 'sub' | 'email' | 'role'>): string {
   return jwt.sign(payload, getSessionSecret(), { expiresIn: Math.floor(SESSION_MAX_AGE_MS / 1000) })
 }
 
@@ -41,10 +47,28 @@ export function verifySessionToken(token: string): SessionPayload | null {
   try {
     const decoded = jwt.verify(token, getSessionSecret())
     if (typeof decoded !== 'object' || decoded === null || typeof decoded.sub !== 'string') return null
-    return { sub: decoded.sub, email: String(decoded.email ?? ''), role: String(decoded.role ?? '') }
+    return {
+      sub: decoded.sub,
+      email: String(decoded.email ?? ''),
+      role: String(decoded.role ?? ''),
+      iat: typeof decoded.iat === 'number' ? decoded.iat : undefined,
+    }
   } catch {
     return null
   }
+}
+
+// "Esqueci minha senha"/troca de senha — invalida sessões emitidas ANTES da
+// última troca (ver requireAdminAuth.ts), sem precisar de uma tabela de
+// sessões: sessões JWT continuam stateless, só comparamos o `iat` do token
+// com AdminUser.senha_alterada_em a cada request. Margem de 1s absorve o
+// arredondamento de `iat` (segundos inteiros) vs a precisão em milissegundos
+// de senha_alterada_em — sem ela, o token NOVO emitido pela própria
+// trocarSenha (que também atualiza senha_alterada_em, na mesma requisição)
+// podia, na pior janela de 1s, ser invalidado por engano assim que emitido.
+export function sessaoInvalidadaPorTrocaSenha(iat: number | undefined, senhaAlteradaEm: Date | null): boolean {
+  if (!iat || !senhaAlteradaEm) return false
+  return senhaAlteradaEm.getTime() > iat * 1000 + 1000
 }
 
 // options comuns entre "setar" (login) e "limpar" (logout) o cookie — precisam

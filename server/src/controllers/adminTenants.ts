@@ -374,6 +374,19 @@ export async function atualizarAcesso(req: Request, res: Response) {
   }
 }
 
+// Dados de update do reset administrativo de senha — extraído só pra poder
+// testar a invariante sem Prisma (ver adminTenants.test.ts): senha_temporaria
+// sempre volta a true e senha_alterada_em SEMPRE é atualizada junto com o
+// hash novo (correção de segurança pós-revisão — antes este campo não
+// mudava aqui, deixando sessões JWT antigas do usuário resetado válidas
+// mesmo depois do reset, ver comentário em requireAdminAuth.ts).
+export function montarDadosResetSenhaAdministrativo(
+  passwordHash: string,
+  agora: Date = new Date()
+): { password_hash: string; senha_temporaria: true; senha_alterada_em: Date } {
+  return { password_hash: passwordHash, senha_temporaria: true, senha_alterada_em: agora }
+}
+
 // Senha temporária definida pelo super admin — nunca envia e-mail (fora de
 // escopo), o aviso de "repassar manualmente" é só texto fixo no frontend.
 export async function resetarSenha(req: Request, res: Response) {
@@ -390,12 +403,12 @@ export async function resetarSenha(req: Request, res: Response) {
     }
 
     const password_hash = await bcrypt.hash(nova_senha, SALT_ROUNDS)
+    // Não exige senha forte pra nova_senha (só 8 caracteres) de propósito —
+    // é temporária, o próprio usuário troca de novo no primeiro login e SÓ
+    // ENTÃO passa pela regra forte (ver motivoSenhaFraca em auth.ts).
     const atualizado = await prisma.adminUser.update({
       where: { id: adminId },
-      // senha_temporaria volta a true — o cliente é obrigado a trocar de
-      // novo no próximo login (ver POST /auth/trocar-senha). senha_alterada_em
-      // não muda aqui: só reflete quando o PRÓPRIO usuário troca a senha.
-      data: { password_hash, senha_temporaria: true },
+      data: montarDadosResetSenhaAdministrativo(password_hash),
       select: SELECAO_ADMIN,
     })
     res.json(atualizado)
