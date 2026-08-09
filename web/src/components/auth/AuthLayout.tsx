@@ -78,6 +78,15 @@ interface AuthLayoutProps {
   // falha na busca só reduz pra 1 destaque (o que não depende de config,
   // ver destaquesTrial acima), nunca quebra a tela nem inventa número.
   trialConfig?: CadastroConfig | null
+  // true enquanto GET /auth/cadastro/config ainda não resolveu (ver
+  // hooks/useCadastroConfig.ts) — distingue "carregando" de "resolvido sem
+  // dados" (trialConfig null por erro real). Enquanto true, os trechos que
+  // dependem da config (destaques do preview, headline/benefícios de
+  // Cadastro.tsx) mostram um skeleton do MESMO tamanho do conteúdo final
+  // em vez de um fallback provisório — é isso que elimina o flash/layout
+  // shift quando a resposta chega. Default false (comportamento antigo,
+  // sem skeleton) pras telas que não usam este hook.
+  configCarregando?: boolean
   children: ReactNode
 }
 
@@ -99,7 +108,7 @@ interface AuthLayoutProps {
 // de sempre, com o header compacto escondido (`lg:hidden`, já mostrado
 // dentro da própria coluna institucional nesse tamanho).
 export function AuthLayout({
-  tituloForm, subtituloForm, headlineBranding, textoBranding, beneficios, mostrarPreview, trialConfig, children,
+  tituloForm, subtituloForm, headlineBranding, textoBranding, beneficios, mostrarPreview, trialConfig, configCarregando, children,
 }: AuthLayoutProps) {
   const beneficiosFinais = beneficios ?? BENEFICIOS_PADRAO
   const headline = headlineBranding ?? 'Comunique, oriente e engaje usuários dentro do seu produto.'
@@ -176,16 +185,43 @@ export function AuthLayout({
                   (padding/gap menores que o card único de antes) — 3 itens
                   precisam continuar formando um conjunto elegante, sem
                   reabrir o espaço vertical já corrigido. */}
+              {/* Skeleton com os MESMOS 3 itens/classes do estado de sucesso
+                  (nunca um fallback menor "provisório") — altura desta
+                  célula da matriz diagonal fica estável entre carregando e
+                  sucesso, então o preview (linha 2) não salta de posição
+                  quando a resposta chega. Barras em `1em` dentro dos
+                  próprios `<p>` com a classe de texto real (text-body-sm/
+                  text-label-sm) pra garantir a mesma altura de linha do
+                  conteúdo final, sem adivinhar px. Só o caminho de erro
+                  (config resolve pra null) ainda reduz pra 1 card — mesmo
+                  comportamento seguro de sempre, nunca escondido atrás de
+                  skeleton infinito. */}
               <div className="mt-4 space-y-1.5 auth-inst-cards">
-                {destaques.map(d => (
-                  <div key={d.titulo} className="flex items-start gap-2.5 px-3.5 py-2 rounded-xl bg-white/10 border border-white/20">
-                    <span className="material-symbols-outlined ms-fill text-[16px] mt-0.5 shrink-0">{d.icon}</span>
-                    <div>
-                      <p className="text-body-sm font-bold leading-tight">{d.titulo}</p>
-                      <p className="text-label-sm text-white/75 mt-0.5">{d.descricao}</p>
+                {configCarregando ? (
+                  [0, 1, 2].map(i => (
+                    <div key={i} className="flex items-start gap-2.5 px-3.5 py-2 rounded-xl bg-white/10 border border-white/20" aria-hidden="true">
+                      <span className="material-symbols-outlined text-[16px] mt-0.5 shrink-0 opacity-0">circle</span>
+                      <div>
+                        <p className="text-body-sm font-bold leading-tight">
+                          <span className="inline-block h-[1em] w-24 rounded bg-white/20 animate-pulse align-middle" />
+                        </p>
+                        <p className="text-label-sm text-white/75 mt-0.5">
+                          <span className="inline-block h-[1em] w-36 rounded bg-white/15 animate-pulse align-middle" />
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  destaques.map(d => (
+                    <div key={d.titulo} className="flex items-start gap-2.5 px-3.5 py-2 rounded-xl bg-white/10 border border-white/20">
+                      <span className="material-symbols-outlined ms-fill text-[16px] mt-0.5 shrink-0">{d.icon}</span>
+                      <div>
+                        <p className="text-body-sm font-bold leading-tight">{d.titulo}</p>
+                        <p className="text-label-sm text-white/75 mt-0.5">{d.descricao}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -211,17 +247,43 @@ export function AuthLayout({
               <span className="text-title-lg font-bold">UserPulse</span>
             </div>
 
-            <h1 className="text-title-md lg:text-headline-lg font-bold mb-2 lg:mb-3 leading-tight">{headline}</h1>
+            {/* Skeleton do headline (Cadastro.tsx troca o texto conforme a
+                config chega — "Comece seu teste grátis" nunca deve aparecer
+                como fallback provisório pra depois virar "Teste grátis por
+                N dias"; ver configCarregando acima). Barra em `1em` dentro
+                do próprio `<h1>` pra herdar exatamente a altura de linha do
+                texto real, sem adivinhar px. */}
+            <h1 className="text-title-md lg:text-headline-lg font-bold mb-2 lg:mb-3 leading-tight">
+              {configCarregando
+                ? <span className="inline-block h-[1em] w-3/4 rounded bg-white/20 animate-pulse align-middle" aria-hidden="true" />
+                : headline}
+            </h1>
             <p className="text-body-sm lg:text-body-lg text-white/85 mb-4 lg:mb-8">{texto}</p>
 
-            <ul className="space-y-2 lg:space-y-3">
-              {beneficiosFinais.map(b => (
-                <li key={b.texto} className="flex items-center gap-2 lg:gap-2.5 text-body-sm lg:text-body-md">
-                  <span className="material-symbols-outlined ms-fill text-[16px] lg:text-[20px] shrink-0">check_circle</span>
-                  {b.texto}
-                </li>
-              ))}
-            </ul>
+            {/* Mesmo raciocínio da matriz diagonal acima: skeleton com 4
+                itens (o total real depois que a config de Cadastro.tsx
+                carrega — 3 dinâmicos + 1 estático) pra reservar a mesma
+                altura da lista final e nunca mostrar a lista de 1 item só
+                (o fallback de erro) como se fosse o estado normal. */}
+            {configCarregando ? (
+              <ul className="space-y-2 lg:space-y-3" aria-hidden="true">
+                {[0, 1, 2, 3].map(i => (
+                  <li key={i} className="flex items-center gap-2 lg:gap-2.5 text-body-sm lg:text-body-md">
+                    <span className="material-symbols-outlined text-[16px] lg:text-[20px] shrink-0 opacity-0">check_circle</span>
+                    <span className="inline-block h-[1em] w-40 rounded bg-white/20 animate-pulse align-middle" />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <ul className="space-y-2 lg:space-y-3">
+                {beneficiosFinais.map(b => (
+                  <li key={b.texto} className="flex items-center gap-2 lg:gap-2.5 text-body-sm lg:text-body-md">
+                    <span className="material-symbols-outlined ms-fill text-[16px] lg:text-[20px] shrink-0">check_circle</span>
+                    {b.texto}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>

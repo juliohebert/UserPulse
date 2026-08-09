@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { get } from '../services/api'
+import { useCadastroConfig } from '../hooks/useCadastroConfig'
 import type { CadastroConfig } from '../types'
 import { RequisitosSenha, senhaAtendeTodasRegras } from '../components/auth/RequisitosSenha'
 import { AuthLayout } from '../components/auth/AuthLayout'
@@ -58,7 +58,12 @@ export function CadastroPage() {
   const { user, loading, cadastrar } = useAuth()
   const navigate = useNavigate()
 
-  const [config, setConfig] = useState<CadastroConfig | null>(null)
+  // Mesmo hook usado por Login.tsx (useCadastroConfig, cacheia em memória
+  // entre as duas telas) — `carregandoConfig` distingue ainda-buscando de
+  // resolvido-sem-dados, pro AuthLayout mostrar skeleton em vez de trocar
+  // "Comece seu teste grátis" por "Teste grátis por N dias" na cara do
+  // usuário (ver configCarregando em AuthLayout.tsx).
+  const { config, carregando: carregandoConfig } = useCadastroConfig()
 
   const [nome, setNome] = useState('')
   const [empresa, setEmpresa] = useState('')
@@ -69,10 +74,6 @@ export function CadastroPage() {
   const [camposTocados, setCamposTocados] = useState<Record<string, boolean>>({})
   const [erroGeral, setErroGeral] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
-
-  useEffect(() => {
-    get<CadastroConfig>('/auth/cadastro/config').then(setConfig).catch(() => setConfig(null))
-  }, [])
 
   // Já logado — não faz sentido mostrar o formulário de cadastro de novo.
   if (!loading && user) {
@@ -106,6 +107,7 @@ export function CadastroPage() {
       subtituloForm="Leva menos de um minuto, sem cartão de crédito."
       headlineBranding={config ? `Teste grátis por ${contagem(config.dias, 'dia', 'dias')}` : 'Comece seu teste grátis'}
       beneficios={montarBeneficios(config)}
+      configCarregando={carregandoConfig}
     >
       <form onSubmit={handleSubmit} noValidate className={card}>
         <div>
