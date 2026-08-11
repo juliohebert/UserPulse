@@ -47,7 +47,7 @@ export function Topbar({ collapsed }: Props) {
   const contaRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const podeCriarConteudo = podeEscreverConteudo(user?.role)
 
   useEffect(() => {
@@ -198,6 +198,11 @@ export function Topbar({ collapsed }: Props) {
     navigate(to)
   }
 
+  const sair = () => {
+    setContaAberta(false)
+    void logout()
+  }
+
   return (
     <header
       className={`fixed top-0 right-0 left-16 ${collapsed ? 'md:left-16' : 'md:left-[248px]'} h-16 bg-surface border-b border-outline-variant/30 flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200`}
@@ -304,29 +309,39 @@ export function Topbar({ collapsed }: Props) {
             onClick={() => setContaAberta(v => !v)}
             aria-haspopup="menu"
             aria-expanded={contaAberta}
-            className="flex items-center gap-3 rounded-full hover:bg-surface-container-high transition-colors pr-1 pl-1 py-1"
+            className="flex items-center gap-2.5 rounded-full hover:bg-surface-container-high transition-colors px-2 py-1.5"
           >
             <div className="hidden md:block text-right">
               <p className="text-label-md font-bold text-on-surface">{user?.nome ?? 'Admin'}</p>
               <p className="text-[10px] text-outline uppercase tracking-wider truncate max-w-[160px]">{user?.email ?? 'UserPulse'}</p>
             </div>
             <div
-              className="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm border-2 border-primary-fixed"
+              className="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm border-2 border-primary-fixed"
               title={user?.email}
             >
               {iniciais(user?.nome ?? 'UserPulse')}
             </div>
           </button>
           {contaAberta && (
-            <div className="absolute right-0 z-50 mt-2 w-56 origin-top-right overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface p-2 shadow-lg" role="menu">
+            <div className="absolute right-0 z-50 mt-2 w-64 origin-top-right overflow-hidden rounded-3xl border border-outline-variant/30 bg-surface p-3 shadow-lg" role="menu">
               <button
                 type="button"
                 role="menuitem"
                 onClick={() => { setContaAberta(false); navigate('/minha-conta') }}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-container-low"
+                className="flex w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-surface-container-low"
               >
                 <span className="material-symbols-outlined text-[19px] text-on-surface-variant">account_circle</span>
                 <span className="text-body-md font-medium text-on-surface">Minha conta</span>
+              </button>
+              <div className="my-2 h-px bg-outline-variant/50" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={sair}
+                className="flex w-full items-center gap-3.5 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-error/10"
+              >
+                <span className="material-symbols-outlined text-[19px] text-error">logout</span>
+                <span className="text-body-md font-medium text-error">Sair</span>
               </button>
             </div>
           )}
