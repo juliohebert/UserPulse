@@ -115,6 +115,7 @@ export function AuthLayout({
   const headline = headlineBranding ?? 'Comunique, oriente e engaje usuários dentro do seu produto.'
   const texto = textoBranding ?? TEXTO_VALOR_PADRAO
   const destaques = destaquesTrial(trialConfig)
+  const usarDestaquesDetalhados = esconderInstitucionalMobile && !mostrarPreview
 
   return (
     <div className="min-h-[100dvh] lg:h-screen bg-background flex flex-col lg:grid lg:grid-cols-2">
@@ -267,11 +268,32 @@ export function AuthLayout({
                 altura da lista final e nunca mostrar a lista de 1 item só
                 (o fallback de erro) como se fosse o estado normal. */}
             {configCarregando ? (
-              <ul className="space-y-2 lg:space-y-3" aria-hidden="true">
-                {[0, 1, 2, 3].map(i => (
-                  <li key={i} className="flex items-center gap-2 lg:gap-2.5 text-body-sm lg:text-body-md">
-                    <span className="material-symbols-outlined text-[16px] lg:text-[20px] shrink-0 opacity-0">check_circle</span>
-                    <span className="inline-block h-[1em] w-40 rounded bg-white/20 animate-pulse align-middle" />
+              <ul className={usarDestaquesDetalhados ? 'space-y-2.5 lg:space-y-3' : 'space-y-2 lg:space-y-3'} aria-hidden="true">
+                {Array.from({ length: usarDestaquesDetalhados ? 3 : 4 }, (_, i) => (
+                  <li key={i} className={usarDestaquesDetalhados
+                    ? 'flex items-start gap-3 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-body-sm lg:text-body-md'
+                    : 'flex items-center gap-2 lg:gap-2.5 text-body-sm lg:text-body-md'}>
+                    <span className="material-symbols-outlined text-[18px] lg:text-[20px] shrink-0 opacity-0">check_circle</span>
+                    {usarDestaquesDetalhados ? (
+                      <span>
+                        <span className="block h-[1em] w-32 rounded bg-white/20 animate-pulse" />
+                        <span className="mt-1.5 block h-[1em] w-48 rounded bg-white/15 animate-pulse" />
+                      </span>
+                    ) : (
+                      <span className="inline-block h-[1em] w-40 rounded bg-white/20 animate-pulse align-middle" />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : usarDestaquesDetalhados ? (
+              <ul className="space-y-2.5 lg:space-y-3">
+                {destaques.map(d => (
+                  <li key={d.titulo} className="flex items-start gap-3 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-body-sm lg:text-body-md">
+                    <span className="material-symbols-outlined ms-fill text-[18px] lg:text-[20px] shrink-0 mt-0.5">{d.icon}</span>
+                    <span>
+                      <span className="block font-bold leading-tight">{d.titulo}</span>
+                      <span className="mt-1 block text-label-sm lg:text-body-sm leading-snug text-white/75">{d.descricao}</span>
+                    </span>
                   </li>
                 ))}
               </ul>
