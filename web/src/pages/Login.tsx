@@ -101,7 +101,6 @@ export function LoginPage() {
 
         <button type="submit" disabled={entrando} className={cta}>
           {entrando ? 'Entrando…' : 'Entrar'}
-          {!entrando && <span className="material-symbols-outlined text-[18px]">arrow_forward</span>}
         </button>
 
         <p className="text-center text-body-sm text-outline">
