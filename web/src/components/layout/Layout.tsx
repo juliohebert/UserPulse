@@ -23,7 +23,7 @@ export function Layout() {
     <div className="min-h-screen bg-background">
       <Sidebar collapsed={collapsed} onToggle={toggle} />
       <Topbar collapsed={collapsed} />
-      <main className={`ml-16 ${collapsed ? 'md:ml-16' : 'md:ml-[248px]'} pt-16 min-h-screen transition-[margin-left] duration-200`}>
+      <main className={`ml-24 ${collapsed ? 'md:ml-24' : 'md:ml-[292px]'} pt-16 min-h-screen transition-[margin-left] duration-200`}>
         <AvisoComercial />
         <BoasVindasTrial />
         <Outlet />
