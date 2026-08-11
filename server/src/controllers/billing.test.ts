@@ -79,5 +79,7 @@ describe('validarECalcularUpgrade — confirma os 4 bloqueios (Fase 8A, correç�
   // banco de verdade, fora da convenção deste projeto pra testes
   // automatizados, ver CLAUDE.md "Tests"); o resto do cálculo
   // (duracaoCicloDiasReal, calcularValorProporcionalUpgrade,
-  // validarUpgradePlano) já está coberto em asaasClient.test.ts.
+  // validarUpgradePlano, resolverVencimentoCicloAtual — inclusive o caso do
+  // bug de licenca_fim ausente, correção pós-revisão 2) já está coberto em
+  // asaasClient.test.ts.
 })
