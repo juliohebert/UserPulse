@@ -87,6 +87,7 @@ interface AuthLayoutProps {
   // shift quando a resposta chega. Default false (comportamento antigo,
   // sem skeleton) pras telas que não usam este hook.
   configCarregando?: boolean
+  esconderInstitucionalMobile?: boolean
   children: ReactNode
 }
 
@@ -108,20 +109,21 @@ interface AuthLayoutProps {
 // de sempre, com o header compacto escondido (`lg:hidden`, já mostrado
 // dentro da própria coluna institucional nesse tamanho).
 export function AuthLayout({
-  tituloForm, subtituloForm, headlineBranding, textoBranding, beneficios, mostrarPreview, trialConfig, configCarregando, children,
+  tituloForm, subtituloForm, headlineBranding, textoBranding, beneficios, mostrarPreview, trialConfig, configCarregando, esconderInstitucionalMobile, children,
 }: AuthLayoutProps) {
   const beneficiosFinais = beneficios ?? BENEFICIOS_PADRAO
   const headline = headlineBranding ?? 'Comunique, oriente e engaje usuários dentro do seu produto.'
   const texto = textoBranding ?? TEXTO_VALOR_PADRAO
   const destaques = destaquesTrial(trialConfig)
+  const usarDestaquesDetalhados = esconderInstitucionalMobile && !mostrarPreview
 
   return (
-    <div className="min-h-screen lg:h-screen bg-background flex flex-col lg:grid lg:grid-cols-2">
+    <div className="min-h-[100dvh] lg:h-screen bg-background flex flex-col lg:grid lg:grid-cols-2">
       {/* Header compacto — só no mobile, sempre primeiro (sem order, fica
           antes do formulário e da coluna institucional na sequência do
           flex). Some inteiro no desktop, onde a coluna institucional já
           traz logo/wordmark em tamanho cheio. */}
-      <div className="lg:hidden flex items-center gap-3 px-6 pt-6 pb-5 bg-primary text-on-primary">
+      <div className="lg:hidden flex items-center gap-3 px-4 sm:px-6 py-4 bg-primary text-on-primary">
         <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
           <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
         </div>
@@ -130,10 +132,10 @@ export function AuthLayout({
 
       {/* Formulário — segundo no mobile (primeira viewport, logo após o
           header compacto), coluna direita no desktop. */}
-      <div className="order-1 lg:order-2 flex items-center justify-center px-6 py-8 lg:p-12">
+      <div className="order-1 lg:order-2 flex items-center justify-center px-4 py-6 sm:px-6 sm:py-8 lg:p-12">
         <div className="w-full max-w-md">
-          <div className="mb-6 lg:mb-7">
-            <h2 className="text-headline-md font-bold text-on-background">{tituloForm}</h2>
+          <div className="mb-5 sm:mb-6 lg:mb-7">
+            <h2 className="text-title-lg sm:text-headline-md font-bold text-on-background">{tituloForm}</h2>
             {subtituloForm && <p className="text-body-md text-outline mt-1.5">{subtituloForm}</p>}
           </div>
           {children}
@@ -146,7 +148,7 @@ export function AuthLayout({
           composição diagonal do preview não pode ficar centralizada como
           um bloco único, então cada ramo cuida do próprio alinhamento
           vertical no desktop. */}
-      <div className={`order-2 lg:order-1 relative overflow-hidden bg-primary text-on-primary px-6 py-8 lg:flex lg:flex-col ${mostrarPreview ? 'lg:p-10 auth-inst-col' : 'lg:p-14'}`}>
+      <div className={`order-2 lg:order-1 relative overflow-hidden bg-primary text-on-primary px-4 py-6 sm:px-6 sm:py-8 ${mostrarPreview || esconderInstitucionalMobile ? 'hidden lg:flex lg:flex-col' : 'lg:flex lg:flex-col'} ${mostrarPreview ? 'lg:p-10 auth-inst-col' : 'lg:p-14'}`}>
         {/* Formas decorativas, só no desktop — no mobile a coluna já é
             compacta, não sobra altura pra elas respirarem direito. */}
         <div className="hidden lg:block pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full bg-white/10 blur-3xl" aria-hidden="true" />
@@ -164,7 +166,7 @@ export function AuthLayout({
           // artificialmente. No mobile (sem `lg:`), este wrapper continua
           // um bloco comum: texto e preview empilhados na ordem do DOM,
           // exatamente como antes.
-          <div className="relative max-w-md mx-auto lg:max-w-none lg:mx-0 lg:grid lg:grid-cols-2 lg:grid-rows-[auto_auto] lg:gap-x-12 lg:gap-y-5 auth-inst-grid">
+          <div className="relative max-w-md mx-auto lg:h-full lg:max-w-none lg:mx-0 lg:grid lg:grid-cols-2 lg:grid-rows-[auto_auto] lg:gap-x-12 lg:gap-y-5 auth-inst-grid">
             <div className="lg:col-start-1 lg:row-start-1">
               {/* Logo/wordmark em tamanho cheio — só no desktop, o mobile
                   já mostrou a versão compacta no header acima. */}
@@ -232,7 +234,7 @@ export function AuthLayout({
                 nem em posição horizontal/tamanho/matriz diagonal. Evita
                 corte inferior em viewport útil menor mantendo o visual já
                 aprovado. */}
-            <div className="lg:col-start-2 lg:row-start-2 lg:max-w-sm lg:justify-self-end lg:-mt-44">
+            <div className="hidden sm:block sm:mt-5 lg:absolute lg:right-0 lg:bottom-0 lg:mt-0 lg:w-full lg:max-w-sm">
               <AuthProductPreview />
             </div>
           </div>
@@ -266,20 +268,41 @@ export function AuthLayout({
                 altura da lista final e nunca mostrar a lista de 1 item só
                 (o fallback de erro) como se fosse o estado normal. */}
             {configCarregando ? (
-              <ul className="space-y-2 lg:space-y-3" aria-hidden="true">
-                {[0, 1, 2, 3].map(i => (
-                  <li key={i} className="flex items-center gap-2 lg:gap-2.5 text-body-sm lg:text-body-md">
-                    <span className="material-symbols-outlined text-[16px] lg:text-[20px] shrink-0 opacity-0">check_circle</span>
-                    <span className="inline-block h-[1em] w-40 rounded bg-white/20 animate-pulse align-middle" />
+              <ul className={usarDestaquesDetalhados ? 'space-y-2.5 lg:space-y-3' : 'space-y-2 lg:space-y-3'} aria-hidden="true">
+                {Array.from({ length: usarDestaquesDetalhados ? 3 : 4 }, (_, i) => (
+                  <li key={i} className={usarDestaquesDetalhados
+                    ? 'flex items-start gap-3 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-body-sm lg:text-body-md'
+                    : 'flex items-center gap-2 lg:gap-2.5 text-body-sm lg:text-body-md'}>
+                    <span className="material-symbols-outlined text-[18px] lg:text-[20px] shrink-0 opacity-0">check_circle</span>
+                    {usarDestaquesDetalhados ? (
+                      <span>
+                        <span className="block h-[1em] w-32 rounded bg-white/20 animate-pulse" />
+                        <span className="mt-1.5 block h-[1em] w-48 rounded bg-white/15 animate-pulse" />
+                      </span>
+                    ) : (
+                      <span className="inline-block h-[1em] w-40 rounded bg-white/20 animate-pulse align-middle" />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : usarDestaquesDetalhados ? (
+              <ul className="space-y-2.5 lg:space-y-3">
+                {destaques.map(d => (
+                  <li key={d.titulo} className="flex items-start gap-3 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-body-sm lg:text-body-md">
+                    <span className="material-symbols-outlined ms-fill text-[18px] lg:text-[20px] shrink-0 mt-0.5">{d.icon}</span>
+                    <span>
+                      <span className="block font-bold leading-tight">{d.titulo}</span>
+                      <span className="mt-1 block text-label-sm lg:text-body-sm leading-snug text-white/75">{d.descricao}</span>
+                    </span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <ul className="space-y-2 lg:space-y-3">
+              <ul className="space-y-2.5 lg:space-y-3">
                 {beneficiosFinais.map(b => (
-                  <li key={b.texto} className="flex items-center gap-2 lg:gap-2.5 text-body-sm lg:text-body-md">
-                    <span className="material-symbols-outlined ms-fill text-[16px] lg:text-[20px] shrink-0">check_circle</span>
-                    {b.texto}
+                  <li key={b.texto} className="flex items-center gap-3 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-body-sm lg:text-body-md">
+                    <span className="material-symbols-outlined ms-fill text-[18px] lg:text-[20px] shrink-0">check_circle</span>
+                    <span className="font-semibold">{b.texto}</span>
                   </li>
                 ))}
               </ul>

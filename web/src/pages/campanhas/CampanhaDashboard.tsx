@@ -1385,9 +1385,9 @@ function FunnelStep({ icon, iconColor, barColor, label, value, pct, sub }: {
 function FunnelArrow({ label }: { label: string }) {
   return (
     <div className="flex sm:flex-col items-center justify-center gap-1 px-1 py-2 sm:py-0 shrink-0">
-      <span className="text-[10px] text-outline font-semibold text-center leading-tight max-w-[64px] hidden sm:block">{label}</span>
+      <span className="text-[12px] text-outline font-bold text-center leading-snug max-w-[112px] hidden sm:block">{label}</span>
       <span className="material-symbols-outlined text-outline text-[18px] rotate-90 sm:rotate-0">arrow_forward</span>
-      <span className="text-[10px] text-outline font-semibold text-center leading-tight sm:hidden">{label}</span>
+      <span className="text-[12px] text-outline font-bold text-center leading-snug sm:hidden">{label}</span>
     </div>
   )
 }
