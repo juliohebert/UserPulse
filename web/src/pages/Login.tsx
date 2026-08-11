@@ -6,7 +6,7 @@ import { AuthLayout } from '../components/auth/AuthLayout'
 
 const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
 const card = 'bg-surface-container-lowest p-5 sm:p-7 rounded-2xl border border-outline-variant/70 shadow-md space-y-4'
-const cta = 'w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:shadow-lg hover:opacity-95 transition-all active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100'
+const cta = 'w-full flex items-center justify-center gap-2 px-5 py-3 bg-primary text-on-primary rounded-xl text-body-md font-bold shadow-md hover:shadow-lg hover:opacity-95 transition-all active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100'
 
 export function LoginPage() {
   const { user, loading, login } = useAuth()
