@@ -7,7 +7,6 @@ import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { DesignStatusBadge } from '../../components/ui/DesignStatusBadge'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
@@ -115,7 +114,12 @@ function compararJornadas(a: Jornada, b: Jornada, key: SortKey, direction: SortD
 }
 
 function StatusBadge({ ativo }: { ativo: boolean }) {
-  return <DesignStatusBadge variant={ativo ? 'success' : 'neutral'}>{ativo ? 'Ativo' : 'Inativo'}</DesignStatusBadge>
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${ativo ? 'text-tertiary' : 'text-error'}`}>
+      <span className={`h-2 w-2 rounded-full ${ativo ? 'bg-tertiary' : 'bg-error'}`} />
+      {ativo ? 'Ativa' : 'Inativa'}
+    </span>
+  )
 }
 
 export function JornadasIndex() {

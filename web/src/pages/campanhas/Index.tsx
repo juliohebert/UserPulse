@@ -13,7 +13,6 @@ import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { DesignStatusBadge, type DesignStatusBadgeVariant } from '../../components/ui/DesignStatusBadge'
 import { CampanhaQuickView } from './CampanhaQuickView'
 
 const PER_PAGE = 10
@@ -56,13 +55,21 @@ const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
 
 const COLLATOR = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' })
 
-// Versão discreta do StatusBadge — ponto + texto em vez de pill preenchida,
-// pra não competir visualmente com o ToggleSwitch (mesma info, apresentação mais leve).
-const STATUS_BADGE: Record<StatusCampanha, { label: string; variant: DesignStatusBadgeVariant }> = {
-  ativa:     { label: 'Ativa',     variant: 'success' },
-  inativa:   { label: 'Inativa',   variant: 'neutral' },
-  agendada:  { label: 'Agendada',  variant: 'promo' },
-  encerrada: { label: 'Encerrada', variant: 'neutral' },
+const STATUS_BADGE: Record<StatusCampanha, { label: string; color: string; dot: string }> = {
+  ativa:     { label: 'Ativa',     color: 'text-tertiary', dot: 'bg-tertiary' },
+  inativa:   { label: 'Inativa',   color: 'text-error',    dot: 'bg-error' },
+  agendada:  { label: 'Agendada',  color: 'text-primary',  dot: 'bg-primary' },
+  encerrada: { label: 'Encerrada', color: 'text-outline',  dot: 'bg-outline' },
+}
+
+function StatusInline({ status }: { status: StatusCampanha }) {
+  const st = STATUS_BADGE[status]
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${st.color}`}>
+      <span className={`h-2 w-2 rounded-full ${st.dot}`} />
+      {st.label}
+    </span>
+  )
 }
 
 function valorOrdenacao(c: Campanha, key: SortKey): string | number {
@@ -204,10 +211,10 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
 // Card de campanha para telas mobile (< md) — substitui a linha da tabela,
 // que fica ilegível e com ações apertadas em telas estreitas.
 function CampanhaCard({
-  c, st, active, duplicating, navigate, onOpen, onDuplicar, onInativar, onReativar, podeEscrever,
+  c, status, active, duplicating, navigate, onOpen, onDuplicar, onInativar, onReativar, podeEscrever,
 }: {
   c: Campanha
-  st: { label: string; variant: DesignStatusBadgeVariant }
+  status: StatusCampanha
   active: boolean
   duplicating: boolean
   navigate: ReturnType<typeof useNavigate>
@@ -247,7 +254,7 @@ function CampanhaCard({
       </div>
 
       <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-3 pt-3 border-t border-outline-variant/20 text-[12px]">
-        <DesignStatusBadge variant={st.variant}>{st.label}</DesignStatusBadge>
+        <StatusInline status={status} />
         <span className="inline-flex items-center gap-1 text-on-surface-variant">
           <span className="material-symbols-outlined text-[14px]">forum</span>
           {(c._count?.feedbacks ?? 0).toLocaleString('pt-BR')}
@@ -806,7 +813,6 @@ export function CampanhasIndex() {
                 <tbody className="divide-y divide-outline-variant/20">
                   {paginated.map(c => {
                       const status = getStatus(c)
-                      const st = STATUS_BADGE[status]
                       return (
                         <tr
                           key={c.id}
@@ -884,7 +890,7 @@ export function CampanhasIndex() {
                           {/* Status */}
                           {colunasVisiveis.status && (
                             <td className="px-4 py-4 align-middle text-center">
-                              <DesignStatusBadge variant={st.variant}>{st.label}</DesignStatusBadge>
+                              <StatusInline status={status} />
                             </td>
                           )}
 
@@ -972,12 +978,11 @@ export function CampanhasIndex() {
             <div className="md:hidden divide-y divide-outline-variant/20">
               {paginated.map(c => {
                 const status = getStatus(c)
-                const st = STATUS_BADGE[status]
                 return (
                   <CampanhaCard
                     key={c.id}
                     c={c}
-                    st={st}
+                    status={status}
                     active={quickView?.id === c.id}
                     duplicating={duplicandoId === c.id}
                     navigate={navigate}
