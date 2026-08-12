@@ -9,7 +9,7 @@ import {
   validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, calcularVencimentoAnterior, duracaoCicloDiasReal,
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, deveSincronizarAssinaturaAntesDeAplicar,
   pagamentoConfirmaPendencia, criarCobrancaAvulsaAsaas, atualizarValorAssinaturaAsaas,
-  resolverVencimentoCicloAtual,
+  resolverVencimentoCicloAtual, motivoCancelamentoUpgradeBloqueado, cancelarCobrancaAsaas, erroAsaasStatus,
 } from './asaasClient'
 import type { AssinaturaAsaas, CobrancaAsaas } from './asaasClient'
 
@@ -793,6 +793,97 @@ describe('motivoUpgradePendenteBloqueiaNovaTroca', () => {
   })
 })
 
+// Correção pós-homologação — DELETE /billing/upgrade (cancelamento de
+// upgrade pendente ainda não pago). tenantBase/cobrancaBase seguem o mesmo
+// padrão de fixtures pequenas já usado no resto deste arquivo (ex.:
+// validarCobrancaParaRegularizacao acima).
+describe('motivoCancelamentoUpgradeBloqueado — cancelamento de upgrade pendente (correção pós-homologação)', () => {
+  const tenantBase = (over: Partial<{ plano_pendente_id: string | null; plano_pendente_payment_id: string | null; asaas_customer_id: string | null }> = {}) => ({
+    plano_pendente_id: 'plano-growth',
+    plano_pendente_payment_id: 'pay_proporcional_1',
+    asaas_customer_id: 'cus_1',
+    ...over,
+  })
+  const cobrancaBase = (over: Partial<{ id: string; customer: string; subscription: string | null; status: string }> = {}) => ({
+    id: 'pay_proporcional_1',
+    customer: 'cus_1',
+    subscription: null,
+    status: 'PENDING',
+    ...over,
+  })
+
+  // 1. sem upgrade pendente
+  test('sem plano_pendente_id => bloqueia, nada para cancelar', () => {
+    const motivo = motivoCancelamentoUpgradeBloqueado(tenantBase({ plano_pendente_id: null }), cobrancaBase())
+    assert.match(motivo ?? '', /não há upgrade pendente/i)
+  })
+
+  // 2. sem payment id
+  test('sem plano_pendente_payment_id => bloqueia, nada para cancelar', () => {
+    const motivo = motivoCancelamentoUpgradeBloqueado(tenantBase({ plano_pendente_payment_id: null }), cobrancaBase())
+    assert.match(motivo ?? '', /não há upgrade pendente/i)
+  })
+
+  // 3. payment diferente do persistido
+  test('cobrança encontrada com id diferente do persistido => bloqueia', () => {
+    const motivo = motivoCancelamentoUpgradeBloqueado(tenantBase(), cobrancaBase({ id: 'pay_outro' }))
+    assert.match(motivo ?? '', /não corresponde ao upgrade pendente/i)
+  })
+
+  // 4. customer diferente
+  test('cobrança de outro customer => bloqueia (nunca cancela cobrança de outro tenant)', () => {
+    const motivo = motivoCancelamentoUpgradeBloqueado(tenantBase(), cobrancaBase({ customer: 'cus_outro' }))
+    assert.match(motivo ?? '', /não pertence a este tenant/i)
+  })
+
+  test('cobrança com subscription vinculada => bloqueia (não é a avulsa esperada)', () => {
+    const motivo = motivoCancelamentoUpgradeBloqueado(tenantBase(), cobrancaBase({ subscription: 'sub_1' }))
+    assert.match(motivo ?? '', /não é a cobrança avulsa esperada/i)
+  })
+
+  // 5. PENDING pode cancelar
+  test('PENDING => libera o cancelamento', () => {
+    assert.equal(motivoCancelamentoUpgradeBloqueado(tenantBase(), cobrancaBase({ status: 'PENDING' })), null)
+  })
+
+  // 6. OVERDUE pode cancelar
+  test('OVERDUE => libera o cancelamento', () => {
+    assert.equal(motivoCancelamentoUpgradeBloqueado(tenantBase(), cobrancaBase({ status: 'OVERDUE' })), null)
+  })
+
+  // 7. CONFIRMED/RECEIVED não pode
+  test('CONFIRMED => bloqueia, preserva o plano pendente pro webhook concluir', () => {
+    const motivo = motivoCancelamentoUpgradeBloqueado(tenantBase(), cobrancaBase({ status: 'CONFIRMED' }))
+    assert.match(motivo ?? '', /já foi pago/i)
+  })
+  test('RECEIVED => bloqueia, preserva o plano pendente pro webhook concluir', () => {
+    const motivo = motivoCancelamentoUpgradeBloqueado(tenantBase(), cobrancaBase({ status: 'RECEIVED' }))
+    assert.match(motivo ?? '', /já foi pago/i)
+  })
+
+  // Retry: cobrança já não existe mais no Asaas (404 ao buscar, ver
+  // erroAsaasStatus/cancelarUpgrade) — tratada como já-cancelada, libera
+  // direto pra limpeza local em vez de bloquear pra sempre.
+  test('cobrança null (já removida no Asaas) => libera pra limpeza local, mesmo sem mais nada pra validar', () => {
+    assert.equal(motivoCancelamentoUpgradeBloqueado(tenantBase(), null), null)
+  })
+})
+
+describe('erroAsaasStatus — extrai o status HTTP do erro lançado por asaasFetch', () => {
+  test('mensagem no formato "Asaas respondeu 404: ..." => 404', () => {
+    assert.equal(erroAsaasStatus(new Error('Asaas respondeu 404: [{"description":"Cobrança não encontrada"}]')), 404)
+  })
+  test('outro status (500) => 500, nunca tratado como "não encontrado"', () => {
+    assert.equal(erroAsaasStatus(new Error('Asaas respondeu 500: [{"description":"Erro interno"}]')), 500)
+  })
+  test('erro sem o formato esperado => null', () => {
+    assert.equal(erroAsaasStatus(new Error('falha de rede')), null)
+  })
+  test('não é um Error => null', () => {
+    assert.equal(erroAsaasStatus('string qualquer'), null)
+  })
+})
+
 // Fase 8A (correção pós-revisão) — substitui a aproximação fixa (mês=30/
 // ano=360) por calendário real: calcularVencimentoAnterior é o inverso
 // exato de calcularProximoVencimento (já testada acima), e
@@ -1442,6 +1533,79 @@ describe('criarCobrancaAvulsaAsaas / atualizarValorAssinaturaAsaas — upgrade s
     try {
       await assert.rejects(() => atualizarValorAssinaturaAsaas('sub_1', 200), /não é permitido nesta fase/)
     } finally {
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+})
+
+describe('cancelarCobrancaAsaas — cancelamento de upgrade pendente (correção pós-homologação)', () => {
+  test('faz DELETE /payments/:id (nunca /subscriptions — cancelarAssinaturaAsaas é uma função diferente)', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+
+    let urlChamada: string | undefined
+    let metodoChamado: string | undefined
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      urlChamada = String(url)
+      metodoChamado = init?.method
+      return { ok: true, status: 200, text: async () => JSON.stringify({ deleted: true, id: 'pay_proporcional_1' }) } as Response
+    }) as typeof fetch
+
+    try {
+      const resultado = await cancelarCobrancaAsaas('pay_proporcional_1')
+      assert.match(urlChamada ?? '', /\/payments\/pay_proporcional_1$/)
+      assert.equal(metodoChamado, 'DELETE')
+      assert.deepEqual(resultado, { deleted: true, id: 'pay_proporcional_1' })
+    } finally {
+      globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('também bloqueia produção, mesmo padrão das demais chamadas Asaas', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    process.env.ASAAS_API_KEY = 'qualquer-coisa'
+    process.env.ASAAS_ENV = 'production'
+    try {
+      await assert.rejects(() => cancelarCobrancaAsaas('pay_x'), /não é permitido nesta fase/)
+    } finally {
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('404 (cobrança já removida) propaga como erro — quem decide tratar como já-cancelado é o controller (erroAsaasStatus), nunca este helper', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+    globalThis.fetch = (async () => ({
+      ok: false, status: 404, text: async () => JSON.stringify({ errors: [{ description: 'Cobrança não encontrada' }] }),
+    } as Response)) as typeof fetch
+
+    try {
+      await assert.rejects(
+        () => cancelarCobrancaAsaas('pay_ja_removido'),
+        (err: unknown) => {
+          assert.equal(erroAsaasStatus(err), 404)
+          return true
+        }
+      )
+    } finally {
+      globalThis.fetch = fetchOriginal
       if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
       else process.env.ASAAS_API_KEY = apiKeyOriginal
       if (envOriginal === undefined) delete process.env.ASAAS_ENV

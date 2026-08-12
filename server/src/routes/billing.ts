@@ -29,6 +29,10 @@ router.post('/assinatura', requireEscritaConfiguracao, billing.criarAssinatura)
 // confirmar, sem o frontend calcular nada sozinho.
 router.get('/upgrade/preview', requireEscritaConfiguracao, billing.previewUpgrade)
 router.post('/upgrade', requireEscritaConfiguracao, billing.solicitarUpgrade)
+// Correção pós-homologação — único jeito de sair de um upgrade pendente
+// nunca pago (antes só existia saída por webhook PAYMENT_CONFIRMED). Mesmo
+// guard ADMIN-only das demais rotas financeiras deste router.
+router.delete('/upgrade', requireEscritaConfiguracao, billing.cancelarUpgrade)
 router.post('/cobrancas/:cobrancaId/pagar', requireEscritaConfiguracao, billing.pagarCobranca)
 // POST /reativar (reativação self-service de assinatura INACTIVE) foi
 // removida nesta Fase — correção de segurança: não há hoje como distinguir

@@ -68,6 +68,17 @@ async function asaasFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return corpo as T
 }
 
+// Extrai o status HTTP de um erro lançado por asaasFetch (única fonte —
+// "Asaas respondeu {status}: ..."), sem inventar nenhum campo estruturado
+// que o cliente não expõe. Usado pra distinguir "não encontrado" (404 — o
+// recurso já não existe, tratamento idempotente) de qualquer outra falha
+// (rede, 401, 500 — sempre retryable, nunca tratada como sucesso).
+export function erroAsaasStatus(err: unknown): number | null {
+  if (!(err instanceof Error)) return null
+  const encontrado = /^Asaas respondeu (\d+):/.exec(err.message)
+  return encontrado ? Number(encontrado[1]) : null
+}
+
 export interface ClienteAsaas {
   id: string
   name: string
@@ -219,6 +230,17 @@ export async function criarCobrancaAvulsaAsaas(customerId: string, dados: DadosC
       externalReference: dados.externalReference,
     }),
   })
+}
+
+// Cancela UMA cobrança individual no Asaas (DELETE /payments/:id) — nunca
+// usar cancelarAssinaturaAsaas (DELETE /subscriptions/:id) pra isso, que
+// cancelaria a assinatura recorrente inteira, não a cobrança avulsa. Mesma
+// convenção de retorno do Asaas pra DELETE já usada em cancelarAssinaturaAsaas
+// ({ deleted, id }). Usada só pelo cancelamento de upgrade pendente ainda
+// não pago (ver cancelarUpgrade em controllers/billing.ts) — nunca chamada
+// pra uma cobrança da assinatura recorrente.
+export async function cancelarCobrancaAsaas(id: string): Promise<{ deleted: boolean; id: string }> {
+  return asaasFetch(`/payments/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 // Atualiza o VALOR da assinatura recorrente já existente — usado só depois
@@ -616,6 +638,52 @@ export function validarUpgradePlano(
 export function motivoUpgradePendenteBloqueiaNovaTroca(planoPendenteId: string | null): string | null {
   if (planoPendenteId) {
     return 'Já existe uma troca de plano pendente de confirmação. Aguarde o pagamento ser confirmado antes de solicitar outra troca.'
+  }
+  return null
+}
+
+// Cancelamento de upgrade pendente (correção pós-homologação Fase 8A) —
+// antes desta correção, um upgrade solicitado e nunca pago deixava o tenant
+// travado pra sempre (motivoUpgradePendenteBloqueiaNovaTroca acima bloqueia
+// QUALQUER novo upgrade enquanto plano_pendente_id existir, e nada limpava
+// esse campo fora do webhook PAYMENT_CONFIRMED). Regra pura (sem I/O) que
+// decide se o cancelamento pode prosseguir — o controller (cancelarUpgrade
+// em billing.ts) busca a cobrança no Asaas e chama esta função antes de
+// tocar em qualquer coisa.
+//
+// cobranca === null é o caso "já não existe mais no Asaas" (404 ao buscar) —
+// tratado como já-cancelado, não como bloqueio: cobre o retry depois de um
+// cancelamento anterior cujo DELETE no Asaas teve sucesso mas a limpeza
+// local falhou antes de terminar (ver cancelarUpgrade). Nesse caso a função
+// libera direto pra limpeza local, sem validar customer/subscription/status
+// (não há mais nada no Asaas pra validar contra).
+//
+// Quando a cobrança EXISTE, valida na ordem: id bate com o payment id
+// persistido (nunca um id vindo do frontend — quem chama sempre busca pelo
+// id do Tenant), customer pertence a este tenant, é de fato a cobrança
+// avulsa esperada (nunca tem subscription — ver criarCobrancaAvulsaAsaas),
+// e só então o status: só PENDING/OVERDUE podem ser cancelados. CONFIRMED/
+// RECEIVED (ou qualquer outro status) preserva o plano pendente pro webhook
+// concluir — nunca cancela um upgrade que já foi pago.
+export function motivoCancelamentoUpgradeBloqueado(
+  tenant: { plano_pendente_id: string | null; plano_pendente_payment_id: string | null; asaas_customer_id: string | null },
+  cobranca: Pick<CobrancaAsaas, 'id' | 'customer' | 'subscription' | 'status'> | null
+): string | null {
+  if (!tenant.plano_pendente_id || !tenant.plano_pendente_payment_id) {
+    return 'Não há upgrade pendente para cancelar.'
+  }
+  if (cobranca === null) return null
+  if (cobranca.id !== tenant.plano_pendente_payment_id) {
+    return 'A cobrança encontrada não corresponde ao upgrade pendente deste tenant.'
+  }
+  if (cobranca.customer !== tenant.asaas_customer_id) {
+    return 'Esta cobrança não pertence a este tenant.'
+  }
+  if (cobranca.subscription !== null) {
+    return 'Esta cobrança não é a cobrança avulsa esperada do upgrade.'
+  }
+  if (cobranca.status !== 'PENDING' && cobranca.status !== 'OVERDUE') {
+    return 'Este upgrade já foi pago e não pode mais ser cancelado. Aguarde a confirmação automática do pagamento.'
   }
   return null
 }
