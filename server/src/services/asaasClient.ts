@@ -490,6 +490,19 @@ export function validarPlanoParaAssinaturaSelfService(
   return null
 }
 
+// Correção de produto — a PRIMEIRA assinatura self-service (POST
+// /billing/assinatura) deixou de mandar billingType:'UNDEFINED' (que
+// deixava o Asaas decidir o que mostrar na página hospedada, indesejado
+// aqui). O cliente agora escolhe explicitamente entre Cartão de crédito,
+// Pix ou Boleto na própria tela do UserPulse — só o enum validado aqui
+// chega até criarAssinaturaAsaas, nunca o valor cru do body. UNDEFINED
+// continua fora do self-service de propósito (ainda é usado só pela Gestão
+// SaaS, ver resolverBillingTypeGestaoSaas em adminTenantsAsaas.ts) — o
+// objetivo aqui é justamente nunca deixar a forma de pagamento implícita.
+export function validarFormaPagamentoSelfService(valor: unknown): 'CREDIT_CARD' | 'PIX' | 'BOLETO' | null {
+  return valor === 'CREDIT_CARD' || valor === 'PIX' || valor === 'BOLETO' ? valor : null
+}
+
 // Regularização de cobrança vencida ("Pagar") — confirma que a cobrança
 // pertence à assinatura do tenant da sessão (nunca de outro tenant) e que
 // ainda está pendente/vencida (nunca prepara de novo uma cobrança já paga,
