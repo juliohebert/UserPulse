@@ -710,6 +710,12 @@ export interface SituacaoBillingResposta {
   // teste-gratis) — nunca troca antes da confirmação (ver plano_pendente_id
   // em server/prisma/schema.prisma).
   planoPendente: { nome: string; valor: string | number | null; ciclo: string | null } | null
+  // Correção pós-homologação — planoPendente sozinho não distingue upgrade
+  // (Fase 8A, cancelável via DELETE /billing/upgrade) de uma primeira
+  // assinatura ainda não paga (nunca cancelável por essa rota). Só true
+  // quando existe cobrança avulsa própria pra cancelar — nunca expõe o
+  // payment id em si (ver obterSituacao em controllers/billing.ts).
+  upgradePendenteCancelavel: boolean
   situacaoComercial: SituacaoComercialTenant
   situacaoAsaas: SituacaoAsaasDecisao
   motivoSituacaoAsaas: string

@@ -10,7 +10,8 @@ import {
   validarCobrancaParaRegularizacao, montarCobrancasEmAberto, bloqueioOperacaoFinanceiraSelfService,
   validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, duracaoCicloDiasReal,
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, criarCobrancaAvulsaAsaas,
-  resolverVencimentoCicloAtual,
+  resolverVencimentoCicloAtual, cancelarCobrancaAsaas, motivoCancelamentoUpgradeBloqueado,
+  erroAsaasStatus, type CobrancaAsaas,
 } from '../services/asaasClient'
 import { extrairDadosBilling, dadosCobrancaAsaas, type BillingBody } from './adminTenantsAsaas'
 
@@ -86,7 +87,11 @@ export async function obterSituacao(req: Request, res: Response) {
     // pagamento", ver criarAssinatura/calcularAtualizacaoTenant).
     const tenantComPendente = await prisma.tenant.findUnique({
       where: { id: tenant.id },
-      select: { plano_pendente: { select: { nome: true, asaas_subscription_value: true, asaas_billing_cycle: true } } },
+      select: {
+        plano_pendente_id: true,
+        plano_pendente_payment_id: true,
+        plano_pendente: { select: { nome: true, asaas_subscription_value: true, asaas_billing_cycle: true } },
+      },
     })
 
     res.json({
@@ -104,6 +109,15 @@ export async function obterSituacao(req: Request, res: Response) {
         valor: tenantComPendente.plano_pendente.asaas_subscription_value,
         ciclo: tenantComPendente.plano_pendente.asaas_billing_cycle,
       } : null,
+      // Correção pós-homologação — planoPendente sozinho não distingue
+      // upgrade (Fase 8A, tem cobrança avulsa própria e É cancelável via
+      // DELETE /billing/upgrade) de uma primeira assinatura ainda não paga
+      // (criarAssinatura também grava plano_pendente_id, mas nunca
+      // plano_pendente_payment_id — mesma cobrança recorrente da
+      // assinatura, nada avulso pra cancelar). Booleano explícito em vez de
+      // o frontend inferir por outro campo; nunca expõe o payment id em si
+      // (só usado internamente por cancelarUpgrade, ver billing.ts).
+      upgradePendenteCancelavel: Boolean(tenantComPendente?.plano_pendente_id && tenantComPendente?.plano_pendente_payment_id),
       situacaoComercial,
       situacaoAsaas: situacaoAsaas.decisao,
       motivoSituacaoAsaas: situacaoAsaas.motivo,
@@ -562,5 +576,96 @@ export async function solicitarUpgrade(req: Request, res: Response) {
   } catch (err) {
     console.error('Erro ao solicitar upgrade de plano self-service:', err)
     res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao solicitar upgrade no Asaas.' })
+  }
+}
+
+// Correção pós-homologação — DELETE /billing/upgrade. Único jeito de sair
+// de um upgrade pendente que nunca foi pago (antes desta rota só existia
+// saída por PAYMENT_CONFIRMED via webhook, deixando o tenant travado pra
+// sempre se desistisse ou abandonasse a cobrança — ver
+// motivoUpgradePendenteBloqueiaNovaTroca acima). O payment id usado é
+// SEMPRE o persistido em Tenant.plano_pendente_payment_id — nunca um id
+// vindo do body/params (nem existe campo pra isso nesta rota).
+//
+// Nunca toca: plano_id, asaas_subscription_id, valor da assinatura,
+// cobrança recorrente, licenca_fim. Só plano_pendente_id/
+// plano_pendente_payment_id, e só depois de confirmar no Asaas.
+export async function cancelarUpgrade(req: Request, res: Response) {
+  try {
+    const tenant = req.adminUser!.tenant
+
+    // plano_pendente_id/plano_pendente_payment_id não fazem parte de
+    // req.adminUser.tenant (mesma observação de obterSituacao acima) —
+    // consulta à parte, só aqui onde são de fato usados.
+    const tenantComPendente = await prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: { plano_pendente_id: true, plano_pendente_payment_id: true },
+    })
+    const planoPendenteId = tenantComPendente?.plano_pendente_id ?? null
+    const paymentId = tenantComPendente?.plano_pendente_payment_id ?? null
+
+    if (!planoPendenteId || !paymentId) {
+      res.status(400).json({ erro: 'Não há upgrade pendente para cancelar.' })
+      return
+    }
+
+    // Busca a cobrança real no Asaas ANTES de decidir qualquer coisa — nunca
+    // confia só no que está no banco. 404 aqui significa que a cobrança já
+    // não existe mais no Asaas (cobranca fica null, tratado como já-
+    // cancelado por motivoCancelamentoUpgradeBloqueado) — cobre o retry de
+    // um cancelamento anterior que teve sucesso no Asaas mas falhou antes de
+    // limpar o Tenant. Qualquer outra falha (rede, 401, 500) propaga como
+    // erro 502, sem tocar em nada local — permite nova tentativa.
+    let cobranca: CobrancaAsaas | null = null
+    try {
+      cobranca = await buscarCobrancaAsaas(paymentId)
+    } catch (err) {
+      if (erroAsaasStatus(err) !== 404) {
+        console.error('Erro ao consultar cobrança do upgrade pendente no Asaas:', err)
+        res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao consultar cobrança no Asaas.' })
+        return
+      }
+    }
+
+    const motivoBloqueio = motivoCancelamentoUpgradeBloqueado(
+      { plano_pendente_id: planoPendenteId, plano_pendente_payment_id: paymentId, asaas_customer_id: tenant.asaas_customer_id },
+      cobranca
+    )
+    if (motivoBloqueio) {
+      res.status(409).json({ erro: motivoBloqueio })
+      return
+    }
+
+    // cobranca === null já significa "sem nada pra cancelar no Asaas" (ver
+    // acima) — só chama o DELETE quando ela ainda existe de verdade. Mesmo
+    // tratamento de 404 do GET: corrida entre este GET e o DELETE (alguém
+    // cancelou por fora entre as duas chamadas) também conta como já-
+    // cancelado, nunca como falha.
+    if (cobranca) {
+      try {
+        await cancelarCobrancaAsaas(paymentId)
+      } catch (err) {
+        if (erroAsaasStatus(err) !== 404) {
+          console.error('Erro ao cancelar cobrança do upgrade pendente no Asaas:', err)
+          res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao cancelar cobrança no Asaas.' })
+          return
+        }
+      }
+    }
+
+    // updateMany (não update) condicionado ao MESMO payment id que acabou de
+    // ser cancelado — se uma troca concorrente já tiver substituído
+    // plano_pendente_payment_id por outra cobrança nesse meio-tempo, este
+    // WHERE não bate e count fica 0: nunca limpa a pendência de uma troca
+    // posterior por engano.
+    await prisma.tenant.updateMany({
+      where: { id: tenant.id, plano_pendente_payment_id: paymentId },
+      data: { plano_pendente_id: null, plano_pendente_payment_id: null },
+    })
+
+    res.json({ cancelado: true })
+  } catch (err) {
+    console.error('Erro ao cancelar upgrade de plano pendente:', err)
+    res.status(500).json({ erro: 'Erro ao cancelar upgrade pendente.' })
   }
 }

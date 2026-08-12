@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { get, put, post } from '../services/api'
+import { get, put, post, del } from '../services/api'
 import type {
   SituacaoBillingResposta, SituacaoAsaasDecisao, SituacaoComercialTenant,
   AssinaturaSelfServiceResposta, PagarCobrancaResposta, PlanoContratavel,
@@ -202,6 +202,13 @@ export function MinhaAssinatura() {
   const [upgradeConfirmando, setUpgradeConfirmando] = useState(false)
   const [upgradeErro, setUpgradeErro] = useState<string | null>(null)
 
+  // Correção pós-homologação — cancelamento de um upgrade pendente ainda
+  // não pago (DELETE /billing/upgrade). Antes só existia saída por
+  // confirmação de pagamento; um cliente que desistisse ficava travado sem
+  // poder solicitar outro upgrade.
+  const [upgradePendenteCancelando, setUpgradePendenteCancelando] = useState(false)
+  const [upgradePendenteCancelarErro, setUpgradePendenteCancelarErro] = useState<string | null>(null)
+
   const carregar = () => {
     setLoading(true)
     setErro(null)
@@ -372,6 +379,27 @@ export function MinhaAssinatura() {
       setUpgradeErro(e instanceof Error ? e.message : 'Erro ao solicitar upgrade.')
     } finally {
       setUpgradeConfirmando(false)
+    }
+  }
+
+  // Confirmação antes de cancelar de verdade (ação com efeito real: cancela
+  // a cobrança proporcional no Asaas). Backend recarrega tudo do banco
+  // (plano_pendente_payment_id) — nenhum dado enviado aqui, nunca um id
+  // vindo do frontend. Sucesso libera de novo as opções de upgrade porque
+  // situacao.planoPendente volta a null depois de carregar().
+  const cancelarUpgradePendente = async () => {
+    if (!window.confirm('Cancelar este upgrade pendente? A cobrança proporcional em aberto será cancelada e você poderá solicitar outro upgrade depois.')) {
+      return
+    }
+    setUpgradePendenteCancelando(true)
+    setUpgradePendenteCancelarErro(null)
+    try {
+      await del('/billing/upgrade')
+      carregar()
+    } catch (e) {
+      setUpgradePendenteCancelarErro(e instanceof Error ? e.message : 'Erro ao cancelar upgrade pendente.')
+    } finally {
+      setUpgradePendenteCancelando(false)
     }
   }
 
@@ -595,6 +623,23 @@ export function MinhaAssinatura() {
                       >
                         Abrir página de pagamento
                       </a>
+                    )}
+                    {upgradePendenteCancelarErro && (
+                      <div className="mt-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">
+                        {upgradePendenteCancelarErro}
+                      </div>
+                    )}
+                    {/* Correção pós-homologação — planoPendente sozinho também
+                        cobre a primeira assinatura ainda não paga (sem
+                        cobrança avulsa nenhuma pra cancelar); só mostra o
+                        botão quando o backend confirma que existe upgrade
+                        cancelável de verdade. */}
+                    {situacao.upgradePendenteCancelavel && (
+                      <div className="mt-3">
+                        <Button variant="ghost" size="sm" onClick={cancelarUpgradePendente} disabled={upgradePendenteCancelando}>
+                          {upgradePendenteCancelando ? 'Cancelando…' : 'Cancelar upgrade'}
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
