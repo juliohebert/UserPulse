@@ -6,6 +6,7 @@ import {
   criarClienteAsaas, criarAssinaturaAsaas, atualizarClienteAsaas, buscarCobrancaAsaas,
   listarCobrancasAsaas, atualizarBillingTypeCobrancaAsaas,
   calcularSituacaoAsaas, buscarEntradaSituacaoAsaas, validarPlanoParaAssinaturaSelfService,
+  validarFormaPagamentoSelfService,
   validarCobrancaParaRegularizacao, bloqueioOperacaoFinanceiraSelfService,
   validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, duracaoCicloDiasReal,
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, criarCobrancaAvulsaAsaas,
@@ -197,9 +198,14 @@ export async function listarPlanosDisponiveis(_req: Request, res: Response) {
 // que efetivamente vai pro Asaas. O plano escolhido é gravado em
 // plano_pendente_id, NUNCA em plano_id — o Tenant continua no plano atual
 // (ex.: teste-gratis) até o webhook PAYMENT_CONFIRMED aplicar de verdade
-// (ver calcularAtualizacaoTenant em asaasClient.ts). billingType fixo em
-// 'UNDEFINED': quem escolhe Pix ou cartão é o pagador, na página hospedada
-// do Asaas, nunca o UserPulse.
+// (ver calcularAtualizacaoTenant em asaasClient.ts).
+//
+// Correção de produto — billingType deixou de ser fixo em 'UNDEFINED': o
+// cliente agora escolhe explicitamente Cartão de crédito, Pix ou Boleto
+// aqui no UserPulse (forma_pagamento no body), nunca na página do Asaas —
+// só o enum validado por validarFormaPagamentoSelfService chega até
+// criarAssinaturaAsaas (nunca o valor cru do body). UNDEFINED nunca é
+// aceito nesta tela (só a Gestão SaaS ainda usa).
 export async function criarAssinatura(req: Request, res: Response) {
   try {
     const tenant = req.adminUser!.tenant
@@ -212,9 +218,14 @@ export async function criarAssinatura(req: Request, res: Response) {
       return
     }
 
-    const { plano_id } = req.body as { plano_id?: string }
+    const { plano_id, forma_pagamento } = req.body as { plano_id?: string; forma_pagamento?: unknown }
     if (!plano_id?.trim()) {
       res.status(400).json({ erro: 'plano_id é obrigatório.' })
+      return
+    }
+    const billingType = validarFormaPagamentoSelfService(forma_pagamento)
+    if (!billingType) {
+      res.status(400).json({ erro: 'forma_pagamento é obrigatório e deve ser "CREDIT_CARD", "PIX" ou "BOLETO".' })
       return
     }
     const planoEscolhido = await prisma.plano.findUnique({ where: { id: plano_id.trim() } })
@@ -234,7 +245,7 @@ export async function criarAssinatura(req: Request, res: Response) {
 
     const hoje = new Date().toISOString().slice(0, 10)
     const assinatura = await criarAssinaturaAsaas(customerId, planoEscolhido!, {
-      billingType: 'UNDEFINED',
+      billingType,
       nextDueDate: hoje,
     })
 

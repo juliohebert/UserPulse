@@ -145,6 +145,13 @@ export function MinhaAssinatura() {
   const [planosLoading, setPlanosLoading] = useState(false)
   const [planosErro, setPlanosErro] = useState<string | null>(null)
   const [planoSelecionadoId, setPlanoSelecionadoId] = useState<string | null>(null)
+  // Correção de produto — forma de pagamento deixou de ser implícita
+  // (UNDEFINED, escolhida na página do Asaas) e virou uma escolha explícita
+  // aqui no UserPulse, sempre com um valor válido (CREDIT_CARD por padrão
+  // — "Recomendado" — nunca fica null, então o botão "Assinar" não precisa
+  // esperar seleção nenhuma). Usuário pode trocar livremente antes de
+  // assinar.
+  const [formaPagamento, setFormaPagamento] = useState<'CREDIT_CARD' | 'PIX' | 'BOLETO'>('CREDIT_CARD')
 
   const [form, setForm] = useState<BillingForm>(FORM_VAZIO)
   const [salvandoForm, setSalvandoForm] = useState(false)
@@ -259,14 +266,20 @@ export function MinhaAssinatura() {
   // Fase 6B — plano_id é sempre o que o cliente escolheu entre os planos
   // disponíveis (nunca um valor calculado aqui); o backend recarrega o
   // Plano pelo id e ignora qualquer outro dado financeiro que viesse do
-  // frontend (ver criarAssinatura em controllers/billing.ts).
+  // frontend (ver criarAssinatura em controllers/billing.ts). forma_pagamento
+  // é só o enum (CREDIT_CARD/PIX) — nunca preço, nunca dado de cartão (esse
+  // nunca trafega pelo UserPulse, é sempre digitado direto na página segura
+  // do Asaas). Backend valida de novo (nunca confia só nesta tela).
   const assinar = async () => {
     if (!planoSelecionadoId) return
     setAssinando(true)
     setAssinaturaErro(null)
     setAssinaturaResultado(null)
     try {
-      const resultado = await post<AssinaturaSelfServiceResposta>('/billing/assinatura', { plano_id: planoSelecionadoId })
+      const resultado = await post<AssinaturaSelfServiceResposta>('/billing/assinatura', {
+        plano_id: planoSelecionadoId,
+        forma_pagamento: formaPagamento,
+      })
       setAssinaturaResultado(resultado)
       carregar()
     } catch (e) {
@@ -583,7 +596,7 @@ export function MinhaAssinatura() {
                           <button
                             key={p.id}
                             type="button"
-                            onClick={() => setPlanoSelecionadoId(p.id)}
+                            onClick={() => { setPlanoSelecionadoId(p.id); setFormaPagamento('CREDIT_CARD') }}
                             className={`text-left p-5 rounded-xl border-2 transition-all ${
                               selecionado
                                 ? 'border-primary bg-primary/5 shadow-md'
@@ -706,15 +719,50 @@ export function MinhaAssinatura() {
 
                     <div className={card}>
                       <h3 className="text-title-md font-bold text-on-surface mb-2">Assinar {planoSelecionado.nome}</h3>
-                      <p className="text-body-md text-on-surface-variant mb-2">
-                        Você será redirecionado para a página segura do Asaas, onde escolhe entre Pix ou cartão de crédito.
-                        O UserPulse nunca recebe nem armazena dados do seu cartão.
+                      <p className="text-body-md text-on-surface-variant mb-4">
+                        O pagamento é concluído na página segura do Asaas — o UserPulse nunca recebe nem armazena
+                        dados do seu cartão.
                       </p>
-                      <p className="text-body-md text-on-surface-variant mb-3">
-                        No cartão, as cobranças seguintes são renovadas automaticamente. No Pix, cada cobrança do
-                        ciclo precisa ser paga manualmente por aqui quando vencer, sem precisar assinar de novo a
-                        cada ciclo (Pix Automático ainda não é suportado nesta versão).
-                      </p>
+
+                      <p className="text-label-md font-semibold text-on-surface mb-2">Como deseja pagar?</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                        <button
+                          type="button"
+                          onClick={() => setFormaPagamento('CREDIT_CARD')}
+                          className={`relative text-left p-4 rounded-xl border-2 transition-colors ${
+                            formaPagamento === 'CREDIT_CARD' ? 'border-primary bg-primary/5' : 'border-outline-variant hover:border-outline'
+                          }`}
+                        >
+                          <span className="absolute top-3 right-3 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-tertiary/10 text-tertiary">
+                            Recomendado
+                          </span>
+                          <span className="block text-title-md font-bold text-on-surface">Cartão de crédito</span>
+                          <span className="block text-body-md text-on-surface-variant mt-1">Renovação automática</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setFormaPagamento('PIX')}
+                          className={`text-left p-4 rounded-xl border-2 transition-colors ${
+                            formaPagamento === 'PIX' ? 'border-primary bg-primary/5' : 'border-outline-variant hover:border-outline'
+                          }`}
+                        >
+                          <span className="block text-title-md font-bold text-on-surface">Pix</span>
+                          <span className="block text-body-md text-on-surface-variant mt-1">Pagamento via Pix a cada renovação</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setFormaPagamento('BOLETO')}
+                          className={`text-left p-4 rounded-xl border-2 transition-colors ${
+                            formaPagamento === 'BOLETO' ? 'border-primary bg-primary/5' : 'border-outline-variant hover:border-outline'
+                          }`}
+                        >
+                          <span className="block text-title-md font-bold text-on-surface">Boleto</span>
+                          <span className="block text-body-md text-on-surface-variant mt-1">Pagamento via boleto a cada renovação</span>
+                        </button>
+                      </div>
+
                       {assinaturaErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{assinaturaErro}</div>}
                       <Button onClick={assinar} disabled={assinando || !planoSelecionadoId}>
                         {assinando ? 'Gerando…' : `Assinar ${planoSelecionado.nome}`}

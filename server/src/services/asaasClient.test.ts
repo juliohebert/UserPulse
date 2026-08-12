@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   mapearEventoAsaas, calcularProximoVencimento, calcularAtualizacaoTenant, calcularSituacaoAsaas,
-  validarPlanoParaAssinaturaSelfService, validarCobrancaParaRegularizacao, bloqueioOperacaoFinanceiraSelfService,
+  validarPlanoParaAssinaturaSelfService, validarFormaPagamentoSelfService, validarCobrancaParaRegularizacao, bloqueioOperacaoFinanceiraSelfService,
   criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas,
   atualizarBillingTypeCobrancaAsaas,
   validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, calcularVencimentoAnterior, duracaoCicloDiasReal,
@@ -588,6 +588,58 @@ describe('validarPlanoParaAssinaturaSelfService (Fase 5, plano escolhido pelo cl
     assert.equal(validarPlanoParaAssinaturaSelfService({ interno: false, eh_plano_trial: false, asaas_subscription_value: 149.9 }), null)
   })
 })
+
+// Correção de produto — a PRIMEIRA assinatura self-service parou de mandar
+// billingType:'UNDEFINED' fixo (que deixava o Asaas decidir o que mostrar
+// na página hospedada, indesejado): agora o cliente escolhe explicitamente
+// Cartão, Pix ou Boleto no UserPulse, e só esse enum validado aqui chega
+// até criarAssinaturaAsaas (POST /billing/assinatura em
+// controllers/billing.ts nunca repassa o valor cru do body). UNDEFINED
+// continua rejeitado aqui — só a Gestão SaaS ainda usa (ver
+// resolverBillingTypeGestaoSaas em adminTenantsAsaas.ts — fluxo diferente,
+// não tocado aqui).
+describe('validarFormaPagamentoSelfService — CREDIT_CARD, PIX ou BOLETO na primeira assinatura self-service', () => {
+  test('CREDIT_CARD é aceito', () => {
+    assert.equal(validarFormaPagamentoSelfService('CREDIT_CARD'), 'CREDIT_CARD')
+  })
+
+  test('PIX é aceito', () => {
+    assert.equal(validarFormaPagamentoSelfService('PIX'), 'PIX')
+  })
+
+  test('BOLETO é aceito', () => {
+    assert.equal(validarFormaPagamentoSelfService('BOLETO'), 'BOLETO')
+  })
+
+  test('UNDEFINED é rejeitado (nunca deixa a forma de pagamento implícita nesta tela)', () => {
+    assert.equal(validarFormaPagamentoSelfService('UNDEFINED'), null)
+  })
+
+  test('ausente é rejeitado', () => {
+    assert.equal(validarFormaPagamentoSelfService(undefined), null)
+  })
+
+  test('valor arbitrário é rejeitado (nunca confia no frontend além do enum)', () => {
+    assert.equal(validarFormaPagamentoSelfService(''), null)
+    assert.equal(validarFormaPagamentoSelfService('credit_card'), null)
+    assert.equal(validarFormaPagamentoSelfService(123), null)
+    assert.equal(validarFormaPagamentoSelfService('PIX_AUTOMATICO'), null)
+  })
+})
+
+// Pontos 7 e 8 pedidos na revisão — confirmados por leitura de código,
+// sem teste de controller novo (convenção do projeto: criarAssinatura toca
+// Prisma/Asaas de verdade, controllers com I/O não são testados aqui, ver
+// CLAUDE.md "Tests"):
+// 7. controller encaminha os 3 billingTypes corretamente — em billing.ts,
+//    `const billingType = validarFormaPagamentoSelfService(forma_pagamento)`
+//    é passado direto pra `criarAssinaturaAsaas(..., { billingType, ... })`,
+//    sem transformação nenhuma no meio — os 3 testes de aceitação acima
+//    (identidade: entrada === saída) já garantem isso.
+// 8. preço/plano/ciclo continuam só do backend — inalterado por esta
+//    correção: `planoEscolhido` é sempre recarregado via
+//    `prisma.plano.findUnique({ where: { id: plano_id.trim() } })`; nada no
+//    corpo da requisição além de `plano_id`/`forma_pagamento` é lido.
 
 describe('validarCobrancaParaRegularizacao (Fase 5 — ação "Pagar")', () => {
   const cobranca = (status: string, subscription: string | null) => ({ status, subscription })
