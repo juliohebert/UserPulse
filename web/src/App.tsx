@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Navigate, Routes, Route } from 'react-router-dom'
 import { Layout } from './components/layout/Layout'
 import { RequireAuth } from './components/auth/RequireAuth'
 import { RequireSuperAdmin } from './components/auth/RequireSuperAdmin'
@@ -28,6 +28,7 @@ import { TourGravador } from './pages/tours/Gravador'
 import { JornadasIndex } from './pages/jornadas/Index'
 import { JornadaForm } from './pages/jornadas/Form'
 import { AparenciaWidgetPage } from './pages/AparenciaWidget'
+import { SistemasPage } from './pages/Sistemas'
 import { MinhaAssinatura } from './pages/MinhaAssinatura'
 import { AdminTenantsIndex } from './pages/admin/Tenants'
 import { AdminPlanosIndex } from './pages/admin/Planos'
@@ -63,7 +64,6 @@ export default function App() {
             <Route path="tours/:id/preview" element={<TourPreview />} />
             <Route path="tours/:id/dashboard" element={<TourDashboard />} />
             <Route path="jornadas" element={<JornadasIndex />} />
-            <Route path="integracao" element={<IntegracaoPage />} />
             {/* Minha conta — sem guard de escrita/configuração: qualquer
                 papel autenticado só edita a própria senha aqui, nunca dados
                 de outra pessoa nem nada administrativo (ver MinhaConta.tsx,
@@ -91,8 +91,15 @@ export default function App() {
                 (requireEscritaConfiguracao) bloqueia a escrita com 403 mesmo
                 se alguém pular este guard. */}
             <Route element={<RequireEscritaConfiguracao />}>
-              <Route path="catalogo-telas" element={<CatalogoTelasIndex />} />
-              <Route path="aparencia-widget" element={<AparenciaWidgetPage />} />
+              <Route path="configuracoes" element={<Navigate to="/configuracoes/sistemas" replace />} />
+              <Route path="configuracoes/sistemas" element={<SistemasPage />} />
+              <Route path="configuracoes/telas" element={<CatalogoTelasIndex />} />
+              <Route path="configuracoes/aparencia" element={<AparenciaWidgetPage />} />
+              <Route path="configuracoes/integracao" element={<IntegracaoPage />} />
+              <Route path="sistemas" element={<Navigate to="/configuracoes/sistemas" replace />} />
+              <Route path="catalogo-telas" element={<Navigate to="/configuracoes/telas" replace />} />
+              <Route path="aparencia-widget" element={<Navigate to="/configuracoes/aparencia" replace />} />
+              <Route path="integracao" element={<Navigate to="/configuracoes/integracao" replace />} />
               {/* Fase 5 — "Minha assinatura" (billing self-service). Mesmo
                   guard de aparência/catálogo (ADMIN-only dentro do próprio
                   tenant) porque billing é sensível o bastante pra restringir

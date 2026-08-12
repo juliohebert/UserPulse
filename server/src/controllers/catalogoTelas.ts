@@ -3,6 +3,33 @@ import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { motivoBloqueioEscrita } from '../lib/tenantGuards'
 
+async function resolverSistema(tenantId: string, sistemaId?: string, sistemaTexto?: string) {
+  if (sistemaId?.trim()) {
+    return prisma.sistema.findFirst({ where: { id: sistemaId.trim(), tenant_id: tenantId } })
+  }
+  if (sistemaTexto?.trim()) {
+    return prisma.sistema.findFirst({ where: { tenant_id: tenantId, identificador: sistemaTexto.trim() } })
+  }
+  return null
+}
+
+function urlConterValida(modoIdentificacao: string, urlConter?: string | null): boolean {
+  if (modoIdentificacao !== 'url_contem' || !urlConter) return true
+  return urlConter.startsWith('/') && !/^https?:\/\//i.test(urlConter) && !/[\s,]/.test(urlConter)
+}
+
+function normalizarUrlConter(valor?: string): string | null {
+  const limpo = valor?.trim()
+  if (!limpo) return null
+  if (!/^https?:\/\//i.test(limpo)) return limpo
+  try {
+    const url = new URL(limpo)
+    return `${url.pathname}${url.search}${url.hash}` || '/'
+  } catch {
+    return limpo
+  }
+}
+
 export async function listar(req: Request, res: Response) {
   try {
     const ativo = req.query.ativo as string | undefined
@@ -16,6 +43,7 @@ export async function listar(req: Request, res: Response) {
       where.OR = [
         { nome: { contains: term, mode: 'insensitive' } },
         { sistema: { contains: term, mode: 'insensitive' } },
+        { sistemaConfig: { nome: { contains: term, mode: 'insensitive' } } },
         { categoria: { contains: term, mode: 'insensitive' } },
         { url_contem: { contains: term, mode: 'insensitive' } },
       ]
@@ -23,6 +51,7 @@ export async function listar(req: Request, res: Response) {
     const telas = await prisma.telaCatalogo.findMany({
       where,
       orderBy: [{ categoria: 'asc' }, { nome: 'asc' }],
+      include: { sistemaConfig: true },
     })
     res.json(telas)
   } catch {
@@ -35,23 +64,30 @@ export async function criar(req: Request, res: Response) {
     const bloqueioEscrita = motivoBloqueioEscrita(req.adminUser!.tenant)
     if (bloqueioEscrita) { res.status(403).json({ erro: bloqueioEscrita }); return }
 
-    const { nome, sistema, categoria, modo_identificacao, tela, url_contem, data_cy, ativo } = req.body as {
-      nome?: string; sistema?: string; categoria?: string; modo_identificacao?: string
+    const { nome, sistema_id, sistema, categoria, modo_identificacao, tela, url_contem, data_cy, ativo } = req.body as {
+      nome?: string; sistema_id?: string; sistema?: string; categoria?: string; modo_identificacao?: string
       tela?: string; url_contem?: string; data_cy?: string; ativo?: boolean
     }
-    if (!nome?.trim() || !sistema?.trim() || !categoria?.trim() || !modo_identificacao?.trim()) {
-      res.status(400).json({ erro: 'nome, sistema, categoria e modo_identificacao são obrigatórios.' })
+    const sistemaConfig = await resolverSistema(req.adminUser!.tenant_id, sistema_id, sistema)
+    if (!nome?.trim() || !sistemaConfig || !categoria?.trim() || !modo_identificacao?.trim()) {
+      res.status(400).json({ erro: 'nome, sistema_id, categoria e modo_identificacao são obrigatórios.' })
+      return
+    }
+    const urlConter = normalizarUrlConter(url_contem)
+    if (!urlConterValida(modo_identificacao.trim(), urlConter)) {
+      res.status(400).json({ erro: 'Caminho da URL deve ser um único caminho relativo, como /app/faturamento.' })
       return
     }
     const nova = await prisma.telaCatalogo.create({
       data: {
         tenant_id: req.adminUser!.tenant_id,
+        sistema_id: sistemaConfig.id,
         nome: nome.trim(),
-        sistema: sistema.trim(),
+        sistema: sistemaConfig.identificador,
         categoria: categoria.trim(),
         modo_identificacao: modo_identificacao.trim(),
         tela: tela?.trim() || null,
-        url_contem: url_contem?.trim() || null,
+        url_contem: urlConter,
         data_cy: data_cy?.trim() || null,
         ativo: ativo !== false,
       },
@@ -68,12 +104,18 @@ export async function atualizar(req: Request, res: Response) {
     if (bloqueioEscrita) { res.status(403).json({ erro: bloqueioEscrita }); return }
 
     const id = req.params.id as string
-    const { nome, sistema, categoria, modo_identificacao, tela, url_contem, data_cy, ativo } = req.body as {
-      nome?: string; sistema?: string; categoria?: string; modo_identificacao?: string
+    const { nome, sistema_id, sistema, categoria, modo_identificacao, tela, url_contem, data_cy, ativo } = req.body as {
+      nome?: string; sistema_id?: string; sistema?: string; categoria?: string; modo_identificacao?: string
       tela?: string; url_contem?: string; data_cy?: string; ativo?: boolean
     }
-    if (!nome?.trim() || !sistema?.trim() || !categoria?.trim() || !modo_identificacao?.trim()) {
-      res.status(400).json({ erro: 'nome, sistema, categoria e modo_identificacao são obrigatórios.' })
+    const sistemaConfig = await resolverSistema(req.adminUser!.tenant_id, sistema_id, sistema)
+    if (!nome?.trim() || !sistemaConfig || !categoria?.trim() || !modo_identificacao?.trim()) {
+      res.status(400).json({ erro: 'nome, sistema_id, categoria e modo_identificacao são obrigatórios.' })
+      return
+    }
+    const urlConter = normalizarUrlConter(url_contem)
+    if (!urlConterValida(modo_identificacao.trim(), urlConter)) {
+      res.status(400).json({ erro: 'Caminho da URL deve ser um único caminho relativo, como /app/faturamento.' })
       return
     }
     const existente = await prisma.telaCatalogo.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
@@ -82,11 +124,12 @@ export async function atualizar(req: Request, res: Response) {
       where: { id },
       data: {
         nome: nome.trim(),
-        sistema: sistema.trim(),
+        sistema_id: sistemaConfig.id,
+        sistema: sistemaConfig.identificador,
         categoria: categoria.trim(),
         modo_identificacao: modo_identificacao.trim(),
         tela: tela?.trim() || null,
-        url_contem: url_contem?.trim() || null,
+        url_contem: urlConter,
         data_cy: data_cy?.trim() || null,
         ativo: Boolean(ativo),
       },

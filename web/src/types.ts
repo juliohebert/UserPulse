@@ -94,8 +94,10 @@ export interface DashboardData {
 
 export interface TelaCatalogo {
   id: string
+  sistema_id: string
   nome: string
   sistema: string
+  sistemaConfig?: Sistema
   categoria: string
   modo_identificacao: string
   tela: string | null
@@ -106,9 +108,23 @@ export interface TelaCatalogo {
   atualizado_em: string
 }
 
+export interface Sistema {
+  id: string
+  nome: string
+  slug: string
+  descricao: string | null
+  identificador: string
+  url_base: string | null
+  ativo: boolean
+  criado_em: string
+  atualizado_em: string
+  _count?: { telas: number; aparencias: number }
+}
+
 export interface AparenciaWidget {
   id?: string
-  sistema: string
+  sistema_id?: string | null
+  sistema: string | null
   cor_principal: string | null
   logo_url: string | null
   criado_em?: string

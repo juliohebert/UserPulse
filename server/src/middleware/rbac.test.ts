@@ -8,6 +8,7 @@ import { requireAdminAuth } from './requireAdminAuth'
 import campanhasRouter from '../routes/campanhas'
 import toursRouter from '../routes/tours'
 import jornadasRouter from '../routes/jornadas'
+import sistemasRouter from '../routes/sistemas'
 import aparenciaWidgetRouter from '../routes/aparenciaWidget'
 import catalogoTelasRouter from '../routes/catalogoTelas'
 import widgetRouter from '../routes/widget'
@@ -119,6 +120,9 @@ describe('RBAC — wiring das rotas de escrita', () => {
   test('POST /catalogo-telas usa requireEscritaConfiguracao', () => {
     assert.ok(handlersDaRota(catalogoTelasRouter, 'post', '/').includes(requireEscritaConfiguracao))
   })
+  test('POST /sistemas usa requireEscritaConfiguracao', () => {
+    assert.ok(handlersDaRota(sistemasRouter, 'post', '/').includes(requireEscritaConfiguracao))
+  })
 })
 
 // Fase 5 — billing self-service (ver routes/billing.ts). Diferente das
@@ -212,6 +216,9 @@ describe('RBAC — wiring das rotas de leitura (sem guard, abertas a qualquer pa
   })
   test('GET /catalogo-telas não tem guard de escrita — EDITOR/VIEWER continuam lendo o catálogo', () => {
     assert.ok(semGuard(handlersDaRota(catalogoTelasRouter, 'get', '/')))
+  })
+  test('GET /sistemas não tem guard de escrita — EDITOR/VIEWER continuam lendo sistemas', () => {
+    assert.ok(semGuard(handlersDaRota(sistemasRouter, 'get', '/')))
   })
   test('GET /dashboard/campanhas/:id não tem guard nenhum', () => {
     assert.ok(semGuard(handlersDaRota(dashboardRouter, 'get', '/campanhas/:id')))
