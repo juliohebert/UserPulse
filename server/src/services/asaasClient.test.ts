@@ -804,7 +804,7 @@ describe('motivoCancelamentoUpgradeBloqueado — cancelamento de upgrade pendent
     asaas_customer_id: 'cus_1',
     ...over,
   })
-  const cobrancaBase = (over: Partial<{ id: string; customer: string; subscription: string | null; status: string }> = {}) => ({
+  const cobrancaBase = (over: Partial<{ id: string; customer: string; subscription: string | null | undefined; status: string }> = {}) => ({
     id: 'pay_proporcional_1',
     customer: 'cus_1',
     subscription: null,
@@ -836,9 +836,24 @@ describe('motivoCancelamentoUpgradeBloqueado — cancelamento de upgrade pendent
     assert.match(motivo ?? '', /não pertence a este tenant/i)
   })
 
-  test('cobrança com subscription vinculada => bloqueia (não é a avulsa esperada)', () => {
+  test('cobrança com subscription vinculada (string real) => bloqueia (não é a avulsa esperada)', () => {
     const motivo = motivoCancelamentoUpgradeBloqueado(tenantBase(), cobrancaBase({ subscription: 'sub_1' }))
     assert.match(motivo ?? '', /não é a cobrança avulsa esperada/i)
+  })
+
+  // Bug de homologação (correção pós-homologação) — CobrancaAsaas.subscription
+  // é tipado "string | null" (nunca opcional), mas isso é garantia do TS, não
+  // do Asaas: uma cobrança avulsa real chegou sem a chave "subscription" no
+  // JSON (undefined em runtime), e o antigo `!== null` bloqueava um
+  // cancelamento legítimo com 409. null e undefined/campo ausente precisam
+  // ser equivalentes aqui — só uma subscription de verdade bloqueia.
+  test('subscription undefined (explícito) => permite, mesmo tratamento de null', () => {
+    assert.equal(motivoCancelamentoUpgradeBloqueado(tenantBase(), cobrancaBase({ subscription: undefined })), null)
+  })
+  test('subscription ausente do objeto (chave omitida pelo Asaas, cenário real do bug) => permite', () => {
+    const { subscription: _omitido, ...semSubscription } = cobrancaBase()
+    const motivo = motivoCancelamentoUpgradeBloqueado(tenantBase(), semSubscription as ReturnType<typeof cobrancaBase>)
+    assert.equal(motivo, null)
   })
 
   // 5. PENDING pode cancelar

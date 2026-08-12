@@ -189,7 +189,12 @@ export interface CobrancaAsaas {
   status: string
   value: number
   customer: string
-  subscription: string | null
+  // Opcional (não só nullable) — correção pós-homologação: o Asaas pode
+  // omitir esta chave inteira em cobranças avulsas (ver
+  // motivoCancelamentoUpgradeBloqueado, que já trata null e undefined como
+  // equivalentes), então o tipo precisa refletir isso, não só prometer um
+  // "string | null" que o runtime nem sempre cumpre.
+  subscription?: string | null
   dueDate: string
   paymentDate: string | null
   billingType?: string
@@ -536,7 +541,7 @@ export function validarFormaPagamentoSelfService(valor: unknown): 'CREDIT_CARD' 
 // nem cria uma cobrança nova — só libera billingType na existente, ver
 // atualizarBillingTypeCobrancaAsaas acima).
 export function validarCobrancaParaRegularizacao(
-  cobranca: { subscription: string | null; status: string },
+  cobranca: { subscription?: string | null; status: string },
   tenantSubscriptionId: string
 ): string | null {
   if (cobranca.subscription !== tenantSubscriptionId) {
@@ -679,7 +684,16 @@ export function motivoCancelamentoUpgradeBloqueado(
   if (cobranca.customer !== tenant.asaas_customer_id) {
     return 'Esta cobrança não pertence a este tenant.'
   }
-  if (cobranca.subscription !== null) {
+  // Correção pós-homologação — CobrancaAsaas.subscription é tipado como
+  // "string | null" (nunca opcional), mas isso é só a garantia do TS, não
+  // do Asaas de verdade: buscarCobrancaAsaas faz JSON.parse cru, sem
+  // normalizar nada (ver asaasFetch). Uma cobrança avulsa real chegou sem a
+  // chave "subscription" no JSON (undefined em runtime, não null), e
+  // `!== null` sozinho bloqueava um cancelamento legítimo com 409 "não é a
+  // cobrança avulsa esperada". null e undefined significam a mesma coisa
+  // aqui ("sem assinatura vinculada") — só uma subscription de verdade
+  // (string não-vazia) deve continuar bloqueando.
+  if (cobranca.subscription !== null && cobranca.subscription !== undefined) {
     return 'Esta cobrança não é a cobrança avulsa esperada do upgrade.'
   }
   if (cobranca.status !== 'PENDING' && cobranca.status !== 'OVERDUE') {
