@@ -381,6 +381,28 @@ export async function validarECalcularUpgrade(tenant: TenantParaUpgrade, planoId
     return { ok: false, status: 400, erro: 'Tenant ainda não tem uma assinatura ativa. Contrate um plano antes de solicitar upgrade.' }
   }
 
+  // Correção pós-revisão 3 — situacaoAdimplenciaTenant (acima) só enxerga
+  // Tenant.licenca_fim, que fica desatualizado até um PAYMENT_CONFIRMED
+  // avançá-lo; um tenant pode estar "em dia" localmente com uma cobrança da
+  // assinatura recorrente já OVERDUE de verdade no Asaas (a mesma que GET
+  // /billing/situacao já mostra em "Cobranças vencidas"). Cross-check aqui
+  // reaproveitando buscarEntradaSituacaoAsaas/calcularSituacaoAsaas
+  // (mesmas funções de obterSituacao, nunca duplica a regra) — só a partir
+  // daqui porque dependem de asaas_subscription_id, já garantido acima.
+  // listarCobrancasAsaas filtra por subscription= no Asaas, então nunca
+  // inclui a cobrança avulsa de um upgrade anterior (essa nunca é criada
+  // com vínculo de assinatura, ver criarCobrancaAvulsaAsaas) — só cobranças
+  // reais do ciclo recorrente contam. Falha ao consultar o Asaas
+  // (INDETERMINADO) falha seguro: bloqueia em vez de assumir "em dia".
+  const entradaAsaas = await buscarEntradaSituacaoAsaas(tenant)
+  const situacaoAsaasUpgrade = calcularSituacaoAsaas(entradaAsaas)
+  if (situacaoAsaasUpgrade.decisao === 'INADIMPLENTE') {
+    return { ok: false, status: 403, erro: 'Regularize os pagamentos em aberto antes de solicitar um upgrade de plano.' }
+  }
+  if (situacaoAsaasUpgrade.decisao === 'INDETERMINADO') {
+    return { ok: false, status: 503, erro: 'Não foi possível confirmar sua situação financeira no Asaas agora. Tente novamente em instantes.' }
+  }
+
   const motivoPendencia = motivoUpgradePendenteBloqueiaNovaTroca(tenant.plano_pendente_id)
   if (motivoPendencia) return { ok: false, status: 409, erro: motivoPendencia }
 
