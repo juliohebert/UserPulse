@@ -9,6 +9,7 @@ import {
   validarCobrancaParaRegularizacao, bloqueioOperacaoFinanceiraSelfService,
   validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, duracaoCicloDiasReal,
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, criarCobrancaAvulsaAsaas,
+  resolverVencimentoCicloAtual,
 } from '../services/asaasClient'
 import { extrairDadosBilling, dadosCobrancaAsaas, type BillingBody } from './adminTenantsAsaas'
 
@@ -390,17 +391,21 @@ export async function validarECalcularUpgrade(tenant: TenantParaUpgrade, planoId
   const motivoPlano = validarUpgradePlano(tenant.plano, planoNovo)
   if (motivoPlano) return { ok: false, status: 400, erro: motivoPlano }
 
-  // Fase 8A (correção pós-revisão) — precisa de licenca_fim de verdade pra
-  // calcular a duração REAL do ciclo (duracaoCicloDiasReal inverte o
-  // cálculo de vencimento a partir dele, ver asaasClient.ts) — sem essa
-  // data não dá pra saber onde o ciclo atual começou, então bloqueia em vez
-  // de arriscar uma aproximação (não deveria acontecer pra um tenant já
-  // pago e em dia, mas defensivo).
-  if (!tenant.licenca_fim) {
-    return { ok: false, status: 400, erro: 'Não foi possível calcular o ciclo atual da assinatura (sem data de vencimento). Sincronize a assinatura antes de tentar novamente.' }
+  // Fase 8A (correção pós-revisão 2) — precisa do vencimento real do ciclo
+  // atual pra calcular a duração REAL do ciclo (duracaoCicloDiasReal inverte
+  // o cálculo de vencimento a partir dele, ver asaasClient.ts). Tenant.
+  // licenca_fim é a fonte normal, mas pode estar vazia mesmo pra um tenant
+  // ACTIVE em dia (nenhum webhook de pagamento confirmado ainda avançou
+  // esse campo) — resolverVencimentoCicloAtual cai pro Asaas nesse caso,
+  // exatamente a mesma fonte que GET /billing/situacao já usa pra exibir
+  // "Próxima cobrança", então nunca diverge do que o cliente já viu na
+  // tela. Só bloqueia se nem o banco nem o Asaas tiverem a data.
+  const vencimentoCiclo = await resolverVencimentoCicloAtual(tenant)
+  if (!vencimentoCiclo) {
+    return { ok: false, status: 400, erro: 'Não foi possível calcular o ciclo atual da assinatura no momento. Tente novamente em alguns instantes.' }
   }
-  const cicloDias = duracaoCicloDiasReal(tenant.licenca_fim, tenant.plano!.asaas_billing_cycle)
-  const diasRestantes = diasRestantesCicloAtual(tenant.licenca_fim, cicloDias)
+  const cicloDias = duracaoCicloDiasReal(vencimentoCiclo, tenant.plano!.asaas_billing_cycle)
+  const diasRestantes = diasRestantesCicloAtual(vencimentoCiclo, cicloDias)
   const valorProporcional = calcularValorProporcionalUpgrade({
     valorAtual: Number(tenant.plano!.asaas_subscription_value ?? 0),
     valorNovo: Number(planoNovo!.asaas_subscription_value),
@@ -420,10 +425,13 @@ export async function validarECalcularUpgrade(tenant: TenantParaUpgrade, planoId
   return { ok: true, planoNovo: planoNovo!, valorProporcional, diasRestantesCiclo: Math.ceil(diasRestantes), cicloDias }
 }
 
-// Prévia SEM efeito colateral nenhum (nunca chama o Asaas, nunca escreve no
-// banco) — existe pra Minha Assinatura mostrar plano atual/novo/valor
-// proporcional/próximo ciclo ANTES do cliente confirmar, sem o frontend
-// precisar calcular nada sozinho (regra explícita da tarefa).
+// Prévia SEM efeito colateral no banco (nunca escreve no Tenant) — existe
+// pra Minha Assinatura mostrar plano atual/novo/valor proporcional/próximo
+// ciclo ANTES do cliente confirmar, sem o frontend precisar calcular nada
+// sozinho (regra explícita da tarefa). Correção pós-revisão 2: PODE chamar
+// o Asaas (só leitura, GET /subscriptions) via resolverVencimentoCicloAtual
+// quando Tenant.licenca_fim está vazio — nunca escreve nada, nem no Tenant
+// nem no Asaas.
 export async function previewUpgrade(req: Request, res: Response) {
   try {
     const tenant = req.adminUser!.tenant

@@ -8,6 +8,7 @@ import {
   validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, calcularVencimentoAnterior, duracaoCicloDiasReal,
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, deveSincronizarAssinaturaAntesDeAplicar,
   pagamentoConfirmaPendencia, criarCobrancaAvulsaAsaas, atualizarValorAssinaturaAsaas,
+  resolverVencimentoCicloAtual,
 } from './asaasClient'
 import type { AssinaturaAsaas, CobrancaAsaas } from './asaasClient'
 
@@ -1185,6 +1186,95 @@ describe('criarCobrancaAvulsaAsaas / atualizarValorAssinaturaAsaas — upgrade s
     try {
       await assert.rejects(() => atualizarValorAssinaturaAsaas('sub_1', 200), /não é permitido nesta fase/)
     } finally {
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+})
+
+describe('resolverVencimentoCicloAtual — fallback pro Asaas quando licenca_fim está ausente (correção pós-revisão 2)', () => {
+  test('licenca_fim presente no banco: retorna ela direto, sem chamar o Asaas', async () => {
+    const fetchOriginal = globalThis.fetch
+    let fetchChamado = false
+    globalThis.fetch = (async () => { fetchChamado = true; throw new Error('não deveria chamar o Asaas') }) as typeof fetch
+
+    try {
+      const licencaFim = new Date('2026-10-07T00:00:00.000Z')
+      const resultado = await resolverVencimentoCicloAtual({ licenca_fim: licencaFim, asaas_subscription_id: 'sub_1' })
+      assert.equal(resultado, licencaFim)
+      assert.equal(fetchChamado, false)
+    } finally {
+      globalThis.fetch = fetchOriginal
+    }
+  })
+
+  // Caso do bug reportado: tenant pago, assinatura Asaas válida, GET
+  // /billing/situacao já mostra "Próxima cobrança" (assinatura.nextDueDate),
+  // mas Tenant.licenca_fim nunca foi preenchido (nenhum webhook de
+  // pagamento confirmado ainda avançou esse campo). Resolve pela mesma
+  // fonte que a tela já usa, em vez de bloquear o upgrade.
+  test('licenca_fim ausente + assinatura Asaas válida com nextDueDate: resolve pelo Asaas (mesma fonte de "Próxima cobrança")', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+
+    let urlChamada: string | undefined
+    globalThis.fetch = (async (url: unknown) => {
+      urlChamada = String(url)
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ id: 'sub_1', status: 'ACTIVE', nextDueDate: '2026-10-07', value: 200, cycle: 'MONTHLY' }),
+      } as Response
+    }) as typeof fetch
+
+    try {
+      const resultado = await resolverVencimentoCicloAtual({ licenca_fim: null, asaas_subscription_id: 'sub_1' })
+      assert.match(urlChamada ?? '', /\/subscriptions\/sub_1$/)
+      assert.ok(resultado instanceof Date)
+      assert.equal(resultado?.toISOString().slice(0, 10), '2026-10-07')
+    } finally {
+      globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  test('licenca_fim ausente + sem asaas_subscription_id: retorna null, nunca chama o Asaas', async () => {
+    const fetchOriginal = globalThis.fetch
+    let fetchChamado = false
+    globalThis.fetch = (async () => { fetchChamado = true; throw new Error('não deveria chamar o Asaas') }) as typeof fetch
+
+    try {
+      const resultado = await resolverVencimentoCicloAtual({ licenca_fim: null, asaas_subscription_id: null })
+      assert.equal(resultado, null)
+      assert.equal(fetchChamado, false)
+    } finally {
+      globalThis.fetch = fetchOriginal
+    }
+  })
+
+  test('licenca_fim ausente + falha ao consultar o Asaas: retorna null (nunca lança, chamador decide o 400)', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+    globalThis.fetch = (async () => {
+      return { ok: false, status: 404, text: async () => JSON.stringify({ errors: [{ description: 'Assinatura não encontrada' }] }) } as Response
+    }) as typeof fetch
+
+    try {
+      const resultado = await resolverVencimentoCicloAtual({ licenca_fim: null, asaas_subscription_id: 'sub_inexistente' })
+      assert.equal(resultado, null)
+    } finally {
+      globalThis.fetch = fetchOriginal
       if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
       else process.env.ASAAS_API_KEY = apiKeyOriginal
       if (envOriginal === undefined) delete process.env.ASAAS_ENV

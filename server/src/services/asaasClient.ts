@@ -615,6 +615,32 @@ export function calcularValorProporcionalUpgrade(params: {
   return Math.max(0, proporcionalCentavos) / 100
 }
 
+// Fase 8A (correção pós-revisão 2) — GET /billing/situacao já mostra
+// "Próxima cobrança" mesmo quando Tenant.licenca_fim está vazio no banco:
+// aquele valor vem direto do Asaas (buscarEntradaSituacaoAsaas ->
+// assinatura.nextDueDate), nunca de licenca_fim. validarECalcularUpgrade
+// (billing.ts) só olhava licenca_fim e bloqueava o upgrade nesse caso —
+// o cliente via a data na tela e o preview dizia "sem data de vencimento"
+// mesmo assim. Esta função resolve pela MESMA fonte (Asaas, a assinatura
+// já vinculada ao tenant) como fallback, em vez de inventar uma data:
+// nunca escreve licenca_fim no banco (mesma convenção de sincronizar() em
+// adminTenantsAsaas.ts, que também nunca toca licenca_fim fora do
+// webhook) — só resolve o valor em memória pra este cálculo, então
+// preview e confirmação (que reaproveitam a mesma validarECalcularUpgrade)
+// automaticamente enxergam o mesmo vencimento sem duplicar a lógica.
+export async function resolverVencimentoCicloAtual(
+  tenant: { licenca_fim: Date | null; asaas_subscription_id: string | null }
+): Promise<Date | null> {
+  if (tenant.licenca_fim) return tenant.licenca_fim
+  if (!tenant.asaas_subscription_id) return null
+  try {
+    const assinatura = await buscarAssinaturaAsaas(tenant.asaas_subscription_id)
+    return assinatura.nextDueDate ? new Date(assinatura.nextDueDate) : null
+  } catch {
+    return null
+  }
+}
+
 // Reativação self-service de assinatura INACTIVE foi retirada desta Fase
 // (correção de segurança pós-revisão): um tenant com assinatura INACTIVE no
 // Asaas normalmente já está SUSPENDED, e hoje não existe campo que
