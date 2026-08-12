@@ -635,17 +635,49 @@ export function duracaoCicloDiasReal(licencaFim: Date, ciclo: string | null | un
   return (licencaFim.getTime() - inicioCiclo.getTime()) / DIA_MS
 }
 
-// Dias restantes até o próximo vencimento (licenca_fim) — fracionário (não
-// arredondado pra cima/baixo, diferente de diasRestantesTrial/
-// diasRestantesTolerancia em tenantGuards.ts, que são pra EXIBIÇÃO): aqui o
-// número entra direto numa conta monetária, arredondar dias artificialmente
-// pra mais ou pra menos distorceria o valor cobrado. Nunca negativo (ciclo
-// já vencido = nada restante) nem maior que o próprio ciclo (proteção
-// defensiva — licenca_fim no futuro distante não deveria acontecer pra um
-// tenant ACTIVE em dia, mas nunca gera uma "proporção" acima de 100%).
+// Fuso do dia de negócio financeiro (Asaas é uma empresa brasileira — um
+// dueDate "2026-08-12" significa o dia 12 no Brasil, não em UTC). Sem DST
+// desde 2019, mas usamos Intl (não um offset fixo "-3") pra não depender
+// dessa premissa se ela um dia deixar de valer.
+const TIMEZONE_FINANCEIRO = 'America/Sao_Paulo'
+
+// Dia civil de `data`, como um "índice de dia" (ms de meia-noite UTC DESSE
+// dia — só usado como unidade comparável pra subtração, nunca como o
+// instante real). Sem `timeZone`, lê os componentes UTC de `data` — é o
+// caso de licenca_fim/dueDate do Asaas: uma string "YYYY-MM-DD" vira
+// meia-noite UTC ao passar por `new Date(...)`, então ler em UTC é
+// exatamente reconstruir o dia que o Asaas mandou (ler em America/Sao_Paulo
+// aqui devolveria o dia ANTERIOR, mesmo bug que já existiu no frontend -
+// ver formatDateCivil em web/src/utils/campanha.ts). Com `timeZone`, lê os
+// componentes civis de `data` NESSE fuso — é o caso de "agora": um instante
+// real, cujo dia de negócio é o dia civil em Brasília, não em UTC.
+function diaCivilComoIndice(data: Date, timeZone?: string): number {
+  if (!timeZone) return Date.UTC(data.getUTCFullYear(), data.getUTCMonth(), data.getUTCDate())
+  const partes = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(data)
+  const valor = (tipo: string) => Number(partes.find((p) => p.type === tipo)!.value)
+  return Date.UTC(valor('year'), valor('month') - 1, valor('day'))
+}
+
+// Dias restantes até o próximo vencimento (licenca_fim) — dia civil inteiro
+// (correção pós-revisão: a versão anterior subtraía instantes em ms direto,
+// então o resultado fracionava por hora/minuto/segundo e o valor
+// proporcional mudava a cada chamada dentro do MESMO dia — preview e cobrança
+// real divergiam mesmo sem nada ter mudado no ciclo). Correção pós-revisão
+// 2: truncar `agora` por UTC (em vez de America/Sao_Paulo) fazia o dia virar
+// às 21h no horário do Brasil — entre 21h e meia-noite BRT, UTC já está no
+// dia seguinte, cortando ~3h do dia de negócio brasileiro antes da hora.
+// licencaFim continua lido em UTC (é a mesma codificação do dueDate do
+// Asaas, ver diaCivilComoIndice); só "agora" precisa do fuso do Brasil, por
+// ser um instante real sem fuso implícito nenhum. Duas chamadas no mesmo dia
+// civil brasileiro, em qualquer horário, sempre voltam o mesmo inteiro.
+// Nunca negativo (ciclo já vencido = nada restante) nem maior que o próprio
+// ciclo (proteção defensiva — licenca_fim no futuro distante não deveria
+// acontecer pra um tenant ACTIVE em dia, mas nunca gera uma "proporção"
+// acima de 100%).
 export function diasRestantesCicloAtual(licencaFim: Date, cicloDias: number, agora: Date = new Date()): number {
-  const ms = licencaFim.getTime() - agora.getTime()
-  const dias = ms / DIA_MS
+  const fimCivil = diaCivilComoIndice(licencaFim)
+  const hojeCivil = diaCivilComoIndice(agora, TIMEZONE_FINANCEIRO)
+  const dias = Math.round((fimCivil - hojeCivil) / DIA_MS)
   return Math.min(cicloDias, Math.max(0, dias))
 }
 

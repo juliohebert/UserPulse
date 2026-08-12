@@ -484,7 +484,7 @@ export async function validarECalcularUpgrade(tenant: TenantParaUpgrade, planoId
     return { ok: false, status: 400, erro: 'Não há valor proporcional a cobrar neste ciclo. Você poderá fazer o upgrade após a próxima renovação.' }
   }
 
-  return { ok: true, planoNovo: planoNovo!, valorProporcional, diasRestantesCiclo: Math.ceil(diasRestantes), cicloDias }
+  return { ok: true, planoNovo: planoNovo!, valorProporcional, diasRestantesCiclo: diasRestantes, cicloDias }
 }
 
 // Prévia SEM efeito colateral no banco (nunca escreve no Tenant) — existe

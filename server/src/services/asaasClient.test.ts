@@ -861,6 +861,104 @@ describe('diasRestantesCicloAtual', () => {
     const licencaFim = new Date(AGORA.getTime() - 5 * DIA_MS)
     assert.equal(diasRestantesCicloAtual(licencaFim, 30, AGORA), 0)
   })
+
+  // Bug de homologação (Fase 8A, correção pós-revisão N): preview às
+  // 17:44 e cobrança real às 17:57 (mesmo dia) davam valores diferentes
+  // porque a versão anterior subtraía instantes em ms, então cada minuto
+  // que passava "consumia" uma fração de dia. Trunca pro dia civil (UTC)
+  // ANTES de subtrair — mesma data, qualquer hora, mesmo resultado.
+  test('mesmo dia civil, chamado às 00:05 e às 23:55 => mesmo resultado (cenário real: upgrade 12/08, vencimento 12/09, ciclo de 31 dias)', () => {
+    const licencaFim = new Date('2026-09-12T00:00:00Z')
+    const inicioDoDia = new Date('2026-08-12T00:05:00Z')
+    const fimDoDia = new Date('2026-08-12T23:55:00Z')
+    assert.equal(diasRestantesCicloAtual(licencaFim, 31, inicioDoDia), 31)
+    assert.equal(diasRestantesCicloAtual(licencaFim, 31, fimDoDia), 31)
+  })
+
+  // Correção pós-revisão 2: truncar "agora" por UTC (em vez de
+  // America/Sao_Paulo) fazia o dia virar às 21h no horário do Brasil —
+  // 21:01 BRT já é 00:01 UTC do dia seguinte. Os 4 horários abaixo são
+  // todos ainda 12/08 no Brasil (o último, 23:55 BRT, já é 13/08 em UTC) e
+  // precisam produzir o mesmo resultado; só às 00:01 BRT do dia seguinte
+  // (13/08) o dia deve de fato virar.
+  test('mesmo dia civil BRASILEIRO em horários que cruzam a virada UTC (20:59 vs 21:01 vs 23:55 BRT) => mesmo resultado', () => {
+    const licencaFim = new Date('2026-09-12T00:00:00Z')
+    const horariosBrt = [
+      '2026-08-12T00:05:00-03:00',
+      '2026-08-12T20:59:00-03:00',
+      '2026-08-12T21:01:00-03:00', // já é 13/08 em UTC — não pode contar como o dia seguinte
+      '2026-08-12T23:55:00-03:00', // já é 13/08 em UTC — não pode contar como o dia seguinte
+    ]
+    for (const horario of horariosBrt) {
+      assert.equal(diasRestantesCicloAtual(licencaFim, 31, new Date(horario)), 31, horario)
+    }
+  })
+
+  test('13/08 00:01 BRT (dia seguinte de verdade no Brasil) => reduz exatamente 1 dia', () => {
+    const licencaFim = new Date('2026-09-12T00:00:00Z')
+    const diaSeguinte = new Date('2026-08-13T00:01:00-03:00')
+    assert.equal(diasRestantesCicloAtual(licencaFim, 31, diaSeguinte), 30)
+  })
+
+  test('ciclo de 30 dias (abril) — dia civil, hora não interfere', () => {
+    const licencaFim = new Date('2026-05-12T00:00:00Z')
+    const agora = new Date('2026-04-12T08:30:00Z')
+    assert.equal(diasRestantesCicloAtual(licencaFim, 30, agora), 30)
+  })
+
+  test('fevereiro não bissexto (2026, 28 dias) — dia civil, hora não interfere', () => {
+    const licencaFim = new Date('2026-03-10T00:00:00Z')
+    const agora = new Date('2026-02-10T21:00:00Z')
+    assert.equal(diasRestantesCicloAtual(licencaFim, 28, agora), 28)
+  })
+
+  test('fevereiro bissexto (2028, 29 dias) — dia civil, hora não interfere', () => {
+    const licencaFim = new Date('2028-03-10T00:00:00Z')
+    const agora = new Date('2028-02-10T03:00:00Z')
+    assert.equal(diasRestantesCicloAtual(licencaFim, 29, agora), 29)
+  })
+
+  test('último dia do ciclo (agora é o próprio dia do vencimento, qualquer hora) => 0 dias restantes', () => {
+    const licencaFim = new Date('2026-09-12T00:00:00Z')
+    const agora = new Date('2026-09-12T23:59:00Z')
+    assert.equal(diasRestantesCicloAtual(licencaFim, 31, agora), 0)
+  })
+})
+
+// Cenário real de homologação: Starter (R$149) -> Growth (R$349), ciclo
+// MONTHLY, upgrade solicitado no primeiro dia do ciclo (12/08), vencimento
+// 12/09 (31 dias de ciclo, agosto tem 31 dias) — pipeline completo
+// duracaoCicloDiasReal + diasRestantesCicloAtual + calcularValorProporcionalUpgrade,
+// a mesma sequência de billing.ts:validarECalcularUpgrade. Antes da correção
+// esse cenário retornava ~R$193,89-193,91 (variava por minuto); com dia
+// civil, upgrade no primeiro dia do ciclo cobra a diferença cheia.
+describe('pipeline de upgrade (cenário real de homologação) — determinístico por dia civil', () => {
+  test('upgrade Starter->Growth em 12/08, vencimento 12/09 => R$200,00 (diferença cheia, ciclo completo restante)', () => {
+    const vencimentoCiclo = new Date('2026-09-12T00:00:00Z')
+    const cicloDias = duracaoCicloDiasReal(vencimentoCiclo, 'MONTHLY')
+    assert.equal(cicloDias, 31)
+
+    const agoraManha = new Date('2026-08-12T09:00:00Z')
+    const agoraNoite = new Date('2026-08-12T21:00:00Z')
+    const diasRestantesManha = diasRestantesCicloAtual(vencimentoCiclo, cicloDias, agoraManha)
+    const diasRestantesNoite = diasRestantesCicloAtual(vencimentoCiclo, cicloDias, agoraNoite)
+    assert.equal(diasRestantesManha, 31)
+    assert.equal(diasRestantesNoite, diasRestantesManha)
+
+    const valor = calcularValorProporcionalUpgrade({
+      valorAtual: 149, valorNovo: 349, diasRestantesCiclo: diasRestantesManha, cicloDias,
+    })
+    assert.equal(valor, 200)
+  })
+
+  test('arredondamento em centavos determinístico — mesma entrada sempre produz o mesmo centavo (meio do ciclo de 31 dias)', () => {
+    const params = { valorAtual: 149, valorNovo: 349, diasRestantesCiclo: 15, cicloDias: 31 }
+    const valor1 = calcularValorProporcionalUpgrade(params)
+    const valor2 = calcularValorProporcionalUpgrade(params)
+    assert.equal(valor1, valor2)
+    // diferenca=20000 centavos * 15/31 = 9677,419... -> arredonda pra 9677 centavos
+    assert.equal(valor1, 96.77)
+  })
 })
 
 describe('calcularValorProporcionalUpgrade — valores monetários em centavos, nunca ponto flutuante direto', () => {
