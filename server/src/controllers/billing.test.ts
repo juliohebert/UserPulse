@@ -83,3 +83,100 @@ describe('validarECalcularUpgrade — confirma os 4 bloqueios (Fase 8A, correç�
   // bug de licenca_fim ausente, correção pós-revisão 2) já está coberto em
   // asaasClient.test.ts.
 })
+
+// Correção pós-revisão 3 — Tenant.licenca_fim pode dizer "em dia" (nenhum
+// PAYMENT_CONFIRMED ainda o atrasou) enquanto a assinatura recorrente já
+// tem cobrança OVERDUE de verdade no Asaas. Cross-check com
+// buscarEntradaSituacaoAsaas/calcularSituacaoAsaas (mesma fonte de GET
+// /billing/situacao) — precisa mockar fetch porque, diferente dos testes
+// acima, esse trecho só é alcançado depois do check local de licenca_fim
+// passar (mesmo padrão de mock de globalThis.fetch já usado em
+// asaasClient.test.ts, com save/restore de env e fetch original).
+describe('validarECalcularUpgrade — cross-check financeiro real no Asaas (correção pós-revisão 3)', () => {
+  function mockAsaasFetch(cobrancas: Array<{ status: string }>, opts: { hasMore?: boolean; falhar?: boolean } = {}) {
+    return (async (url: unknown) => {
+      const urlStr = String(url)
+      if (opts.falhar) return { ok: false, status: 500, text: async () => JSON.stringify({ errors: [{ description: 'Erro interno' }] }) } as Response
+      if (urlStr.includes('/payments')) {
+        return {
+          ok: true, status: 200,
+          text: async () => JSON.stringify({
+            object: 'list', hasMore: opts.hasMore ?? false, totalCount: cobrancas.length,
+            data: cobrancas.map((c, i) => ({ id: `pay_${i}`, status: c.status, value: 100, customer: 'cus_1', subscription: 'sub_1', dueDate: '2026-08-07' })),
+          }),
+        } as Response
+      }
+      return {
+        ok: true, status: 200,
+        text: async () => JSON.stringify({ id: 'sub_1', status: 'ACTIVE', nextDueDate: '2026-10-07', value: 100, cycle: 'MONTHLY' }),
+      } as Response
+    }) as typeof fetch
+  }
+
+  function comAmbienteAsaas(fetchMock: typeof fetch, run: () => Promise<void>) {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+    globalThis.fetch = fetchMock
+    return run().finally(() => {
+      globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    })
+  }
+
+  test('local em_dia + Asaas sem cobrança vencida: passa pro próximo check (plano_id ausente), não pro de "regularize"', async () => {
+    await comAmbienteAsaas(mockAsaasFetch([{ status: 'CONFIRMED' }]), async () => {
+      const resultado = await validarECalcularUpgrade(tenantBase(), '')
+      assert.equal(resultado.ok, false)
+      if (resultado.ok) return
+      assert.equal(resultado.status, 400)
+      assert.match(resultado.erro, /plano_id/i)
+    })
+  })
+
+  test('local em_dia + Asaas com cobrança OVERDUE na assinatura: bloqueia com 403 "regularize"', async () => {
+    await comAmbienteAsaas(mockAsaasFetch([{ status: 'OVERDUE' }]), async () => {
+      const resultado = await validarECalcularUpgrade(tenantBase(), 'plano-novo')
+      assert.equal(resultado.ok, false)
+      if (resultado.ok) return
+      assert.equal(resultado.status, 403)
+      assert.match(resultado.erro, /regularize/i)
+    })
+  })
+
+  test('local em tolerância: bloqueia sem sequer chamar o Asaas (short-circuit antes do cross-check)', async () => {
+    let fetchChamado = false
+    const fetchQueNuncaDeveriaRodar = (async () => { fetchChamado = true; throw new Error('não deveria chamar o Asaas') }) as typeof fetch
+    await comAmbienteAsaas(fetchQueNuncaDeveriaRodar, async () => {
+      const tenant = tenantBase({ licenca_fim: new Date(Date.now() - 1 * DIA_MS) })
+      const resultado = await validarECalcularUpgrade(tenant, 'plano-novo')
+      assert.equal(resultado.ok, false)
+      if (resultado.ok) return
+      assert.equal(resultado.status, 403)
+      assert.match(resultado.erro, /regularize/i)
+    })
+    assert.equal(fetchChamado, false)
+  })
+
+  test('Asaas indisponível: falha segura (503, não cria upgrade), nunca assume "em dia"', async () => {
+    await comAmbienteAsaas(mockAsaasFetch([], { falhar: true }), async () => {
+      const resultado = await validarECalcularUpgrade(tenantBase(), 'plano-novo')
+      assert.equal(resultado.ok, false)
+      if (resultado.ok) return
+      assert.equal(resultado.status, 503)
+      assert.match(resultado.erro, /não foi possível confirmar/i)
+    })
+  })
+})
+
+// GET /billing/upgrade/preview e POST /billing/upgrade chamam exatamente
+// validarECalcularUpgrade (única definição, ver import no topo deste
+// arquivo) — não há uma segunda cópia da regra pro POST, então os 403/503
+// acima valem idênticos pros dois endpoints por construção, não só por
+// convenção. Confirmado por leitura de controllers/billing.ts (previewUpgrade
+// e o handler de POST chamam o mesmo `await validarECalcularUpgrade(tenant, ...)`).

@@ -198,11 +198,26 @@ export function MinhaAssinatura() {
   // (tolerância/inadimplência, ver situacaoAdimplenciaTenant em
   // validarECalcularUpgrade), então nem oferece o botão nesse caso, em vez
   // de deixar o cliente cair num 403 depois de escolher um plano.
+  // Correção pós-revisão 3 — situacaoComercial (licenca_fim) pode estar "em
+  // dia" enquanto o Asaas já tem cobrança real vencida da assinatura
+  // recorrente (situacao.situacaoAsaas, mesma fonte do badge "Pagamento
+  // pendente" acima). Backend é a proteção definitiva (bloqueia com 403/503
+  // de qualquer forma) — isto só evita oferecer um botão que sempre falharia.
+  // Só considera 'OK' como liberado (mesmo critério fail-safe do backend:
+  // INDETERMINADO — Asaas fora do ar, por exemplo — também não libera).
+  const upgradeBloqueadoPorSituacaoLocal = Boolean(
+    situacao && (
+      !situacao.possuiAssinatura || Boolean(situacao.planoPendente) ||
+      situacao.situacaoComercial === 'suspenso' || situacao.situacaoComercial === 'cancelado' ||
+      situacao.situacaoComercial === 'trial_ativo' || situacao.situacaoComercial === 'trial_vencido' ||
+      situacao.situacaoComercial === 'licenca_vencida'
+    )
+  )
   const podeVerUpgrade = Boolean(
-    situacao && situacao.possuiAssinatura && !situacao.planoPendente &&
-    situacao.situacaoComercial !== 'suspenso' && situacao.situacaoComercial !== 'cancelado' &&
-    situacao.situacaoComercial !== 'trial_ativo' && situacao.situacaoComercial !== 'trial_vencido' &&
-    situacao.situacaoComercial !== 'licenca_vencida'
+    situacao && !upgradeBloqueadoPorSituacaoLocal && situacao.situacaoAsaas === 'OK'
+  )
+  const upgradeIndisponivelPorAsaas = Boolean(
+    situacao && !upgradeBloqueadoPorSituacaoLocal && situacao.situacaoAsaas !== 'OK'
   )
   const planosSuperiores = (planos ?? []).filter(p => {
     if (!podeVerUpgrade || !situacao?.plano) return false
@@ -403,11 +418,22 @@ export function MinhaAssinatura() {
               </div>
             )}
 
+            {/* Correção pós-revisão 3 — upgrade indisponível só por causa da
+                pendência financeira no Asaas (situação comercial local, por
+                si só, permitiria). Orienta regularizar em vez de simplesmente
+                esconder o upgrade sem explicação. */}
+            {upgradeIndisponivelPorAsaas && (
+              <p className="text-body-md text-on-surface-variant">
+                Regularize sua pendência financeira para solicitar upgrade de plano.
+              </p>
+            )}
+
             {/* Fase 8A — upgrade self-service. Só aparece pra quem já é
                 assinante, sem troca pendente, fora de trial/suspenso/
-                cancelado (podeVerUpgrade). Planos superiores vêm da MESMA
-                lista de /billing/planos-disponiveis já usada pra escolher o
-                primeiro plano, filtrados por valor MAIOR que o atual. */}
+                cancelado, e com a situação financeira no Asaas confirmada em
+                dia (podeVerUpgrade). Planos superiores vêm da MESMA lista de
+                /billing/planos-disponiveis já usada pra escolher o primeiro
+                plano, filtrados por valor MAIOR que o atual. */}
             {podeVerUpgrade && (
               <div>
                 <h3 className="text-title-md font-bold text-on-surface mb-3">Planos superiores</h3>
