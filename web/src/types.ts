@@ -674,10 +674,27 @@ export interface DiagnosticoAsaasResposta {
 // declarado acima (mesmo tipo que /auth/me devolve em tenant.situacao_comercial,
 // ver AdminUser/AvisoComercial.tsx) — não duplicar.
 
-export interface CobrancaVencidaResumo {
+// Correção de produto — billingType da cobrança em si (pode divergir da
+// forma padrão da assinatura, ver SituacaoBillingResposta.formaPagamentoAssinatura
+// abaixo). null quando o Asaas não devolveu o campo.
+export type FormaPagamentoAsaas = 'CREDIT_CARD' | 'PIX' | 'BOLETO' | 'UNDEFINED'
+
+// Correção de produto — deixou de ser só "vencidas" (OVERDUE): agora inclui
+// também PENDING (ainda dentro do vencimento), pra o cliente poder trocar a
+// forma de pagamento de uma cobrança ANTES dela vencer, sem precisar ficar
+// inadimplente primeiro. Nunca inclui cobrança avulsa (sem subscription,
+// ver criarCobrancaAvulsaAsaas no upgrade) nem já paga (RECEIVED/CONFIRMED)
+// — só o que ainda pode ser alterado (ver obterSituacao em
+// controllers/billing.ts).
+export type StatusCobrancaEmAberto = 'PENDING' | 'OVERDUE'
+
+export interface CobrancaEmAbertoResumo {
   id: string
   value: number
   dueDate: string
+  status: StatusCobrancaEmAberto
+  billingType: FormaPagamentoAsaas | null
+  invoiceUrl: string | null
 }
 
 // Nunca inclui asaas_customer_id/asaas_subscription_id — o cliente final não
@@ -697,7 +714,14 @@ export interface SituacaoBillingResposta {
   situacaoAsaas: SituacaoAsaasDecisao
   motivoSituacaoAsaas: string
   proximaCobranca: string | null
-  cobrancasVencidas: CobrancaVencidaResumo[]
+  // Forma de pagamento PADRÃO da assinatura (rege as próximas renovações) —
+  // nunca confundir com CobrancaEmAbertoResumo.billingType (de uma cobrança
+  // específica, pode ter sido trocado pontualmente, ver POST
+  // /billing/cobrancas/:id/pagar). null quando não há assinatura vinculada.
+  formaPagamentoAssinatura: FormaPagamentoAsaas | null
+  // Ordenadas por vencimento (mais próxima primeiro) — nunca presume qual é
+  // "a cobrança do mês atual" quando há mais de uma PENDING.
+  cobrancasEmAberto: CobrancaEmAbertoResumo[]
 }
 
 // Fase 6B — GET /billing/planos-disponiveis. Só planos comerciais
