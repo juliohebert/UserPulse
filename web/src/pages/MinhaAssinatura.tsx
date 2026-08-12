@@ -7,7 +7,7 @@ import type {
 } from '../types'
 import { LoadingSpinner, ErrorState } from '../components/ui/EmptyState'
 import { Button } from '../components/ui/Button'
-import { formatDate, formatarValorReais } from '../utils/campanha'
+import { formatDateCivil, formatarValorReais } from '../utils/campanha'
 import {
   formatarCpfCnpj, formatarTelefone, normalizarCpfCnpj, normalizarTelefone, normalizarEmail,
 } from '../utils/mascaras'
@@ -454,7 +454,7 @@ export function MinhaAssinatura() {
                     {situacao.proximaCobranca && (
                       <div>
                         <span className="block text-[12px] text-on-surface-variant">Próxima cobrança</span>
-                        <span className="text-on-surface">{formatDate(situacao.proximaCobranca)}</span>
+                        <span className="text-on-surface">{formatDateCivil(situacao.proximaCobranca)}</span>
                       </div>
                     )}
                   </div>
@@ -825,7 +825,7 @@ export function MinhaAssinatura() {
                             {c.status === 'OVERDUE' ? 'Vencida' : 'Pendente'}
                           </span>
                           <span className="ml-2 text-[12px] text-on-surface-variant">
-                            {c.status === 'OVERDUE' ? 'venceu em' : 'vence em'} {formatDate(c.dueDate)}
+                            {c.status === 'OVERDUE' ? 'venceu em' : 'vence em'} {formatDateCivil(c.dueDate)}
                           </span>
                           <span className="block text-[12px] text-on-surface-variant">
                             Forma desta cobrança: {FORMA_PAGAMENTO_LABEL[c.billingType ?? 'UNDEFINED']}

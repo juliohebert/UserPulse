@@ -27,6 +27,27 @@ export function formatDate(iso: string): string {
   })
 }
 
+// Datas civis financeiras (dueDate/paymentDate do Asaas, "YYYY-MM-DD" sem
+// hora) nunca devem passar por new Date(string) — o parser trata strings
+// só-de-data como meia-noite UTC, e toLocaleDateString converte pro fuso
+// local, adiantando ou atrasando o dia exibido (ex.: "2026-09-12" vira
+// "11 de set." em UTC-3). new Date(ano, mes-1, dia) usa componentes locais
+// diretamente, sem conversão de fuso nenhuma.
+export function formatDateCivil(value: string | null | undefined): string {
+  const match = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null
+  if (!match) return '—'
+  const ano = Number(match[1])
+  const mes = Number(match[2])
+  const dia = Number(match[3])
+  const data = new Date(ano, mes - 1, dia)
+  if (data.getFullYear() !== ano || data.getMonth() !== mes - 1 || data.getDate() !== dia) return '—'
+  return data.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return 'Não informado'
   const d = new Date(iso)

@@ -6,7 +6,7 @@ import { Select } from '../../components/ui/Select'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
-import { gerarSlug, formatDate, formatDateTime, formatarValorReais, toInputDate } from '../../utils/campanha'
+import { gerarSlug, formatDate, formatDateCivil, formatDateTime, formatarValorReais, toInputDate } from '../../utils/campanha'
 import {
   formatarCpfCnpj, formatarTelefone, formatarCep, formatarEstado,
   normalizarCpfCnpj, normalizarTelefone, normalizarCep, normalizarEmail, emailValido,
@@ -1815,8 +1815,8 @@ export function AdminTenantsIndex() {
                                 <CobrancaStatusBadge status={cobranca.status} />
                               </div>
                               <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-on-surface-variant mt-0.5">
-                                <span>Vencimento: {formatDate(cobranca.dueDate)}</span>
-                                <span>Pagamento: {cobranca.paymentDate ? formatDate(cobranca.paymentDate) : '—'}</span>
+                                <span>Vencimento: {formatDateCivil(cobranca.dueDate)}</span>
+                                <span>Pagamento: {cobranca.paymentDate ? formatDateCivil(cobranca.paymentDate) : '—'}</span>
                                 <span>{cobranca.billingType ? rotuloAsaas(COBRANCA_TIPO_LABEL, cobranca.billingType) : '—'}</span>
                               </div>
                               {cobranca.description && <p className="text-[11px] text-on-surface-variant mt-0.5">{cobranca.description}</p>}
