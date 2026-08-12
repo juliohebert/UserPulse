@@ -3,7 +3,7 @@ import { get, put, post } from '../services/api'
 import type {
   SituacaoBillingResposta, SituacaoAsaasDecisao, SituacaoComercialTenant,
   AssinaturaSelfServiceResposta, PagarCobrancaResposta, PlanoContratavel,
-  UpgradePreviewResposta, UpgradeSolicitadoResposta,
+  UpgradePreviewResposta, UpgradeSolicitadoResposta, CobrancaEmAbertoResumo,
 } from '../types'
 import { LoadingSpinner, ErrorState } from '../components/ui/EmptyState'
 import { Button } from '../components/ui/Button'
@@ -53,6 +53,24 @@ const SITUACAO_ASAAS_LABEL: Record<SituacaoAsaasDecisao, { label: string; classN
 const CICLO_LABEL: Record<string, string> = {
   WEEKLY: 'semanal', BIWEEKLY: 'quinzenal', MONTHLY: 'mensal', BIMONTHLY: 'bimestral',
   QUARTERLY: 'trimestral', SEMIANNUALLY: 'semestral', YEARLY: 'anual',
+}
+
+// Correção de produto — troca de forma de pagamento pontual (só de uma
+// cobrança específica, ver "Pagar com outra forma" abaixo). UNDEFINED só
+// aparece aqui pra rotular cobranças antigas (nunca é uma opção de troca —
+// backend rejeita, ver validarFormaPagamentoSelfService em asaasClient.ts).
+const FORMA_PAGAMENTO_LABEL: Record<'CREDIT_CARD' | 'PIX' | 'BOLETO' | 'UNDEFINED', string> = {
+  CREDIT_CARD: 'Cartão de crédito',
+  PIX: 'Pix',
+  BOLETO: 'Boleto',
+  UNDEFINED: 'a definir no Asaas',
+}
+
+// Cobrança pode ter sido criada antes desta correção (billingType ausente/
+// UNDEFINED) — nesse caso o seletor abre já em CREDIT_CARD (mesmo padrão
+// default da primeira assinatura), nunca em UNDEFINED (backend rejeita).
+function formaPagamentoValidaOuPadrao(billingType: CobrancaEmAbertoResumo['billingType']): 'CREDIT_CARD' | 'PIX' | 'BOLETO' {
+  return billingType === 'CREDIT_CARD' || billingType === 'PIX' || billingType === 'BOLETO' ? billingType : 'CREDIT_CARD'
 }
 
 interface BillingForm {
@@ -164,6 +182,12 @@ export function MinhaAssinatura() {
 
   const [pagandoId, setPagandoId] = useState<string | null>(null)
   const [pagarErro, setPagarErro] = useState<string | null>(null)
+  // Correção de produto — id da cobrança com o seletor "Pagar com outra
+  // forma" aberto (null = nenhum, mostra só o botão "Pagar" simples com a
+  // forma atual da cobrança). formaEscolhidaCobranca é só o valor do
+  // seletor aberto, nunca persiste nada até o clique em "Pagar".
+  const [trocandoFormaId, setTrocandoFormaId] = useState<string | null>(null)
+  const [formaEscolhidaCobranca, setFormaEscolhidaCobranca] = useState<'CREDIT_CARD' | 'PIX' | 'BOLETO'>('CREDIT_CARD')
 
   // Fase 8A — upgrade self-service. upgradePlanoId é o plano em análise (o
   // cliente clicou "Fazer upgrade" nele); upgradePreview é sempre o
@@ -289,12 +313,19 @@ export function MinhaAssinatura() {
     }
   }
 
-  const pagar = async (cobrancaId: string) => {
+  // forma_pagamento é o único dado enviado além do id na URL — nunca preço,
+  // nunca dado de cartão (backend valida de novo contra a mesma allowlist,
+  // nunca confia só nesta tela). Troca vale só para esta cobrança; a forma
+  // padrão da assinatura nunca é alterada por aqui.
+  const pagar = async (cobrancaId: string, formaPagamento: 'CREDIT_CARD' | 'PIX' | 'BOLETO') => {
     setPagandoId(cobrancaId)
     setPagarErro(null)
     try {
-      const resultado = await post<PagarCobrancaResposta>(`/billing/cobrancas/${encodeURIComponent(cobrancaId)}/pagar`, {})
+      const resultado = await post<PagarCobrancaResposta>(`/billing/cobrancas/${encodeURIComponent(cobrancaId)}/pagar`, {
+        forma_pagamento: formaPagamento,
+      })
       if (resultado.invoiceUrl) window.open(resultado.invoiceUrl, '_blank', 'noopener,noreferrer')
+      setTrocandoFormaId(null)
     } catch (e) {
       setPagarErro(e instanceof Error ? e.message : 'Erro ao preparar pagamento.')
     } finally {
@@ -773,24 +804,82 @@ export function MinhaAssinatura() {
               </>
             )}
 
-            {!bloqueadoPorStatus && situacao.cobrancasVencidas.length > 0 && (
+            {!bloqueadoPorStatus && situacao.cobrancasEmAberto.length > 0 && (
               <div className={card}>
-                <h3 className="text-title-md font-bold text-on-surface mb-2">Cobranças vencidas</h3>
+                <h3 className="text-title-md font-bold text-on-surface mb-2">Cobranças em aberto</h3>
                 <p className="text-[12px] text-on-surface-variant mb-3">
-                  Se você paga via Pix, é esperado regularizar aqui a cada novo ciclo. No cartão, a cobrança
-                  seguinte é renovada automaticamente.
+                  Cobranças pendentes podem ser pagas antes do vencimento — não é preciso esperar vencer pra
+                  trocar a forma de pagamento. Se você paga via Pix ou boleto, é esperado regularizar aqui a
+                  cada novo ciclo; no cartão, a cobrança seguinte é renovada automaticamente.
                 </p>
                 {pagarErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{pagarErro}</div>}
                 <div className="divide-y divide-outline-variant">
-                  {situacao.cobrancasVencidas.map(c => (
-                    <div key={c.id} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3 flex-wrap">
-                      <div>
-                        <span className="text-body-md font-semibold text-on-surface">{formatarValorReais(c.value)}</span>
-                        <span className="ml-2 text-[12px] text-on-surface-variant">venceu em {formatDate(c.dueDate)}</span>
+                  {situacao.cobrancasEmAberto.map(c => (
+                    <div key={c.id} className="py-2.5 first:pt-0 last:pb-0">
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div>
+                          <span className="text-body-md font-semibold text-on-surface">{formatarValorReais(c.value)}</span>
+                          <span className={`ml-2 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${
+                            c.status === 'OVERDUE' ? 'bg-error-container text-error' : 'bg-outline-variant/30 text-on-surface-variant'
+                          }`}>
+                            {c.status === 'OVERDUE' ? 'Vencida' : 'Pendente'}
+                          </span>
+                          <span className="ml-2 text-[12px] text-on-surface-variant">
+                            {c.status === 'OVERDUE' ? 'venceu em' : 'vence em'} {formatDate(c.dueDate)}
+                          </span>
+                          <span className="block text-[12px] text-on-surface-variant">
+                            Forma desta cobrança: {FORMA_PAGAMENTO_LABEL[c.billingType ?? 'UNDEFINED']}
+                          </span>
+                        </div>
+                        {trocandoFormaId !== c.id && (
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              className="text-[12px] text-primary font-semibold hover:underline"
+                              onClick={() => { setTrocandoFormaId(c.id); setFormaEscolhidaCobranca(formaPagamentoValidaOuPadrao(c.billingType)) }}
+                            >
+                              Pagar com outra forma
+                            </button>
+                            <Button
+                              size="sm" variant={c.status === 'OVERDUE' ? 'danger' : 'primary'} disabled={pagandoId === c.id}
+                              onClick={() => pagar(c.id, formaPagamentoValidaOuPadrao(c.billingType))}
+                            >
+                              {pagandoId === c.id ? 'Preparando…' : 'Pagar'}
+                            </Button>
+                          </div>
+                        )}
                       </div>
-                      <Button size="sm" variant="danger" disabled={pagandoId === c.id} onClick={() => pagar(c.id)}>
-                        {pagandoId === c.id ? 'Preparando…' : 'Pagar'}
-                      </Button>
+
+                      {trocandoFormaId === c.id && (
+                        <div className="mt-3 p-3 bg-surface-container-lowest rounded-lg border border-outline-variant">
+                          <p className="text-[12px] text-on-surface-variant mb-2">
+                            Esta alteração vale somente para esta cobrança. Sua forma padrão continua sendo{' '}
+                            {FORMA_PAGAMENTO_LABEL[situacao.formaPagamentoAssinatura ?? 'UNDEFINED']}.
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+                            {(['CREDIT_CARD', 'PIX', 'BOLETO'] as const).map(forma => (
+                              <button
+                                key={forma}
+                                type="button"
+                                onClick={() => setFormaEscolhidaCobranca(forma)}
+                                className={`text-left px-3 py-2 rounded-lg border-2 text-body-md transition-colors ${
+                                  formaEscolhidaCobranca === forma ? 'border-primary bg-primary/5' : 'border-outline-variant hover:border-outline'
+                                }`}
+                              >
+                                {FORMA_PAGAMENTO_LABEL[forma]}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Button size="sm" variant={c.status === 'OVERDUE' ? 'danger' : 'primary'} disabled={pagandoId === c.id} onClick={() => pagar(c.id, formaEscolhidaCobranca)}>
+                              {pagandoId === c.id ? 'Preparando…' : 'Pagar'}
+                            </Button>
+                            <button type="button" className="text-[12px] text-on-surface-variant hover:underline" onClick={() => setTrocandoFormaId(null)}>
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

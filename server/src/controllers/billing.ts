@@ -7,7 +7,7 @@ import {
   listarCobrancasAsaas, atualizarBillingTypeCobrancaAsaas,
   calcularSituacaoAsaas, buscarEntradaSituacaoAsaas, validarPlanoParaAssinaturaSelfService,
   validarFormaPagamentoSelfService,
-  validarCobrancaParaRegularizacao, bloqueioOperacaoFinanceiraSelfService,
+  validarCobrancaParaRegularizacao, montarCobrancasEmAberto, bloqueioOperacaoFinanceiraSelfService,
   validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, duracaoCicloDiasReal,
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, criarCobrancaAvulsaAsaas,
   resolverVencimentoCicloAtual,
@@ -44,11 +44,11 @@ import { extrairDadosBilling, dadosCobrancaAsaas, type BillingBody } from './adm
 // asaas_subscription_id (IDs técnicos sem utilidade pro cliente final, ver
 // regra "não expor IDs desnecessariamente" da tarefa). possuiAssinatura é um
 // booleano, não um ID — o frontend usa isso pra decidir se oferece
-// "Assinar" (ainda não tem) ou a lista de cobranças vencidas (já tem).
+// "Assinar" (ainda não tem) ou a lista de cobranças em aberto (já tem).
 // Sempre acessível independente de status — inclusive SUSPENDED/CANCELED,
 // pra o cliente conseguir ver a própria situação e a orientação de
 // contatar o suporte (só as operações que geram pagamento são bloqueadas,
-// não a leitura). cobrancasVencidas reaproveita os dados que
+// não a leitura). cobrancasEmAberto reaproveita os dados que
 // buscarEntradaSituacaoAsaas já buscou pra calcular a decisão — nenhuma
 // chamada extra ao Asaas só pra listar (mesmo lote de até 50 cobranças,
 // ver listarCobrancasAsaas).
@@ -61,8 +61,21 @@ export async function obterSituacao(req: Request, res: Response) {
     const proximaCobranca = entrada.tipo === 'dados'
       ? entrada.assinatura.nextDueDate
       : (tenant.proxima_cobranca ? tenant.proxima_cobranca.toISOString() : null)
-    const cobrancasVencidas = entrada.tipo === 'dados'
-      ? entrada.cobrancas.filter(c => c.status === 'OVERDUE').map(c => ({ id: c.id, value: c.value, dueDate: c.dueDate }))
+    // Correção de produto — forma PADRÃO da assinatura (a que rege as
+    // próximas renovações), pra Minha Assinatura poder avisar "sua forma
+    // padrão continua sendo X" quando o cliente troca a forma só de uma
+    // cobrança específica (ver pagarCobranca abaixo). Nunca confundir com o
+    // billingType de uma cobrança individual (cobrancasEmAberto.billingType).
+    const formaPagamentoAssinatura = entrada.tipo === 'dados'
+      ? (entrada.assinatura.billingType ?? null)
+      : null
+    // Correção de produto — deixou de ser só OVERDUE: agora inclui também
+    // PENDING, pra permitir trocar a forma de pagamento de uma cobrança
+    // ANTES dela vencer (o cliente não precisa ficar inadimplente pra
+    // trocar). Lógica extraída pra montarCobrancasEmAberto (asaasClient.ts)
+    // — testável direto, filtra/ordena/formata sem I/O.
+    const cobrancasEmAberto = entrada.tipo === 'dados'
+      ? montarCobrancasEmAberto(entrada.cobrancas, tenant.asaas_subscription_id!)
       : []
 
     // Fase 6B — plano_pendente não faz parte de req.adminUser.tenant (ver
@@ -95,7 +108,8 @@ export async function obterSituacao(req: Request, res: Response) {
       situacaoAsaas: situacaoAsaas.decisao,
       motivoSituacaoAsaas: situacaoAsaas.motivo,
       proximaCobranca,
-      cobrancasVencidas,
+      formaPagamentoAssinatura,
+      cobrancasEmAberto,
     })
   } catch (err) {
     console.error('Erro ao obter situação de billing self-service:', err)
@@ -285,12 +299,21 @@ export async function criarAssinatura(req: Request, res: Response) {
   }
 }
 
-// Regularização de cobrança vencida ("Pagar") — só cobrancaId vem do
-// frontend (via URL, não body); value/tenant/customer/subscription nunca
-// são aceitos do cliente. Nunca cria cobrança nova: só confirma que a
+// Prepara pagamento (ou troca de forma) de uma cobrança em aberto da
+// assinatura ("Pagar" / "Pagar com outra forma") — PENDING (antes do
+// vencimento) ou OVERDUE (vencida), mesma validação pros dois; o cliente
+// não precisa ficar inadimplente pra trocar. Só cobrancaId (via URL) e
+// forma_pagamento (via body) vêm do frontend; value/tenant/customer/
+// subscription/plano nunca são aceitos do cliente. Nunca cria cobrança
+// nova, nunca mexe na assinatura nem em outra cobrança: só confirma que a
 // cobrança buscada pertence à assinatura deste tenant e ainda está
-// PENDING/OVERDUE (validarCobrancaParaRegularizacao), então libera
-// billingType=UNDEFINED nela se ainda não estiver liberado.
+// PENDING/OVERDUE (validarCobrancaParaRegularizacao), então troca o
+// billingType SÓ DESTA cobrança pro valor escolhido (reaproveita
+// validarFormaPagamentoSelfService — mesma allowlist CREDIT_CARD/PIX/
+// BOLETO da primeira assinatura, nunca UNDEFINED nem duplica a regra).
+// Correção de produto — a forma padrão da ASSINATURA (que rege as próximas
+// renovações) nunca é tocada aqui; troca é sempre pontual, só desta
+// cobrança (ver formaPagamentoAssinatura em obterSituacao acima).
 export async function pagarCobranca(req: Request, res: Response) {
   try {
     const tenant = req.adminUser!.tenant
@@ -304,18 +327,24 @@ export async function pagarCobranca(req: Request, res: Response) {
       return
     }
 
+    const billingType = validarFormaPagamentoSelfService((req.body as { forma_pagamento?: unknown }).forma_pagamento)
+    if (!billingType) {
+      res.status(400).json({ erro: 'forma_pagamento é obrigatório e deve ser "CREDIT_CARD", "PIX" ou "BOLETO".' })
+      return
+    }
+
     const cobranca = await buscarCobrancaAsaas(cobrancaId)
     const motivo = validarCobrancaParaRegularizacao(cobranca, tenant.asaas_subscription_id)
     if (motivo) { res.status(400).json({ erro: motivo }); return }
 
     let invoiceUrl = cobranca.invoiceUrl || cobranca.bankSlipUrl || null
-    if (cobranca.billingType !== 'UNDEFINED') {
+    if (cobranca.billingType !== billingType) {
       try {
         // value/dueDate vêm da própria cobranca buscada acima — nunca do
-        // body desta rota (que não aceita nenhum dos dois, ver comentário
-        // da função no service) — só preservam o que já estava lá.
+        // body desta rota (que só aceita forma_pagamento) — só preservam o
+        // que já estava lá. Nenhum outro campo da cobrança é alterado.
         const atualizada = await atualizarBillingTypeCobrancaAsaas(cobrancaId, {
-          billingType: 'UNDEFINED',
+          billingType,
           value: cobranca.value,
           dueDate: cobranca.dueDate,
         })
@@ -323,8 +352,8 @@ export async function pagarCobranca(req: Request, res: Response) {
       } catch (err) {
         // Segue com a invoiceUrl que já existia (ainda paga a cobrança no
         // meio de pagamento original) — não bloqueia a regularização só
-        // porque não deu pra liberar a escolha do meio de pagamento.
-        console.error('Erro ao liberar escolha do meio de pagamento na cobrança:', err)
+        // porque não deu pra trocar a forma de pagamento.
+        console.error('Erro ao atualizar a forma de pagamento da cobrança:', err)
       }
     }
 
