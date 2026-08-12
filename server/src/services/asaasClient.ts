@@ -130,6 +130,7 @@ export interface AssinaturaAsaas {
   id: string
   status: string
   nextDueDate: string
+  billingType?: string
   [chave: string]: unknown
 }
 
@@ -263,10 +264,14 @@ export async function atualizarValorAssinaturaAsaas(subscriptionId: string, valu
 // do body do cliente) a arriscar o Asaas interpretar um campo omitido como
 // "zerar"/usar default. O caller (pagarCobranca em controllers/billing.ts)
 // nunca aceita value/dueDate do frontend — só repassa o que já leu da
-// própria cobrança buscada no Asaas.
+// própria cobrança buscada no Asaas. billingType aceita os 3 explícitos
+// (correção de produto — cliente escolhe a forma só desta cobrança, ver
+// validarFormaPagamentoSelfService) além de 'UNDEFINED' (mantido pra
+// compatibilidade de tipo com o padrão já usado em criarAssinaturaAsaas,
+// mesmo que pagarCobranca não mande mais esse valor).
 export async function atualizarBillingTypeCobrancaAsaas(
   paymentId: string,
-  dados: { billingType: 'UNDEFINED'; value: number; dueDate: string }
+  dados: { billingType: 'BOLETO' | 'PIX' | 'CREDIT_CARD' | 'UNDEFINED'; value: number; dueDate: string }
 ): Promise<CobrancaAsaas> {
   return asaasFetch<CobrancaAsaas>(`/payments/${encodeURIComponent(paymentId)}`, {
     method: 'PUT',
@@ -519,6 +524,45 @@ export function validarCobrancaParaRegularizacao(
     return 'Esta cobrança não está pendente ou vencida — nada para regularizar.'
   }
   return null
+}
+
+export interface CobrancaEmAbertoResumo {
+  id: string
+  value: number
+  dueDate: string
+  status: 'PENDING' | 'OVERDUE'
+  billingType: string | null
+  invoiceUrl: string | null
+}
+
+// Correção de produto — GET /billing/situacao expõe cobrancasEmAberto: só
+// PENDING (antes do vencimento — o cliente pode trocar a forma de
+// pagamento sem precisar ficar inadimplente) e OVERDUE (vencida, mesmo
+// fluxo de antes). Já paga (RECEIVED/CONFIRMED) nunca aparece — nada a
+// alterar nela. Ordenadas por vencimento (mais próxima primeiro): nunca
+// presume qual é "a cobrança do mês atual" quando há mais de uma PENDING.
+// Filtra por `subscription === tenantSubscriptionId` de novo aqui — defesa
+// em profundidade (mesmo padrão de validarCobrancaParaRegularizacao acima):
+// `cobrancas` já deveria vir só da assinatura do tenant (listarCobrancasAsaas
+// filtra por `subscription=` na própria consulta ao Asaas, então uma
+// cobrança avulsa de upgrade — sem subscription, ver criarCobrancaAvulsaAsaas
+// — nunca entraria aqui), mas não confia só na origem dos dados.
+export function montarCobrancasEmAberto(
+  cobrancas: CobrancaAsaas[],
+  tenantSubscriptionId: string
+): CobrancaEmAbertoResumo[] {
+  return cobrancas
+    .filter(c => c.subscription === tenantSubscriptionId)
+    .filter((c): c is CobrancaAsaas & { status: 'PENDING' | 'OVERDUE' } => c.status === 'PENDING' || c.status === 'OVERDUE')
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+    .map(c => ({
+      id: c.id,
+      value: c.value,
+      dueDate: c.dueDate,
+      status: c.status,
+      billingType: c.billingType ?? null,
+      invoiceUrl: c.invoiceUrl || c.bankSlipUrl || null,
+    }))
 }
 
 // ─── Upgrade de plano self-service (Fase 8A) — decisões puras ──────────────

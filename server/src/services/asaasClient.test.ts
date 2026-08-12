@@ -2,7 +2,8 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   mapearEventoAsaas, calcularProximoVencimento, calcularAtualizacaoTenant, calcularSituacaoAsaas,
-  validarPlanoParaAssinaturaSelfService, validarFormaPagamentoSelfService, validarCobrancaParaRegularizacao, bloqueioOperacaoFinanceiraSelfService,
+  validarPlanoParaAssinaturaSelfService, validarFormaPagamentoSelfService, validarCobrancaParaRegularizacao,
+  montarCobrancasEmAberto, bloqueioOperacaoFinanceiraSelfService,
   criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas,
   atualizarBillingTypeCobrancaAsaas,
   validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, calcularVencimentoAnterior, duracaoCicloDiasReal,
@@ -660,6 +661,66 @@ describe('validarCobrancaParaRegularizacao (Fase 5 — ação "Pagar")', () => {
   })
 })
 
+// Correção de produto — cliente pode trocar a forma de pagamento de uma
+// cobrança ANTES do vencimento (PENDING), não só depois de vencer
+// (OVERDUE). GET /billing/situacao expõe cobrancasEmAberto a partir desta
+// função pura (nunca chama o Asaas — `cobrancas` já vem de
+// listarCobrancasAsaas, buscado uma vez só em buscarEntradaSituacaoAsaas).
+describe('montarCobrancasEmAberto — GET /billing/situacao (correção de produto)', () => {
+  const cobranca = (over: Partial<CobrancaAsaas> = {}): CobrancaAsaas => ({
+    id: 'pay_x', status: 'PENDING', value: 149.9, customer: 'cus_1', subscription: 'sub_1',
+    dueDate: '2026-09-08', paymentDate: null, billingType: 'CREDIT_CARD',
+    ...over,
+  })
+
+  test('PENDING antes do vencimento entra na lista', () => {
+    const resultado = montarCobrancasEmAberto([cobranca({ id: 'pay_1', status: 'PENDING' })], 'sub_1')
+    assert.equal(resultado.length, 1)
+    assert.equal(resultado[0].status, 'PENDING')
+  })
+
+  test('OVERDUE continua entrando na lista', () => {
+    const resultado = montarCobrancasEmAberto([cobranca({ id: 'pay_1', status: 'OVERDUE' })], 'sub_1')
+    assert.equal(resultado.length, 1)
+    assert.equal(resultado[0].status, 'OVERDUE')
+  })
+
+  test('CONFIRMED/RECEIVED (já paga) nunca entra na lista — nada a alterar', () => {
+    const resultado = montarCobrancasEmAberto([
+      cobranca({ id: 'pay_1', status: 'CONFIRMED' }),
+      cobranca({ id: 'pay_2', status: 'RECEIVED' }),
+    ], 'sub_1')
+    assert.equal(resultado.length, 0)
+  })
+
+  test('cobrança de outra assinatura (ou avulsa, subscription diferente) nunca entra — defesa em profundidade', () => {
+    const resultado = montarCobrancasEmAberto([
+      cobranca({ id: 'pay_outro_tenant', subscription: 'sub_outro_tenant' }),
+      cobranca({ id: 'pay_avulsa', subscription: null }),
+    ], 'sub_1')
+    assert.equal(resultado.length, 0)
+  })
+
+  test('ordena por vencimento, mais próxima primeiro — nunca presume qual é "a cobrança do mês atual"', () => {
+    const resultado = montarCobrancasEmAberto([
+      cobranca({ id: 'pay_setembro', dueDate: '2026-09-08' }),
+      cobranca({ id: 'pay_agosto', dueDate: '2026-08-08', status: 'OVERDUE' }),
+      cobranca({ id: 'pay_outubro', dueDate: '2026-10-08' }),
+    ], 'sub_1')
+    assert.deepEqual(resultado.map(c => c.id), ['pay_agosto', 'pay_setembro', 'pay_outubro'])
+  })
+
+  test('formato do item: id, value, dueDate, status, billingType, invoiceUrl (fallback pra bankSlipUrl)', () => {
+    const resultado = montarCobrancasEmAberto([
+      cobranca({ invoiceUrl: null, bankSlipUrl: 'https://sandbox.asaas.com/b/xyz' }),
+    ], 'sub_1')
+    assert.deepEqual(resultado[0], {
+      id: 'pay_x', value: 149.9, dueDate: '2026-09-08', status: 'PENDING',
+      billingType: 'CREDIT_CARD', invoiceUrl: 'https://sandbox.asaas.com/b/xyz',
+    })
+  })
+})
+
 describe('bloqueioOperacaoFinanceiraSelfService (correção de segurança pós-revisão)', () => {
   test('SUSPENDED bloqueia', () => {
     assert.match(bloqueioOperacaoFinanceiraSelfService('SUSPENDED') ?? '', /suspensa ou cancelada/)
@@ -1121,6 +1182,51 @@ describe('atualizarBillingTypeCobrancaAsaas — regularização self-service (Fa
       assert.equal(metodoChamado, 'PUT')
       const corpo = JSON.parse(corpoChamado ?? '{}')
       assert.deepEqual(corpo, { billingType: 'UNDEFINED', value: 149.9, dueDate: '2026-09-08' })
+    } finally {
+      globalThis.fetch = fetchOriginal
+      if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
+      else process.env.ASAAS_API_KEY = apiKeyOriginal
+      if (envOriginal === undefined) delete process.env.ASAAS_ENV
+      else process.env.ASAAS_ENV = envOriginal
+    }
+  })
+
+  // Correção de produto — troca de forma de pagamento pontual de uma
+  // cobrança (POST /billing/cobrancas/:id/pagar em controllers/billing.ts).
+  // Casos 7 e 8 da revisão: confirma que a chamada ao Asaas SÓ atinge
+  // /payments/:id (nunca /subscriptions/:id — a assinatura nunca é tocada
+  // por esta troca) e que value/dueDate chegam exatamente como recebidos
+  // (nunca recalculados), pros 3 billingTypes explícitos agora aceitos.
+  test('CREDIT_CARD/PIX/BOLETO explícitos: PUT sempre em /payments/:id (nunca /subscriptions), value/dueDate exatos e inalterados', async () => {
+    const apiKeyOriginal = process.env.ASAAS_API_KEY
+    const envOriginal = process.env.ASAAS_ENV
+    const fetchOriginal = globalThis.fetch
+    process.env.ASAAS_API_KEY = 'chave-sandbox-teste'
+    process.env.ASAAS_ENV = 'sandbox'
+
+    const chamadas: Array<{ url: string; metodo?: string; corpo: unknown }> = []
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      chamadas.push({ url: String(url), metodo: init?.method, corpo: JSON.parse((init?.body as string) ?? '{}') })
+      return {
+        ok: true, status: 200,
+        text: async () => JSON.stringify({
+          id: 'pay_1', status: 'PENDING', value: 149.9, customer: 'cus_1', subscription: 'sub_1',
+          dueDate: '2026-09-08', paymentDate: null,
+        }),
+      } as Response
+    }) as typeof fetch
+
+    try {
+      for (const billingType of ['CREDIT_CARD', 'PIX', 'BOLETO'] as const) {
+        await atualizarBillingTypeCobrancaAsaas('pay_1', { billingType, value: 149.9, dueDate: '2026-09-08' })
+      }
+      assert.equal(chamadas.length, 3)
+      for (const [i, billingType] of ['CREDIT_CARD', 'PIX', 'BOLETO'].entries()) {
+        assert.match(chamadas[i].url, /\/payments\/pay_1$/)
+        assert.doesNotMatch(chamadas[i].url, /\/subscriptions\//)
+        assert.equal(chamadas[i].metodo, 'PUT')
+        assert.deepEqual(chamadas[i].corpo, { billingType, value: 149.9, dueDate: '2026-09-08' })
+      }
     } finally {
       globalThis.fetch = fetchOriginal
       if (apiKeyOriginal === undefined) delete process.env.ASAAS_API_KEY
