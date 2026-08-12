@@ -732,13 +732,20 @@ export async function buscarAparencia(req: Request, res: Response) {
     const resolucao = await resolverTenantPublico(public_key)
     if (!resolucao.ok) return res.json({ cor_principal: null, logo_url: null })
 
-    // sistema virou único POR TENANT (ver migration
-    // 20260802090000_aparencia_widget_unique_por_tenant) — agora que a rota
-    // resolve tenant via public_key, dois tenants podem ter, cada um, sua
-    // própria aparência pro mesmo nome de "sistema".
-    const aparencia = await prisma.aparenciaWidget.findUnique({
-      where: { tenant_id_sistema: { tenant_id: resolucao.tenantId, sistema: String(sistema) } },
+    const sistemaConfig = await prisma.sistema.findFirst({
+      where: { tenant_id: resolucao.tenantId, identificador: String(sistema) },
     })
+    const aparenciaEspecifica = sistemaConfig
+      ? await prisma.aparenciaWidget.findUnique({
+        where: { tenant_id_sistema_id: { tenant_id: resolucao.tenantId, sistema_id: sistemaConfig.id } },
+      })
+      : await prisma.aparenciaWidget.findUnique({
+        where: { tenant_id_sistema: { tenant_id: resolucao.tenantId, sistema: String(sistema) } },
+      })
+    const aparenciaDefault = aparenciaEspecifica
+      ? null
+      : await prisma.aparenciaWidget.findFirst({ where: { tenant_id: resolucao.tenantId, sistema_id: null } })
+    const aparencia = aparenciaEspecifica ?? aparenciaDefault
     res.json({
       cor_principal: aparencia?.cor_principal ?? null,
       logo_url: aparencia?.logo_url ?? null,

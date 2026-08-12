@@ -1,23 +1,36 @@
-import { NavLink } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConfiguracao } from '../../utils/permissions'
 
-// Itens que só levam a telas de configuração (ver RequireEscritaConfiguracao.tsx)
-// ficam marcados à parte — escondidos de quem não tem permissão, pra não
-// oferecer um link que só mostraria a mensagem de acesso restrito. A criação de
-// conteúdo fica no botão "Novo" do header (Topbar.tsx).
-const navItemsConfiguracao = [
-  { icon: 'grid_view', label: 'Catálogo de Telas', to: '/catalogo-telas' },
-  { icon: 'palette', label: 'Aparência do Widget', to: '/aparencia-widget' },
+type LinkItem = { icon: string; label: string; to: string }
+type ActionItem = { icon: string; label: string; action: 'configuracoes' }
+type Item = LinkItem | ActionItem
+
+const navItemsConfiguracao: Item[] = [
+  { icon: 'settings', label: 'Configurações', action: 'configuracoes' },
   { icon: 'receipt_long', label: 'Minha Assinatura', to: '/minha-assinatura' },
+]
+
+const navItemsSubmoduloConfiguracao: LinkItem[] = [
+  { icon: 'palette', label: 'Aparência', to: '/configuracoes/aparencia' },
+  { icon: 'grid_view', label: 'Catálogo de Telas', to: '/configuracoes/telas' },
+  { icon: 'integration_instructions', label: 'Integração', to: '/configuracoes/integracao' },
+  { icon: 'dns', label: 'Sistemas', to: '/configuracoes/sistemas' },
 ]
 
 interface Props {
   collapsed: boolean
   onToggle: () => void
+  onSubmoduloChange?: (aberto: boolean) => void
 }
 
-function NavItem({ icon, label, to, collapsed }: { icon: string; label: string; to: string; collapsed: boolean }) {
+function itemAtivo(pathname: string, item: LinkItem): boolean {
+  if (item.to === '/') return pathname === '/'
+  return pathname === item.to || pathname.startsWith(`${item.to}/`)
+}
+
+function NavItem({ icon, label, to, collapsed }: LinkItem & { collapsed: boolean }) {
   return (
     <NavLink
       to={to}
@@ -26,7 +39,7 @@ function NavItem({ icon, label, to, collapsed }: { icon: string; label: string; 
       className={({ isActive }) =>
         `group flex items-center justify-start rounded-2xl transition-all text-body-md ${
           isActive
-            ? 'bg-surface text-on-surface font-bold shadow-sm ring-1 ring-outline-variant/40'
+            ? 'bg-primary/10 text-primary font-bold shadow-sm ring-1 ring-inset ring-primary/20'
             : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'
         }`
       }
@@ -50,36 +63,184 @@ function NavItem({ icon, label, to, collapsed }: { icon: string; label: string; 
   )
 }
 
-export function Sidebar({ collapsed, onToggle }: Props) {
+function NavAction({ icon, label, collapsed, active, onClick }: { icon: string; label: string; collapsed: boolean; active?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      className={`group flex w-full items-center justify-start rounded-2xl text-body-md transition-all ${active ? 'bg-primary/10 text-primary font-bold shadow-sm ring-1 ring-inset ring-primary/20' : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'}`}
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl">
+        <span className="material-symbols-outlined text-[21px]" style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}>{icon}</span>
+      </span>
+      <span className={`overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-300 ease-out ${collapsed ? 'max-w-0 opacity-0 ml-0' : 'max-w-0 opacity-0 ml-0 md:max-w-[170px] md:opacity-100 md:ml-2'}`}>
+        {label}
+      </span>
+    </button>
+  )
+}
+
+function RailLink({ item, active, onClick }: { item: LinkItem; active: boolean; onClick?: () => void }) {
+  return (
+    <NavLink
+      to={item.to}
+      end={item.to === '/'}
+      title={item.label}
+      onClick={onClick}
+      className={`flex h-10 w-10 items-center justify-center rounded-2xl transition-all ${active ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-inset ring-primary/20' : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'}`}
+    >
+      <span className="material-symbols-outlined text-[21px]" style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}>{item.icon}</span>
+    </NavLink>
+  )
+}
+
+function RailAction({ item, active, onClick }: { item: ActionItem; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={item.label}
+      className={`flex h-10 w-10 items-center justify-center rounded-2xl transition-all ${active ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-inset ring-primary/20' : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'}`}
+    >
+      <span className="material-symbols-outlined text-[21px]" style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}>{item.icon}</span>
+    </button>
+  )
+}
+
+export function Sidebar({ collapsed, onToggle, onSubmoduloChange }: Props) {
   const { user, logout } = useAuth()
-  // "Gestão SaaS" só existe para quem gerencia tenants/planos/teste grátis
-  // entre clientes (ver requireSuperAdmin.ts no backend, que também bloqueia
-  // isso independente do que a sidebar mostra). Leva pra /admin/tenants —
-  // rota técnica preservada mesmo com o rótulo visível virando "Clientes"
-  // (ver AdminSaasTabs.tsx).
-  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — esconder
-  // aqui é só UX, o backend já bloqueia 403 em qualquer chamada de escrita.
-  const items = [
+  const location = useLocation()
+  const rotaConfiguracoes = location.pathname === '/configuracoes' || location.pathname.startsWith('/configuracoes/')
+  const [submoduloAberto, setSubmoduloAberto] = useState<'configuracoes' | null>(rotaConfiguracoes ? 'configuracoes' : null)
+  const [expandiuParaSubmodulo, setExpandiuParaSubmodulo] = useState(false)
+  const emConfiguracoes = submoduloAberto === 'configuracoes'
+
+  useEffect(() => {
+    onSubmoduloChange?.(emConfiguracoes)
+  }, [emConfiguracoes, onSubmoduloChange])
+
+  useEffect(() => {
+    if (rotaConfiguracoes) {
+      setSubmoduloAberto('configuracoes')
+    }
+  }, [rotaConfiguracoes])
+
+  function fecharSubmodulo() {
+    setSubmoduloAberto(null)
+    if (expandiuParaSubmodulo && !collapsed) onToggle()
+    setExpandiuParaSubmodulo(false)
+  }
+
+  function abrirSubmoduloConfiguracoes() {
+    if (collapsed) {
+      onToggle()
+      setExpandiuParaSubmodulo(true)
+    } else {
+      setExpandiuParaSubmodulo(false)
+    }
+    setSubmoduloAberto('configuracoes')
+  }
+
+  const itemsPrincipais: Item[] = [
     { icon: 'dashboard', label: 'Dashboard', to: '/' },
     { icon: 'campaign', label: 'Campanhas', to: '/campanhas' },
     { icon: 'map', label: 'Tours Guiados', to: '/tours' },
     { icon: 'route', label: 'Jornadas', to: '/jornadas' },
     ...(podeEscreverConfiguracao(user?.role) ? navItemsConfiguracao : []),
-    { icon: 'integration_instructions', label: 'Integração', to: '/integracao' },
     ...(user?.role === 'SUPER_ADMIN' ? [{ icon: 'admin_panel_settings', label: 'Gestão SaaS', to: '/admin/tenants' }] : []),
   ]
 
+  if (emConfiguracoes) {
+    return (
+      <aside className="fixed left-4 top-3 bottom-3 z-50 flex overflow-hidden rounded-[2rem] border border-white/45 bg-surface-container-lowest/72 shadow-[0_18px_60px_rgba(15,23,42,0.13)] ring-1 ring-outline-variant/35 backdrop-blur-xl supports-[backdrop-filter]:bg-surface-container-lowest/62">
+        <div className="flex w-16 flex-col items-center px-2.5 py-4">
+          <div className="mb-7 flex h-10 items-center justify-center">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary via-[#2d7df0] to-tertiary flex items-center justify-center text-on-primary shrink-0 shadow-sm">
+              <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
+            </div>
+          </div>
+          <nav className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden">
+            {itemsPrincipais.map(item => (
+              'to' in item
+                ? <RailLink key={item.to} item={item} active={!emConfiguracoes && itemAtivo(location.pathname, item)} onClick={fecharSubmodulo} />
+                : <RailAction key={item.action} item={item} active onClick={abrirSubmoduloConfiguracoes} />
+            ))}
+          </nav>
+          <button
+            type="button"
+            onClick={() => logout()}
+            title="Sair"
+            aria-label="Sair"
+            className="mt-4 flex h-10 w-10 items-center justify-center rounded-2xl text-on-surface-variant transition-colors hover:bg-surface hover:text-error"
+          >
+            <span className="material-symbols-outlined text-[21px]">logout</span>
+          </button>
+        </div>
+
+        <div className="flex w-[200px] flex-col border-l border-white/35 bg-surface/55 px-3 py-4 backdrop-blur-xl supports-[backdrop-filter]:bg-surface/45">
+          <div className="mb-4 flex items-center gap-2 px-1">
+            <button
+              type="button"
+              onClick={fecharSubmodulo}
+              title="Voltar ao painel geral"
+              aria-label="Voltar ao painel geral"
+              className="flex h-8 w-8 items-center justify-center rounded-xl text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface"
+            >
+              <span className="material-symbols-outlined text-[19px]">chevron_left</span>
+            </button>
+            <div className="min-w-0">
+              <p className="truncate text-title-md font-bold text-on-surface">Configurações</p>
+              <p className="truncate text-[11px] text-outline">Módulo do tenant</p>
+            </div>
+          </div>
+
+          <nav className="space-y-1.5">
+            {navItemsSubmoduloConfiguracao.map((item, index) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                title={item.label}
+                style={{ animationDelay: `${index * 28}ms` }}
+                className={({ isActive }) =>
+                  `flex items-center gap-2 rounded-xl px-3 py-2.5 text-body-md transition-all animate-[submenuItem_160ms_ease-out_both] ${isActive ? 'bg-primary/10 text-primary font-bold' : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'}`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <span className="material-symbols-outlined text-[18px]" style={isActive ? { fontVariationSettings: "'FILL' 1" } : undefined}>{item.icon}</span>
+                    <span className="truncate">{item.label}</span>
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </nav>
+
+          <div className="mt-auto rounded-[1.25rem] border border-outline-variant/45 bg-surface p-3 shadow-sm">
+            <p className="truncate text-body-md font-bold text-on-surface">{user?.tenant.nome ?? 'UserPulse'}</p>
+            <p className="truncate text-label-md text-outline">Configurações do workspace</p>
+          </div>
+        </div>
+        <style>{`
+          @keyframes submenuItem {
+            from { opacity: 0; transform: translateY(4px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+        `}</style>
+      </aside>
+    )
+  }
+
   return (
     <aside
-      className={`fixed left-3 top-3 bottom-3 w-16 ${collapsed ? 'md:w-16' : 'md:w-[264px]'} bg-surface-container-lowest/95 border border-outline-variant/50 flex flex-col px-2.5 py-4 z-50 shadow-[0_18px_50px_rgba(15,23,42,0.08)] transition-[width] duration-300 ease-out overflow-hidden rounded-[2rem] backdrop-blur`}
+      className={`fixed left-4 top-3 bottom-3 w-16 ${collapsed ? 'md:w-16' : 'md:w-[264px]'} bg-surface-container-lowest/72 border border-white/45 flex flex-col px-2.5 py-4 z-50 shadow-[0_18px_60px_rgba(15,23,42,0.13)] ring-1 ring-outline-variant/35 overflow-hidden rounded-[2rem] backdrop-blur-xl supports-[backdrop-filter]:bg-surface-container-lowest/62`}
     >
-      {/* Logo + toggle — no mobile sempre em modo ícone (a sidebar não vira drawer nessa largura) */}
-      <div className={`mb-7 flex items-center justify-center transition-all duration-300 ease-out ${collapsed ? 'md:h-10' : 'md:justify-between md:px-1'}`}>
-        <div className={`flex items-center gap-3 min-w-0 transition-all duration-200 ease-out ${collapsed ? 'md:pointer-events-none md:w-0 md:scale-95 md:opacity-0' : 'md:w-auto md:scale-100 md:opacity-100'}`}>
+      <div className={`mb-7 flex h-10 items-center ${collapsed ? 'justify-center' : 'justify-center md:justify-between md:px-1'}`}>
+        <div className={`flex h-10 items-center gap-3 min-w-0 ${collapsed ? 'md:pointer-events-none md:w-0 md:opacity-0' : 'md:w-auto md:opacity-100'}`}>
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary via-[#2d7df0] to-tertiary flex items-center justify-center text-on-primary shrink-0 shadow-sm">
             <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
           </div>
-          <div className={`overflow-hidden transition-[max-width,opacity] duration-200 ease-out ${collapsed ? 'hidden max-w-0 opacity-0' : 'hidden max-w-[180px] opacity-100 md:block'}`}>
+          <div className={`overflow-hidden ${collapsed ? 'hidden max-w-0 opacity-0' : 'hidden max-w-[180px] opacity-100 md:block'}`}>
             <h1 className="text-title-md font-bold text-on-surface leading-tight whitespace-nowrap">UserPulse</h1>
             <p className="text-label-md font-medium text-outline whitespace-nowrap truncate max-w-[170px]" title={user?.tenant.nome}>{user?.tenant.nome ?? 'UserPulse'}</p>
           </div>
@@ -102,11 +263,28 @@ export function Sidebar({ collapsed, onToggle }: Props) {
         </button>
       </div>
 
-      <nav className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden pr-0.5">
-        {items.map(item => (
-          <NavItem key={item.to} {...item} collapsed={collapsed} />
-        ))}
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden pr-0.5">
+        <div className="space-y-2 animate-[mainMenuIn_140ms_ease-out_both]">
+          {itemsPrincipais.map((item, index) => (
+            <div key={'to' in item ? item.to : item.action} style={{ animationDelay: `${index * 16}ms` }} className="animate-[mainMenuItem_140ms_ease-out_both]">
+              {'to' in item
+                ? <NavItem {...item} collapsed={collapsed} />
+                : <NavAction icon={item.icon} label={item.label} collapsed={collapsed} onClick={abrirSubmoduloConfiguracoes} />}
+            </div>
+          ))}
+        </div>
       </nav>
+
+      <style>{`
+        @keyframes mainMenuIn {
+          from { opacity: 0.92; }
+          to { opacity: 1; }
+        }
+        @keyframes mainMenuItem {
+          from { opacity: 0; transform: translateY(3px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
 
       <div className="mt-auto space-y-2 pt-4">
         <div className={`rounded-[1.5rem] border border-outline-variant/45 bg-surface p-3 shadow-sm ${collapsed ? 'hidden' : 'hidden md:flex md:items-center md:gap-3'}`}>
@@ -118,8 +296,6 @@ export function Sidebar({ collapsed, onToggle }: Props) {
             <p className="truncate text-label-md text-outline">Central de engajamento</p>
           </div>
         </div>
-        {/* setUser(null) em logout() já faz RequireAuth redirecionar pra
-            /login sozinho (re-render do contexto) — sem navigate() manual aqui. */}
         <button
           type="button"
           onClick={() => logout()}

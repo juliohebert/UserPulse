@@ -7,6 +7,7 @@ import path from 'path'
 import campanhasRouter from './routes/campanhas'
 import widgetRouter from './routes/widget'
 import dashboardRouter from './routes/dashboard'
+import sistemasRouter from './routes/sistemas'
 import catalogoTelasRouter from './routes/catalogoTelas'
 import toursRouter from './routes/tours'
 import jornadasRouter from './routes/jornadas'
@@ -119,6 +120,7 @@ app.use('/api/auth', corsAdmin, authRouter)
 // Minha Assinatura, planos/cobrança/pagamento, Gestão SaaS e o webhook do
 // Asaas continuam acessíveis mesmo com o trial vencido).
 app.use('/api/campanhas', corsAdmin, requireAdminAuth, requireAcessoOperacional, campanhasRouter)
+app.use('/api/sistemas', corsAdmin, requireAdminAuth, requireAcessoOperacional, sistemasRouter)
 app.use('/api/catalogo-telas', corsAdmin, requireAdminAuth, requireAcessoOperacional, catalogoTelasRouter)
 app.use('/api/tours', corsAdmin, requireAdminAuth, requireAcessoOperacional, toursRouter)
 app.use('/api/jornadas', corsAdmin, requireAdminAuth, requireAcessoOperacional, jornadasRouter)

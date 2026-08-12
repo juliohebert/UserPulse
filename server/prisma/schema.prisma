@@ -159,12 +159,35 @@ model Tenant {
   campanhas         Campanha[]
   tours             TourGuiado[]
   jornadas          Jornada[]
+  sistemas          Sistema[]
   aparenciasWidget  AparenciaWidget[]
   telasCatalogo     TelaCatalogo[]
   eventosUsuario    EventoUsuario[]
   trialEmailAlertas TrialEmailAlerta[]
 
   @@map("tenants")
+}
+
+model Sistema {
+  id            String   @id @default(uuid())
+  tenant_id     String
+  nome          String
+  slug          String
+  descricao     String?
+  identificador String
+  url_base      String?
+  ativo         Boolean  @default(true)
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  tenant     Tenant             @relation(fields: [tenant_id], references: [id])
+  telas      TelaCatalogo[]
+  aparencias AparenciaWidget[]
+
+  @@unique([tenant_id, slug])
+  @@unique([tenant_id, identificador])
+  @@index([tenant_id])
+  @@map("sistemas")
 }
 
 // Limites nulos = sem limite (plano ilimitado nesse quesito — usado pelo
@@ -380,6 +403,7 @@ model Feedback {
 model TelaCatalogo {
   id                 String   @id @default(uuid())
   tenant_id          String
+  sistema_id         String
   nome               String
   sistema            String
   categoria          String
@@ -391,9 +415,11 @@ model TelaCatalogo {
   criado_em          DateTime @default(now())
   atualizado_em      DateTime @updatedAt
 
-  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  tenant        Tenant  @relation(fields: [tenant_id], references: [id])
+  sistemaConfig Sistema @relation(fields: [sistema_id], references: [id])
 
   @@index([tenant_id])
+  @@index([sistema_id])
   @@map("telas_catalogo")
 }
 
@@ -409,15 +435,18 @@ model TelaCatalogo {
 model AparenciaWidget {
   id            String   @id @default(uuid())
   tenant_id     String
-  sistema       String
+  sistema_id    String?
+  sistema       String?
   cor_principal String?
   logo_url      String?
   criado_em     DateTime @default(now())
   atualizado_em DateTime @updatedAt
 
-  tenant Tenant @relation(fields: [tenant_id], references: [id])
+  tenant        Tenant  @relation(fields: [tenant_id], references: [id])
+  sistemaConfig Sistema? @relation(fields: [sistema_id], references: [id])
 
   @@unique([tenant_id, sistema])
+  @@unique([tenant_id, sistema_id])
   @@map("aparencias_widget")
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { get, post, put } from '../../services/api'
-import type { TelaCatalogo } from '../../types'
+import type { Sistema, TelaCatalogo } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Button } from '../../components/ui/Button'
@@ -19,6 +19,7 @@ const MODO_ICONE: Record<string, string> = {
 
 const EMPTY_FORM = {
   nome: '',
+  sistema_id: '',
   sistema: '',
   categoria: '',
   modo_identificacao: 'url_contem',
@@ -104,8 +105,33 @@ function AtivoBadge({ ativo }: { ativo: boolean }) {
     : <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-outline-variant/30 text-outline">Inativa</span>
 }
 
+function nomeSistema(tela: TelaCatalogo): string {
+  return tela.sistemaConfig?.nome ?? tela.sistema
+}
+
+function alvoTela(tela: TelaCatalogo): string {
+  return tela.url_contem ?? tela.tela ?? tela.data_cy ?? '—'
+}
+
+function pathUrlValido(valor: string): boolean {
+  const limpo = valor.trim()
+  return limpo === '' || (limpo.startsWith('/') && !/^https?:\/\//i.test(limpo) && !/[\s,]/.test(limpo))
+}
+
+function normalizarPathUrl(valor: string): string {
+  const limpo = valor.trim()
+  if (!/^https?:\/\//i.test(limpo)) return limpo
+  try {
+    const url = new URL(limpo)
+    return `${url.pathname}${url.search}${url.hash}` || '/'
+  } catch {
+    return limpo
+  }
+}
+
 export function CatalogoTelasIndex() {
   const [telas, setTelas] = useState<TelaCatalogo[]>([])
+  const [sistemas, setSistemas] = useState<Sistema[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
@@ -118,8 +144,8 @@ export function CatalogoTelasIndex() {
 
   const load = () => {
     setLoading(true)
-    get<TelaCatalogo[]>('/catalogo-telas')
-      .then(setTelas)
+    Promise.all([get<TelaCatalogo[]>('/catalogo-telas'), get<Sistema[]>('/sistemas?ativo=true')])
+      .then(([telas, sistemas]) => { setTelas(telas); setSistemas(sistemas) })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }
@@ -140,6 +166,7 @@ export function CatalogoTelasIndex() {
     setEditando(tela)
     setForm({
       nome: tela.nome,
+      sistema_id: tela.sistema_id,
       sistema: tela.sistema,
       categoria: tela.categoria,
       modo_identificacao: tela.modo_identificacao,
@@ -163,10 +190,16 @@ export function CatalogoTelasIndex() {
     setSaving(true)
     setFormError(null)
     try {
+      const urlConterNormalizada = normalizarPathUrl(form.url_contem)
+      if (form.modo_identificacao === 'url_contem' && !pathUrlValido(urlConterNormalizada)) {
+        setFormError('Informe apenas um caminho relativo, como /app/faturamento. A URL completa vem do embed do widget no sistema.')
+        return
+      }
       const payload = {
         ...form,
+        sistema: sistemas.find(s => s.id === form.sistema_id)?.identificador ?? form.sistema,
         tela: form.tela.trim() || null,
-        url_contem: form.url_contem.trim() || null,
+        url_contem: urlConterNormalizada || null,
         data_cy: form.data_cy.trim() || null,
       }
       if (editando) {
@@ -188,6 +221,7 @@ export function CatalogoTelasIndex() {
     try {
       await put(`/catalogo-telas/${tela.id}`, {
         nome: tela.nome,
+        sistema_id: tela.sistema_id,
         sistema: tela.sistema,
         categoria: tela.categoria,
         modo_identificacao: tela.modo_identificacao,
@@ -210,12 +244,17 @@ export function CatalogoTelasIndex() {
     return (
       t.nome.toLowerCase().includes(q) ||
       t.sistema.toLowerCase().includes(q) ||
+      (t.sistemaConfig?.nome ?? '').toLowerCase().includes(q) ||
       t.categoria.toLowerCase().includes(q) ||
       (t.url_contem ?? '').toLowerCase().includes(q)
     )
   })
 
-  const categorias = [...new Set(filtradas.map(t => t.categoria))].sort()
+  const telasOrdenadas = [...filtradas].sort((a, b) =>
+    nomeSistema(a).localeCompare(nomeSistema(b)) ||
+    a.categoria.localeCompare(b.categoria) ||
+    a.nome.localeCompare(b.nome)
+  )
 
   return (
     <div className="px-4 lg:px-margin-desktop py-5">
@@ -285,38 +324,51 @@ export function CatalogoTelasIndex() {
       )}
 
       {!loading && !error && filtradas.length > 0 && (
-        <div className="space-y-6">
-          {categorias.map(cat => (
-            <div key={cat}>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-outline mb-2">{cat}</p>
-              <div className="rounded-2xl border border-outline-variant overflow-hidden divide-y divide-outline-variant">
-                {filtradas.filter(t => t.categoria === cat).map(tela => (
-                  <div key={tela.id} className="flex items-center gap-4 px-4 py-3 bg-surface hover:bg-surface-container-lowest transition-colors">
-
-                    {/* Ícone do modo */}
-                    <span className="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">
-                      {MODO_ICONE[tela.modo_identificacao] ?? 'link'}
-                    </span>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                        <span className="text-body-md font-semibold text-on-surface leading-tight">{tela.nome}</span>
-                        <span className="text-[11px] text-outline bg-surface-container px-2 py-0.5 rounded-full leading-tight">{tela.sistema}</span>
-                        <AtivoBadge ativo={tela.ativo} />
-                      </div>
-                      {(tela.url_contem || tela.tela || tela.data_cy) && (
-                        <p className="text-[12px] text-outline font-mono leading-tight truncate mt-0.5">
-                          {tela.url_contem ?? tela.tela ?? tela.data_cy}
-                        </p>
-                      )}
-                      <p className="text-[11px] text-on-surface-variant mt-0.5">
-                        {MODOS.find(m => m.value === tela.modo_identificacao)?.label ?? tela.modo_identificacao}
-                      </p>
+        <div className="overflow-x-auto rounded-3xl border border-outline-variant bg-surface shadow-sm">
+          <table className="min-w-full divide-y divide-outline-variant text-left">
+            <thead className="bg-surface-container-lowest">
+              <tr className="text-[11px] font-bold uppercase tracking-wider text-outline">
+                <th className="px-4 py-3">Sistema</th>
+                <th className="px-4 py-3">Tela</th>
+                <th className="px-4 py-3">Categoria</th>
+                <th className="px-4 py-3">Identificação</th>
+                <th className="px-4 py-3">Alvo</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-outline-variant">
+              {telasOrdenadas.map(tela => (
+                <tr key={tela.id} className="bg-surface transition-colors hover:bg-surface-container-lowest">
+                  <td className="px-4 py-3 align-middle">
+                    <div className="min-w-[150px]">
+                      <span className="truncate text-body-md font-bold text-on-surface">{nomeSistema(tela)}</span>
                     </div>
-
-                    {/* Ações */}
-                    <div className="flex items-center gap-3 shrink-0">
+                  </td>
+                  <td className="px-4 py-3 align-middle">
+                    <div className="flex min-w-[180px] items-center gap-3">
+                      <span className="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">
+                        {MODO_ICONE[tela.modo_identificacao] ?? 'link'}
+                      </span>
+                      <span className="text-body-md font-semibold text-on-surface">{tela.nome}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-middle">
+                    <span className="inline-flex rounded-full bg-surface-container px-2.5 py-1 text-[11px] font-bold text-on-surface-variant">
+                      {tela.categoria}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 align-middle text-body-md text-on-surface-variant">
+                    {MODOS.find(m => m.value === tela.modo_identificacao)?.label ?? tela.modo_identificacao}
+                  </td>
+                  <td className="max-w-[320px] px-4 py-3 align-middle">
+                    <span className="block truncate font-mono text-[12px] text-outline" title={alvoTela(tela)}>{alvoTela(tela)}</span>
+                  </td>
+                  <td className="px-4 py-3 align-middle">
+                    <AtivoBadge ativo={tela.ativo} />
+                  </td>
+                  <td className="px-4 py-3 align-middle">
+                    <div className="flex items-center justify-end gap-3">
                       <ToggleSwitch
                         checked={tela.ativo}
                         onChange={() => toggleAtivo(tela)}
@@ -331,11 +383,11 @@ export function CatalogoTelasIndex() {
                         <span className="material-symbols-outlined text-[18px]">edit</span>
                       </button>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -379,13 +431,18 @@ export function CatalogoTelasIndex() {
                   <label className="block text-label-md text-on-surface-variant mb-1.5">
                     Sistema <span className="text-error">*</span>
                   </label>
-                  <input
+                  <select
                     required
-                    value={form.sistema}
-                    onChange={e => set('sistema', e.target.value)}
-                    placeholder="Ex: QuarkClinic"
+                    value={form.sistema_id}
+                    onChange={e => {
+                      const selecionado = sistemas.find(s => s.id === e.target.value)
+                      setForm(prev => ({ ...prev, sistema_id: e.target.value, sistema: selecionado?.identificador ?? '' }))
+                    }}
                     className={field}
-                  />
+                  >
+                    <option value="">Selecione...</option>
+                    {sistemas.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-label-md text-on-surface-variant mb-1.5">
@@ -427,9 +484,19 @@ export function CatalogoTelasIndex() {
                     <input
                       value={form.url_contem}
                       onChange={e => set('url_contem', e.target.value)}
-                      placeholder="Ex: /app/atendimento/agendamentos"
-                      className={field}
+                      onBlur={e => set('url_contem', normalizarPathUrl(e.target.value))}
+                      onPaste={e => {
+                        const texto = e.clipboardData.getData('text')
+                        if (!/^https?:\/\//i.test(texto.trim())) return
+                        e.preventDefault()
+                        set('url_contem', normalizarPathUrl(texto))
+                      }}
+                      placeholder="Ex: /app/faturamento"
+                      className={`${field} ${form.url_contem.trim() && !pathUrlValido(form.url_contem) ? 'border-error focus:border-error focus:ring-error/20' : ''}`}
                     />
+                    <p className="mt-1.5 text-[11px] text-outline">
+                      Informe apenas o caminho, como /app/faturamento. A URL completa é lida pelo embed do widget no sistema onde ele está instalado.
+                    </p>
                   </div>
                 )}
                 {form.modo_identificacao === 'data_cy' && (
