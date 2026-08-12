@@ -7,6 +7,7 @@ import { get } from '../../services/api'
 
 interface Props {
   collapsed: boolean
+  onOpenMobileSidebar: () => void
 }
 
 const opcoesNovo = [
@@ -35,7 +36,7 @@ function iniciais(nome: string): string {
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase()
 }
 
-export function Topbar({ collapsed }: Props) {
+export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
   const [search, setSearch] = useState('')
   const [novoAberto, setNovoAberto] = useState(false)
   const [buscaAberta, setBuscaAberta] = useState(false)
@@ -205,8 +206,16 @@ export function Topbar({ collapsed }: Props) {
 
   return (
     <header
-      className={`fixed top-0 right-0 left-24 ${collapsed ? 'md:left-24' : 'md:left-[292px]'} h-16 bg-background/90 border-b border-outline-variant/30 flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200 backdrop-blur`}
+      className={`fixed top-0 right-0 left-0 ${collapsed ? 'md:left-24' : 'md:left-[292px]'} h-16 bg-background/90 border-b border-outline-variant/30 flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200 backdrop-blur`}
     >
+      <button
+        type="button"
+        onClick={onOpenMobileSidebar}
+        aria-label="Abrir menu"
+        className="mr-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-on-surface-variant active:bg-surface-container md:hidden"
+      >
+        <span className="material-symbols-outlined text-[24px] leading-none">menu</span>
+      </button>
       <form ref={buscaRef} onSubmit={handleSearch} className="relative flex items-center flex-1 max-w-lg">
         <div className="relative w-full">
           <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[20px]">

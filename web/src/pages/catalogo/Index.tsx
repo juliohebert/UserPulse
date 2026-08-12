@@ -3,12 +3,11 @@ import { get, post, put } from '../../services/api'
 import type { Sistema, TelaCatalogo } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
-import { Button } from '../../components/ui/Button'
 
 const MODOS = [
-  { value: 'url_contem', label: 'Caminho da URL' },
-  { value: 'sistema_tela', label: 'Tela informada pelo sistema' },
-  { value: 'data_cy', label: 'Elemento da tela (data-cy)' },
+  { value: 'url_contem', label: 'Caminho da URL', desc: 'Identifica pela rota carregada no navegador.' },
+  { value: 'sistema_tela', label: 'Tela informada pelo sistema', desc: 'Usa o nome enviado pela integração.' },
+  { value: 'data_cy', label: 'Elemento da tela (data-cy)', desc: 'Procura um elemento específico no DOM.' },
 ]
 
 const MODO_ICONE: Record<string, string> = {
@@ -32,7 +31,9 @@ const EMPTY_FORM = {
 type FormState = typeof EMPTY_FORM
 
 const field =
-  'w-full px-3 py-2 rounded-xl border border-outline-variant bg-surface text-body-md text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors'
+  'h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none placeholder:text-[#8595a4] focus:border-[#1876f2] focus:ring-2 focus:ring-[#1876f2]/10'
+const botaoPrimario = 'inline-flex items-center justify-center gap-2 rounded-[100px] bg-[#0064e0] px-[30px] py-[14px] text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-white active:bg-[#0457cb] disabled:bg-[#bcc0c4]'
+const botaoGhost = 'inline-flex items-center justify-center rounded-[100px] border-2 border-[rgba(10,19,23,0.12)] px-6 py-3 text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317] active:bg-[#f1f4f7]'
 
 function FormSelect({
   value,
@@ -40,7 +41,7 @@ function FormSelect({
   onChange,
 }: {
   value: string
-  options: { value: string; label: string }[]
+  options: { value: string; label: string; desc?: string }[]
   onChange: (v: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -67,7 +68,7 @@ function FormSelect({
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className="w-full px-3 py-2 rounded-xl border border-outline-variant bg-surface text-body-md text-on-surface flex justify-between items-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors hover:border-outline"
+        className="flex h-11 w-full items-center justify-between gap-2 rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none focus:border-[#1876f2] focus:ring-2 focus:ring-[#1876f2]/10"
       >
         <span>{selected?.label ?? '—'}</span>
         <span className={`material-symbols-outlined text-outline text-[18px] transition-transform duration-150 ${open ? 'rotate-180' : ''}`}>
@@ -75,19 +76,22 @@ function FormSelect({
         </span>
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-full rounded-xl border border-outline-variant bg-surface shadow-lg overflow-hidden">
+        <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-[16px] border border-[#dee3e9] bg-white">
           {options.map(o => (
             <button
               key={o.value}
               type="button"
               onClick={() => { onChange(o.value); setOpen(false) }}
-              className={`w-full flex items-center justify-between px-4 py-2.5 text-body-md text-left transition-colors ${
+              className={`flex w-full items-center justify-between px-4 py-3 text-left text-[16px] leading-[1.5] tracking-[-0.16px] ${
                 value === o.value
-                  ? 'bg-primary/10 text-primary font-bold'
-                  : 'text-on-surface hover:bg-surface-container-low'
+                  ? 'bg-[#e8f2ff] font-bold text-[#0064e0]'
+                  : 'text-[#1c1e21] active:bg-[#f1f4f7]'
               }`}
             >
-              {o.label}
+              <span>
+                <span className="block">{o.label}</span>
+                {o.desc && <span className="mt-0.5 block text-[12px] leading-[1.33] text-[#5d6c7b]">{o.desc}</span>}
+              </span>
               {value === o.value && (
                 <span className="material-symbols-outlined text-[16px]">check</span>
               )}
@@ -101,8 +105,32 @@ function FormSelect({
 
 function AtivoBadge({ ativo }: { ativo: boolean }) {
   return ativo
-    ? <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-tertiary/10 text-tertiary">Ativa</span>
-    : <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase bg-outline-variant/30 text-outline">Inativa</span>
+    ? <span className="inline-flex w-[76px] justify-center rounded-[100px] bg-[#31a24c] px-3 py-1 text-[12px] font-bold uppercase leading-[1.33] text-white">Ativa</span>
+    : <span className="inline-flex w-[76px] justify-center rounded-[100px] bg-[#ced0d4] px-3 py-1 text-[12px] font-bold uppercase leading-[1.33] text-[#444950]">Inativa</span>
+}
+
+function ModoIdentificacaoCards({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-3">
+      {MODOS.map(modo => {
+        const selecionado = value === modo.value
+        return (
+          <button
+            key={modo.value}
+            type="button"
+            onClick={() => onChange(modo.value)}
+            className={`rounded-lg bg-white p-4 text-left ${selecionado ? 'border-2 border-[#0143b5]' : 'border border-[rgba(10,19,23,0.12)]'}`}
+          >
+            <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#e8f2ff] text-[#0064e0]">
+              <span className="material-symbols-outlined text-[20px] leading-none">{MODO_ICONE[modo.value]}</span>
+            </span>
+            <span className="block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">{modo.label}</span>
+            <span className="mt-1 block text-[12px] leading-[1.33] text-[#5d6c7b]">{modo.desc}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 function nomeSistema(tela: TelaCatalogo): string {
@@ -219,7 +247,7 @@ export function CatalogoTelasIndex() {
   const toggleAtivo = async (tela: TelaCatalogo) => {
     setToggling(tela.id)
     try {
-      await put(`/catalogo-telas/${tela.id}`, {
+      const atualizada = await put<TelaCatalogo>(`/catalogo-telas/${tela.id}`, {
         nome: tela.nome,
         sistema_id: tela.sistema_id,
         sistema: tela.sistema,
@@ -230,7 +258,7 @@ export function CatalogoTelasIndex() {
         data_cy: tela.data_cy,
         ativo: !tela.ativo,
       })
-      load()
+      setTelas(prev => prev.map(item => item.id === tela.id ? { ...item, ...atualizada, sistemaConfig: item.sistemaConfig } : item))
     } catch {
       // ignore — visual permanece sem alteração
     } finally {
@@ -257,43 +285,38 @@ export function CatalogoTelasIndex() {
   )
 
   return (
-    <div className="px-4 lg:px-margin-desktop py-5">
+    <div className="bg-white px-4 py-6 text-[#1c1e21] lg:px-margin-desktop lg:py-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-title-lg font-bold text-on-surface">Catálogo de Telas</h2>
-          <p className="text-body-md text-on-surface-variant mt-0.5">
+          <h2 className="text-[28px] font-semibold leading-[1.21] text-[#0a1317]">Catálogo de Telas</h2>
+          <p className="mt-1 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#4b4c4f]">
             Telas cadastradas para preenchimento automático em campanhas.
           </p>
         </div>
-        <Button
-          onClick={openNova}
-          variant="gradient"
-          size="lg"
-          className="shrink-0"
-          iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
-        >
+        <button type="button" onClick={openNova} className={botaoPrimario}>
+          <span className="material-symbols-outlined text-[18px] leading-none">add</span>
           Nova Tela
-        </Button>
+        </button>
       </div>
 
       {/* Busca */}
-      <div className="relative mb-5 max-w-sm">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-outline pointer-events-none">search</span>
+      <div className="relative mb-5 max-w-md">
+        <span className="material-symbols-outlined pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[18px] text-[#5d6c7b]">search</span>
         <input
           value={busca}
           onChange={e => setBusca(e.target.value)}
           placeholder="Buscar por nome, sistema, categoria ou URL…"
-          className="w-full pl-9 pr-3 py-2 rounded-xl border border-outline-variant bg-surface text-body-md text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors"
+          className="h-11 w-full rounded-[100px] border border-[#dee3e9] bg-[#f1f4f7] pl-11 pr-10 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#1c1e21] outline-none placeholder:text-[#5d6c7b] focus:border-[#1876f2] focus:bg-white focus:ring-2 focus:ring-[#1876f2]/10"
         />
         {busca && (
           <button
             onClick={() => setBusca('')}
             title="Limpar busca"
             aria-label="Limpar busca"
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface"
+            className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[#5d6c7b] active:bg-[#dee3e9]"
           >
-            <span className="material-symbols-outlined text-[18px]">close</span>
+            <span className="material-symbols-outlined text-[18px] leading-none">close</span>
           </button>
         )}
       </div>
@@ -302,85 +325,89 @@ export function CatalogoTelasIndex() {
       {loading && <LoadingSpinner />}
 
       {!loading && error && (
-        <div className="p-4 bg-error-container text-on-error-container rounded-xl text-body-md">{error}</div>
+        <div className="rounded-[24px] border border-[#f0284a] bg-white p-4 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#e41e3f]">{error}</div>
       )}
 
       {!loading && !error && filtradas.length === 0 && (
-        <div className="py-16 text-center">
-          <span className="material-symbols-outlined text-[40px] text-outline mb-3 block">grid_view</span>
-          <p className="text-body-md text-on-surface-variant">
+        <div className="rounded-[32px] border border-[#dee3e9] bg-white px-6 py-16 text-center">
+          <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#e8f2ff] text-[#0064e0]">
+            <span className="material-symbols-outlined text-[24px] leading-none">grid_view</span>
+          </span>
+          <p className="text-[16px] leading-[1.5] tracking-[-0.16px] text-[#4b4c4f]">
             {busca ? 'Nenhuma tela encontrada para essa busca.' : 'Nenhuma tela cadastrada ainda.'}
           </p>
           {!busca && (
-            <Button
-              onClick={openNova}
-              className="mt-4"
-              iconLeft={<span className="material-symbols-outlined text-[16px]">add</span>}
-            >
+            <button type="button" onClick={openNova} className={`${botaoPrimario} mt-5`}>
+              <span className="material-symbols-outlined text-[18px] leading-none">add</span>
               Nova Tela
-            </Button>
+            </button>
           )}
         </div>
       )}
 
       {!loading && !error && filtradas.length > 0 && (
-        <div className="overflow-x-auto rounded-3xl border border-outline-variant bg-surface shadow-sm">
-          <table className="min-w-full divide-y divide-outline-variant text-left">
-            <thead className="bg-surface-container-lowest">
-              <tr className="text-[11px] font-bold uppercase tracking-wider text-outline">
-                <th className="px-4 py-3">Sistema</th>
-                <th className="px-4 py-3">Tela</th>
-                <th className="px-4 py-3">Categoria</th>
-                <th className="px-4 py-3">Identificação</th>
-                <th className="px-4 py-3">Alvo</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">Ações</th>
+        <div className="min-h-[calc(100vh-220px)] overflow-x-auto rounded-[32px] border border-[#dee3e9] bg-white">
+          <table className="min-w-full table-fixed text-left">
+            <thead className="bg-[#f1f4f7]">
+              <tr className="text-[12px] font-bold uppercase leading-[1.33] tracking-[0.08em] text-[#5d6c7b]">
+                <th className="w-[15%] px-4 py-3">Sistema</th>
+                <th className="w-[16%] px-4 py-3">Categoria</th>
+                <th className="w-[28%] px-4 py-3">Tela (tipo)</th>
+                <th className="w-[25%] px-4 py-3">Alvo</th>
+                <th className="w-[96px] px-4 py-3">Status</th>
+                <th className="w-[100px] px-4 py-3 text-right">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-outline-variant">
+            <tbody className="divide-y divide-[#dee3e9]">
               {telasOrdenadas.map(tela => (
-                <tr key={tela.id} className="bg-surface transition-colors hover:bg-surface-container-lowest">
+                <tr key={tela.id} className="bg-white">
                   <td className="px-4 py-3 align-middle">
                     <div className="min-w-[150px]">
-                      <span className="truncate text-body-md font-bold text-on-surface">{nomeSistema(tela)}</span>
+                      <span className="truncate text-[16px] leading-[1.5] tracking-[-0.16px] text-[#0a1317]">{nomeSistema(tela)}</span>
                     </div>
                   </td>
                   <td className="px-4 py-3 align-middle">
-                    <div className="flex min-w-[180px] items-center gap-3">
-                      <span className="material-symbols-outlined text-[18px] text-on-surface-variant shrink-0">
-                        {MODO_ICONE[tela.modo_identificacao] ?? 'link'}
-                      </span>
-                      <span className="text-body-md font-semibold text-on-surface">{tela.nome}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 align-middle">
-                    <span className="inline-flex rounded-full bg-surface-container px-2.5 py-1 text-[11px] font-bold text-on-surface-variant">
+                    <span className="inline-flex rounded-[100px] bg-[#f1f4f7] px-3 py-1 text-[12px] leading-[1.33] text-[#444950]">
                       {tela.categoria}
                     </span>
                   </td>
-                  <td className="px-4 py-3 align-middle text-body-md text-on-surface-variant">
-                    {MODOS.find(m => m.value === tela.modo_identificacao)?.label ?? tela.modo_identificacao}
+                  <td className="px-4 py-3 align-middle">
+                    <div className="flex min-w-[180px] items-center gap-2">
+                      <span className="group/tipo relative flex h-8 w-8 shrink-0 cursor-help items-center justify-center rounded-full bg-[#e8f2ff] text-[#0064e0]" tabIndex={0}>
+                        <span className="material-symbols-outlined text-[18px] leading-none">{MODO_ICONE[tela.modo_identificacao] ?? 'link'}</span>
+                        <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-[100px] bg-[#0a1317] px-3 py-2 text-[12px] font-bold leading-[1.33] text-white group-hover/tipo:block group-focus/tipo:block">
+                          {MODOS.find(m => m.value === tela.modo_identificacao)?.label ?? tela.modo_identificacao}
+                        </span>
+                      </span>
+                      <span className="text-[16px] leading-[1.5] tracking-[-0.16px] text-[#0a1317]">{tela.nome}</span>
+                    </div>
                   </td>
-                  <td className="max-w-[320px] px-4 py-3 align-middle">
-                    <span className="block truncate font-mono text-[12px] text-outline" title={alvoTela(tela)}>{alvoTela(tela)}</span>
+                  <td className="px-4 py-3 align-middle">
+                    <span className="block truncate font-mono text-[12px] leading-[1.33] text-[#5d6c7b]" title={alvoTela(tela)}>{alvoTela(tela)}</span>
                   </td>
                   <td className="px-4 py-3 align-middle">
                     <AtivoBadge ativo={tela.ativo} />
                   </td>
                   <td className="px-4 py-3 align-middle">
-                    <div className="flex items-center justify-end gap-3">
-                      <ToggleSwitch
-                        checked={tela.ativo}
-                        onChange={() => toggleAtivo(tela)}
-                        disabled={toggling === tela.id}
-                      />
+                    <div className="flex w-[80px] items-center justify-end gap-2">
                       <button
                         onClick={() => openEditar(tela)}
                         title="Editar"
                         aria-label={`Editar ${tela.nome}`}
-                        className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]"
                       >
-                        <span className="material-symbols-outlined text-[18px]">edit</span>
+                        <span className="material-symbols-outlined text-[18px] leading-none">edit</span>
+                      </button>
+                      <button
+                        onClick={() => toggleAtivo(tela)}
+                        disabled={toggling === tela.id}
+                        title={tela.ativo ? 'Inativar' : 'Reativar'}
+                        aria-label={`${tela.ativo ? 'Inativar' : 'Reativar'} ${tela.nome}`}
+                        className={`flex h-9 w-9 items-center justify-center rounded-full border border-[#dee3e9] active:bg-[#f1f4f7] disabled:opacity-50 ${tela.ativo ? 'text-[#e41e3f]' : 'text-[#31a24c]'}`}
+                      >
+                        <span className={`material-symbols-outlined text-[18px] leading-none ${toggling === tela.id ? 'animate-spin' : ''}`}>
+                          {toggling === tela.id ? 'progress_activity' : tela.ativo ? 'block' : 'check_circle'}
+                        </span>
                       </button>
                     </div>
                   </td>
@@ -393,31 +420,31 @@ export function CatalogoTelasIndex() {
 
       {/* Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
-              <h3 className="text-title-md font-bold text-on-surface">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-[32px] border border-[#dee3e9] bg-white">
+            <div className="flex items-center justify-between border-b border-[#dee3e9] px-6 py-5">
+              <h3 className="text-[24px] font-semibold leading-[1.25] text-[#0a1317]">
                 {editando ? 'Editar Tela' : 'Nova Tela'}
               </h3>
               <button
                 onClick={fecharForm}
                 title="Fechar"
                 aria-label="Fechar"
-                className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]"
               >
-                <span className="material-symbols-outlined text-[20px]">close</span>
+                <span className="material-symbols-outlined text-[20px] leading-none">close</span>
               </button>
             </div>
 
-            <form onSubmit={salvar} className="px-5 py-4 space-y-4">
+            <form onSubmit={salvar} className="space-y-5 px-6 py-5">
               {formError && (
-                <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{formError}</div>
+                <div className="rounded-[16px] border border-[#f0284a] p-3 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#e41e3f]">{formError}</div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">
-                    Nome <span className="text-error">*</span>
+                  <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">
+                    Nome <span className="text-[#e41e3f]">*</span>
                   </label>
                   <input
                     required
@@ -428,25 +455,21 @@ export function CatalogoTelasIndex() {
                   />
                 </div>
                 <div>
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">
-                    Sistema <span className="text-error">*</span>
+                  <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">
+                    Sistema <span className="text-[#e41e3f]">*</span>
                   </label>
-                  <select
-                    required
+                  <FormSelect
                     value={form.sistema_id}
-                    onChange={e => {
-                      const selecionado = sistemas.find(s => s.id === e.target.value)
-                      setForm(prev => ({ ...prev, sistema_id: e.target.value, sistema: selecionado?.identificador ?? '' }))
+                    options={[{ value: '', label: 'Selecione...' }, ...sistemas.map(s => ({ value: s.id, label: s.nome, desc: s.identificador }))]}
+                    onChange={value => {
+                      const selecionado = sistemas.find(s => s.id === value)
+                      setForm(prev => ({ ...prev, sistema_id: value, sistema: selecionado?.identificador ?? '' }))
                     }}
-                    className={field}
-                  >
-                    <option value="">Selecione...</option>
-                    {sistemas.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                  </select>
+                  />
                 </div>
                 <div>
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">
-                    Categoria <span className="text-error">*</span>
+                  <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">
+                    Categoria <span className="text-[#e41e3f]">*</span>
                   </label>
                   <input
                     required
@@ -457,19 +480,18 @@ export function CatalogoTelasIndex() {
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">
-                    Modo de identificação <span className="text-error">*</span>
+                  <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">
+                    Modo de identificação <span className="text-[#e41e3f]">*</span>
                   </label>
-                  <FormSelect
+                  <ModoIdentificacaoCards
                     value={form.modo_identificacao}
-                    options={MODOS}
                     onChange={v => set('modo_identificacao', v)}
                   />
                 </div>
 
                 {form.modo_identificacao === 'sistema_tela' && (
                   <div className="col-span-2">
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Nome da tela</label>
+                    <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Nome da tela</label>
                     <input
                       value={form.tela}
                       onChange={e => set('tela', e.target.value)}
@@ -480,7 +502,7 @@ export function CatalogoTelasIndex() {
                 )}
                 {form.modo_identificacao === 'url_contem' && (
                   <div className="col-span-2">
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Caminho da URL</label>
+                    <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Caminho da URL</label>
                     <input
                       value={form.url_contem}
                       onChange={e => set('url_contem', e.target.value)}
@@ -492,16 +514,16 @@ export function CatalogoTelasIndex() {
                         set('url_contem', normalizarPathUrl(texto))
                       }}
                       placeholder="Ex: /app/faturamento"
-                      className={`${field} ${form.url_contem.trim() && !pathUrlValido(form.url_contem) ? 'border-error focus:border-error focus:ring-error/20' : ''}`}
+                      className={`${field} ${form.url_contem.trim() && !pathUrlValido(form.url_contem) ? 'border-[#f0284a] focus:border-[#f0284a] focus:ring-[#f0284a]/10' : ''}`}
                     />
-                    <p className="mt-1.5 text-[11px] text-outline">
+                    <p className="mt-2 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#5d6c7b]">
                       Informe apenas o caminho, como /app/faturamento. A URL completa é lida pelo embed do widget no sistema onde ele está instalado.
                     </p>
                   </div>
                 )}
                 {form.modo_identificacao === 'data_cy' && (
                   <div className="col-span-2">
-                    <label className="block text-label-md text-on-surface-variant mb-1.5">Valor do data-cy</label>
+                    <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Valor do data-cy</label>
                     <input
                       value={form.data_cy}
                       onChange={e => set('data_cy', e.target.value)}
@@ -515,29 +537,21 @@ export function CatalogoTelasIndex() {
                   <ToggleSwitch checked={form.ativo} onChange={v => set('ativo', v)} />
                   <label
                     onClick={() => set('ativo', !form.ativo)}
-                    className="text-body-md text-on-surface cursor-pointer select-none"
+                    className="cursor-pointer select-none text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21]"
                   >
                     {form.ativo ? 'Tela ativa' : 'Tela inativa'}
-                    <span className="text-on-surface-variant ml-1 text-[12px]">(aparece no catálogo de campanhas se ativa)</span>
+                    <span className="ml-1 text-[12px] leading-[1.33] text-[#5d6c7b]">(aparece no catálogo de campanhas se ativa)</span>
                   </label>
                 </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  onClick={fecharForm}
-                  variant="ghost"
-                >
+                <button type="button" onClick={fecharForm} className={botaoGhost}>
                   Cancelar
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={saving}
-                  size="md"
-                >
+                </button>
+                <button type="submit" disabled={saving} className={botaoPrimario}>
                   {saving ? 'Salvando…' : editando ? 'Salvar' : 'Criar'}
-                </Button>
+                </button>
               </div>
             </form>
           </div>

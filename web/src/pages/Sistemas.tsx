@@ -3,7 +3,6 @@ import { del, get, post, put } from '../services/api'
 import type { Sistema } from '../types'
 import { LoadingSpinner } from '../components/ui/EmptyState'
 import { ToggleSwitch } from '../components/ui/ToggleSwitch'
-import { Button } from '../components/ui/Button'
 
 const EMPTY_FORM = {
   nome: '',
@@ -16,7 +15,10 @@ const EMPTY_FORM = {
 
 type FormState = typeof EMPTY_FORM
 
-const field = 'w-full px-3 py-2 rounded-xl border border-outline-variant bg-surface text-body-md text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors'
+const field = 'h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none placeholder:text-[#8595a4] focus:border-[#1876f2] focus:ring-2 focus:ring-[#1876f2]/10'
+const textareaField = 'w-full rounded-lg border border-[#ced0d4] bg-white px-3 py-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none placeholder:text-[#8595a4] focus:border-[#1876f2] focus:ring-2 focus:ring-[#1876f2]/10'
+const botaoPrimario = 'inline-flex items-center justify-center gap-2 rounded-[100px] bg-[#0064e0] px-[30px] py-[14px] text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-white active:bg-[#0457cb] disabled:bg-[#bcc0c4]'
+const botaoGhost = 'inline-flex items-center justify-center rounded-[100px] border-2 border-[rgba(10,19,23,0.12)] px-6 py-3 text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317] active:bg-[#f1f4f7]'
 
 function sugerirSlug(valor: string): string {
   return valor
@@ -112,55 +114,61 @@ export function SistemasPage() {
   }
 
   return (
-    <div className="px-4 lg:px-margin-desktop py-5">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+    <div className="bg-white px-4 py-6 text-[#1c1e21] lg:px-margin-desktop lg:py-8">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-title-lg font-bold text-on-surface">Sistemas</h2>
-          <p className="text-body-md text-on-surface-variant mt-0.5">
+          <h2 className="text-[28px] font-semibold leading-[1.21] text-[#0a1317]">Sistemas</h2>
+          <p className="mt-1 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#4b4c4f]">
             Cadastre os produtos ou aplicações usados por campanhas, tours, catálogo e widget.
           </p>
         </div>
-        <Button onClick={openNovo} variant="gradient" size="lg" className="shrink-0" iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}>
+        <button type="button" onClick={openNovo} className={botaoPrimario}>
+          <span className="material-symbols-outlined text-[18px] leading-none">add</span>
           Novo Sistema
-        </Button>
+        </button>
       </div>
 
       {loading && <LoadingSpinner />}
-      {!loading && erro && <div className="p-4 bg-error-container text-on-error-container rounded-xl text-body-md">{erro}</div>}
+      {!loading && erro && <div className="rounded-[24px] border border-[#f0284a] bg-white p-4 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#e41e3f]">{erro}</div>}
 
       {!loading && !erro && sistemas.length === 0 && (
-        <div className="py-16 text-center">
-          <span className="material-symbols-outlined text-[40px] text-outline mb-3 block">dns</span>
-          <p className="text-body-md text-on-surface-variant">Nenhum sistema cadastrado ainda.</p>
-          <Button onClick={openNovo} className="mt-4" iconLeft={<span className="material-symbols-outlined text-[16px]">add</span>}>
+        <div className="rounded-[32px] border border-[#dee3e9] bg-white px-6 py-16 text-center">
+          <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#e8f2ff] text-[#0064e0]">
+            <span className="material-symbols-outlined text-[24px] leading-none">dns</span>
+          </span>
+          <p className="text-[16px] leading-[1.5] tracking-[-0.16px] text-[#4b4c4f]">Nenhum sistema cadastrado ainda.</p>
+          <button type="button" onClick={openNovo} className={`${botaoPrimario} mt-5`}>
+            <span className="material-symbols-outlined text-[18px] leading-none">add</span>
             Novo Sistema
-          </Button>
+          </button>
         </div>
       )}
 
       {!loading && !erro && sistemas.length > 0 && (
-        <div className="rounded-2xl border border-outline-variant overflow-hidden divide-y divide-outline-variant">
+        <div className="space-y-3">
           {sistemas.map(sistema => (
-            <div key={sistema.id} className="flex items-center gap-4 px-4 py-3 bg-surface hover:bg-surface-container-lowest transition-colors">
-              <span className="material-symbols-outlined text-[20px] text-on-surface-variant shrink-0">dns</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                  <span className="text-body-md font-semibold text-on-surface leading-tight">{sistema.nome}</span>
-                  <span className="text-[11px] text-outline bg-surface-container px-2 py-0.5 rounded-full leading-tight">{sistema.identificador}</span>
-                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${sistema.ativo ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'}`}>
+            <div key={sistema.id} className="flex flex-col gap-4 rounded-[24px] border border-[#dee3e9] bg-white p-5 sm:flex-row sm:items-center">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#e8f2ff] text-[#0064e0]">
+                <span className="material-symbols-outlined text-[22px] leading-none">dns</span>
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <span className="text-[18px] font-bold leading-[1.44] text-[#0a1317]">{sistema.nome}</span>
+                  <span className="rounded-[100px] bg-[#f1f4f7] px-3 py-1 text-[12px] leading-[1.33] text-[#5d6c7b]">{sistema.identificador}</span>
+                  <span className={`rounded-[100px] px-3 py-1 text-[12px] font-bold uppercase leading-[1.33] ${sistema.ativo ? 'bg-[#31a24c] text-white' : 'bg-[#ced0d4] text-[#444950]'}`}>
                     {sistema.ativo ? 'Ativo' : 'Inativo'}
                   </span>
                 </div>
-                <p className="text-[12px] text-outline font-mono leading-tight truncate">/{sistema.slug}</p>
-                {sistema.descricao && <p className="text-[12px] text-on-surface-variant mt-0.5 truncate">{sistema.descricao}</p>}
+                <p className="truncate font-mono text-[12px] leading-[1.33] text-[#5d6c7b]">/{sistema.slug}</p>
+                {sistema.descricao && <p className="mt-1 truncate text-[14px] leading-[1.43] tracking-[-0.14px] text-[#444950]">{sistema.descricao}</p>}
               </div>
-              <div className="hidden sm:flex items-center gap-2 text-[11px] text-outline shrink-0">
+              <div className="hidden shrink-0 items-center gap-2 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#5d6c7b] sm:flex">
                 <span>{sistema._count?.telas ?? 0} telas</span>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
+              <div className="flex shrink-0 items-center gap-3">
                 <ToggleSwitch checked={sistema.ativo} onChange={() => toggleAtivo(sistema)} disabled={toggling === sistema.id} />
-                <button onClick={() => openEditar(sistema)} title="Editar" aria-label={`Editar ${sistema.nome}`} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
-                  <span className="material-symbols-outlined text-[18px]">edit</span>
+                <button onClick={() => openEditar(sistema)} title="Editar" aria-label={`Editar ${sistema.nome}`} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]">
+                  <span className="material-symbols-outlined text-[18px] leading-none">edit</span>
                 </button>
               </div>
             </div>
@@ -169,51 +177,51 @@ export function SistemasPage() {
       )}
 
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
-              <h3 className="text-title-md font-bold text-on-surface">{editando ? 'Editar Sistema' : 'Novo Sistema'}</h3>
-              <button onClick={fecharForm} title="Fechar" aria-label="Fechar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
-                <span className="material-symbols-outlined text-[20px]">close</span>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[32px] border border-[#dee3e9] bg-white">
+            <div className="flex items-center justify-between border-b border-[#dee3e9] px-6 py-5">
+              <h3 className="text-[24px] font-semibold leading-[1.25] text-[#0a1317]">{editando ? 'Editar Sistema' : 'Novo Sistema'}</h3>
+              <button onClick={fecharForm} title="Fechar" aria-label="Fechar" className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]">
+                <span className="material-symbols-outlined text-[20px] leading-none">close</span>
               </button>
             </div>
 
-            <form onSubmit={salvar} className="px-5 py-4 space-y-4">
-              {formError && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{formError}</div>}
+            <form onSubmit={salvar} className="space-y-5 px-6 py-5">
+              {formError && <div className="rounded-[16px] border border-[#f0284a] p-3 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#e41e3f]">{formError}</div>}
 
               <div>
-                <label className="block text-label-md text-on-surface-variant mb-1.5">Nome <span className="text-error">*</span></label>
+                <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Nome <span className="text-[#e41e3f]">*</span></label>
                 <input required value={form.nome} onChange={e => {
                   const nome = e.target.value
                   setForm(prev => ({ ...prev, nome, slug: editando ? prev.slug : sugerirSlug(nome), identificador: editando ? prev.identificador : sugerirSlug(nome) }))
                 }} placeholder="Ex: Portal do Paciente" className={field} />
               </div>
-              <div className="grid sm:grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">Slug <span className="text-error">*</span></label>
+                  <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Slug <span className="text-[#e41e3f]">*</span></label>
                   <input required value={form.slug} onChange={e => set('slug', e.target.value)} placeholder="portal-paciente" className={field} />
                 </div>
                 <div>
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">Identificador técnico <span className="text-error">*</span></label>
+                  <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Identificador técnico <span className="text-[#e41e3f]">*</span></label>
                   <input required value={form.identificador} onChange={e => set('identificador', e.target.value)} placeholder="portal-paciente" className={field} />
                 </div>
               </div>
               <div>
-                <label className="block text-label-md text-on-surface-variant mb-1.5">URL base</label>
+                <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">URL base</label>
                 <input value={form.url_base} onChange={e => set('url_base', e.target.value)} placeholder="https://app.cliente.com" className={field} />
               </div>
               <div>
-                <label className="block text-label-md text-on-surface-variant mb-1.5">Descrição</label>
-                <textarea value={form.descricao} onChange={e => set('descricao', e.target.value)} rows={3} placeholder="Uso interno para orientar o time." className={field} />
+                <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Descrição</label>
+                <textarea value={form.descricao} onChange={e => set('descricao', e.target.value)} rows={3} placeholder="Uso interno para orientar o time." className={textareaField} />
               </div>
               <div className="flex items-center gap-3 pt-1">
                 <ToggleSwitch checked={form.ativo} onChange={v => set('ativo', v)} />
-                <label onClick={() => set('ativo', !form.ativo)} className="text-body-md text-on-surface cursor-pointer select-none">{form.ativo ? 'Sistema ativo' : 'Sistema inativo'}</label>
+                <label onClick={() => set('ativo', !form.ativo)} className="cursor-pointer select-none text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21]">{form.ativo ? 'Sistema ativo' : 'Sistema inativo'}</label>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" onClick={fecharForm} variant="ghost">Cancelar</Button>
-                <Button type="submit" disabled={salvando}>{salvando ? 'Salvando...' : editando ? 'Salvar' : 'Criar'}</Button>
+                <button type="button" onClick={fecharForm} className={botaoGhost}>Cancelar</button>
+                <button type="submit" disabled={salvando} className={botaoPrimario}>{salvando ? 'Salvando...' : editando ? 'Salvar' : 'Criar'}</button>
               </div>
             </form>
           </div>
