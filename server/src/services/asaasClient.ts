@@ -1142,7 +1142,7 @@ export async function tratarWebhookAsaas(payloadBruto: unknown): Promise<Resulta
   if (acao.tipo === 'ignorado') {
     await prisma.asaasWebhookEvent.update({
       where: { id: evento.id },
-      data: { processado: true, processado_em: new Date() },
+      data: { processado: true, processado_em: new Date(), erro: null },
     })
     return { ok: true, ignorado: acao.motivo }
   }
@@ -1218,7 +1218,7 @@ export async function tratarWebhookAsaas(payloadBruto: unknown): Promise<Resulta
   await prisma.tenant.update({ where: { id: tenant.id }, data: resultado.dados })
   await prisma.asaasWebhookEvent.update({
     where: { id: evento.id },
-    data: { processado: true, processado_em: new Date() },
+    data: { processado: true, processado_em: new Date(), erro: null },
   })
 
   return { ok: true }
