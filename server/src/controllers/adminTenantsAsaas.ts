@@ -188,10 +188,26 @@ export async function criarCliente(req: Request, res: Response) {
   }
 }
 
+// Correção pós-revisão — Gestão SaaS (SUPER_ADMIN) ainda não tem campo na UI
+// pra escolher forma de pagamento (ver criarAssinaturaAsaasHandler em
+// Tenants.tsx, que sempre manda body vazio), então billing_type quase
+// sempre chega undefined aqui. Sem isso, criarAssinaturaAsaas caía no
+// próprio default (BOLETO) — diferente do self-service (billing.ts), que já
+// manda UNDEFINED explícito (deixa o pagador escolher Pix/Cartão na página
+// hospedada do Asaas). Extraída como função pura só pra ser testável direto
+// (ver adminTenantsAsaas.test.ts), mesmo padrão do resto deste arquivo.
+// Continua aceitando os 4 valores explícitos — quando a UI ganhar esse
+// campo um dia, um SUPER_ADMIN ainda pode fixar BOLETO/PIX/CREDIT_CARD.
+export function resolverBillingTypeGestaoSaas(
+  billingType?: 'BOLETO' | 'PIX' | 'CREDIT_CARD' | 'UNDEFINED'
+): 'BOLETO' | 'PIX' | 'CREDIT_CARD' | 'UNDEFINED' {
+  return billingType ?? 'UNDEFINED'
+}
+
 export async function criarAssinatura(req: Request, res: Response) {
   try {
     const id = req.params.id as string
-    const { billing_type } = req.body as { billing_type?: 'BOLETO' | 'PIX' | 'CREDIT_CARD' }
+    const { billing_type } = req.body as { billing_type?: 'BOLETO' | 'PIX' | 'CREDIT_CARD' | 'UNDEFINED' }
 
     const tenant = await prisma.tenant.findUnique({ where: { id }, include: { plano: true } })
     if (!tenant) { res.status(404).json({ erro: 'Tenant não encontrado.' }); return }
@@ -205,7 +221,7 @@ export async function criarAssinatura(req: Request, res: Response) {
 
     const hoje = new Date().toISOString().slice(0, 10)
     const assinatura = await criarAssinaturaAsaas(tenant.asaas_customer_id, tenant.plano, {
-      billingType: billing_type,
+      billingType: resolverBillingTypeGestaoSaas(billing_type),
       nextDueDate: hoje,
     })
 

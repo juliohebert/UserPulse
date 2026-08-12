@@ -2,7 +2,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   extrairDadosBilling, dadosCobrancaAsaas, condicoesEventosAsaas, validarTenantParaSync,
-  precisaBuscarCobrancas, normalizarCobranca,
+  precisaBuscarCobrancas, normalizarCobranca, resolverBillingTypeGestaoSaas,
 } from './adminTenantsAsaas'
 
 // Fase 2 da integração Asaas (dados de cobrança/histórico/sync) — só funções
@@ -210,5 +210,28 @@ describe('normalizarCobranca — normalização do retorno de cobranças', () =>
       dueDate: '2026-09-08', paymentDate: null, bankSlipUrl: 'https://sandbox.asaas.com/b/xyz',
     })
     assert.equal(resumo.invoiceUrl, 'https://sandbox.asaas.com/b/xyz')
+  })
+})
+
+// Correção pós-revisão — Gestão SaaS não tinha como enviar billing_type (a
+// tela de Tenants.tsx manda body vazio), então caía no default BOLETO do
+// próprio criarAssinaturaAsaas — diferente do self-service, que já manda
+// UNDEFINED (deixa o pagador escolher Pix/Cartão na página hospedada do
+// Asaas). resolverBillingTypeGestaoSaas corrige só esse fluxo.
+describe('resolverBillingTypeGestaoSaas — default UNDEFINED, preserva escolha explícita', () => {
+  test('sem billing_type -> UNDEFINED (não mais BOLETO)', () => {
+    assert.equal(resolverBillingTypeGestaoSaas(undefined), 'UNDEFINED')
+  })
+
+  test('CREDIT_CARD explícito -> preserva CREDIT_CARD', () => {
+    assert.equal(resolverBillingTypeGestaoSaas('CREDIT_CARD'), 'CREDIT_CARD')
+  })
+
+  test('PIX explícito -> preserva PIX', () => {
+    assert.equal(resolverBillingTypeGestaoSaas('PIX'), 'PIX')
+  })
+
+  test('BOLETO explícito -> preserva BOLETO', () => {
+    assert.equal(resolverBillingTypeGestaoSaas('BOLETO'), 'BOLETO')
   })
 })
