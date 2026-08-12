@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import type { Request, Response, NextFunction, Router } from 'express'
 import { AdminRole } from '@prisma/client'
 import { requireAcessoOperacional, CODIGO_TRIAL_EXPIRADO, CODIGO_INADIMPLENCIA } from './requireAcessoOperacional'
+import { TOLERANCIA_INADIMPLENCIA_DIAS } from '../lib/tenantGuards'
 import billingRouter from '../routes/billing'
 import authRouter from '../routes/auth'
 
@@ -103,20 +104,52 @@ describe('requireAcessoOperacional — comportamento por papel/situação de ten
 // e novo código estável (CODIGO_INADIMPLENCIA), só depois que a tolerância
 // de 5 dias expira — dentro dela, acesso operacional continua normal.
 describe('requireAcessoOperacional — tolerância de inadimplência (Fase 7)', () => {
-  // 1 a 4 dias, não 5: este teste usa o relógio real (o middleware chama
-  // motivoBloqueioOperacionalInadimplencia sem injetar `agora`, mesmo padrão
-  // de motivoBloqueioOperacionalTrial acima), então testar exatamente no
-  // limite de 5 dias contra um `passado()` baseado num AGORA fixo é frágil
-  // (o relógio real avança além do AGORA fixo entre quando o teste foi
-  // escrito e quando roda, empurrando pra além do limite). O limite exato
-  // já é coberto de forma determinística em tenantGuards.test.ts
+  // 1 a 4 dias, não 5: o middleware chama motivoBloqueioOperacionalInadimplencia
+  // sem injetar `agora` (mesmo padrão de motivoBloqueioOperacionalTrial acima),
+  // então usa sempre o relógio real (`new Date()`). Contra um `passado()`
+  // baseado num AGORA fixo isso é frágil de verdade — não hipoteticamente: o
+  // relógio real avança além do AGORA fixo com o tempo (dias depois de
+  // escrito, `passado(4)` já fica a 6+ dias reais de distância, além da
+  // tolerância), fazendo o teste falhar sem nenhuma mudança de código. Por
+  // isso trava o relógio (`Date`) no próprio AGORA fixo via mock.timers do
+  // node:test, escopado a este teste (restaurado automaticamente ao final) —
+  // determinístico pra sempre, sem tocar a regra de negócio. O limite exato
+  // (fronteira dos 5 dias) é coberto com precisão de milissegundo no teste
+  // abaixo, e também de forma determinística em tenantGuards.test.ts
   // (situacaoAdimplenciaTenant, com `agora` injetado).
-  test('licença vencida DENTRO da tolerância (1 a 4 dias) permite acesso operacional normal', () => {
+  test('licença vencida DENTRO da tolerância (1 a 4 dias) permite acesso operacional normal', (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: AGORA.getTime() })
     for (const dias of [1, 2, 3, 4]) {
       const r = chamar('ADMIN', { status: 'ACTIVE', trial_fim: null, licenca_fim: passado(dias) })
       assert.equal(r.permitido, true)
       assert.equal(r.status, undefined)
     }
+  })
+
+  // Fronteira exata dos TOLERANCIA_INADIMPLENCIA_DIAS (5 dias) — limite =
+  // licenca_fim + 5 dias, comparação com ">=" (ver tenantGuards.ts), ou
+  // seja "vencida há exatamente 5 dias" e "1ms antes do limite" ainda
+  // liberam; "1ms depois do limite" já bloqueia. `licenca_fim` fica fixo em
+  // AGORA - 5 dias (limite cai exatamente em AGORA); só o relógio mockado
+  // se move em torno desse instante, em milissegundos.
+  test('limite exato da tolerância — precisão de milissegundo', (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: AGORA.getTime() })
+    const licencaFim = passado(TOLERANCIA_INADIMPLENCIA_DIAS) // limite = licencaFim + 5 dias = AGORA
+    const tenant = { status: 'ACTIVE', trial_fim: null, licenca_fim: licencaFim }
+
+    t.mock.timers.setTime(AGORA.getTime()) // agora === limite, exatamente
+    const noLimite = chamar('ADMIN', tenant)
+    assert.equal(noLimite.permitido, true, 'exatamente no limite (5 dias) deveria liberar')
+
+    t.mock.timers.setTime(AGORA.getTime() - 1) // 1ms antes do limite
+    const antesDoLimite = chamar('ADMIN', tenant)
+    assert.equal(antesDoLimite.permitido, true, '1ms antes do limite deveria liberar')
+
+    t.mock.timers.setTime(AGORA.getTime() + 1) // 1ms depois do limite
+    const depoisDoLimite = chamar('ADMIN', tenant)
+    assert.equal(depoisDoLimite.permitido, false, '1ms depois do limite deveria bloquear')
+    assert.equal(depoisDoLimite.status, 403)
+    assert.equal((depoisDoLimite.body as { codigo: string }).codigo, CODIGO_INADIMPLENCIA)
   })
 
   test('licença vencida ALÉM da tolerância (6 dias) bloqueia ADMIN com 403 e código INADIMPLENCIA', () => {
