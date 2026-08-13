@@ -1,6 +1,6 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
-import { checarLimiteCampanhasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita } from '../lib/tenantGuards'
+import { checarLimiteCampanhasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, planoEfetivoParaLimite } from '../lib/tenantGuards'
 
 // ─── Respostas helpers ────────────────────────────────────────────────────────
 
@@ -480,7 +480,7 @@ export async function criar(req: Request, res: Response) {
     // Fase 6D — em trial, o limite conta TOTAL cadastrado, então precisa
     // checar mesmo criando com ativo:false (ver deveChecarLimiteCadastro).
     if (deveChecarLimiteCadastro(ativoBool, tenant.plano)) {
-      const limite = await checarLimiteCampanhasAtivas(tenantId, tenant.plano)
+      const limite = await checarLimiteCampanhasAtivas(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
     }
 
@@ -607,7 +607,7 @@ export async function atualizar(req: Request, res: Response) {
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
       // excluirId: a própria campanha já existe (só está inativa) — não pode
       // contar contra si mesma na contagem de trial (ver checarLimiteCampanhasAtivas).
-      const limite = await checarLimiteCampanhasAtivas(tenantId, tenant.plano, existente.id)
+      const limite = await checarLimiteCampanhasAtivas(tenantId, planoEfetivoParaLimite(tenant), existente.id)
       if (limite) return res.status(403).json({ erro: limite })
     }
 
@@ -706,7 +706,7 @@ export async function duplicar(req: Request, res: Response) {
     // "ativação", já que a cópia nunca nasce ativa). Planos pagos continuam
     // podendo duplicar livremente (deveChecarLimiteCadastro(false, plano)).
     if (deveChecarLimiteCadastro(false, tenant.plano)) {
-      const limite = await checarLimiteCampanhasAtivas(tenantId, tenant.plano)
+      const limite = await checarLimiteCampanhasAtivas(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
     }
 

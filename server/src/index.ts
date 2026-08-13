@@ -22,6 +22,7 @@ import { requireSuperAdmin } from './middleware/requireSuperAdmin'
 import { requireAcessoOperacional } from './middleware/requireAcessoOperacional'
 import { getSessionSecret } from './lib/auth'
 import { iniciarSchedulerAlertasTrial } from './services/trialAlertasScheduler'
+import { iniciarSchedulerDowngrade } from './services/downgradeScheduler'
 
 dotenv.config()
 
@@ -153,6 +154,12 @@ app.get('*', (_req, res) => {
 // vencido). Scheduler interno (setInterval, sem serviço externo pago) — ver
 // services/trialAlertasScheduler.ts pra idempotência/retry.
 iniciarSchedulerAlertasTrial()
+
+// Fase 8B — efetivação de downgrade agendado (POST /billing/downgrade já
+// sincronizou o Asaas; este scheduler só espelha localmente na data
+// certa). Mesmo padrão de scheduler interno (setInterval, sem serviço
+// externo) — ver services/downgradeScheduler.ts.
+iniciarSchedulerDowngrade()
 
 app.listen(PORT, () => {
   console.log(`Server rodando em http://localhost:${PORT}`)

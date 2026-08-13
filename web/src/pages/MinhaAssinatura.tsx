@@ -4,6 +4,7 @@ import type {
   SituacaoBillingResposta, SituacaoAsaasDecisao, SituacaoComercialTenant,
   AssinaturaSelfServiceResposta, PagarCobrancaResposta, PlanoContratavel,
   UpgradePreviewResposta, UpgradeSolicitadoResposta, CobrancaEmAbertoResumo,
+  DowngradePreviewResposta, DowngradeSolicitadoResposta,
 } from '../types'
 import { LoadingSpinner, ErrorState } from '../components/ui/EmptyState'
 import { Button } from '../components/ui/Button'
@@ -209,6 +210,26 @@ export function MinhaAssinatura() {
   const [upgradePendenteCancelando, setUpgradePendenteCancelando] = useState(false)
   const [upgradePendenteCancelarErro, setUpgradePendenteCancelarErro] = useState<string | null>(null)
 
+  // Fase 8B — downgrade agendado self-service. Mesmo padrão do upgrade
+  // acima: downgradePreview é sempre o resultado de GET
+  // /billing/downgrade/preview pro plano em análise, nunca um valor
+  // calculado aqui (o backend recalcula tudo de novo no POST
+  // /billing/downgrade também).
+  const [downgradePlanoId, setDowngradePlanoId] = useState<string | null>(null)
+  const [downgradePreview, setDowngradePreview] = useState<DowngradePreviewResposta | null>(null)
+  const [downgradePreviewLoading, setDowngradePreviewLoading] = useState(false)
+  const [downgradePreviewErro, setDowngradePreviewErro] = useState<string | null>(null)
+  const [downgradeConfirmando, setDowngradeConfirmando] = useState(false)
+  const [downgradeErro, setDowngradeErro] = useState<string | null>(null)
+
+  // Cancelamento de um downgrade já agendado (DELETE /billing/downgrade) —
+  // só aparece quando situacao.downgradeAgendado != null. O backend decide
+  // se ainda é possível cancelar (ex.: cobrança do próximo ciclo já
+  // processada bloqueia); o frontend nunca tenta adivinhar isso, só exibe
+  // a mensagem que vier.
+  const [downgradeCancelando, setDowngradeCancelando] = useState(false)
+  const [downgradeCancelarErro, setDowngradeCancelarErro] = useState<string | null>(null)
+
   const carregar = () => {
     setLoading(true)
     setErro(null)
@@ -257,10 +278,25 @@ export function MinhaAssinatura() {
   const upgradeIndisponivelPorAsaas = Boolean(
     situacao && !upgradeBloqueadoPorSituacaoLocal && situacao.situacaoAsaas !== 'OK'
   )
+  // Fase 8B (correção) — classificação por `nivel` (hierarquia EXPLÍCITA,
+  // ver compararNivelPlanos no backend), nunca mais por preço: preço pode
+  // divergir da hierarquia real (plano contratado historicamente, catálogo
+  // reajustado depois). nivel ausente em qualquer um dos dois lados nunca
+  // oferece troca self-service nenhuma (nem upgrade nem downgrade) — mesmo
+  // critério fail-closed do backend (compararNivelPlanos => 'indeterminado').
   const planosSuperiores = (planos ?? []).filter(p => {
     if (!podeVerUpgrade || !situacao?.plano) return false
-    if (p.valor == null || situacao.plano.valor == null) return false
-    return Number(p.valor) > Number(situacao.plano.valor)
+    if (p.nivel == null || situacao.plano.nivel == null) return false
+    return p.nivel > situacao.plano.nivel
+  })
+  // Downgrade nunca oferecido enquanto já existe um agendado (backend
+  // bloquearia com 409 de qualquer forma — isto só evita oferecer um botão
+  // que sempre falharia, mesmo raciocínio de upgradeIndisponivelPorAsaas).
+  const podeVerDowngrade = podeVerUpgrade && !situacao?.downgradeAgendado
+  const planosInferiores = (planos ?? []).filter(p => {
+    if (!podeVerDowngrade || !situacao?.plano) return false
+    if (p.nivel == null || situacao.plano.nivel == null) return false
+    return p.nivel < situacao.plano.nivel
   })
 
   useEffect(() => {
@@ -403,6 +439,69 @@ export function MinhaAssinatura() {
     }
   }
 
+  // Fase 8B — busca a prévia (GET /billing/downgrade/preview) pro plano
+  // clicado; nunca calcula limite/valor/data aqui, só exibe o que o backend
+  // devolveu (mesmo padrão de buscarPreviewUpgrade acima).
+  const buscarPreviewDowngrade = (planoId: string) => {
+    setDowngradePlanoId(planoId)
+    setDowngradePreview(null)
+    setDowngradePreviewErro(null)
+    setDowngradeErro(null)
+    setDowngradePreviewLoading(true)
+    get<DowngradePreviewResposta>(`/billing/downgrade/preview?plano_id=${encodeURIComponent(planoId)}`)
+      .then(setDowngradePreview)
+      .catch(e => setDowngradePreviewErro(e instanceof Error ? e.message : 'Erro ao calcular prévia de downgrade.'))
+      .finally(() => setDowngradePreviewLoading(false))
+  }
+
+  const cancelarPreviewDowngrade = () => {
+    setDowngradePlanoId(null)
+    setDowngradePreview(null)
+    setDowngradePreviewErro(null)
+    setDowngradeErro(null)
+  }
+
+  // plano_id é o único dado enviado — preço/data/limites são sempre
+  // recalculados no backend a partir dele (nunca confia no que a prévia
+  // devolveu, mesmo padrão de "confirmarUpgrade" acima). Sem invoiceUrl:
+  // downgrade nunca cria cobrança nova, só agenda.
+  const confirmarDowngrade = async () => {
+    if (!downgradePlanoId) return
+    setDowngradeConfirmando(true)
+    setDowngradeErro(null)
+    try {
+      await post<DowngradeSolicitadoResposta>('/billing/downgrade', { plano_id: downgradePlanoId })
+      cancelarPreviewDowngrade()
+      carregar()
+    } catch (e) {
+      setDowngradeErro(e instanceof Error ? e.message : 'Erro ao solicitar downgrade.')
+    } finally {
+      setDowngradeConfirmando(false)
+    }
+  }
+
+  // Confirmação antes de cancelar de verdade. O backend é quem decide se
+  // ainda dá pra cancelar (ex.: a cobrança do próximo ciclo já foi
+  // processada bloqueia, ver cancelarDowngrade em controllers/billing.ts) —
+  // o frontend nunca tenta adivinhar isso antes de tentar, só mostra a
+  // mensagem que vier em caso de erro. Sucesso limpa downgradeAgendado
+  // (volta a null) e libera de novo as opções de downgrade/upgrade.
+  const cancelarDowngradeAgendado = async () => {
+    if (!window.confirm('Cancelar o downgrade agendado? Seu plano e valor atuais continuam sem alteração.')) {
+      return
+    }
+    setDowngradeCancelando(true)
+    setDowngradeCancelarErro(null)
+    try {
+      await del('/billing/downgrade')
+      carregar()
+    } catch (e) {
+      setDowngradeCancelarErro(e instanceof Error ? e.message : 'Erro ao cancelar downgrade agendado.')
+    } finally {
+      setDowngradeCancelando(false)
+    }
+  }
+
   const planoSelecionado = planos?.find(p => p.id === planoSelecionadoId) ?? null
 
   return (
@@ -487,6 +586,58 @@ export function MinhaAssinatura() {
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Fase 8B — downgrade agendado, só aparece quando o backend
+                confirma AGENDAMENTO COMPLETO (downgradeAgendado != null,
+                nunca um claim técnico incompleto em andamento no meio do
+                POST, ver downgradeAgendamentoCompleto em asaasClient.ts).
+                Uma nova tentativa do mesmo POST, se necessário, é
+                responsabilidade de recovery do próprio backend, nunca algo
+                que esta tela decida sozinha. */}
+            {!bloqueadoPorStatus && situacao.downgradeAgendado && (
+              <div className={card}>
+                <div className="flex items-start gap-2.5">
+                  <span className="material-symbols-outlined text-primary shrink-0">schedule</span>
+                  <div className="flex-1">
+                    <h3 className="text-title-md font-bold text-on-surface mb-1">Downgrade agendado</h3>
+                    <p className="text-body-md text-on-surface-variant">
+                      Seu plano será alterado para{' '}
+                      <span className="font-semibold text-on-surface">{situacao.downgradeAgendado.plano.nome}</span> em{' '}
+                      <span className="font-semibold text-on-surface">{formatDateCivil(situacao.downgradeAgendado.efetivarEm)}</span>.
+                      {situacao.plano && (
+                        <>
+                          {' '}Até essa data, você continua com os recursos do{' '}
+                          <span className="font-semibold text-on-surface">{situacao.plano.nome}</span>.
+                        </>
+                      )}
+                    </p>
+                    {situacao.downgradeAgendado.valorDestino != null && (
+                      <p className="text-body-md text-on-surface-variant mt-1">
+                        Novo valor a partir dessa data:{' '}
+                        <span className="font-semibold text-on-surface">
+                          {formatarValorReais(Number(situacao.downgradeAgendado.valorDestino))}
+                        </span>.
+                      </p>
+                    )}
+                    <p className="text-body-sm text-on-surface-variant mt-2">
+                      O downgrade não é imediato e não gera crédito nem reembolso do ciclo atual. Até a data de
+                      efetivação, seu uso não pode ultrapassar os limites do plano futuro. O cancelamento pode deixar
+                      de ser possível se a renovação já tiver sido processada nesse meio tempo.
+                    </p>
+                    {downgradeCancelarErro && (
+                      <div className="mt-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">
+                        {downgradeCancelarErro}
+                      </div>
+                    )}
+                    <div className="mt-3">
+                      <Button variant="ghost" size="sm" onClick={cancelarDowngradeAgendado} disabled={downgradeCancelando}>
+                        {downgradeCancelando ? 'Cancelando…' : 'Cancelar downgrade'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -578,6 +729,108 @@ export function MinhaAssinatura() {
                             {upgradeConfirmando ? 'Confirmando…' : 'Confirmar upgrade'}
                           </Button>
                           <Button variant="ghost" onClick={cancelarUpgrade} disabled={upgradeConfirmando}>
+                            Cancelar
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Fase 8B — downgrade self-service, mesma lista de
+                /billing/planos-disponiveis, filtrada por nivel MENOR que o
+                atual (nunca por preço, ver classificação acima). Nenhum
+                cálculo de preço/data/limite acontece aqui: a prévia (GET
+                /billing/downgrade/preview) é sempre quem decide, inclusive
+                se a confirmação pode prosseguir (podeSolicitar). */}
+            {podeVerDowngrade && (
+              <div>
+                <h3 className="text-title-md font-bold text-on-surface mb-3">Planos com menor capacidade</h3>
+                {planosLoading && <LoadingSpinner />}
+                {!planosLoading && planosErro && <ErrorState message={planosErro} onRetry={() => { setPlanos(null) }} />}
+                {!planosLoading && !planosErro && planosInferiores.length === 0 && (
+                  <p className="text-body-md text-on-surface-variant">Não há planos com menor capacidade disponíveis para downgrade.</p>
+                )}
+                {!planosLoading && !planosErro && planosInferiores.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {planosInferiores.map(p => (
+                      <div key={p.id} className={card}>
+                        <h4 className="text-title-md font-bold text-on-surface mb-1">{p.nome}</h4>
+                        <p className="text-headline-md font-bold text-on-surface mb-3">
+                          {p.valor != null ? formatarValorReais(Number(p.valor)) : 'Sob consulta'}
+                          {p.ciclo && <span className="text-body-md font-normal text-on-surface-variant"> / {CICLO_LABEL[p.ciclo] ?? p.ciclo}</span>}
+                        </p>
+                        <Button size="sm" variant="ghost" onClick={() => buscarPreviewDowngrade(p.id)} disabled={downgradePlanoId === p.id}>
+                          Fazer downgrade
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {downgradePlanoId && (
+                  <div className={`${card} mt-4`}>
+                    <h3 className="text-title-md font-bold text-on-surface mb-2">Resumo do downgrade</h3>
+                    {downgradePreviewLoading && <LoadingSpinner />}
+                    {!downgradePreviewLoading && downgradePreviewErro && (
+                      <ErrorState message={downgradePreviewErro} onRetry={() => buscarPreviewDowngrade(downgradePlanoId)} />
+                    )}
+                    {!downgradePreviewLoading && !downgradePreviewErro && downgradePreview && (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-body-md mb-3">
+                          <div>
+                            <span className="block text-[12px] text-on-surface-variant">Plano atual</span>
+                            <span className="text-on-surface font-semibold">
+                              {downgradePreview.planoAtual?.nome ?? 'Nenhum'} ({formatarValorReais(downgradePreview.valorAtualContratado)})
+                            </span>
+                          </div>
+                          <div>
+                            <span className="block text-[12px] text-on-surface-variant">Novo plano</span>
+                            <span className="text-on-surface font-semibold">
+                              {downgradePreview.planoDestino.nome}
+                              {downgradePreview.valorDestino != null && ` (${formatarValorReais(Number(downgradePreview.valorDestino))})`}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="block text-[12px] text-on-surface-variant">Efetiva em</span>
+                            <span className="text-on-surface font-semibold">{formatDateCivil(downgradePreview.efetivarEm)}</span>
+                          </div>
+                        </div>
+                        <p className="text-body-sm text-on-surface-variant mb-3">
+                          O downgrade não é imediato e não gera crédito nem reembolso do ciclo atual. Você continua
+                          com o plano e o valor atuais até {formatDateCivil(downgradePreview.efetivarEm)}. A partir do
+                          próximo ciclo, o plano e o valor agendados passam a valer automaticamente.
+                        </p>
+
+                        {!downgradePreview.limites.compativel && (
+                          <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">
+                            <p className="font-semibold mb-1">O uso atual não cabe no plano de destino:</p>
+                            <ul className="list-disc pl-5 space-y-0.5">
+                              {downgradePreview.limites.detalhes.map(d => (
+                                <li key={d.recurso}>{d.recurso}: uso atual {d.usoAtual}, limite do novo plano {d.limiteDestino}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {downgradePreview.cobrancaAnteriorBloqueio && (
+                          <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">
+                            {downgradePreview.cobrancaAnteriorBloqueio}
+                          </div>
+                        )}
+                        {downgradePreview.cobrancaProximoCiclo.situacao === 'ambigua' && (
+                          <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">
+                            Existe mais de uma cobrança candidata ao próximo ciclo da assinatura. Fale com o suporte antes de continuar.
+                          </div>
+                        )}
+
+                        {downgradeErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{downgradeErro}</div>}
+                        <div className="flex gap-2">
+                          <Button onClick={confirmarDowngrade} disabled={downgradeConfirmando || !downgradePreview.podeSolicitar}>
+                            {downgradeConfirmando ? 'Confirmando…' : 'Confirmar downgrade'}
+                          </Button>
+                          <Button variant="ghost" onClick={cancelarPreviewDowngrade} disabled={downgradeConfirmando}>
                             Cancelar
                           </Button>
                         </div>

@@ -142,6 +142,11 @@ export interface AssinaturaAsaas {
   status: string
   nextDueDate: string
   billingType?: string
+  // Fase 8B (fundação) — valor REAL cobrado pela assinatura agora, direto
+  // do Asaas. Usado como 2º nível de fallback em GET /billing/situacao
+  // (ver obterSituacao em controllers/billing.ts) pra tenants sem
+  // valor_assinatura_atual local ainda (legados, anteriores a esse campo).
+  value?: number
   [chave: string]: unknown
 }
 
@@ -562,6 +567,26 @@ export interface CobrancaEmAbertoResumo {
   invoiceUrl: string | null
 }
 
+// Fase 8B (fundação) — GET /billing/situacao nunca mostrava o valor
+// REALMENTE contratado, só o preço de catálogo (Plano.asaas_subscription_value),
+// que pode ter mudado desde que o tenant contratou. Ordem de resolução, do
+// mais confiável ao menos: 1) valor_assinatura_atual (snapshot local, ver
+// calcularAtualizacaoTenant); 2) valor ao vivo da própria assinatura no
+// Asaas (só disponível quando entrada.tipo === 'dados' — já buscado por
+// buscarEntradaSituacaoAsaas no mesmo GET, nenhuma chamada extra); 3)
+// catálogo, só como último recurso (tenant sem histórico financeiro nenhum
+// ainda, ex.: trial). Função pura — o controller só decide QUAIS 3 valores
+// passar, nunca decide a prioridade sozinho.
+export function resolverValorAssinaturaExibido(
+  valorAssinaturaAtual: Prisma.Decimal | number | string | null | undefined,
+  valorAoVivoAsaas: number | null | undefined,
+  valorCatalogo: Prisma.Decimal | number | string | null | undefined
+): Prisma.Decimal | number | string | null {
+  if (valorAssinaturaAtual != null) return valorAssinaturaAtual
+  if (valorAoVivoAsaas != null) return valorAoVivoAsaas
+  return valorCatalogo ?? null
+}
+
 // Correção de produto — GET /billing/situacao expõe cobrancasEmAberto: só
 // PENDING (antes do vencimento — o cliente pode trocar a forma de
 // pagamento sem precisar ficar inadimplente) e OVERDUE (vencida, mesmo
@@ -603,6 +628,29 @@ type PlanoParaUpgrade = {
   interno: boolean
   eh_plano_trial: boolean
   asaas_subscription_value: Prisma.Decimal | number | string | null
+  nivel: number | null
+}
+
+// Correção pós-revisão (Fase 8B) — preço de catálogo é editável e um tenant
+// pode ficar com o valor historicamente contratado divergente dele, então
+// "preço maior = plano superior" deixou de ser seguro (ex.: Growth
+// contratado a 299 vs. Starter cujo catálogo hoje diz 349 — Growth continua
+// sendo o plano superior). `nivel` (Plano.nivel, ver schema.prisma) é agora
+// a ÚNICA fonte de hierarquia — nunca inferida por preço. `null` em
+// qualquer um dos dois lados é SEMPRE 'indeterminado', nunca resolvido pra
+// um lado arbitrário (fail-closed, mesmo raciocínio de outras decisões
+// financeiras deste arquivo).
+export type ResultadoComparacaoNivel = 'superior' | 'inferior' | 'mesmo' | 'indeterminado'
+
+export function compararNivelPlanos(
+  atual: { nivel: number | null } | null,
+  destino: { nivel: number | null } | null
+): ResultadoComparacaoNivel {
+  if (!atual || !destino) return 'indeterminado'
+  if (atual.nivel == null || destino.nivel == null) return 'indeterminado'
+  if (destino.nivel > atual.nivel) return 'superior'
+  if (destino.nivel < atual.nivel) return 'inferior'
+  return 'mesmo'
 }
 
 // Reaproveita validarPlanoParaAssinaturaSelfService (interno/trial/sem
@@ -610,10 +658,20 @@ type PlanoParaUpgrade = {
 // que nem self-service normal aceitaria. Regras adicionais, exclusivas de
 // upgrade: plano precisa estar `ativo` (comprar um plano desativado não é
 // permitido, diferente de só trocar dados de um já contratado), precisa ser
-// DIFERENTE do atual, e precisa ser SUPERIOR (nunca downgrade nesta fase) —
-// "superior" é decidido pelo valor de assinatura (asaas_subscription_value),
-// única ordenação de planos que já existe no sistema hoje (é a mesma usada
-// por listarPlanosDisponiveis, orderBy asaas_subscription_value asc).
+// DIFERENTE do atual, e precisa ser SUPERIOR.
+//
+// IMPORTANTE (investigação pré-8B/nivel): esta função AINDA decide
+// "superior" pelo valor de assinatura (asaas_subscription_value), não por
+// `nivel` — deliberadamente NÃO alterada nesta rodada (só motivoDowngradePlano
+// migrou pra nivel, ver abaixo). Isso deixa upgrade e downgrade com critérios
+// DIFERENTES por ora: é possível um plano ter nivel superior mas preço de
+// catálogo igual/inferior ao atual (ex.: catálogo do plano de nivel mais
+// alto foi reduzido numa promoção) — nesse caso validarUpgradePlano bloqueia
+// (preço não subiu) mesmo sendo um upgrade "funcional" pela hierarquia, e o
+// valor cobrado por calcularValorProporcionalUpgrade permanece 100% baseado
+// em preço, não em nivel. Migrar validarUpgradePlano pra nivel exigiria
+// também revisitar essa fórmula de prorrata (fora do escopo desta rodada,
+// ver tarefa "não mudar a fórmula da prorrata ainda").
 export function validarUpgradePlano(
   planoAtual: PlanoParaUpgrade | null,
   planoNovo: PlanoParaUpgrade | null
@@ -636,6 +694,40 @@ export function validarUpgradePlano(
   return null
 }
 
+// Fase 8B — mesmo padrão de validarUpgradePlano acima, sentido oposto:
+// plano destino precisa ser INFERIOR. Diferente de validarUpgradePlano,
+// direção é decidida por `nivel` (compararNivelPlanos), NUNCA por preço —
+// exatamente o problema que motivou a introdução do campo (ver comentário
+// de compararNivelPlanos acima). `nivel` ausente em qualquer um dos dois
+// planos bloqueia (fail-closed: sem hierarquia configurada, não dá pra
+// garantir que é de fato um downgrade). valorAtualContratado deixou de ser
+// parâmetro (não decide mais direção nenhuma) — continua sendo calculado
+// pelo controller (ao vivo, via Asaas) só pra exibição no preview e, mais
+// adiante, pro snapshot downgrade_valor_origem. trial como destino já é
+// bloqueado por validarPlanoParaAssinaturaSelfService (reaproveitada,
+// motivoBase), não duplicado aqui.
+export function motivoDowngradePlano(
+  planoAtual: PlanoParaUpgrade | null,
+  planoNovo: PlanoParaUpgrade | null
+): string | null {
+  const motivoBase = validarPlanoParaAssinaturaSelfService(planoNovo)
+  if (motivoBase) return motivoBase
+  // Mesmo raciocínio de validarUpgradePlano: motivoBase já garante
+  // planoNovo não-nulo, checagem abaixo é só pro TypeScript.
+  if (!planoNovo) return 'Plano não encontrado.'
+  if (!planoNovo.ativo) return 'Este plano não está disponível para contratação no momento.'
+  if (!planoAtual) return 'Tenant sem plano atual — não é possível calcular downgrade.'
+  if (planoNovo.id === planoAtual.id) return 'Você já está neste plano.'
+  const comparacao = compararNivelPlanos(planoAtual, planoNovo)
+  if (comparacao === 'indeterminado') {
+    return 'Não foi possível determinar a hierarquia entre os planos (nível não configurado) — contate o suporte antes de solicitar o downgrade.'
+  }
+  if (comparacao !== 'inferior') {
+    return 'Só é possível fazer downgrade para um plano de nível inferior ao atual.'
+  }
+  return null
+}
+
 // Impede solicitar um upgrade novo enquanto já existe uma troca pendente de
 // confirmação (regra explícita da tarefa) — nunca deixa dois
 // plano_pendente_id concorrentes, o que deixaria ambíguo qual pagamento
@@ -645,6 +737,90 @@ export function motivoUpgradePendenteBloqueiaNovaTroca(planoPendenteId: string |
     return 'Já existe uma troca de plano pendente de confirmação. Aguarde o pagamento ser confirmado antes de solicitar outra troca.'
   }
   return null
+}
+
+// Correção pós-revisão (auditoria 8B — bloqueador) — impede solicitar
+// upgrade enquanto existe QUALQUER plano_downgrade_id preenchido, seja
+// claim TÉCNICO incompleto (POST /billing/downgrade pode já ter
+// reprecificado a assinatura no Asaas, ver classificarClaimDowngrade) ou
+// agendamento COMPLETO. Deliberadamente NÃO usa downgradeAgendamentoCompleto
+// aqui — um claim incompleto também representa uma alteração financeira em
+// andamento na MESMA assinatura, e um upgrade concorrente nesse meio-tempo
+// calcularia o proporcional em cima de um valor de catálogo que já pode
+// não bater com o que está de fato na assinatura. Cliente precisa cancelar
+// (claim incompleto: DELETE recupera e limpa; completo: DELETE cancela) ou
+// deixar o downgrade concluir antes de pedir um upgrade.
+export function motivoDowngradeEmAndamentoBloqueiaUpgrade(planoDowngradeId: string | null): string | null {
+  if (planoDowngradeId) {
+    return 'Existe um downgrade em andamento para este tenant. Cancele ou conclua essa alteração antes de solicitar um upgrade.'
+  }
+  return null
+}
+
+// Correção pós-revisão (concorrência/recovery) — substitui
+// motivoDowngradeJaAgendadoBloqueiaNovo (removida): em vez de só um
+// motivo/null, devolve o suficiente pra POST /billing/downgrade decidir
+// entre 3 caminhos SEM tocar preço/nivel/limites atuais de novo:
+//
+// - 'sem_claim': nada em andamento — segue pra validação completa de uma
+//   solicitação nova (validarECalcularPreviewDowngrade + limites/cobranças).
+// - 'recuperavel': já existe um claim DESTE MESMO plano, ainda incompleto
+//   (downgrade_valor_origem null) — MAS consistente (downgrade_efetivar_em
+//   e downgrade_valor_destino já congelados). Devolve os snapshots prontos
+//   pra usar — nunca recalculados do catálogo/licenca_fim/nivel atual, é
+//   exatamente o que corrige o bug de retry com catálogo alterado.
+// - 'bloqueado': (a) plano_downgrade_id é de OUTRO plano (troca concorrente/
+//   anterior de verdade); (b) downgrade_valor_origem já preenchido
+//   (agendamento anterior JÁ concluído, ver downgradeAgendamentoCompleto);
+//   ou (c) claim de mesmo plano mas com downgrade_efetivar_em/
+//   downgrade_valor_destino ausentes — estado que o novo desenho do claim
+//   (updateMany grava os 3 campos atomicamente numa única instrução) nunca
+//   deveria produzir sozinho, mas fail-closed em vez de assumir o que fazer.
+export type ClassificacaoClaimDowngrade =
+  | { estado: 'sem_claim' }
+  | { estado: 'recuperavel'; efetivarEm: Date; valorDestino: Prisma.Decimal | number | string }
+  | { estado: 'bloqueado'; motivo: string }
+
+export function classificarClaimDowngrade(
+  tenant: {
+    plano_downgrade_id: string | null
+    downgrade_efetivar_em: Date | null
+    downgrade_valor_origem: Prisma.Decimal | number | string | null
+    downgrade_valor_destino: Prisma.Decimal | number | string | null
+  },
+  planoIdSolicitado: string
+): ClassificacaoClaimDowngrade {
+  if (!tenant.plano_downgrade_id) return { estado: 'sem_claim' }
+  if (tenant.plano_downgrade_id !== planoIdSolicitado) {
+    return { estado: 'bloqueado', motivo: 'Já existe um downgrade agendado para outro plano. Cancele o agendamento atual antes de solicitar outro.' }
+  }
+  if (tenant.downgrade_valor_origem != null) {
+    return { estado: 'bloqueado', motivo: 'Já existe um downgrade agendado. Cancele o agendamento atual antes de solicitar outro.' }
+  }
+  if (tenant.downgrade_efetivar_em == null || tenant.downgrade_valor_destino == null) {
+    return { estado: 'bloqueado', motivo: 'O agendamento de downgrade deste tenant está em um estado inconsistente — contate o suporte antes de tentar novamente.' }
+  }
+  return { estado: 'recuperavel', efetivarEm: tenant.downgrade_efetivar_em, valorDestino: tenant.downgrade_valor_destino }
+}
+
+// Estado explícito e único: nunca inferir "downgrade ativo" só por
+// plano_downgrade_id (pode ser um claim incompleto/em sincronização, ver
+// comentário acima) nem só por downgrade_efetivar_em (mesma razão — já vem
+// preenchido desde o claim, antes do Asaas confirmar). "Completo" exige os
+// 4 campos juntos — é só a partir daí que o downgrade está de fato
+// agendado e a assinatura no Asaas já reflete o valor destino.
+export function downgradeAgendamentoCompleto(tenant: {
+  plano_downgrade_id: string | null
+  downgrade_efetivar_em: Date | null
+  downgrade_valor_origem: Prisma.Decimal | number | string | null
+  downgrade_valor_destino: Prisma.Decimal | number | string | null
+}): boolean {
+  return (
+    tenant.plano_downgrade_id != null &&
+    tenant.downgrade_efetivar_em != null &&
+    tenant.downgrade_valor_origem != null &&
+    tenant.downgrade_valor_destino != null
+  )
 }
 
 // Cancelamento de upgrade pendente (correção pós-homologação Fase 8A) —
@@ -700,6 +876,137 @@ export function motivoCancelamentoUpgradeBloqueado(
     return 'Este upgrade já foi pago e não pode mais ser cancelado. Aguarde a confirmação automática do pagamento.'
   }
   return null
+}
+
+// Correção pós-revisão (Fase 8B) — a versão anterior recebia só
+// `cobranca: Pick<CobrancaAsaas,'status'> | null`, e tratava `null` como um
+// único bloqueio incondicional. Isso confundia dois cenários bem
+// diferentes: (A) a cobrança do próximo ciclo ainda não foi gerada pelo
+// Asaas — normal e ESPERADO antes da data de efetivação, preview já nunca
+// bloqueia por isso (ver motivoCobrancaAnteriorBloqueiaDowngrade/
+// identificarCobrancaProximoCiclo acima) — cancelar aqui só precisa
+// restaurar subscription.value, sem nenhuma cobrança pra tocar; e (E) falha
+// ao CONSULTAR o Asaas (rede, 5xx, resposta incompleta) — nunca deveria ser
+// tratado como "A" por omissão. Assinatura nova recebe a RESOLUÇÃO completa
+// da consulta (não só o resultado de identificarCobrancaProximoCiclo), pro
+// controller nunca poder confundir "consultei e não achei" com "não
+// consegui nem consultar".
+export type ResolucaoCobrancaProximoCiclo =
+  | { tipo: 'falha_consulta' }
+  | ({ tipo: 'consultada' } & CobrancaProximoCicloResultado)
+
+// Whitelist FAIL-CLOSED pro cancelamento de downgrade agendado. A cobrança
+// do próximo ciclo, quando a solicitação já reprecificou a assinatura pro
+// valor destino (ver desenho da 8B), precisa ser restaurada pro valor
+// origem — só é seguro fazer isso enquanto ela ainda não foi paga:
+// - nao_encontrada (A): nenhuma cobrança gerada ainda — libera (nada a
+//   restaurar na cobrança em si, só o subscription.value);
+// - identificada + PENDING/OVERDUE (B): libera, restaura COM
+//   updatePendingPayments:true (mesma cobrança que seria reprecificada);
+// - identificada + qualquer outro status (C, ex.: CONFIRMED/RECEIVED): já
+//   processada, cliente já pagou o valor destino — bloqueia, restaurar o
+//   preço não desfaz o pagamento já feito;
+// - ambigua (D): mais de uma candidata — nunca decide por qualquer uma
+//   delas, bloqueia fail-closed até o dado ficar inequívoco;
+// - falha_consulta (E): não deu nem pra confirmar o estado — bloqueia,
+//   nunca assume "não encontrada" só porque a consulta falhou.
+export function motivoRestauracaoDowngradeBloqueada(
+  resolucao: ResolucaoCobrancaProximoCiclo
+): string | null {
+  if (resolucao.tipo === 'falha_consulta') {
+    return 'Não foi possível confirmar a situação da cobrança do próximo ciclo no Asaas agora. Tente novamente em instantes.'
+  }
+  if (resolucao.situacao === 'nao_encontrada') return null
+  if (resolucao.situacao === 'ambigua') {
+    return 'Existe mais de uma cobrança candidata ao próximo ciclo — cancelamento bloqueado por segurança.'
+  }
+  if (resolucao.cobranca.status === 'PENDING' || resolucao.cobranca.status === 'OVERDUE') return null
+  return 'A cobrança do próximo ciclo já foi processada — não é mais possível cancelar este downgrade.'
+}
+
+// Fase 8B (fundação) — proteção ANTES de uma futura reprecificação (nunca
+// executada nesta etapa): se existe cobrança PENDING/OVERDUE da mesma
+// assinatura com dueDate civil ANTERIOR à data de efetivação, o downgrade
+// não pode ser solicitado — reprecificar a assinatura tocaria uma cobrança
+// de um ciclo que o tenant ainda não terminou de pagar no valor cheio
+// (mesma preocupação já documentada em atualizarValorAssinaturaAsaas sobre
+// updatePendingPayments). Comparação por DIA CIVIL (diaCivilComoIndice,
+// mesma função já usada por diasRestantesCicloAtual/downgradeDeveEfetivar
+// acima) — nunca `new Date(...).getTime()` direto, que ficaria sujeito ao
+// mesmo bug de fuso já corrigido em outros pontos financeiros. `<` estrito:
+// dueDate igual à efetivação NÃO é "anterior" (é a própria cobrança do
+// próximo ciclo, ver identificarCobrancaProximoCiclo abaixo), dueDate
+// posterior também não bloqueia por este motivo.
+export function motivoCobrancaAnteriorBloqueiaDowngrade(
+  cobrancas: Pick<CobrancaAsaas, 'status' | 'dueDate'>[],
+  efetivarEm: Date
+): string | null {
+  const indiceEfetivar = diaCivilComoIndice(efetivarEm)
+  const anterior = cobrancas.find(
+    (c) => (c.status === 'PENDING' || c.status === 'OVERDUE') && diaCivilComoIndice(new Date(c.dueDate)) < indiceEfetivar
+  )
+  if (!anterior) return null
+  return `Existe uma cobrança em aberto (vencimento ${anterior.dueDate}) anterior à data de efetivação do downgrade — regularize-a antes de solicitar.`
+}
+
+// Fase 8B (fundação) — localiza a cobrança que corresponde ao PRÓXIMO
+// ciclo (mesma assinatura, dueDate civil === efetivarEm civil). Fail-closed
+// nos dois extremos: nenhuma candidata não é tratada como "tudo bem, seguir
+// sem cobrança" (é comum e esperado quando o Asaas ainda não gerou a
+// cobrança do próximo ciclo — nada a fazer agora, só informar), e mais de
+// uma candidata é tratada como situação AMBÍGUA, nunca resolvida
+// arbitrariamente (ex.: "pega a primeira") — bloqueia qualquer operação
+// financeira futura sobre ela até o dado ficar inequívoco.
+export type CobrancaProximoCicloResultado =
+  | { situacao: 'identificada'; cobranca: CobrancaAsaas }
+  | { situacao: 'nao_encontrada' }
+  | { situacao: 'ambigua'; quantidade: number }
+
+export function identificarCobrancaProximoCiclo(
+  cobrancas: CobrancaAsaas[],
+  subscriptionId: string,
+  efetivarEm: Date
+): CobrancaProximoCicloResultado {
+  const indiceEfetivar = diaCivilComoIndice(efetivarEm)
+  const candidatas = cobrancas.filter(
+    (c) => c.subscription === subscriptionId && diaCivilComoIndice(new Date(c.dueDate)) === indiceEfetivar
+  )
+  if (candidatas.length === 0) return { situacao: 'nao_encontrada' }
+  if (candidatas.length > 1) return { situacao: 'ambigua', quantidade: candidatas.length }
+  return { situacao: 'identificada', cobranca: candidatas[0]! }
+}
+
+// POST /billing/downgrade — decide o que fazer com o valor REAL da
+// assinatura no Asaas (lido ao vivo, imediatamente antes de reprecificar)
+// comparado aos dois valores conhecidos da operação (origem estável/
+// destino do plano novo). Existe porque a reprecificação em si só acontece
+// depois de todas as validações (ver desenho da 8B) e o processo pode
+// falhar DEPOIS do PUT no Asaas ter sucesso mas ANTES de persistir o
+// agendamento localmente — sem isso, um retry ingênuo tentaria reprecificar
+// de novo às cegas, sem saber se a tentativa anterior já tinha ido pro ar.
+// - remoto === origem: nada mudou ainda, primeira tentativa de verdade.
+// - remoto === destino: o PUT de uma tentativa anterior já foi aplicado no
+//   Asaas (mas a persistência local falhou depois) — retry idempotente,
+//   repetir o mesmo PUT é seguro (ver atualizarValorAssinaturaAsaas), só
+//   falta persistir localmente.
+// - qualquer outro valor: nem o esperado "antes" nem o esperado "depois" —
+//   divergência financeira real (ex.: alguém mexeu na assinatura por fora,
+//   ou os valores calculados aqui já não refletem mais o estado real).
+//   Fail-closed: nunca sobrescreve o Asaas às cegas.
+// Empate origem===destino (teoricamente não deveria acontecer, já que
+// motivoDowngradePlano exige nivel inferior — preço podendo coincidir é
+// possível) resolve como 'primeira_tentativa' por prioridade da ordem dos
+// ifs — decisão arbitrária mas determinística, documentada aqui.
+export type DecisaoEstadoRemotoDowngrade = 'primeira_tentativa' | 'retry_idempotente' | 'divergencia_bloqueia'
+
+export function decidirEstadoRemotoDowngrade(
+  valorRemoto: number,
+  valorOrigem: number,
+  valorDestino: number
+): DecisaoEstadoRemotoDowngrade {
+  if (valorRemoto === valorOrigem) return 'primeira_tentativa'
+  if (valorRemoto === valorDestino) return 'retry_idempotente'
+  return 'divergencia_bloqueia'
 }
 
 const DIA_MS = 24 * 60 * 60 * 1000
@@ -763,6 +1070,21 @@ function diaCivilComoIndice(data: Date, timeZone?: string): number {
   if (!timeZone) return Date.UTC(data.getUTCFullYear(), data.getUTCMonth(), data.getUTCDate())
   const { ano, mes, dia } = partesDataCivil(data, timeZone)
   return Date.UTC(Number(ano), Number(mes) - 1, Number(dia))
+}
+
+// Fase 8B (fundação) — decide se um downgrade agendado já deve efetivar.
+// NUNCA `downgrade_efetivar_em <= new Date()` direto: efetivar_em é
+// persistido com a mesma codificação de licenca_fim/dueDate (meia-noite UTC
+// do dia civil pretendido), então comparar contra um instante UTC puro faz
+// o dia virar 3h cedo demais no horário de Brasília (mesma classe de bug já
+// corrigida em diasRestantesCicloAtual/dataCivilBRT). Mesma composição de
+// diaCivilComoIndice já usada ali: efetivarEm lido em UTC (é a mesma
+// codificação de licenca_fim — ler em BRT aqui devolveria o dia anterior),
+// agora lido em America/Sao_Paulo (é um instante real, sem fuso implícito).
+// 11/09 23:59 BRT => índice de 11/09 < índice de 12/09 => false (Growth).
+// 12/09 00:00 BRT em diante => índice de 12/09 >= índice de 12/09 => true.
+export function downgradeDeveEfetivar(efetivarEm: Date, agora: Date = new Date()): boolean {
+  return diaCivilComoIndice(agora, TIMEZONE_FINANCEIRO) >= diaCivilComoIndice(efetivarEm)
 }
 
 // Dias restantes até o próximo vencimento (licenca_fim) — dia civil inteiro
@@ -1099,6 +1421,13 @@ export function calcularAtualizacaoTenant(
     status: TenantStatus
     plano_pendente_id?: string | null
     plano_pendente_payment_id?: string | null
+    // Fase 8B (fundação) — só o campo de valor é lido aqui (pra gravar em
+    // valor_assinatura_atual junto com a troca de plano_id); Pick<> mínimo,
+    // mesmo padrão do resto desta assinatura, em vez de exigir o Plano
+    // inteiro. undefined/null tratado como "sem valor a gravar" (plano
+    // pendente sem asaas_subscription_value configurado não deveria
+    // acontecer em uso normal, mas nunca lança por causa disso).
+    plano_pendente?: { asaas_subscription_value: Prisma.Decimal | number | string | null } | null
   },
   cicloPlano: string | null,
   agora: Date = new Date()
@@ -1217,6 +1546,14 @@ export function calcularAtualizacaoTenant(
         plano: { connect: { id: tenantAtual.plano_pendente_id } },
         plano_pendente: { disconnect: true },
         plano_pendente_payment_id: null,
+        // Fase 8B (fundação) — mesmo momento em que plano_id troca de
+        // verdade (primeira contratação confirmada OU upgrade confirmado,
+        // os dois caem neste branch) é o único lugar que grava o valor
+        // REALMENTE contratado, distinto do preço de catálogo (que pode
+        // mudar depois sem afetar quem já contratou). Nunca gravado numa
+        // renovação normal (fora deste branch) nem quando o Plano é
+        // editado (caminho de código completamente separado).
+        valor_assinatura_atual: tenantAtual.plano_pendente?.asaas_subscription_value ?? null,
       },
     }
   }

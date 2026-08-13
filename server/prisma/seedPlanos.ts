@@ -49,6 +49,7 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     interno: false,
     eh_plano_trial: true,
     trial_dias: 14,
+    nivel: 0,
   },
   {
     slug: 'starter',
@@ -64,6 +65,7 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     permite_white_label: false,
     ativo: true,
     interno: false,
+    nivel: 1,
   },
   {
     slug: 'growth',
@@ -79,6 +81,7 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     permite_white_label: false,
     ativo: true,
     interno: false,
+    nivel: 2,
   },
   {
     slug: 'scale',
@@ -94,6 +97,7 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     permite_white_label: true,
     ativo: true,
     interno: false,
+    nivel: 3,
   },
   {
     slug: 'enterprise',
@@ -113,6 +117,7 @@ const PLANOS_PADRAO: Prisma.PlanoUncheckedCreateInput[] = [
     permite_white_label: true,
     ativo: true,
     interno: false,
+    nivel: 4,
   },
 ]
 

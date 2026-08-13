@@ -116,6 +116,40 @@ model Tenant {
   // sem um payment.id esperado pra comparar, qualquer pagamento confirmado
   // do tenant ainda aplica, exatamente como sempre funcionou.
   plano_pendente_payment_id String?
+  // Fase 8B (fundação) — espelho local do valor REALMENTE contratado na
+  // assinatura Asaas, distinto de Plano.asaas_subscription_value (preço de
+  // CATÁLOGO, pode mudar sem afetar quem já contratou). Só gravado nos
+  // momentos em que uma troca financeira é de fato efetivada — primeira
+  // contratação confirmada e upgrade confirmado nesta etapa (ver
+  // calcularAtualizacaoTenant em asaasClient.ts); downgrade efetivado e
+  // reajuste explícito ficam pra próximas etapas. Editar o preço de um
+  // Plano no catálogo NUNCA escreve aqui — os dois caminhos de código são
+  // completamente separados de propósito. null pra tenants ainda sem
+  // nenhuma confirmação financeira (trial) ou legados anteriores a este
+  // campo — GET /billing/situacao cai em fallback nesse caso (ver
+  // obterSituacao em controllers/billing.ts).
+  valor_assinatura_atual Decimal? @db.Decimal(10, 2)
+  // Fase 8B (fundação) — downgrade agendado, efetivo só no fim do ciclo já
+  // pago (nunca imediato, ao contrário de upgrade). Deliberadamente campos
+  // PRÓPRIOS, nunca reaproveitando plano_pendente_id/plano_pendente_payment_id:
+  // aquele par é disparado por um PAGAMENTO específico confirmando (upgrade
+  // cria uma cobrança avulsa e sabe o payment.id esperado de antemão);
+  // downgrade não gera cobrança nenhuma na solicitação — o gatilho é uma
+  // DATA (downgrade_efetivar_em), não um pagamento. Reaproveitar os mesmos
+  // campos tornaria impossível distinguir "upgrade aguardando pagamento X"
+  // de "downgrade aguardando a data Y" a partir do mesmo estado.
+  // downgrade_valor_origem/downgrade_valor_destino são snapshots do preço
+  // NO MOMENTO da solicitação (origem: lido AO VIVO da assinatura Asaas via
+  // buscarAssinaturaAsaas, nunca do catálogo; destino: Plano.asaas_subscription_value
+  // do plano escolhido, também lido uma única vez) — sem isso, se o preço de
+  // qualquer um dos dois planos mudar no catálogo entre a solicitação e um
+  // cancelamento, restaurar ou efetivar usaria o preço ERRADO (o novo do
+  // catálogo, não o que foi de fato combinado com o cliente). Nenhum desses
+  // 3 campos é escrito ainda nesta etapa (fundação) — só o schema.
+  plano_downgrade_id      String?
+  downgrade_efetivar_em   DateTime?
+  downgrade_valor_origem  Decimal?  @db.Decimal(10, 2)
+  downgrade_valor_destino Decimal?  @db.Decimal(10, 2)
   // Vínculo com o Asaas (gateway de pagamento, integração fundação/sandbox —
   // ver server/src/services/asaasClient.ts). Nada aqui é escrito automático
   // fora de: ação explícita do SUPER_ADMIN (criar cliente/assinatura, ver
@@ -155,6 +189,7 @@ model Tenant {
   // não sabe distinguir qual FK cada lado do relacionamento representa.
   plano             Plano?            @relation("PlanoAtualTenant", fields: [plano_id], references: [id])
   plano_pendente    Plano?            @relation("PlanoPendenteTenant", fields: [plano_pendente_id], references: [id])
+  plano_downgrade   Plano?            @relation("PlanoDowngradeTenant", fields: [plano_downgrade_id], references: [id])
   admins            AdminUser[]
   campanhas         Campanha[]
   tours             TourGuiado[]
@@ -230,6 +265,16 @@ model Plano {
   // Distinto de `ativo`: um plano comercial pode ficar inativo (oculto de
   // novas vendas, mas ainda vinculável/editável) sem nunca virar interno.
   interno                 Boolean  @default(false)
+  // Hierarquia EXPLÍCITA entre planos comerciais — nunca inferida por preço
+  // (preço de catálogo é editável e um tenant pode manter o valor
+  // historicamente contratado, então "preço maior = plano superior" deixou
+  // de ser seguro pra decidir upgrade/downgrade, ver compararNivelPlanos em
+  // services/asaasClient.ts). Obrigatório pra todo plano comercial (interno
+  // = false, ver validarCamposPlano em adminPlanos.ts); null só é aceito
+  // pro plano interno, que fica de propósito fora da hierarquia comercial.
+  // Sem @unique — a exclusividade entre planos comerciais é validada na
+  // aplicação (adminPlanos.ts), não por constraint de banco.
+  nivel                   Int?
   // Configuração pra gerar a assinatura Asaas correspondente a este plano
   // (ver criarAssinaturaAsaas em asaasClient.ts) — todos opcionais: um plano
   // sem asaas_subscription_value preenchido simplesmente não pode ter
@@ -245,6 +290,7 @@ model Plano {
 
   tenants           Tenant[] @relation("PlanoAtualTenant")
   tenants_pendentes Tenant[] @relation("PlanoPendenteTenant")
+  tenants_downgrade Tenant[] @relation("PlanoDowngradeTenant")
 
   @@map("planos")
 }

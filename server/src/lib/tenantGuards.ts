@@ -1,5 +1,6 @@
-import { Plano, Tenant } from '@prisma/client'
+import { Plano, Prisma, Tenant } from '@prisma/client'
 import prisma from './prisma'
+import { downgradeAgendamentoCompleto } from '../services/asaasClient'
 
 // ─── Fase 2 do widget multi-tenant: resolução de tenant por public_key ──────
 // Usado só pelas rotas públicas do widget (widget.ts), nunca pelo admin
@@ -56,7 +57,13 @@ export async function resolverTenantPublico(publicKeyBruta: unknown): Promise<Re
 // (campanhas/tours/jornadas/catalogoTelas/aparenciaWidget) antes de qualquer
 // escrita.
 
-export type TenantComPlano = Tenant & { plano: Plano | null }
+// Correção pós-revisão (Fase 8B — capacidade futura) — ganhou plano_downgrade
+// (a RELATION, não só o plano_downgrade_id escalar já presente em `Tenant`)
+// pra planoEfetivoParaLimite conseguir combinar os limites sem consulta
+// extra: requireAdminAuth.ts já inclui essa relation no mesmo SELECT que
+// monta req.adminUser.tenant, então todo call site que hoje usa
+// TenantComPlano ganha o campo de graça.
+export type TenantComPlano = Tenant & { plano: Plano | null; plano_downgrade: Plano | null }
 
 // Campos que toda decisão comercial (bloqueio de escrita, banner do painel)
 // precisa — subconjunto de Tenant, mesmo padrão de Pick<> já usado no resto
@@ -243,6 +250,119 @@ export async function checarLimiteUsuariosAdmin(tenantId: string, plano: Plano |
     return `Limite de ${plano.limite_usuarios_admin} usuário(s) admin do plano atingido.`
   }
   return null
+}
+
+// ─── Fase 8B (fundação) — capacidade efetiva durante downgrade agendado ────
+// Growth (50 campanhas) com downgrade agendado pra Starter (10): até a
+// efetivação, o tenant CONTINUA com as funcionalidades de Growth (gates
+// booleanos como permite_tours/permite_jornadas nunca antecipam o plano
+// futuro — ver motivoRecursoNaoPermitido abaixo, sempre lido do plano
+// ATUAL), mas a CAPACIDADE numérica já passa a valer o menor dos dois
+// limites — sem isso, o tenant poderia criar até 50 campanhas sabendo que
+// só 10 vão caber quando o downgrade efetivar, empurrando o problema pra
+// depois (regra explícita da tarefa: nunca excluir/desativar recursos
+// existentes, então é melhor nunca deixar passar de 10 do que ter que
+// resolver depois).
+//
+// null = "sem limite" em todo o resto deste arquivo — aqui null também
+// precisa significar "não restringe" na hora de comparar (não "menor que
+// qualquer número"), daí o tratamento explícito abaixo em vez de um
+// Math.min ingênuo (Math.min(50, null) trataria null como 0).
+export function menorLimite(a: number | null | undefined, b: number | null | undefined): number | null {
+  if (a == null) return b ?? null
+  if (b == null) return a
+  return Math.min(a, b)
+}
+
+// checarLimiteCampanhasAtivas/checarLimiteToursAtivos/checarLimiteJornadasAtivas/
+// checarLimiteUsuariosAdmin acima continuam INALTERADAS — recebem um
+// `Plano | null` solto e não sabem (nem precisam saber) de onde ele veio.
+// Esta função só decide QUAL plano passar pra elas: o atual, combinado com
+// o de downgrade quando existir um agendado. Só os 4 campos de limite
+// NUMÉRICO são combinados — todo o resto (incluindo permite_tours/
+// permite_jornadas) vem inalterado do plano atual, via spread.
+//
+// Correção pós-revisão — antes, a mera EXISTÊNCIA de plano_downgrade já
+// ativava a combinação. Isso é errado: durante o POST /billing/downgrade, o
+// Asaas já pode ter sido reprecificado com plano_downgrade_id setado, mas
+// downgrade_valor_origem ainda null (claim TÉCNICO incompleto, ver
+// classificarClaimDowngrade em asaasClient.ts) — nesse meio-tempo o tenant
+// precisa continuar com a capacidade INTEIRA do plano atual. downgradeAgendamentoCompleto
+// (mesma função usada por cancelarDowngrade/o scheduler — nunca uma segunda
+// definição de "o que é um agendamento completo") é a ÚNICA fonte de
+// verdade pra decidir se os limites futuros já entram em vigor.
+export function planoEfetivoParaLimite(tenant: {
+  plano: Plano | null
+  plano_downgrade: Plano | null
+  plano_downgrade_id: string | null
+  downgrade_efetivar_em: Date | null
+  downgrade_valor_origem: Prisma.Decimal | number | string | null
+  downgrade_valor_destino: Prisma.Decimal | number | string | null
+}): Plano | null {
+  if (!tenant.plano || !tenant.plano_downgrade) return tenant.plano
+  if (!downgradeAgendamentoCompleto(tenant)) return tenant.plano
+  return {
+    ...tenant.plano,
+    limite_campanhas_ativas: menorLimite(tenant.plano.limite_campanhas_ativas, tenant.plano_downgrade.limite_campanhas_ativas),
+    limite_tours_ativos: menorLimite(tenant.plano.limite_tours_ativos, tenant.plano_downgrade.limite_tours_ativos),
+    limite_jornadas_ativas: menorLimite(tenant.plano.limite_jornadas_ativas, tenant.plano_downgrade.limite_jornadas_ativas),
+    limite_usuarios_admin: menorLimite(tenant.plano.limite_usuarios_admin, tenant.plano_downgrade.limite_usuarios_admin),
+  }
+}
+
+export interface UsoRecursosTenant {
+  campanhas: number
+  tours: number
+  jornadas: number
+  admins: number
+}
+
+// Contagem de uso ATUAL — mesmos critérios de checarLimiteCampanhasAtivas/
+// checarLimiteToursAtivos/checarLimiteJornadasAtivas/checarLimiteUsuariosAdmin
+// acima (ativo:true; downgrade só se aplica a tenant já pago, nunca em
+// trial, então o branch eh_plano_trial daquelas funções não entra aqui).
+// Só a contagem em si — a decisão de encaixe fica em
+// avaliarEncaixeLimitesDowngrade (pura, testável sem banco).
+export async function contarUsoRecursosAtivos(tenantId: string): Promise<UsoRecursosTenant> {
+  const [campanhas, tours, jornadas, admins] = await Promise.all([
+    prisma.campanha.count({ where: { tenant_id: tenantId, ativo: true } }),
+    prisma.tourGuiado.count({ where: { tenant_id: tenantId, ativo: true } }),
+    prisma.jornada.count({ where: { tenant_id: tenantId, ativo: true } }),
+    prisma.adminUser.count({ where: { tenant_id: tenantId, ativo: true } }),
+  ])
+  return { campanhas, tours, jornadas, admins }
+}
+
+export interface RecursoIncompativelDowngrade {
+  recurso: string
+  usoAtual: number
+  limiteDestino: number
+  excedente: number
+}
+
+// Fase 8B (fundação) — "cabe no plano destino?" pra downgrade, DIFERENTE de
+// checarLimite*Ativas acima: aquelas respondem "posso criar mais UM?" via
+// `total >= limite` (bloqueia no próprio limite, sem sobrar vaga pro novo
+// item); aqui a pergunta é "meu uso ATUAL excede o limite?" —
+// `usoAtual > limiteDestino` (== cabe perfeitamente, nada a bloquear; só
+// excede se for estritamente maior). Usar a mesma comparação `>=` daquelas
+// funções aqui bloquearia por engano um tenant com uso exatamente igual ao
+// limite destino. limite_eventos_mes/permite_white_label ficam de fora de
+// propósito — não têm enforcement hoje (ver checarLimite* acima, não
+// existe checarLimiteEventosMes), nenhum enforcement novo é criado aqui.
+export function avaliarEncaixeLimitesDowngrade(
+  uso: UsoRecursosTenant,
+  planoDestino: Pick<Plano, 'limite_campanhas_ativas' | 'limite_tours_ativos' | 'limite_jornadas_ativas' | 'limite_usuarios_admin'>
+): RecursoIncompativelDowngrade[] {
+  const candidatos: { recurso: string; usoAtual: number; limiteDestino: number | null }[] = [
+    { recurso: 'campanhas', usoAtual: uso.campanhas, limiteDestino: planoDestino.limite_campanhas_ativas },
+    { recurso: 'tours', usoAtual: uso.tours, limiteDestino: planoDestino.limite_tours_ativos },
+    { recurso: 'jornadas', usoAtual: uso.jornadas, limiteDestino: planoDestino.limite_jornadas_ativas },
+    { recurso: 'admins', usoAtual: uso.admins, limiteDestino: planoDestino.limite_usuarios_admin },
+  ]
+  return candidatos
+    .filter((c): c is { recurso: string; usoAtual: number; limiteDestino: number } => c.limiteDestino != null && c.usoAtual > c.limiteDestino)
+    .map((c) => ({ ...c, excedente: c.usoAtual - c.limiteDestino }))
 }
 
 // Sem plano vinculado = permite (mesmo raciocínio de limite nulo acima) —
