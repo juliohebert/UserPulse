@@ -733,11 +733,36 @@ const TIMEZONE_FINANCEIRO = 'America/Sao_Paulo'
 // ver formatDateCivil em web/src/utils/campanha.ts). Com `timeZone`, lê os
 // componentes civis de `data` NESSE fuso — é o caso de "agora": um instante
 // real, cujo dia de negócio é o dia civil em Brasília, não em UTC.
+// Data civil (YYYY-MM-DD) na mesma zona de negócio do Asaas (Brasil) —
+// correção pós-homologação: `new Date().toISOString().slice(0, 10)` (usado
+// pro dueDate de cobranças criadas "hoje") é o dia civil em UTC, que já
+// virou o dia seguinte a partir das 21h no horário de Brasília — mesma
+// classe de bug já corrigida em diasRestantesCicloAtual/diaCivilComoIndice
+// abaixo, só que pro texto do dueDate em vez de um índice numérico pra
+// subtração. Uma cobrança criada às 21h06 do dia 12 (Brasília) precisa
+// vencer no dia 12, não no 13 só porque em UTC já é outro dia.
+// Componentes de ano/mês/dia de `data` no fuso `timeZone`, via
+// formatToParts (não a string já formatada de .format()) — o resultado de
+// dataCivilBRT abaixo vai direto pro dueDate enviado ao Asaas, então
+// depender do texto pronto que um locale decide produzir seria implícito
+// demais pra um valor que a API externa exige em "YYYY-MM-DD" exato; aqui
+// os componentes são lidos e montados à mão. Reaproveitada por
+// diaCivilComoIndice logo abaixo (mesma extração, dois formatos de saída).
+function partesDataCivil(data: Date, timeZone: string): { ano: string; mes: string; dia: string } {
+  const partes = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(data)
+  const valor = (tipo: string) => partes.find((p) => p.type === tipo)!.value
+  return { ano: valor('year'), mes: valor('month'), dia: valor('day') }
+}
+
+export function dataCivilBRT(data: Date = new Date()): string {
+  const { ano, mes, dia } = partesDataCivil(data, TIMEZONE_FINANCEIRO)
+  return `${ano}-${mes}-${dia}`
+}
+
 function diaCivilComoIndice(data: Date, timeZone?: string): number {
   if (!timeZone) return Date.UTC(data.getUTCFullYear(), data.getUTCMonth(), data.getUTCDate())
-  const partes = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(data)
-  const valor = (tipo: string) => Number(partes.find((p) => p.type === tipo)!.value)
-  return Date.UTC(valor('year'), valor('month') - 1, valor('day'))
+  const { ano, mes, dia } = partesDataCivil(data, timeZone)
+  return Date.UTC(Number(ano), Number(mes) - 1, Number(dia))
 }
 
 // Dias restantes até o próximo vencimento (licenca_fim) — dia civil inteiro

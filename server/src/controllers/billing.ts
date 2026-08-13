@@ -11,7 +11,7 @@ import {
   validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, duracaoCicloDiasReal,
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, criarCobrancaAvulsaAsaas,
   resolverVencimentoCicloAtual, cancelarCobrancaAsaas, motivoCancelamentoUpgradeBloqueado,
-  erroAsaasStatus, type CobrancaAsaas,
+  erroAsaasStatus, type CobrancaAsaas, dataCivilBRT,
 } from '../services/asaasClient'
 import { extrairDadosBilling, dadosCobrancaAsaas, type BillingBody } from './adminTenantsAsaas'
 
@@ -271,7 +271,10 @@ export async function criarAssinatura(req: Request, res: Response) {
       customerId = cliente.id
     }
 
-    const hoje = new Date().toISOString().slice(0, 10)
+    // Correção pós-homologação — dia civil em America/Sao_Paulo, nunca
+    // toISOString().slice(0,10) (UTC): a partir das 21h no horário de
+    // Brasília, UTC já virou o dia seguinte.
+    const hoje = dataCivilBRT()
     const assinatura = await criarAssinaturaAsaas(customerId, planoEscolhido!, {
       billingType,
       nextDueDate: hoje,
@@ -540,7 +543,12 @@ export async function solicitarUpgrade(req: Request, res: Response) {
     const resultado = await validarECalcularUpgrade(tenant, plano_id)
     if (!resultado.ok) { res.status(resultado.status).json({ erro: resultado.erro }); return }
 
-    const hoje = new Date().toISOString().slice(0, 10)
+    // Correção pós-homologação — dueDate precisa ser o dia civil em
+    // America/Sao_Paulo (dataCivilBRT), nunca new Date().toISOString().
+    // slice(0,10) (dia civil em UTC): a partir das 21h no horário de
+    // Brasília, UTC já virou o dia seguinte, e uma cobrança criada às
+    // 21h06 do dia 12 vencia incorretamente no dia 13.
+    const hoje = dataCivilBRT()
     const cobranca = await criarCobrancaAvulsaAsaas(tenant.asaas_customer_id!, {
       value: resultado.valorProporcional,
       dueDate: hoje,
