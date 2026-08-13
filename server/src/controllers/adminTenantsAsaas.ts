@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import {
   criarClienteAsaas, criarAssinaturaAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas,
-  calcularSituacaoAsaas, buscarEntradaSituacaoAsaas,
+  calcularSituacaoAsaas, buscarEntradaSituacaoAsaas, dataCivilBRT,
   type DadosCobrancaAsaas, type CobrancaAsaas, type SituacaoAsaasResultado,
 } from '../services/asaasClient'
 
@@ -219,7 +219,10 @@ export async function criarAssinatura(req: Request, res: Response) {
       return
     }
 
-    const hoje = new Date().toISOString().slice(0, 10)
+    // Correção pós-homologação — dia civil em America/Sao_Paulo, nunca
+    // toISOString().slice(0,10) (UTC): a partir das 21h no horário de
+    // Brasília, UTC já virou o dia seguinte.
+    const hoje = dataCivilBRT()
     const assinatura = await criarAssinaturaAsaas(tenant.asaas_customer_id, tenant.plano, {
       billingType: resolverBillingTypeGestaoSaas(billing_type),
       nextDueDate: hoje,

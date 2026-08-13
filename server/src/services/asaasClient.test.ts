@@ -10,6 +10,7 @@ import {
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, deveSincronizarAssinaturaAntesDeAplicar,
   pagamentoConfirmaPendencia, criarCobrancaAvulsaAsaas, atualizarValorAssinaturaAsaas,
   resolverVencimentoCicloAtual, motivoCancelamentoUpgradeBloqueado, cancelarCobrancaAsaas, erroAsaasStatus,
+  dataCivilBRT,
 } from './asaasClient'
 import type { AssinaturaAsaas, CobrancaAsaas } from './asaasClient'
 
@@ -1028,6 +1029,30 @@ describe('diasRestantesCicloAtual', () => {
     const licencaFim = new Date('2026-09-12T00:00:00Z')
     const agora = new Date('2026-09-12T23:59:00Z')
     assert.equal(diasRestantesCicloAtual(licencaFim, 31, agora), 0)
+  })
+})
+
+// Bug de homologação (correção pós-homologação) — solicitarUpgrade usava
+// new Date().toISOString().slice(0, 10) (dia civil em UTC) pro dueDate da
+// cobrança proporcional, mesma classe de bug já corrigida em
+// diasRestantesCicloAtual: a partir das 21h em Brasília, UTC já virou o dia
+// seguinte, então uma cobrança criada às 21h06 do dia 12 vencia incorretamente
+// no dia 13.
+describe('dataCivilBRT — dia civil (YYYY-MM-DD) em America/Sao_Paulo, nunca UTC', () => {
+  test('12/08 00:05 BRT => 2026-08-12', () => {
+    assert.equal(dataCivilBRT(new Date('2026-08-12T00:05:00-03:00')), '2026-08-12')
+  })
+  test('12/08 20:59 BRT => 2026-08-12', () => {
+    assert.equal(dataCivilBRT(new Date('2026-08-12T20:59:00-03:00')), '2026-08-12')
+  })
+  test('12/08 21:01 BRT => 2026-08-12 (já é 13/08 em UTC, mas ainda 12/08 no Brasil)', () => {
+    assert.equal(dataCivilBRT(new Date('2026-08-12T21:01:00-03:00')), '2026-08-12')
+  })
+  test('12/08 23:59 BRT => 2026-08-12', () => {
+    assert.equal(dataCivilBRT(new Date('2026-08-12T23:59:00-03:00')), '2026-08-12')
+  })
+  test('13/08 00:01 BRT (dia seguinte de verdade no Brasil) => 2026-08-13', () => {
+    assert.equal(dataCivilBRT(new Date('2026-08-13T00:01:00-03:00')), '2026-08-13')
   })
 })
 
