@@ -6,7 +6,7 @@ import {
   diasRestantesTrial, motivoBloqueioOperacionalTrial,
   motivoLimiteTrialAtingido, deveChecarLimiteCadastro,
   situacaoAdimplenciaTenant, diasRestantesTolerancia, motivoBloqueioOperacionalInadimplencia,
-  TOLERANCIA_INADIMPLENCIA_DIAS,
+  TOLERANCIA_INADIMPLENCIA_DIAS, menorLimite, planoEfetivoParaLimite, avaliarEncaixeLimitesDowngrade,
 } from './tenantGuards'
 import type { Plano } from '@prisma/client'
 
@@ -164,6 +164,183 @@ describe('motivoLimiteAtivosAtingido — decisão pura de limite "X ativos simul
   })
   test('total zero, dentro do limite, libera (jornadas — limite disponível)', () => {
     assert.equal(motivoLimiteAtivosAtingido(1, 0, 'jornada(s) ativa(s)'), null)
+  })
+})
+
+// Fase 8B (fundação) — capacidade efetiva durante downgrade agendado: o
+// menor dos dois limites vence, null (sem limite) nunca "vence" por engano
+// sobre um número real (Math.min(50, null) trataria null como 0, por isso
+// o tratamento explícito).
+describe('menorLimite', () => {
+  test('os dois números => o menor vence', () => {
+    assert.equal(menorLimite(50, 10), 10)
+    assert.equal(menorLimite(10, 50), 10)
+  })
+  test('a null (sem limite) => vale o de b', () => {
+    assert.equal(menorLimite(null, 10), 10)
+  })
+  test('b null (sem limite) => vale o de a', () => {
+    assert.equal(menorLimite(50, null), 50)
+  })
+  test('os dois null => sem limite (null)', () => {
+    assert.equal(menorLimite(null, null), null)
+  })
+  test('undefined tratado igual a null', () => {
+    assert.equal(menorLimite(undefined, 10), 10)
+    assert.equal(menorLimite(50, undefined), 50)
+  })
+})
+
+describe('planoEfetivoParaLimite — combina plano atual + downgrade AGENDAMENTO COMPLETO (correção pós-revisão)', () => {
+  const growth: Plano = {
+    limite_campanhas_ativas: 50, limite_tours_ativos: 20, limite_jornadas_ativas: 20, limite_usuarios_admin: 10,
+    permite_tours: true, permite_jornadas: true,
+  } as Plano
+  const starter: Plano = {
+    limite_campanhas_ativas: 10, limite_tours_ativos: 5, limite_jornadas_ativas: 5, limite_usuarios_admin: 2,
+    permite_tours: false, permite_jornadas: false,
+  } as Plano
+
+  const SEM_DOWNGRADE = { plano_downgrade_id: null, downgrade_efetivar_em: null, downgrade_valor_origem: null, downgrade_valor_destino: null }
+  const AGENDAMENTO_COMPLETO = {
+    plano_downgrade_id: 'plano-starter', downgrade_efetivar_em: new Date('2026-09-12'),
+    downgrade_valor_origem: 349, downgrade_valor_destino: 149,
+  }
+  // Claim TÉCNICO incompleto (ver classificarClaimDowngrade/downgradeAgendamentoCompleto
+  // em asaasClient.ts): o Asaas já pode ter sido reprecificado durante o
+  // POST, mas a persistência local ainda não confirmou — downgrade_valor_origem
+  // continua null até esse momento.
+  const CLAIM_INCOMPLETO = { ...AGENDAMENTO_COMPLETO, downgrade_valor_origem: null }
+
+  test('1. sem downgrade agendado => devolve o plano atual sem alterar nada', () => {
+    const efetivo = planoEfetivoParaLimite({ plano: growth, plano_downgrade: null, ...SEM_DOWNGRADE })
+    assert.equal(efetivo, growth)
+  })
+
+  test('sem plano atual (tenant ainda sem plano) => null, nunca inventa um plano', () => {
+    assert.equal(planoEfetivoParaLimite({ plano: null, plano_downgrade: starter, ...AGENDAMENTO_COMPLETO }), null)
+  })
+
+  // Caso obrigatório da tarefa: Growth 50, Starter claimado (limite 10),
+  // downgrade_valor_origem ainda null, uso hipotético 20 — o limite efetivo
+  // TEM que continuar 50 (nunca 10), já que o agendamento não está completo.
+  test('2. claim incompleto (downgrade_valor_origem null) => mantém INTEGRALMENTE os limites do plano atual, nunca antecipa', () => {
+    const efetivo = planoEfetivoParaLimite({ plano: growth, plano_downgrade: starter, ...CLAIM_INCOMPLETO })
+    assert.equal(efetivo?.limite_campanhas_ativas, 50)
+    assert.equal(efetivo?.limite_tours_ativos, 20)
+    assert.equal(efetivo?.limite_jornadas_ativas, 20)
+    assert.equal(efetivo?.limite_usuarios_admin, 10)
+  })
+
+  test('3. downgrade AGENDAMENTO COMPLETO: os 4 limites numéricos usam o menor (Growth 50/Starter 10 => 10, exemplo da tarefa)', () => {
+    const efetivo = planoEfetivoParaLimite({ plano: growth, plano_downgrade: starter, ...AGENDAMENTO_COMPLETO })
+    assert.equal(efetivo?.limite_campanhas_ativas, 10)
+    assert.equal(efetivo?.limite_tours_ativos, 5)
+    assert.equal(efetivo?.limite_jornadas_ativas, 5)
+    assert.equal(efetivo?.limite_usuarios_admin, 2)
+  })
+
+  test('4. destino com limite MAIOR que o atual => mantém o limite atual (menor), nunca "libera" capacidade', () => {
+    const growthMenor = { ...growth, limite_campanhas_ativas: 5 } as Plano
+    const starterMaior = { ...starter, limite_campanhas_ativas: 100 } as Plano
+    const efetivo = planoEfetivoParaLimite({ plano: growthMenor, plano_downgrade: starterMaior, ...AGENDAMENTO_COMPLETO })
+    assert.equal(efetivo?.limite_campanhas_ativas, 5)
+  })
+
+  test('5. atual sem limite (null) + destino limitado => usa o limite do destino', () => {
+    const growthIlimitado = { ...growth, limite_campanhas_ativas: null } as Plano
+    const efetivo = planoEfetivoParaLimite({ plano: growthIlimitado, plano_downgrade: starter, ...AGENDAMENTO_COMPLETO })
+    assert.equal(efetivo?.limite_campanhas_ativas, 10)
+  })
+
+  test('6. atual limitado + destino sem limite (null) => usa o limite do atual', () => {
+    const starterIlimitado = { ...starter, limite_campanhas_ativas: null } as Plano
+    const efetivo = planoEfetivoParaLimite({ plano: growth, plano_downgrade: starterIlimitado, ...AGENDAMENTO_COMPLETO })
+    assert.equal(efetivo?.limite_campanhas_ativas, 50)
+  })
+
+  // 7/8 — a comparação exata que bloqueia criação/ativação (`total >=
+  // plano.limite_...`) já existe, INALTERADA, dentro de
+  // checarLimiteCampanhasAtivas/ToursAtivos/JornadasAtivas/UsuariosAdmin —
+  // esta rodada só muda QUAL plano chega até ela (ver os call sites em
+  // campanhas.ts/tours.ts/jornadas.ts/adminTenants.ts). Confirmar aqui que
+  // o limite efetivo é exatamente 10 (não 9, não 11) garante que "uso=10"
+  // vai bloquear e "uso=8" vai permitir quando checarLimite* rodar de
+  // verdade — a comparação em si (>=) e "nunca excluir/desativar
+  // existente" seguem validados manualmente contra servidor local (mesmo
+  // limite de sempre pra funções que tocam Prisma, nunca mockado aqui).
+  test('7/8. limite efetivo é exatamente o valor do destino (10) — base da checagem >= que bloqueia uso=10/12 sem tocar registros existentes', () => {
+    const efetivo = planoEfetivoParaLimite({ plano: growth, plano_downgrade: starter, ...AGENDAMENTO_COMPLETO })
+    assert.equal(efetivo?.limite_campanhas_ativas, 10)
+  })
+
+  test('9. gates booleanos NUNCA antecipam o plano futuro — continuam do plano ATUAL, mesmo com agendamento COMPLETO', () => {
+    const efetivo = planoEfetivoParaLimite({ plano: growth, plano_downgrade: starter, ...AGENDAMENTO_COMPLETO })
+    assert.equal(efetivo?.permite_tours, true)
+    assert.equal(efetivo?.permite_jornadas, true)
+  })
+})
+
+// Fase 8B (fundação) — "cabe no plano destino?" pro preview de downgrade.
+// `usoAtual > limiteDestino` bloqueia; `usoAtual === limiteDestino` cabe
+// (diferente dos checarLimite*Ativas, que usam `>=` porque respondem "posso
+// criar mais UM?", pergunta diferente).
+describe('avaliarEncaixeLimitesDowngrade', () => {
+  const planoDestino = {
+    limite_campanhas_ativas: 10, limite_tours_ativos: 5, limite_jornadas_ativas: 5, limite_usuarios_admin: 2,
+  } as Plano
+  const usoBase = { campanhas: 0, tours: 0, jornadas: 0, admins: 0 }
+
+  test('todos os recursos abaixo do limite => nenhuma incompatibilidade', () => {
+    const uso = { campanhas: 9, tours: 4, jornadas: 4, admins: 1 }
+    assert.deepEqual(avaliarEncaixeLimitesDowngrade(uso, planoDestino), [])
+  })
+
+  test('todos os recursos EXATAMENTE no limite => cabe, nenhuma incompatibilidade (== não é >)', () => {
+    const uso = { campanhas: 10, tours: 5, jornadas: 5, admins: 2 }
+    assert.deepEqual(avaliarEncaixeLimitesDowngrade(uso, planoDestino), [])
+  })
+
+  test('campanhas acima do limite => reportada com excedente correto', () => {
+    const uso = { ...usoBase, campanhas: 12 }
+    const resultado = avaliarEncaixeLimitesDowngrade(uso, planoDestino)
+    assert.deepEqual(resultado, [{ recurso: 'campanhas', usoAtual: 12, limiteDestino: 10, excedente: 2 }])
+  })
+
+  test('tours acima do limite => reportado', () => {
+    const uso = { ...usoBase, tours: 8 }
+    const resultado = avaliarEncaixeLimitesDowngrade(uso, planoDestino)
+    assert.deepEqual(resultado, [{ recurso: 'tours', usoAtual: 8, limiteDestino: 5, excedente: 3 }])
+  })
+
+  test('jornadas acima do limite => reportada', () => {
+    const uso = { ...usoBase, jornadas: 6 }
+    const resultado = avaliarEncaixeLimitesDowngrade(uso, planoDestino)
+    assert.deepEqual(resultado, [{ recurso: 'jornadas', usoAtual: 6, limiteDestino: 5, excedente: 1 }])
+  })
+
+  test('admins acima do limite => reportado', () => {
+    const uso = { ...usoBase, admins: 5 }
+    const resultado = avaliarEncaixeLimitesDowngrade(uso, planoDestino)
+    assert.deepEqual(resultado, [{ recurso: 'admins', usoAtual: 5, limiteDestino: 2, excedente: 3 }])
+  })
+
+  test('vários recursos incompatíveis ao mesmo tempo => todos reportados', () => {
+    const uso = { campanhas: 12, tours: 4, jornadas: 6, admins: 1 }
+    const resultado = avaliarEncaixeLimitesDowngrade(uso, planoDestino)
+    assert.equal(resultado.length, 2)
+    assert.deepEqual(resultado.map((r) => r.recurso).sort(), ['campanhas', 'jornadas'])
+  })
+
+  test('limiteDestino null (plano destino ilimitado nesse recurso) => nunca bloqueia, qualquer que seja o uso', () => {
+    const planoIlimitado = { ...planoDestino, limite_campanhas_ativas: null } as Plano
+    const uso = { ...usoBase, campanhas: 9999 }
+    assert.deepEqual(avaliarEncaixeLimitesDowngrade(uso, planoIlimitado), [])
+  })
+
+  test('exemplo exato da tarefa: Growth 50 -> Starter 10, uso atual 8 => cabe (excedente só a partir de 11)', () => {
+    const uso = { ...usoBase, campanhas: 8 }
+    assert.deepEqual(avaliarEncaixeLimitesDowngrade(uso, planoDestino), [])
   })
 })
 

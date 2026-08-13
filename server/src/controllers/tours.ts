@@ -7,6 +7,7 @@ import {
   motivoBloqueioAtivacao,
   motivoBloqueioEscrita,
   motivoRecursoNaoPermitido,
+  planoEfetivoParaLimite,
 } from '../lib/tenantGuards'
 
 const MODOS_IDENTIFICACAO = ['sistema_tela', 'data_cy', 'url_contem']
@@ -318,7 +319,7 @@ export async function criar(req: Request, res: Response) {
     // Fase 6D — em trial, o limite conta TOTAL cadastrado, então precisa
     // checar mesmo criando com ativo:false (ver deveChecarLimiteCadastro).
     if (deveChecarLimiteCadastro(ativoBool, tenant.plano)) {
-      const limite = await checarLimiteToursAtivos(tenantId, tenant.plano)
+      const limite = await checarLimiteToursAtivos(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
     }
 
@@ -411,7 +412,7 @@ export async function atualizar(req: Request, res: Response) {
       if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
       // excluirId: o próprio tour já existe (só está inativo) — não pode
       // contar contra si mesmo na contagem de trial (ver checarLimiteToursAtivos).
-      const limite = await checarLimiteToursAtivos(tenantId, tenant.plano, existente.id)
+      const limite = await checarLimiteToursAtivos(tenantId, planoEfetivoParaLimite(tenant), existente.id)
       if (limite) return res.status(403).json({ erro: limite })
     }
 
@@ -544,7 +545,7 @@ export async function duplicar(req: Request, res: Response) {
     // "ativação", já que a cópia nunca nasce ativa). Planos pagos continuam
     // podendo duplicar livremente (deveChecarLimiteCadastro(false, plano)).
     if (deveChecarLimiteCadastro(false, tenant.plano)) {
-      const limite = await checarLimiteToursAtivos(tenantId, tenant.plano)
+      const limite = await checarLimiteToursAtivos(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
     }
 
@@ -659,7 +660,7 @@ export async function importar(req: Request, res: Response) {
     // mesmo raciocínio de duplicar() acima, senão importar vira outro jeito
     // de contornar o limite.
     if (deveChecarLimiteCadastro(false, tenant.plano)) {
-      const limite = await checarLimiteToursAtivos(tenantId, tenant.plano)
+      const limite = await checarLimiteToursAtivos(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
     }
 

@@ -34,6 +34,27 @@ router.post('/upgrade', requireEscritaConfiguracao, billing.solicitarUpgrade)
 // guard ADMIN-only das demais rotas financeiras deste router.
 router.delete('/upgrade', requireEscritaConfiguracao, billing.cancelarUpgrade)
 router.post('/cobrancas/:cobrancaId/pagar', requireEscritaConfiguracao, billing.pagarCobranca)
+// Fase 8B (fundação) — downgrade agendado, só preview nesta etapa (mesmo
+// guard ADMIN-only). Sem efeito colateral: não escreve no Tenant, não
+// chama nada que altere a assinatura/cobranças no Asaas — só leitura (ver
+// comentário em controllers/billing.ts). POST/DELETE (solicitar/cancelar de
+// verdade) ficam pra uma próxima etapa.
+router.get('/downgrade/preview', requireEscritaConfiguracao, billing.previewDowngrade)
+// POST — solicitação de verdade (mesmo guard ADMIN-only). Refaz toda a
+// validação do zero (nunca confia no preview anterior do cliente), reivindica
+// um claim atômico contra concorrência, reprecifica a assinatura recorrente
+// no Asaas (updatePendingPayments:true, nunca cria cobrança proporcional
+// nem toca plano_id) e só então persiste plano_downgrade_id/
+// downgrade_efetivar_em/os 2 snapshots de valor — ver comentário completo em
+// solicitarDowngrade, controllers/billing.ts.
+router.post('/downgrade', requireEscritaConfiguracao, billing.solicitarDowngrade)
+// DELETE — cancela um downgrade agendado (claim incompleto OU agendamento
+// completo, ver cancelarDowngrade em controllers/billing.ts). Restaura a
+// assinatura Asaas pro valor origem ANTES de limpar localmente; bloqueia
+// fail-closed se a data de efetivação já chegou ou se a cobrança do
+// próximo ciclo já foi processada/está ambígua. O scheduler que EFETIVA o
+// downgrade na data (sem cancelamento envolvido) fica pra uma próxima etapa.
+router.delete('/downgrade', requireEscritaConfiguracao, billing.cancelarDowngrade)
 // POST /reativar (reativação self-service de assinatura INACTIVE) foi
 // removida nesta Fase — correção de segurança: não há hoje como distinguir
 // suspensão manual de suspensão causada pelo billing, então self-service

@@ -56,7 +56,11 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
     }
     const usuario = await prisma.adminUser.findUnique({
       where: { id: payload.sub },
-      include: { tenant: { include: { plano: true } } },
+      // plano_downgrade (Fase 8B) entra no mesmo SELECT — custo marginal de
+      // 1 join a mais, evita uma consulta extra em cada call site que
+      // precisa da capacidade EFETIVA durante um downgrade agendado (ver
+      // planoEfetivoParaLimite em lib/tenantGuards.ts).
+      include: { tenant: { include: { plano: true, plano_downgrade: true } } },
     })
     if (!usuario || !usuario.ativo) {
       res.status(401).json({ erro: 'Não autenticado.' })

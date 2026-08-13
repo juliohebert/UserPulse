@@ -1,17 +1,25 @@
 import { Request, Response } from 'express'
 import type { Plano, Tenant } from '@prisma/client'
 import prisma from '../lib/prisma'
-import { obterSituacaoComercialTenant, situacaoAdimplenciaTenant, type TenantComPlano } from '../lib/tenantGuards'
+import {
+  obterSituacaoComercialTenant, situacaoAdimplenciaTenant, type TenantComPlano,
+  contarUsoRecursosAtivos, avaliarEncaixeLimitesDowngrade, type RecursoIncompativelDowngrade,
+} from '../lib/tenantGuards'
 import {
   criarClienteAsaas, criarAssinaturaAsaas, atualizarClienteAsaas, buscarCobrancaAsaas,
   listarCobrancasAsaas, atualizarBillingTypeCobrancaAsaas,
   calcularSituacaoAsaas, buscarEntradaSituacaoAsaas, validarPlanoParaAssinaturaSelfService,
   validarFormaPagamentoSelfService,
   validarCobrancaParaRegularizacao, montarCobrancasEmAberto, bloqueioOperacaoFinanceiraSelfService,
-  validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, duracaoCicloDiasReal,
+  validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, motivoDowngradeEmAndamentoBloqueiaUpgrade, duracaoCicloDiasReal,
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, criarCobrancaAvulsaAsaas,
   resolverVencimentoCicloAtual, cancelarCobrancaAsaas, motivoCancelamentoUpgradeBloqueado,
-  erroAsaasStatus, type CobrancaAsaas, dataCivilBRT,
+  erroAsaasStatus, type CobrancaAsaas, dataCivilBRT, resolverValorAssinaturaExibido,
+  motivoDowngradePlano, motivoCobrancaAnteriorBloqueiaDowngrade,
+  identificarCobrancaProximoCiclo, type CobrancaProximoCicloResultado,
+  buscarAssinaturaAsaas, atualizarValorAssinaturaAsaas, decidirEstadoRemotoDowngrade,
+  classificarClaimDowngrade, downgradeAgendamentoCompleto, downgradeDeveEfetivar,
+  motivoRestauracaoDowngradeBloqueada, type ResolucaoCobrancaProximoCiclo,
 } from '../services/asaasClient'
 import { extrairDadosBilling, dadosCobrancaAsaas, type BillingBody } from './adminTenantsAsaas'
 
@@ -97,9 +105,38 @@ export async function obterSituacao(req: Request, res: Response) {
     res.json({
       possuiAssinatura: Boolean(tenant.asaas_subscription_id),
       plano: tenant.plano ? {
+        id: tenant.plano.id,
         nome: tenant.plano.nome,
-        valor: tenant.plano.asaas_subscription_value,
+        // Fase 8B — nivel (não preço) é o que o frontend usa pra classificar
+        // upgrade/downgrade ao listar planos-disponiveis (ver
+        // compararNivelPlanos em asaasClient.ts, mesma regra do backend,
+        // nunca reimplementada por preço no cliente).
+        nivel: tenant.plano.nivel,
+        // Fase 8B (fundação) — valor REALMENTE contratado, não o preço de
+        // catálogo puro (ver resolverValorAssinaturaExibido). Sem escrita
+        // nenhuma aqui, só leitura em ordem de prioridade.
+        valor: resolverValorAssinaturaExibido(
+          tenant.valor_assinatura_atual,
+          entrada.tipo === 'dados' ? entrada.assinatura.value : null,
+          tenant.plano.asaas_subscription_value
+        ),
         ciclo: tenant.plano.asaas_billing_cycle,
+      } : null,
+      // Fase 8B — downgrade agendado, exposto SOMENTE quando o agendamento
+      // está COMPLETO (downgradeAgendamentoCompleto, mesma função usada por
+      // solicitarDowngrade/cancelarDowngrade/o scheduler — nunca uma
+      // segunda definição de estado). Um claim TÉCNICO incompleto (Asaas já
+      // reprecificado, mas downgrade_valor_origem ainda null, ver
+      // classificarClaimDowngrade) nunca aparece aqui — a UI não tem nada a
+      // mostrar/cancelar até a persistência confirmar. valorDestino vem
+      // sempre do SNAPSHOT (downgrade_valor_destino), nunca de
+      // Plano.asaas_subscription_value — o catálogo pode ter mudado desde o
+      // agendamento, o valor exibido tem que ser o combinado. Nunca expõe
+      // downgrade_valor_origem nem qualquer id financeiro/técnico do claim.
+      downgradeAgendado: (downgradeAgendamentoCompleto(tenant) && tenant.plano_downgrade) ? {
+        plano: { id: tenant.plano_downgrade.id, nome: tenant.plano_downgrade.nome },
+        efetivarEm: tenant.downgrade_efetivar_em!.toISOString(),
+        valorDestino: tenant.downgrade_valor_destino,
       } : null,
       // Presente só entre a escolha do plano pago e a confirmação do
       // pagamento (webhook) — depois disso, plano_pendente_id é limpo e
@@ -185,7 +222,7 @@ export async function listarPlanosDisponiveis(_req: Request, res: Response) {
       where: { interno: false, eh_plano_trial: false, ativo: true, asaas_subscription_value: { not: null } },
       orderBy: { asaas_subscription_value: 'asc' },
       select: {
-        id: true, nome: true, descricao: true,
+        id: true, nome: true, descricao: true, nivel: true,
         asaas_subscription_value: true, asaas_billing_cycle: true,
         limite_campanhas_ativas: true, limite_tours_ativos: true, limite_jornadas_ativas: true,
         permite_tours: true, permite_jornadas: true, permite_white_label: true,
@@ -195,6 +232,11 @@ export async function listarPlanosDisponiveis(_req: Request, res: Response) {
       id: p.id,
       nome: p.nome,
       descricao: p.descricao,
+      // Fase 8B — hierarquia EXPLÍCITA (nunca por preço, ver compararNivelPlanos
+      // em asaasClient.ts) que o frontend usa pra oferecer upgrade (nivel
+      // maior) ou downgrade (nivel menor) na Minha Assinatura. null (plano
+      // sem nivel configurado) nunca oferece troca self-service.
+      nivel: p.nivel,
       valor: p.asaas_subscription_value,
       ciclo: p.asaas_billing_cycle,
       limite_campanhas_ativas: p.limite_campanhas_ativas,
@@ -405,8 +447,18 @@ type ValidacaoUpgrade =
 // billing.test.ts, que testa os 4 bloqueios — SUSPENDED/CANCELED/
 // tolerância/inadimplência — sem tocar Prisma, já que todos retornam antes
 // de qualquer consulta ao banco).
-export type TenantParaUpgrade = Pick<Tenant, 'status' | 'trial_fim' | 'licenca_fim' | 'asaas_subscription_id' | 'plano_pendente_id'> & {
-  plano: Pick<Plano, 'id' | 'nome' | 'ativo' | 'interno' | 'eh_plano_trial' | 'asaas_subscription_value' | 'asaas_billing_cycle'> | null
+// 'nivel' entrou no Pick só pra satisfazer o tipo PlanoParaUpgrade de
+// validarUpgradePlano (asaasClient.ts), que passou a exigi-lo por causa de
+// motivoDowngradePlano (mesmo tipo compartilhado pelas duas funções) —
+// validarUpgradePlano em si CONTINUA decidindo superior/inferior por preço,
+// não lê 'nivel' (ver comentário em validarUpgradePlano). Nenhuma mudança
+// de comportamento do upgrade nesta rodada, só de tipo.
+// 'plano_downgrade_id' (correção pós-revisão — auditoria 8B, bloqueador):
+// motivoDowngradeEmAndamentoBloqueiaUpgrade precisa dele pra recusar
+// upgrade enquanto existe QUALQUER downgrade em andamento (claim
+// incompleto ou completo) na mesma assinatura.
+export type TenantParaUpgrade = Pick<Tenant, 'status' | 'trial_fim' | 'licenca_fim' | 'asaas_subscription_id' | 'plano_pendente_id' | 'plano_downgrade_id'> & {
+  plano: Pick<Plano, 'id' | 'nome' | 'ativo' | 'interno' | 'eh_plano_trial' | 'asaas_subscription_value' | 'asaas_billing_cycle' | 'nivel'> | null
 }
 
 // Reaproveitada por previewUpgrade (só calcula, nunca escreve nada) e
@@ -462,6 +514,15 @@ export async function validarECalcularUpgrade(tenant: TenantParaUpgrade, planoId
 
   const motivoPendencia = motivoUpgradePendenteBloqueiaNovaTroca(tenant.plano_pendente_id)
   if (motivoPendencia) return { ok: false, status: 409, erro: motivoPendencia }
+
+  // Correção pós-revisão (auditoria 8B, bloqueador) — nunca permite upgrade
+  // enquanto plano_downgrade_id estiver preenchido, seja claim TÉCNICO
+  // incompleto ou agendamento COMPLETO (ver motivoDowngradeEmAndamentoBloqueiaUpgrade,
+  // asaasClient.ts — deliberadamente não usa downgradeAgendamentoCompleto,
+  // que só cobriria o caso completo). Cliente precisa cancelar ou deixar o
+  // downgrade concluir antes de solicitar um upgrade.
+  const motivoDowngradeAndamento = motivoDowngradeEmAndamentoBloqueiaUpgrade(tenant.plano_downgrade_id)
+  if (motivoDowngradeAndamento) return { ok: false, status: 409, erro: motivoDowngradeAndamento }
 
   const planoId = typeof planoIdBruto === 'string' ? planoIdBruto.trim() : ''
   if (!planoId) return { ok: false, status: 400, erro: 'plano_id é obrigatório.' }
@@ -675,5 +736,624 @@ export async function cancelarUpgrade(req: Request, res: Response) {
   } catch (err) {
     console.error('Erro ao cancelar upgrade de plano pendente:', err)
     res.status(500).json({ erro: 'Erro ao cancelar upgrade pendente.' })
+  }
+}
+
+// ─── Fase 8B (fundação) — downgrade agendado self-service ──────────────────
+// Só o preview nesta etapa (GET, sem efeito colateral nenhum): nunca grava
+// Tenant, nunca chama atualizarValorAssinaturaAsaas/criarCobrancaAvulsaAsaas,
+// nunca cria payment. POST /downgrade (solicitação de verdade, que grava
+// plano_downgrade_id/downgrade_efetivar_em/os 2 snapshots de valor E
+// reprecifica a assinatura Asaas) fica pra uma próxima etapa.
+
+// 'nivel' é o que motivoDowngradePlano usa pra decidir superior/inferior/
+// mesmo/indeterminado agora (compararNivelPlanos, asaasClient.ts) — nunca
+// mais 'asaas_subscription_value' pra essa decisão (esse campo continua no
+// Pick só porque valorDestino do preview ainda vem dele).
+// Correção pós-revisão (concorrência/recovery) — o claim atômico só é
+// criado por updateMany({ WHERE plano_downgrade_id: null }), gravando
+// plano_downgrade_id + downgrade_efetivar_em + downgrade_valor_destino
+// TODOS DE UMA VEZ, antes de chamar o Asaas; nunca sobrescrito depois (ver
+// solicitarDowngrade abaixo) — só downgrade_valor_origem fica null até o
+// Asaas confirmar. classificarClaimDowngrade usa esse campo pra distinguir
+// "claim incompleto/recuperável" (mesmo plano, origem ainda null) de
+// bloqueio de verdade. downgrade_valor_destino entra no Pick porque
+// recovery precisa reler o DESTINO já congelado no claim, nunca o preço
+// atual do catálogo (bug corrigido: catálogo pode mudar entre a primeira
+// tentativa e o retry).
+export type TenantParaDowngrade = Pick<Tenant, 'id' | 'status' | 'trial_fim' | 'licenca_fim' | 'asaas_subscription_id' | 'plano_pendente_id' | 'plano_downgrade_id' | 'downgrade_efetivar_em' | 'downgrade_valor_origem' | 'downgrade_valor_destino' | 'valor_assinatura_atual'> & {
+  plano: Pick<Plano, 'id' | 'nome' | 'ativo' | 'interno' | 'eh_plano_trial' | 'asaas_subscription_value' | 'asaas_billing_cycle' | 'nivel'> | null
+}
+
+type ValidacaoPreviewDowngrade =
+  | {
+      ok: true
+      planoNovo: Plano
+      valorAtualContratado: number
+      efetivarEm: Date
+      limitesIncompativeis: RecursoIncompativelDowngrade[]
+      cobrancaAnteriorBloqueio: string | null
+      cobrancaProximoCiclo: CobrancaProximoCicloResultado
+    }
+  | { ok: false; status: number; erro: string }
+
+// Reaproveitada só por previewDowngrade nesta etapa (mesmo padrão de
+// validarECalcularUpgrade — exportada pra teste direto, nunca importada
+// por outro controller). Mesma ORDEM de checagens de validarECalcularUpgrade
+// (bloqueio financeiro → adimplência local → assinatura vinculada →
+// cross-check Asaas ao vivo → concorrência → plano), com 2 diferenças
+// deliberadas da 8B: bloqueia tanto upgrade pendente QUANTO downgrade já
+// agendado (dois campos independentes), e o valor "atual" pra validar o
+// plano vem do Asaas ao vivo (entrada.assinatura.value), nunca do catálogo.
+export async function validarECalcularPreviewDowngrade(
+  tenant: TenantParaDowngrade,
+  planoIdBruto: unknown
+): Promise<ValidacaoPreviewDowngrade> {
+  const motivoBloqueio = bloqueioOperacaoFinanceiraSelfService(tenant.status)
+  if (motivoBloqueio) return { ok: false, status: 403, erro: motivoBloqueio }
+
+  if (situacaoAdimplenciaTenant(tenant) !== 'em_dia') {
+    return { ok: false, status: 403, erro: 'Regularize os pagamentos em aberto antes de solicitar um downgrade de plano.' }
+  }
+
+  if (!tenant.asaas_subscription_id) {
+    return { ok: false, status: 400, erro: 'Tenant ainda não tem uma assinatura ativa. Não é possível calcular downgrade.' }
+  }
+
+  // Mesmo cross-check ao vivo de validarECalcularUpgrade (Tenant.licenca_fim
+  // pode estar desatualizado até o próximo PAYMENT_CONFIRMED) — reaproveita
+  // buscarEntradaSituacaoAsaas/calcularSituacaoAsaas, nunca duplica a regra.
+  const entradaAsaas = await buscarEntradaSituacaoAsaas(tenant)
+  const situacaoAsaasDowngrade = calcularSituacaoAsaas(entradaAsaas)
+  if (situacaoAsaasDowngrade.decisao === 'INADIMPLENTE') {
+    return { ok: false, status: 403, erro: 'Regularize os pagamentos em aberto antes de solicitar um downgrade de plano.' }
+  }
+  if (situacaoAsaasDowngrade.decisao === 'INDETERMINADO' || entradaAsaas.tipo !== 'dados') {
+    return { ok: false, status: 503, erro: 'Não foi possível confirmar sua situação financeira no Asaas agora. Tente novamente em instantes.' }
+  }
+
+  const motivoUpgradePendente = motivoUpgradePendenteBloqueiaNovaTroca(tenant.plano_pendente_id)
+  if (motivoUpgradePendente) return { ok: false, status: 409, erro: motivoUpgradePendente }
+
+  // planoId precisa vir ANTES do check de claim agora (diferente da ordem de
+  // validarECalcularUpgrade) — classificarClaimDowngrade precisa saber PRA
+  // QUAL plano esta solicitação é, pra distinguir "recuperável" (mesmo
+  // plano, claim incompleto) de bloqueio de verdade (ver função, asaasClient.ts).
+  // Preview só usa o resultado pra decidir bloqueado/não — 'recuperavel'
+  // conta como liberado aqui (mesma UX de antes: mostra a prévia
+  // normalmente); é o POST (solicitarDowngrade) quem de fato usa os
+  // snapshots do estado 'recuperavel', nunca este preview.
+  const planoId = typeof planoIdBruto === 'string' ? planoIdBruto.trim() : ''
+  if (!planoId) return { ok: false, status: 400, erro: 'plano_id é obrigatório.' }
+
+  const classificacaoClaim = classificarClaimDowngrade(tenant, planoId)
+  if (classificacaoClaim.estado === 'bloqueado') return { ok: false, status: 409, erro: classificacaoClaim.motivo }
+
+  const planoNovo = await prisma.plano.findUnique({ where: { id: planoId } })
+
+  // Preço ATUAL da operação: valor REAL da assinatura no Asaas agora (nunca
+  // tenant.plano.asaas_subscription_value, que é catálogo e pode já ter
+  // divergido). Só usado pra exibição no preview (valorAtualContratado
+  // abaixo) e, mais adiante, pro snapshot downgrade_valor_origem — não
+  // decide mais direção (upgrade/downgrade), ver motivoDowngradePlano.
+  const valorAtualContratado = Number(entradaAsaas.assinatura.value)
+  if (!Number.isFinite(valorAtualContratado)) {
+    return { ok: false, status: 503, erro: 'Não foi possível confirmar o valor atual da assinatura no Asaas agora. Tente novamente em instantes.' }
+  }
+
+  // Correção pós-revisão (Fase 8B) — direção (superior/inferior) decidida
+  // por Plano.nivel (compararNivelPlanos), nunca mais por preço: preço pode
+  // subir num downgrade funcional (catálogo mudou, valor contratado ficou
+  // pra trás) sem que isso deixe de ser um downgrade — ver comparação no
+  // response de previewDowngrade abaixo, que expõe os dois valores sem
+  // assumir qual é maior.
+  const motivoPlano = motivoDowngradePlano(tenant.plano, planoNovo)
+  if (motivoPlano) return { ok: false, status: 400, erro: motivoPlano }
+
+  // efetivarEm = fim do ciclo já pago — mesma fonte de resolução robusta já
+  // usada por upgrade (licenca_fim, com fallback pro Asaas quando ainda
+  // vazio), nunca recalculada aqui.
+  const efetivarEm = await resolverVencimentoCicloAtual(tenant)
+  if (!efetivarEm) {
+    return { ok: false, status: 400, erro: 'Não foi possível calcular a data de efetivação do downgrade no momento. Tente novamente em alguns instantes.' }
+  }
+
+  const uso = await contarUsoRecursosAtivos(tenant.id)
+  const limitesIncompativeis = avaliarEncaixeLimitesDowngrade(uso, planoNovo!)
+
+  // cobrancas já vieram no mesmo buscarEntradaSituacaoAsaas acima — nenhuma
+  // chamada extra ao Asaas só pra isso.
+  const cobrancaAnteriorBloqueio = motivoCobrancaAnteriorBloqueiaDowngrade(entradaAsaas.cobrancas, efetivarEm)
+  const cobrancaProximoCiclo = identificarCobrancaProximoCiclo(entradaAsaas.cobrancas, tenant.asaas_subscription_id, efetivarEm)
+
+  return { ok: true, planoNovo: planoNovo!, valorAtualContratado, efetivarEm, limitesIncompativeis, cobrancaAnteriorBloqueio, cobrancaProximoCiclo }
+}
+
+// GET /billing/downgrade/preview — só leitura, nenhum efeito colateral (ver
+// comentário acima da seção). Nunca expõe IDs financeiros internos
+// (asaas_customer_id/asaas_subscription_id, payment id da cobrança do
+// próximo ciclo) — só o que a UI precisa pra mostrar a prévia.
+export async function previewDowngrade(req: Request, res: Response) {
+  try {
+    const tenant = req.adminUser!.tenant
+    const resultado = await validarECalcularPreviewDowngrade(tenant, req.query.plano_id)
+    if (!resultado.ok) { res.status(resultado.status).json({ erro: resultado.erro }); return }
+
+    const cobrancaProximoCiclo = resultado.cobrancaProximoCiclo.situacao === 'identificada'
+      ? {
+          situacao: 'identificada' as const,
+          status: resultado.cobrancaProximoCiclo.cobranca.status,
+          value: resultado.cobrancaProximoCiclo.cobranca.value,
+          dueDate: resultado.cobrancaProximoCiclo.cobranca.dueDate,
+        }
+      : resultado.cobrancaProximoCiclo.situacao === 'ambigua'
+      ? { situacao: 'ambigua' as const, quantidade: resultado.cobrancaProximoCiclo.quantidade }
+      : { situacao: 'nao_encontrada' as const }
+
+    // "ambigua" bloqueia (situação que precisa de intervenção antes de
+    // qualquer operação financeira futura, ver identificarCobrancaProximoCiclo);
+    // "nao_encontrada" NÃO bloqueia — é o estado comum quando o Asaas ainda
+    // não gerou a cobrança do próximo ciclo, nada de errado nisso.
+    const podeSolicitar =
+      resultado.limitesIncompativeis.length === 0 &&
+      resultado.cobrancaAnteriorBloqueio === null &&
+      resultado.cobrancaProximoCiclo.situacao !== 'ambigua'
+
+    res.json({
+      planoAtual: tenant.plano ? { id: tenant.plano.id, nome: tenant.plano.nome } : null,
+      planoDestino: { id: resultado.planoNovo.id, nome: resultado.planoNovo.nome },
+      valorAtualContratado: resultado.valorAtualContratado,
+      valorDestino: resultado.planoNovo.asaas_subscription_value,
+      efetivarEm: resultado.efetivarEm.toISOString(),
+      limites: {
+        compativel: resultado.limitesIncompativeis.length === 0,
+        detalhes: resultado.limitesIncompativeis,
+      },
+      cobrancaAnteriorBloqueio: resultado.cobrancaAnteriorBloqueio,
+      cobrancaProximoCiclo,
+      podeSolicitar,
+    })
+  } catch (err) {
+    console.error('Erro ao calcular prévia de downgrade de plano:', err)
+    res.status(500).json({ erro: 'Erro ao calcular prévia de downgrade.' })
+  }
+}
+
+// POST /billing/downgrade — solicitação de verdade. Duas fases bem
+// separadas, deliberadamente:
+//
+// (1) NOVA SOLICITAÇÃO — só quando classificarClaimDowngrade diz
+//     'sem_claim': refaz TODA a validação (validarECalcularPreviewDowngrade
+//     — plano/nivel/adimplência/assinatura/limites/cobranças) com dados
+//     ATUAIS do catálogo/licenca_fim, e só então tenta CRIAR o claim.
+//
+// (2) RECOVERY — classificarClaimDowngrade diz 'recuperavel' (direto, ou
+//     depois de perder a corrida pra criar o claim em (1)): NUNCA revalida
+//     com dados mutáveis (catálogo/nivel/limites/adimplência) — usa só os
+//     snapshots já congelados no claim (downgrade_valor_destino/
+//     downgrade_efetivar_em) e reconcilia com o Asaas via leitura do valor
+//     remoto + decidirEstadoRemotoDowngrade. Existe pra terminar uma
+//     operação financeira já iniciada, não pra reavaliar se ela ainda faz
+//     sentido pelas regras de hoje.
+//
+// Concorrência — mesmo padrão já usado no projeto (updateMany condicionado,
+// ver cancelarUpgrade acima e reivindicarRegistro em trialAlertasScheduler.ts):
+// nenhum SELECT FOR UPDATE/transação interativa com lock explícito existe
+// hoje neste código-base (investigado antes de implementar) — o padrão
+// estabelecido é sempre um UPDATE condicionado ao estado esperado, decidido
+// pelo COUNT de linhas afetadas, nunca um mutex em memória.
+//
+// Correção pós-revisão (concorrência/recovery) — o claim só é CRIADO com
+// WHERE plano_downgrade_id: null, e NUNCA sobrescrito depois (desenho
+// anterior aceitava um segundo ramo "mesmo plano + origem null" no WHERE de
+// criação, que podia REGRAVAR destino/data a cada retry — abria brecha pra
+// sobrescrever o snapshot de quem já tinha ganhado a corrida). Se a criação
+// perder a corrida (count=0), recarrega o Tenant e reclassifica: os
+// snapshots de quem ganhou (nunca os que esta requisição calculou) é que
+// valem — corrige o cenário obrigatório "A ganha com destino 149; B perde,
+// recarrega, usa 149 — nunca grava 179 mesmo que o catálogo tenha mudado".
+export async function solicitarDowngrade(req: Request, res: Response) {
+  try {
+    const tenant = req.adminUser!.tenant
+    const { plano_id } = req.body as { plano_id?: string }
+
+    const motivoBloqueio = bloqueioOperacaoFinanceiraSelfService(tenant.status)
+    if (motivoBloqueio) { res.status(403).json({ erro: motivoBloqueio }); return }
+
+    const planoId = typeof plano_id === 'string' ? plano_id.trim() : ''
+    if (!planoId) { res.status(400).json({ erro: 'plano_id é obrigatório.' }); return }
+
+    const classificacao = classificarClaimDowngrade(tenant, planoId)
+    if (classificacao.estado === 'bloqueado') { res.status(409).json({ erro: classificacao.motivo }); return }
+
+    let valorDestino: number
+    let efetivarEm: Date
+    let planoDestino: { id: string; nome: string }
+    let valorOrigem: number
+
+    if (classificacao.estado === 'recuperavel') {
+      // RECOVERY direto — claim de uma tentativa anterior (desta ou de
+      // outra requisição) já existe pra ESTE plano. valor_assinatura_atual
+      // já deveria estar resolvido desde a solicitação original (que roda
+      // ANTES de criar o claim, ver ramo `else` abaixo) — se ainda está
+      // null aqui, é estado inconsistente: fail-closed, nunca tenta
+      // resolver de novo (isso seria "recalcular" durante o recovery).
+      if (tenant.valor_assinatura_atual == null) {
+        res.status(409).json({ erro: 'O agendamento de downgrade deste tenant está em um estado inconsistente — contate o suporte antes de tentar novamente.' })
+        return
+      }
+      valorOrigem = Number(tenant.valor_assinatura_atual)
+      valorDestino = Number(classificacao.valorDestino)
+      efetivarEm = classificacao.efetivarEm
+      const plano = await prisma.plano.findUnique({ where: { id: planoId }, select: { id: true, nome: true } })
+      if (!plano) { res.status(409).json({ erro: 'O plano de destino deste downgrade não foi encontrado — contate o suporte.' }); return }
+      planoDestino = plano
+    } else {
+      // NOVA SOLICITAÇÃO — valida tudo com dados ATUAIS (catálogo/licenca_fim/
+      // nivel/limites/cobranças) — única fase que faz isso.
+      const resultado = await validarECalcularPreviewDowngrade(tenant, planoId)
+      if (!resultado.ok) { res.status(resultado.status).json({ erro: resultado.erro }); return }
+      if (resultado.limitesIncompativeis.length > 0) {
+        res.status(409).json({ erro: 'O uso atual não cabe nos limites do plano de destino.', limites: resultado.limitesIncompativeis })
+        return
+      }
+      if (resultado.cobrancaAnteriorBloqueio) { res.status(409).json({ erro: resultado.cobrancaAnteriorBloqueio }); return }
+      if (resultado.cobrancaProximoCiclo.situacao === 'ambigua') {
+        res.status(409).json({ erro: 'Existe mais de uma cobrança candidata ao próximo ciclo da assinatura — solicitação bloqueada por segurança.' })
+        return
+      }
+
+      // Origem ESTÁVEL — nunca o valor "ao vivo" usado só pra validar acima.
+      // tenant.valor_assinatura_atual é a fonte; tenant legado (nunca
+      // passou por um upgrade que gravasse este campo) inicializa com o
+      // valor real do Asaas (resultado.valorAtualContratado, já lido e
+      // validado por validarECalcularPreviewDowngrade) — persiste ANTES de
+      // mexer na assinatura, só inicialização do espelho local.
+      valorOrigem = tenant.valor_assinatura_atual != null ? Number(tenant.valor_assinatura_atual) : resultado.valorAtualContratado
+      if (tenant.valor_assinatura_atual == null) {
+        await prisma.tenant.update({ where: { id: tenant.id }, data: { valor_assinatura_atual: valorOrigem } })
+      }
+
+      const valorDestinoCalculado = Number(resultado.planoNovo.asaas_subscription_value)
+      const efetivarEmCalculado = resultado.efetivarEm
+      planoDestino = { id: resultado.planoNovo.id, nome: resultado.planoNovo.nome }
+
+      // Cria o claim SÓ se ainda null — nunca sobrescreve um já existente,
+      // nem do mesmo plano (se já existe, outra requisição ganhou a
+      // corrida, e são os snapshots DELA que valem).
+      const claim = await prisma.tenant.updateMany({
+        where: { id: tenant.id, plano_downgrade_id: null },
+        data: { plano_downgrade_id: planoId, downgrade_efetivar_em: efetivarEmCalculado, downgrade_valor_destino: valorDestinoCalculado },
+      })
+
+      if (claim.count === 1) {
+        valorDestino = valorDestinoCalculado
+        efetivarEm = efetivarEmCalculado
+      } else {
+        // Perdeu a corrida — recarrega e reclassifica. Nunca assume "eu
+        // calculei X, uso X": o vencedor pode ter congelado outro valor com
+        // um catálogo diferente, e é ISSO que precisa ser respeitado.
+        const recarregado = await prisma.tenant.findUniqueOrThrow({
+          where: { id: tenant.id },
+          select: { plano_downgrade_id: true, downgrade_efetivar_em: true, downgrade_valor_origem: true, downgrade_valor_destino: true },
+        })
+        const reclassificado = classificarClaimDowngrade(recarregado, planoId)
+        if (reclassificado.estado !== 'recuperavel') {
+          res.status(409).json({
+            erro: reclassificado.estado === 'bloqueado' ? reclassificado.motivo : 'Não foi possível reivindicar o downgrade agora. Tente novamente em instantes.',
+          })
+          return
+        }
+        valorDestino = Number(reclassificado.valorDestino)
+        efetivarEm = reclassificado.efetivarEm
+        // planoDestino continua o mesmo (mesmo planoId) — nome não muda
+        // por causa da corrida, sem precisar de outra consulta.
+      }
+    }
+
+    // Reconciliação com o Asaas — comum aos dois caminhos acima (recovery
+    // direto, recovery via corrida perdida, ou 1ª tentativa recém-criada).
+    // Leitura fresca do valor remoto (nunca reaproveita um valor lido
+    // antes): a única forma do remoto ter mudado é uma tentativa ANTERIOR
+    // deste mesmo tenant — exatamente o que decidirEstadoRemotoDowngrade
+    // existe pra reconciliar. "Assinatura não existe" fail-closed aqui
+    // cobre também o caminho de recovery (validarECalcularPreviewDowngrade
+    // já cobria isso na nova solicitação, mas recovery pula essa função).
+    if (!tenant.asaas_subscription_id) {
+      res.status(400).json({ erro: 'Tenant ainda não tem uma assinatura ativa. Não é possível concluir o downgrade.' })
+      return
+    }
+    let assinaturaAtual
+    try {
+      assinaturaAtual = await buscarAssinaturaAsaas(tenant.asaas_subscription_id)
+    } catch (err) {
+      console.error('Erro ao consultar assinatura no Asaas antes de solicitar downgrade:', err)
+      res.status(503).json({ erro: 'Não foi possível confirmar o estado atual da assinatura no Asaas agora. Tente novamente em instantes.' })
+      return
+    }
+    const valorRemoto = Number(assinaturaAtual.value)
+    if (!Number.isFinite(valorRemoto)) {
+      res.status(503).json({ erro: 'Não foi possível confirmar o estado atual da assinatura no Asaas agora. Tente novamente em instantes.' })
+      return
+    }
+
+    // remoto === origem: ainda não aplicado (1ª tentativa de verdade, ou
+    // recovery ANTES do Asaas ter sido tocado) — sincroniza. remoto ===
+    // destino (sempre o SNAPSHOT, nunca recalculado): PUT de uma tentativa
+    // anterior já foi aplicado — retry idempotente, só falta persistir.
+    // Qualquer outro valor bloqueia fail-closed (nunca sobrescreve o Asaas
+    // às cegas).
+    const decisaoRemota = decidirEstadoRemotoDowngrade(valorRemoto, valorOrigem, valorDestino)
+    if (decisaoRemota === 'divergencia_bloqueia') {
+      res.status(409).json({ erro: 'O valor atual da assinatura no Asaas não corresponde ao esperado — solicitação bloqueada por segurança. Tente novamente ou contate o suporte.' })
+      return
+    }
+
+    // 'primeira_tentativa' OU 'retry_idempotente' chamam o MESMO PUT —
+    // repetir com o mesmo valorDestino é seguro/idempotente do lado do
+    // Asaas (ver atualizarValorAssinaturaAsaas). Se isto falhar, o claim
+    // FICA retido (downgrade_valor_origem ainda null) — não tentamos
+    // desfazer: não dá pra saber com certeza se o PUT chegou a aplicar
+    // parcialmente no Asaas antes de falhar, então a próxima tentativa
+    // (mesmo plano_id) entra direto em RECOVERY e reconcilia de novo,
+    // usando os MESMOS snapshots já congelados.
+    try {
+      await atualizarValorAssinaturaAsaas(tenant.asaas_subscription_id, valorDestino)
+    } catch (err) {
+      console.error('Erro ao reprecificar a assinatura no Asaas para o downgrade solicitado:', err)
+      res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao reprecificar a assinatura no Asaas.' })
+      return
+    }
+
+    // Persistência final, só depois da confirmação do Asaas — plano_id do
+    // Tenant NUNCA é tocado aqui (o downgrade só efetiva de verdade quando
+    // o scheduler, de uma próxima etapa, aplicar downgrade_efetivar_em).
+    // valor_assinatura_atual continua sendo o valor do plano ATUAL durante
+    // todo o agendamento. Só downgrade_valor_origem falta — é o único
+    // campo que, ao ser preenchido, completa downgradeAgendamentoCompleto.
+    // Condicionada ao MESMO claim (tenant + plano_downgrade_id +
+    // downgrade_efetivar_em + downgrade_valor_destino + origem ainda null)
+    // — se count=0, outra requisição (reconciliando o MESMO claim, ex.: a
+    // vencedora da corrida enquanto esta estava em RECOVERY) pode já ter
+    // persistido antes: recarrega e reconhece sucesso idempotente em vez de
+    // reportar erro pra um downgrade que já foi agendado com sucesso.
+    const persistencia = await prisma.tenant.updateMany({
+      where: {
+        id: tenant.id, plano_downgrade_id: planoId,
+        downgrade_efetivar_em: efetivarEm, downgrade_valor_destino: valorDestino,
+        downgrade_valor_origem: null,
+      },
+      data: { downgrade_valor_origem: valorOrigem },
+    })
+    if (persistencia.count !== 1) {
+      const verificacao = await prisma.tenant.findUniqueOrThrow({
+        where: { id: tenant.id },
+        select: { plano_downgrade_id: true, downgrade_efetivar_em: true, downgrade_valor_origem: true, downgrade_valor_destino: true },
+      })
+      const jaCompleto = verificacao.plano_downgrade_id === planoId && downgradeAgendamentoCompleto(verificacao)
+      if (!jaCompleto) {
+        res.status(409).json({ erro: 'Não foi possível confirmar o agendamento do downgrade — tente novamente.' })
+        return
+      }
+    }
+
+    res.status(201).json({
+      planoAtual: tenant.plano ? { id: tenant.plano.id, nome: tenant.plano.nome } : null,
+      planoDestino,
+      valorAtualContratado: valorOrigem,
+      valorDestino,
+      efetivarEm: efetivarEm.toISOString(),
+      downgradeAgendado: true,
+    })
+  } catch (err) {
+    console.error('Erro ao solicitar downgrade de plano self-service:', err)
+    res.status(500).json({ erro: 'Erro ao solicitar downgrade de plano.' })
+  }
+}
+
+// DELETE /billing/downgrade — cancela um downgrade agendado, seja ele um
+// claim INCOMPLETO (POST chegou a reprecificar no Asaas, mas nunca terminou
+// de persistir localmente) ou um agendamento COMPLETO (persistido com
+// sucesso, ainda dentro do ciclo). Reaproveita as MESMAS funções puras de
+// estado já usadas por preview/POST (classificarClaimDowngrade,
+// downgradeAgendamentoCompleto, decidirEstadoRemotoDowngrade,
+// motivoRestauracaoDowngradeBloqueada, identificarCobrancaProximoCiclo,
+// downgradeDeveEfetivar) — nenhuma máquina de estado paralela criada aqui.
+// valor_assinatura_atual NUNCA é tocado por este handler: o plano vigente
+// nunca deixou de ser o atual (Tenant.plano_id nunca muda por causa de um
+// downgrade agendado, só o scheduler — ver services/downgradeScheduler.ts —
+// mexe nisso, e só na data de efetivação).
+export async function cancelarDowngrade(req: Request, res: Response) {
+  try {
+    const tenant = req.adminUser!.tenant
+
+    if (!tenant.plano_downgrade_id) {
+      res.status(409).json({ erro: 'Não existe downgrade agendado para cancelar.' })
+      return
+    }
+    if (!tenant.asaas_subscription_id) {
+      res.status(400).json({ erro: 'Tenant sem assinatura Asaas vinculada.' })
+      return
+    }
+
+    if (!downgradeAgendamentoCompleto(tenant)) {
+      // ─── Claim INCOMPLETO ────────────────────────────────────────────
+      // classificarClaimDowngrade (mesmo planoId do próprio Tenant, já que
+      // aqui não existe um "solicitado" diferente do que já está gravado)
+      // reaproveita a MESMA checagem de consistência do POST: só devolve
+      // 'recuperavel' quando downgrade_efetivar_em/downgrade_valor_destino
+      // também estão presentes; qualquer outra coisa é 'bloqueado' com o
+      // motivo apropriado — nunca uma segunda definição de "o que é um
+      // claim incompleto válido".
+      const classificacao = classificarClaimDowngrade(tenant, tenant.plano_downgrade_id)
+      if (classificacao.estado !== 'recuperavel') {
+        res.status(409).json({
+          erro: classificacao.estado === 'bloqueado' ? classificacao.motivo : 'Não existe downgrade agendado para cancelar.',
+        })
+        return
+      }
+      if (tenant.valor_assinatura_atual == null) {
+        res.status(409).json({ erro: 'O agendamento de downgrade deste tenant está em um estado inconsistente — contate o suporte antes de tentar novamente.' })
+        return
+      }
+      const valorOrigem = Number(tenant.valor_assinatura_atual)
+      const valorDestino = Number(classificacao.valorDestino)
+
+      const entrada = await buscarEntradaSituacaoAsaas(tenant)
+      if (entrada.tipo !== 'dados') {
+        res.status(503).json({ erro: 'Não foi possível confirmar o estado atual da assinatura no Asaas agora. Tente novamente em instantes.' })
+        return
+      }
+      const valorRemoto = Number(entrada.assinatura.value)
+      if (!Number.isFinite(valorRemoto)) {
+        res.status(503).json({ erro: 'Não foi possível confirmar o estado atual da assinatura no Asaas agora. Tente novamente em instantes.' })
+        return
+      }
+
+      // remoto === origem: o Asaas ainda não foi reprecificado (a
+      // solicitação nunca chegou a mexer nele) — não faz PUT nenhum.
+      // remoto === destino: o Asaas FOI reprecificado (a solicitação
+      // chegou a aplicar, só não terminou de persistir localmente) —
+      // restaura. Qualquer outro valor bloqueia fail-closed, sem tocar em
+      // nada.
+      const decisao = decidirEstadoRemotoDowngrade(valorRemoto, valorOrigem, valorDestino)
+      if (decisao === 'divergencia_bloqueia') {
+        res.status(409).json({ erro: 'O valor atual da assinatura no Asaas não corresponde ao esperado — cancelamento bloqueado por segurança. Tente novamente ou contate o suporte.' })
+        return
+      }
+      if (decisao === 'retry_idempotente') {
+        try {
+          await atualizarValorAssinaturaAsaas(tenant.asaas_subscription_id, valorOrigem)
+        } catch (err) {
+          console.error('Erro ao restaurar o valor da assinatura no Asaas ao cancelar downgrade (claim incompleto):', err)
+          res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao restaurar a assinatura no Asaas.' })
+          return
+        }
+      }
+
+      // Limpeza atômica, condicionada aos MESMOS snapshots que acabamos de
+      // ler (nunca um update cego) — se count=0, outra requisição pode já
+      // ter limpado (ou restaurado) este MESMO claim; recarrega e
+      // reconhece sucesso idempotente em vez de reportar erro.
+      const limpeza = await prisma.tenant.updateMany({
+        where: {
+          id: tenant.id, plano_downgrade_id: tenant.plano_downgrade_id,
+          downgrade_efetivar_em: tenant.downgrade_efetivar_em, downgrade_valor_destino: tenant.downgrade_valor_destino,
+          downgrade_valor_origem: null,
+        },
+        data: { plano_downgrade_id: null, downgrade_efetivar_em: null, downgrade_valor_destino: null, downgrade_valor_origem: null },
+      })
+      if (limpeza.count !== 1) {
+        const recarregado = await prisma.tenant.findUniqueOrThrow({
+          where: { id: tenant.id },
+          select: { plano_downgrade_id: true, downgrade_efetivar_em: true, downgrade_valor_origem: true, downgrade_valor_destino: true },
+        })
+        const jaLimpo = recarregado.plano_downgrade_id === null && recarregado.downgrade_efetivar_em === null
+          && recarregado.downgrade_valor_origem === null && recarregado.downgrade_valor_destino === null
+        if (!jaLimpo) { res.status(409).json({ erro: 'Não foi possível confirmar o cancelamento do downgrade — tente novamente.' }); return }
+      }
+
+      res.status(200).json({ cancelado: true })
+      return
+    }
+
+    // ─── Downgrade COMPLETO ──────────────────────────────────────────────
+    // Cutoff por data ANTES de qualquer outra coisa — nunca cancela algo
+    // que já devia ter efetivado, mesmo que o scheduler (ver
+    // services/downgradeScheduler.ts) ainda não tenha rodado essa rodada.
+    if (downgradeDeveEfetivar(tenant.downgrade_efetivar_em!)) {
+      res.status(409).json({ erro: 'Este downgrade já chegou à data de efetivação e não pode mais ser cancelado.' })
+      return
+    }
+
+    const entrada = await buscarEntradaSituacaoAsaas(tenant)
+    // motivoRestauracaoDowngradeBloqueada espera a RESOLUÇÃO completa da
+    // consulta — 'falha_consulta' bate direto com a tag de erro de
+    // buscarEntradaSituacaoAsaas ('sem_vinculo' cai no mesmo ramo, mas é
+    // impossível chegar aqui sem asaas_subscription_id, já checado acima).
+    // Quando há dados, reaproveita identificarCobrancaProximoCiclo — MESMA
+    // função usada pelo preview/POST, nunca duplicada.
+    const resolucaoCobranca: ResolucaoCobrancaProximoCiclo =
+      entrada.tipo === 'dados'
+        ? { tipo: 'consultada', ...identificarCobrancaProximoCiclo(entrada.cobrancas, tenant.asaas_subscription_id, tenant.downgrade_efetivar_em!) }
+        : { tipo: 'falha_consulta' }
+
+    const motivoBloqueio = motivoRestauracaoDowngradeBloqueada(resolucaoCobranca)
+    if (motivoBloqueio) { res.status(409).json({ erro: motivoBloqueio }); return }
+
+    if (entrada.tipo !== 'dados') {
+      // Nunca alcançado em runtime (falha_consulta já bloqueou acima via
+      // motivoRestauracaoDowngradeBloqueada) — só pro TypeScript conseguir
+      // estreitar `entrada` pra 'dados' dali em diante.
+      res.status(503).json({ erro: 'Não foi possível confirmar o estado atual da assinatura no Asaas agora. Tente novamente em instantes.' })
+      return
+    }
+
+    // Restaura SEMPRE com o snapshot downgrade_valor_origem — nunca preço
+    // atual do Plano, nunca subscription.value como origem, nunca valor
+    // vindo do frontend (esta rota não recebe body nenhum).
+    const valorOrigem = Number(tenant.downgrade_valor_origem)
+    const valorDestino = Number(tenant.downgrade_valor_destino)
+    if (!Number.isFinite(valorOrigem) || !Number.isFinite(valorDestino)) {
+      res.status(409).json({ erro: 'O agendamento de downgrade deste tenant está em um estado inconsistente — contate o suporte antes de tentar novamente.' })
+      return
+    }
+    const valorRemoto = Number(entrada.assinatura.value)
+    if (!Number.isFinite(valorRemoto)) {
+      res.status(503).json({ erro: 'Não foi possível confirmar o estado atual da assinatura no Asaas agora. Tente novamente em instantes.' })
+      return
+    }
+
+    // Mesma decisão pura reaproveitada (decidirEstadoRemotoDowngrade), com
+    // origem/destino DELIBERADAMENTE invertidos: no sentido do
+    // cancelamento, o valor "esperado ANTES de mexer" é o DESTINO (é o que
+    // a assinatura já reflete desde que este downgrade completou) e o
+    // valor "esperado DEPOIS" é a ORIGEM (pra onde estamos restaurando).
+    // remoto === destino (1º parâmetro passado como "origem" da função) =>
+    // 'primeira_tentativa' => ainda não restaurado, chama o PUT. remoto ===
+    // origem (2º parâmetro passado como "destino") => 'retry_idempotente'
+    // => já restaurado por uma tentativa anterior (Asaas ok, só a limpeza
+    // local falhou) — reconhece e NÃO chama o PUT de novo, só limpa.
+    // Qualquer outro valor bloqueia fail-closed.
+    const decisao = decidirEstadoRemotoDowngrade(valorRemoto, valorDestino, valorOrigem)
+    if (decisao === 'divergencia_bloqueia') {
+      res.status(409).json({ erro: 'O valor atual da assinatura no Asaas não corresponde ao esperado — cancelamento bloqueado por segurança. Tente novamente ou contate o suporte.' })
+      return
+    }
+    if (decisao === 'primeira_tentativa') {
+      try {
+        await atualizarValorAssinaturaAsaas(tenant.asaas_subscription_id, valorOrigem)
+      } catch (err) {
+        console.error('Erro ao restaurar o valor da assinatura no Asaas ao cancelar downgrade:', err)
+        res.status(502).json({ erro: err instanceof Error ? err.message : 'Erro ao restaurar a assinatura no Asaas.' })
+        return
+      }
+    }
+
+    // Limpeza local, condicionada aos MESMOS snapshots — se count=0, outra
+    // requisição já deve ter concluído este MESMO cancelamento; recarrega
+    // e reconhece sucesso idempotente antes de reportar erro.
+    const limpeza = await prisma.tenant.updateMany({
+      where: {
+        id: tenant.id, plano_downgrade_id: tenant.plano_downgrade_id,
+        downgrade_efetivar_em: tenant.downgrade_efetivar_em, downgrade_valor_origem: tenant.downgrade_valor_origem,
+        downgrade_valor_destino: tenant.downgrade_valor_destino,
+      },
+      data: { plano_downgrade_id: null, downgrade_efetivar_em: null, downgrade_valor_origem: null, downgrade_valor_destino: null },
+    })
+    if (limpeza.count !== 1) {
+      const recarregado = await prisma.tenant.findUniqueOrThrow({
+        where: { id: tenant.id },
+        select: { plano_downgrade_id: true, downgrade_efetivar_em: true, downgrade_valor_origem: true, downgrade_valor_destino: true },
+      })
+      const jaLimpo = recarregado.plano_downgrade_id === null && recarregado.downgrade_efetivar_em === null
+        && recarregado.downgrade_valor_origem === null && recarregado.downgrade_valor_destino === null
+      if (!jaLimpo) { res.status(409).json({ erro: 'Não foi possível confirmar o cancelamento do downgrade — tente novamente.' }); return }
+    }
+
+    res.status(200).json({ cancelado: true })
+  } catch (err) {
+    console.error('Erro ao cancelar downgrade de plano agendado:', err)
+    res.status(500).json({ erro: 'Erro ao cancelar downgrade agendado.' })
   }
 }

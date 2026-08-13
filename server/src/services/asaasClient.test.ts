@@ -6,11 +6,15 @@ import {
   montarCobrancasEmAberto, bloqueioOperacaoFinanceiraSelfService,
   criarClienteAsaas, atualizarClienteAsaas, buscarAssinaturaAsaas, listarCobrancasAsaas,
   atualizarBillingTypeCobrancaAsaas,
-  validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, calcularVencimentoAnterior, duracaoCicloDiasReal,
+  validarUpgradePlano, motivoUpgradePendenteBloqueiaNovaTroca, motivoDowngradeEmAndamentoBloqueiaUpgrade,
+  calcularVencimentoAnterior, duracaoCicloDiasReal,
   diasRestantesCicloAtual, calcularValorProporcionalUpgrade, deveSincronizarAssinaturaAntesDeAplicar,
   pagamentoConfirmaPendencia, criarCobrancaAvulsaAsaas, atualizarValorAssinaturaAsaas,
   resolverVencimentoCicloAtual, motivoCancelamentoUpgradeBloqueado, cancelarCobrancaAsaas, erroAsaasStatus,
-  dataCivilBRT,
+  dataCivilBRT, resolverValorAssinaturaExibido, downgradeDeveEfetivar, motivoRestauracaoDowngradeBloqueada,
+  motivoDowngradePlano, classificarClaimDowngrade, motivoCobrancaAnteriorBloqueiaDowngrade,
+  identificarCobrancaProximoCiclo, compararNivelPlanos, decidirEstadoRemotoDowngrade,
+  downgradeAgendamentoCompleto,
 } from './asaasClient'
 import type { AssinaturaAsaas, CobrancaAsaas } from './asaasClient'
 
@@ -272,7 +276,44 @@ describe('calcularAtualizacaoTenant', () => {
       plano: { connect: { id: 'plano-growth-id' } },
       plano_pendente: { disconnect: true },
       plano_pendente_payment_id: null,
+      valor_assinatura_atual: null,
     })
+  })
+
+  // Fase 8B (fundação) — mesmo branch acima, agora com
+  // plano_pendente.asaas_subscription_value presente (caso real: tenant
+  // buscado com include: { plano_pendente: true }) — confirma que o valor
+  // é propagado pra valor_assinatura_atual, não só o fallback null do
+  // teste anterior (tenant sem plano_pendente carregado).
+  test('pagamento confirmado com plano_pendente carregado grava valor_assinatura_atual com o valor do plano aplicado', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'),
+      dataVencimento: new Date('2026-08-08T00:00:00Z'),
+    }
+    const resultado = calcularAtualizacaoTenant(
+      acao,
+      {
+        asaas_status: 'ACTIVE', licenca_inicio: null, status: 'TRIAL', plano_pendente_id: 'plano-growth-id',
+        plano_pendente: { asaas_subscription_value: 349 },
+      },
+      'MONTHLY',
+      agora
+    )
+    assert.equal((resultado.dados as { valor_assinatura_atual?: unknown } | null)?.valor_assinatura_atual, 349)
+  })
+
+  // Renovação normal (fora do branch de plano_pendente) nunca grava
+  // valor_assinatura_atual — só a troca de plano de verdade grava.
+  test('renovação normal (sem plano_pendente_id) NUNCA grava valor_assinatura_atual', () => {
+    const acao = {
+      tipo: 'pagamento_confirmado' as const,
+      paymentId: 'pay_1', customerId: 'cus_1', subscriptionId: 'sub_1', asaasStatus: 'CONFIRMED',
+      dataPagamento: new Date('2026-08-08T00:00:00Z'), dataVencimento: null,
+    }
+    const resultado = calcularAtualizacaoTenant(acao, { asaas_status: 'ACTIVE', licenca_inicio: null, status: 'ACTIVE', plano_pendente_id: null }, 'MONTHLY', agora)
+    assert.equal(resultado.dados !== null && 'valor_assinatura_atual' in resultado.dados, false)
   })
 
   // Fase 8A (correção pós-revisão) — plano_pendente_payment_id presente:
@@ -667,6 +708,24 @@ describe('validarCobrancaParaRegularizacao (Fase 5 — ação "Pagar")', () => {
 // (OVERDUE). GET /billing/situacao expõe cobrancasEmAberto a partir desta
 // função pura (nunca chama o Asaas — `cobrancas` já vem de
 // listarCobrancasAsaas, buscado uma vez só em buscarEntradaSituacaoAsaas).
+describe('resolverValorAssinaturaExibido — GET /billing/situacao (Fase 8B, fundação)', () => {
+  test('valor_assinatura_atual presente => sempre vence, ignora ao vivo/catálogo', () => {
+    assert.equal(resolverValorAssinaturaExibido(149, 349, 179), 149)
+  })
+  test('sem valor_assinatura_atual, com valor ao vivo do Asaas => usa o ao vivo, ignora catálogo', () => {
+    assert.equal(resolverValorAssinaturaExibido(null, 349, 179), 349)
+  })
+  test('sem valor_assinatura_atual e sem ao vivo (sem_vinculo/falha_consulta) => cai no catálogo', () => {
+    assert.equal(resolverValorAssinaturaExibido(null, null, 179), 179)
+  })
+  test('undefined tratado igual a null em todos os 3 níveis', () => {
+    assert.equal(resolverValorAssinaturaExibido(undefined, undefined, 179), 179)
+  })
+  test('nenhum dos 3 disponível => null (nunca inventa um valor)', () => {
+    assert.equal(resolverValorAssinaturaExibido(null, null, null), null)
+  })
+})
+
 describe('montarCobrancasEmAberto — GET /billing/situacao (correção de produto)', () => {
   const cobranca = (over: Partial<CobrancaAsaas> = {}): CobrancaAsaas => ({
     id: 'pay_x', status: 'PENDING', value: 149.9, customer: 'cus_1', subscription: 'sub_1',
@@ -745,8 +804,11 @@ describe('bloqueioOperacaoFinanceiraSelfService (correção de segurança pós-r
 })
 
 // ─── Fase 8A — upgrade de plano self-service ────────────────────────────────
-const PLANO_STARTER = { id: 'plano-starter', ativo: true, interno: false, eh_plano_trial: false, asaas_subscription_value: 100 }
-const PLANO_GROWTH = { id: 'plano-growth', ativo: true, interno: false, eh_plano_trial: false, asaas_subscription_value: 200 }
+// nivel segue o mesmo backfill oficial (starter=1, growth=2) — não é
+// coincidência, é o mesmo dado que a migration 20260813140000_add_plano_nivel
+// grava pros 5 planos oficiais.
+const PLANO_STARTER = { id: 'plano-starter', ativo: true, interno: false, eh_plano_trial: false, asaas_subscription_value: 100, nivel: 1 }
+const PLANO_GROWTH = { id: 'plano-growth', ativo: true, interno: false, eh_plano_trial: false, asaas_subscription_value: 200, nivel: 2 }
 
 describe('validarUpgradePlano', () => {
   test('plano novo não encontrado é bloqueado (reaproveita validarPlanoParaAssinaturaSelfService)', () => {
@@ -784,6 +846,87 @@ describe('validarUpgradePlano', () => {
   })
 })
 
+// Correção pós-revisão (Fase 8B) — compararNivelPlanos é a ÚNICA fonte de
+// hierarquia agora (Plano.nivel, nunca preço). Coberto isoladamente aqui
+// pra não misturar "como comparo nivel" com as demais regras de
+// motivoDowngradePlano abaixo (plano ativo/interno/trial/mesmo id).
+describe('compararNivelPlanos', () => {
+  test('destino com nivel maior => superior', () => {
+    assert.equal(compararNivelPlanos(PLANO_STARTER, PLANO_GROWTH), 'superior')
+  })
+  test('destino com nivel menor => inferior', () => {
+    assert.equal(compararNivelPlanos(PLANO_GROWTH, PLANO_STARTER), 'inferior')
+  })
+  test('mesmo nivel => mesmo', () => {
+    assert.equal(compararNivelPlanos(PLANO_GROWTH, { ...PLANO_STARTER, nivel: PLANO_GROWTH.nivel }), 'mesmo')
+  })
+  test('nivel ausente (null) no atual => indeterminado', () => {
+    assert.equal(compararNivelPlanos({ ...PLANO_GROWTH, nivel: null }, PLANO_STARTER), 'indeterminado')
+  })
+  test('nivel ausente (null) no destino => indeterminado', () => {
+    assert.equal(compararNivelPlanos(PLANO_GROWTH, { ...PLANO_STARTER, nivel: null }), 'indeterminado')
+  })
+  test('atual null (nenhum plano vinculado) => indeterminado', () => {
+    assert.equal(compararNivelPlanos(null, PLANO_STARTER), 'indeterminado')
+  })
+  test('destino null => indeterminado', () => {
+    assert.equal(compararNivelPlanos(PLANO_GROWTH, null), 'indeterminado')
+  })
+})
+
+// Fase 8B — mesmo padrão de validarUpgradePlano acima, sentido oposto.
+// Correção pós-revisão: direção decidida por compararNivelPlanos (nivel),
+// NUNCA mais por preço — valorAtualContratado deixou de ser parâmetro desta
+// função (ver comentário em asaasClient.ts).
+describe('motivoDowngradePlano', () => {
+  test('plano novo não encontrado é bloqueado (reaproveita validarPlanoParaAssinaturaSelfService)', () => {
+    assert.match(motivoDowngradePlano(PLANO_GROWTH, null) ?? '', /plano não encontrado/i)
+  })
+  test('plano novo interno é bloqueado', () => {
+    const motivo = motivoDowngradePlano(PLANO_GROWTH, { ...PLANO_STARTER, interno: true })
+    assert.match(motivo ?? '', /não está disponível para contratação self-service/)
+  })
+  test('plano novo de trial é bloqueado (destino nunca pode ser o plano de teste grátis)', () => {
+    const motivo = motivoDowngradePlano(PLANO_GROWTH, { ...PLANO_STARTER, eh_plano_trial: true })
+    assert.match(motivo ?? '', /teste grátis não pode ser contratado/)
+  })
+  test('plano novo desativado é bloqueado', () => {
+    const motivo = motivoDowngradePlano(PLANO_GROWTH, { ...PLANO_STARTER, ativo: false })
+    assert.match(motivo ?? '', /não está disponível para contratação/)
+  })
+  test('sem plano atual é bloqueado', () => {
+    assert.match(motivoDowngradePlano(null, PLANO_STARTER) ?? '', /sem plano atual/i)
+  })
+  test('tentativa para o MESMO plano é bloqueada', () => {
+    const motivo = motivoDowngradePlano(PLANO_GROWTH, PLANO_GROWTH)
+    assert.match(motivo ?? '', /já está neste plano/i)
+  })
+  test('plano de NIVEL SUPERIOR é bloqueado (isso é upgrade, não downgrade)', () => {
+    const motivo = motivoDowngradePlano(PLANO_STARTER, PLANO_GROWTH)
+    assert.match(motivo ?? '', /nível inferior ao atual/i)
+  })
+  test('plano de MESMO nivel é bloqueado (não é downgrade de verdade)', () => {
+    const motivo = motivoDowngradePlano(PLANO_GROWTH, { ...PLANO_STARTER, nivel: PLANO_GROWTH.nivel })
+    assert.match(motivo ?? '', /nível inferior ao atual/i)
+  })
+  test('downgrade válido (plano novo de nivel inferior) é permitido', () => {
+    assert.equal(motivoDowngradePlano(PLANO_GROWTH, PLANO_STARTER), null)
+  })
+  test('nivel ausente no plano atual bloqueia (indeterminado, fail-closed — nunca assume direção)', () => {
+    const motivo = motivoDowngradePlano({ ...PLANO_GROWTH, nivel: null }, PLANO_STARTER)
+    assert.match(motivo ?? '', /hierarquia/i)
+  })
+  test('nivel ausente no plano destino bloqueia (indeterminado, fail-closed)', () => {
+    const motivo = motivoDowngradePlano(PLANO_GROWTH, { ...PLANO_STARTER, nivel: null })
+    assert.match(motivo ?? '', /hierarquia/i)
+  })
+  test('caso obrigatório da tarefa: Growth nivel 2 contratado R$299, Starter nivel 1 catálogo R$349 — continua sendo downgrade (preço invertido não muda a direção)', () => {
+    const growthContratado299 = { ...PLANO_GROWTH, asaas_subscription_value: 299 }
+    const starterCatalogo349 = { ...PLANO_STARTER, asaas_subscription_value: 349 }
+    assert.equal(motivoDowngradePlano(growthContratado299, starterCatalogo349), null)
+  })
+})
+
 describe('motivoUpgradePendenteBloqueiaNovaTroca', () => {
   test('já existe plano_pendente_id => bloqueia com mensagem clara', () => {
     const motivo = motivoUpgradePendenteBloqueiaNovaTroca('algum-plano-id')
@@ -791,6 +934,174 @@ describe('motivoUpgradePendenteBloqueiaNovaTroca', () => {
   })
   test('sem plano_pendente_id => libera', () => {
     assert.equal(motivoUpgradePendenteBloqueiaNovaTroca(null), null)
+  })
+})
+
+// Correção pós-revisão (auditoria 8B, bloqueador) — upgrade precisa
+// recusar QUALQUER plano_downgrade_id preenchido, não só agendamento
+// completo: um claim técnico incompleto já pode ter reprecificado a
+// assinatura no Asaas, e um upgrade concorrente calcularia o proporcional
+// em cima de um valor de catálogo desatualizado.
+describe('motivoDowngradeEmAndamentoBloqueiaUpgrade', () => {
+  test('sem downgrade nenhum (plano_downgrade_id null) => segue, não bloqueia', () => {
+    assert.equal(motivoDowngradeEmAndamentoBloqueiaUpgrade(null), null)
+  })
+  test('claim incompleto (plano_downgrade_id preenchido, independente de downgrade_valor_origem) => bloqueia', () => {
+    const motivo = motivoDowngradeEmAndamentoBloqueiaUpgrade('plano-starter')
+    assert.match(motivo ?? '', /downgrade em andamento/i)
+  })
+  test('downgrade completo (plano_downgrade_id preenchido) => bloqueia — mesma mensagem, função nem distingue completo de incompleto de propósito', () => {
+    const motivo = motivoDowngradeEmAndamentoBloqueiaUpgrade('plano-starter')
+    assert.match(motivo ?? '', /cancele ou conclua essa alteração antes de solicitar um upgrade/i)
+  })
+})
+
+// Correção pós-revisão (concorrência/recovery) — plano_downgrade_id
+// funciona como o claim que POST /billing/downgrade reivindica antes de
+// reprecificar no Asaas (ver solicitarDowngrade em billing.ts).
+// classificarClaimDowngrade substitui motivoDowngradeJaAgendadoBloqueiaNovo
+// (removida): além de bloquear/liberar, devolve os SNAPSHOTS já congelados
+// quando o estado é 'recuperavel' — nunca precisam ser recalculados.
+describe('classificarClaimDowngrade', () => {
+  const CLAIM_COMPLETO = {
+    plano_downgrade_id: 'plano-novo', downgrade_efetivar_em: new Date('2026-09-12'),
+    downgrade_valor_origem: 349, downgrade_valor_destino: 149,
+  }
+  const CLAIM_INCOMPLETO = { ...CLAIM_COMPLETO, downgrade_valor_origem: null }
+
+  test('sem plano_downgrade_id => sem_claim', () => {
+    const r = classificarClaimDowngrade({ plano_downgrade_id: null, downgrade_efetivar_em: null, downgrade_valor_origem: null, downgrade_valor_destino: null }, 'plano-novo')
+    assert.equal(r.estado, 'sem_claim')
+  })
+  test('plano_downgrade_id de OUTRO plano (concorrente com destino diferente, ou agendamento anterior de verdade) => bloqueado', () => {
+    const r = classificarClaimDowngrade({ ...CLAIM_INCOMPLETO, plano_downgrade_id: 'plano-x' }, 'plano-novo')
+    assert.equal(r.estado, 'bloqueado')
+    if (r.estado === 'bloqueado') assert.match(r.motivo, /outro plano/i)
+  })
+  test('mesmo plano, downgrade_valor_origem já preenchido (agendamento concluído) => bloqueado', () => {
+    const r = classificarClaimDowngrade(CLAIM_COMPLETO, 'plano-novo')
+    assert.equal(r.estado, 'bloqueado')
+    if (r.estado === 'bloqueado') assert.match(r.motivo, /já existe um downgrade agendado/i)
+  })
+  test('mesmo plano, origem null, mas efetivar_em/destino ausentes (estado inconsistente — nunca deveria acontecer com o claim atômico atual) => bloqueado fail-closed', () => {
+    const r = classificarClaimDowngrade({ plano_downgrade_id: 'plano-novo', downgrade_efetivar_em: null, downgrade_valor_origem: null, downgrade_valor_destino: null }, 'plano-novo')
+    assert.equal(r.estado, 'bloqueado')
+    if (r.estado === 'bloqueado') assert.match(r.motivo, /inconsistente/i)
+  })
+  // Recovery nunca depende do catálogo/nivel/preço atual do plano — a
+  // função nem RECEBE esses dados como parâmetro (só os 4 campos do
+  // Tenant + o planoId solicitado), então devolve sempre o snapshot já
+  // congelado (149), estruturalmente impossível de "vazar" um valor de
+  // catálogo (ex.: 179) pra dentro da decisão.
+  test('mesmo plano, origem null, efetivar_em/destino congelados => recuperavel, com os snapshots (nunca o catálogo — função nem recebe esse dado)', () => {
+    const r = classificarClaimDowngrade(CLAIM_INCOMPLETO, 'plano-novo')
+    assert.equal(r.estado, 'recuperavel')
+    if (r.estado === 'recuperavel') {
+      assert.equal(r.valorDestino, 149)
+      assert.deepEqual(r.efetivarEm, new Date('2026-09-12'))
+    }
+  })
+})
+
+// Estado explícito único — nunca plano_downgrade_id nem downgrade_efetivar_em
+// sozinhos como sinal de "downgrade ativo" (ambos já vêm preenchidos desde
+// o claim, antes do Asaas confirmar — ver comentário na função).
+describe('downgradeAgendamentoCompleto', () => {
+  const AGENDADO_COMPLETO = {
+    plano_downgrade_id: 'plano-starter', downgrade_efetivar_em: new Date('2026-09-12'),
+    downgrade_valor_origem: 349, downgrade_valor_destino: 149,
+  }
+
+  test('nenhum downgrade (todos null) => false', () => {
+    assert.equal(downgradeAgendamentoCompleto({ plano_downgrade_id: null, downgrade_efetivar_em: null, downgrade_valor_origem: null, downgrade_valor_destino: null }), false)
+  })
+  test('claim incompleto (destino/data congelados, origem ainda null) => false', () => {
+    assert.equal(downgradeAgendamentoCompleto({ ...AGENDADO_COMPLETO, downgrade_valor_origem: null }), false)
+  })
+  test('plano_downgrade_id sozinho, mais nada preenchido (nunca deveria acontecer, mas defensivo) => false', () => {
+    assert.equal(downgradeAgendamentoCompleto({ plano_downgrade_id: 'plano-starter', downgrade_efetivar_em: null, downgrade_valor_origem: null, downgrade_valor_destino: null }), false)
+  })
+  test('downgrade_efetivar_em sozinho, sem plano_downgrade_id (nunca deveria acontecer, mas defensivo) => false', () => {
+    assert.equal(downgradeAgendamentoCompleto({ plano_downgrade_id: null, downgrade_efetivar_em: new Date('2026-09-12'), downgrade_valor_origem: null, downgrade_valor_destino: null }), false)
+  })
+  test('os 4 campos preenchidos => true, agendamento completo', () => {
+    assert.equal(downgradeAgendamentoCompleto(AGENDADO_COMPLETO), true)
+  })
+})
+
+// POST /billing/downgrade — decide o que fazer com o valor REAL da
+// assinatura no Asaas, lido ao vivo imediatamente antes de reprecificar,
+// comparado contra origem estável (tenant.valor_assinatura_atual ou
+// inicializado dele) e destino (planoDestino.asaas_subscription_value).
+describe('decidirEstadoRemotoDowngrade', () => {
+  test('remoto === origem => primeira_tentativa (cobre tanto a 1ª tentativa de verdade quanto um retry ANTES do PUT no Asaas ter rodado)', () => {
+    assert.equal(decidirEstadoRemotoDowngrade(349, 349, 149), 'primeira_tentativa')
+  })
+  test('remoto === destino (PUT de uma tentativa anterior já aplicado, persistência local que falhou) => retry_idempotente', () => {
+    assert.equal(decidirEstadoRemotoDowngrade(149, 349, 149), 'retry_idempotente')
+  })
+  test('remoto diferente de origem E destino => divergencia_bloqueia (fail-closed, nunca sobrescreve às cegas)', () => {
+    assert.equal(decidirEstadoRemotoDowngrade(299, 349, 149), 'divergencia_bloqueia')
+  })
+  test('origem === destino (empate, caso extremo) resolve como primeira_tentativa por prioridade documentada', () => {
+    assert.equal(decidirEstadoRemotoDowngrade(200, 200, 200), 'primeira_tentativa')
+  })
+
+  // Cenário exato do bug corrigido nesta rodada: catálogo do plano destino
+  // mudou de 149 pra 179 ENTRE a 1ª tentativa (que já reprecificou o Asaas
+  // pra 149) e o retry. O snapshot congelado no claim (downgrade_valor_destino
+  // = 149) é o que chega aqui como `valorDestino` — 179 nunca é passado pra
+  // esta função (billing.ts usa o snapshot, nunca resultado.planoNovo.
+  // asaas_subscription_value, quando `retomando` é true). Com o snapshot
+  // certo, remoto (149) bate com destino (149): retry idempotente, nunca
+  // bloqueia por uma divergência que a própria tentativa anterior causou.
+  test('retry com catálogo alterado: snapshot de destino (149) é reconhecido, catálogo novo (179) nunca entra na decisão', () => {
+    const valorDestinoSnapshot = 149 // downgrade_valor_destino persistido no claim da 1ª tentativa
+    const catalogoAtualIrrelevante = 179 // resultado.planoNovo.asaas_subscription_value hoje — NUNCA usado aqui
+    const remoto = 149 // Asaas já reprecificado pela 1ª tentativa
+    assert.equal(decidirEstadoRemotoDowngrade(remoto, 349, valorDestinoSnapshot), 'retry_idempotente')
+    assert.notEqual(valorDestinoSnapshot, catalogoAtualIrrelevante)
+  })
+})
+
+// DELETE /billing/downgrade (cancelarDowngrade, billing.ts) reaproveita
+// decidirEstadoRemotoDowngrade pras duas situações de reconciliação — sem
+// criar nenhuma decisão pura nova, conforme pedido ("não duplicar a máquina
+// de estados já existente"). Os testes acima já cobrem exaustivamente as 3
+// saídas da função em si; os testes abaixo só documentam/confirmam que a
+// MESMA função, chamada com os argumentos na ordem que cancelarDowngrade
+// usa em cada situação, produz a decisão certa.
+describe('decidirEstadoRemotoDowngrade — reaproveitada por DELETE /billing/downgrade', () => {
+  test('claim INCOMPLETO, remoto === origem (chamada direta, mesma ordem do POST): Asaas nunca foi tocado => primeira_tentativa => cancelarDowngrade NÃO chama PUT', () => {
+    // origem=349 (valor_assinatura_atual), destino=149 (downgrade_valor_destino)
+    assert.equal(decidirEstadoRemotoDowngrade(349, 349, 149), 'primeira_tentativa')
+  })
+  test('claim INCOMPLETO, remoto === destino: POST chegou a reprecificar mas não persistiu => retry_idempotente => cancelarDowngrade restaura pra origem', () => {
+    assert.equal(decidirEstadoRemotoDowngrade(149, 349, 149), 'retry_idempotente')
+  })
+  test('claim INCOMPLETO, remoto num terceiro valor => divergencia_bloqueia => cancelarDowngrade bloqueia sem tocar em nada', () => {
+    assert.equal(decidirEstadoRemotoDowngrade(299, 349, 149), 'divergencia_bloqueia')
+  })
+
+  // Downgrade COMPLETO: cancelarDowngrade chama decidirEstadoRemotoDowngrade
+  // com origem/destino DELIBERADAMENTE invertidos (destino no lugar de
+  // "origem", origem no lugar de "destino") — porque no sentido do
+  // cancelamento o valor "esperado ANTES de mexer" é o DESTINO (a
+  // assinatura já reflete esse valor desde que o downgrade completou).
+  test('downgrade COMPLETO, remoto === destino (chamada invertida): ainda não restaurado => primeira_tentativa => cancelarDowngrade chama o PUT restaurando pra origem', () => {
+    const origem = 349
+    const destino = 149
+    const remoto = destino // assinatura ainda no valor destino (downgrade completou, nunca cancelado antes)
+    assert.equal(decidirEstadoRemotoDowngrade(remoto, destino, origem), 'primeira_tentativa')
+  })
+  test('downgrade COMPLETO, remoto === origem (chamada invertida): retry depois de "Asaas restaurado + limpeza local falhou" => retry_idempotente => cancelarDowngrade reconhece e só limpa local, sem chamar o PUT de novo', () => {
+    const origem = 349
+    const destino = 149
+    const remoto = origem // uma tentativa anterior já restaurou a assinatura pra origem
+    assert.equal(decidirEstadoRemotoDowngrade(remoto, destino, origem), 'retry_idempotente')
+  })
+  test('downgrade COMPLETO, remoto num terceiro valor (chamada invertida) => divergencia_bloqueia => cancelarDowngrade bloqueia sem tocar em nada', () => {
+    assert.equal(decidirEstadoRemotoDowngrade(299, 149, 349), 'divergencia_bloqueia')
   })
 })
 
@@ -1053,6 +1364,139 @@ describe('dataCivilBRT — dia civil (YYYY-MM-DD) em America/Sao_Paulo, nunca UT
   })
   test('13/08 00:01 BRT (dia seguinte de verdade no Brasil) => 2026-08-13', () => {
     assert.equal(dataCivilBRT(new Date('2026-08-13T00:01:00-03:00')), '2026-08-13')
+  })
+})
+
+// Fase 8B (fundação) — efetivarEm codificado como meia-noite UTC do dia
+// civil pretendido (mesma convenção de licenca_fim/dueDate). Downgrade
+// agendado pra efetivar em 12/09.
+describe('downgradeDeveEfetivar — comparação por dia civil BRT (Fase 8B, fundação)', () => {
+  const efetivarEm12set = new Date('2026-09-12T00:00:00Z')
+
+  test('11/09 23:59 BRT => false (ainda não chegou, mesmo faltando 1 minuto)', () => {
+    assert.equal(downgradeDeveEfetivar(efetivarEm12set, new Date('2026-09-11T23:59:00-03:00')), false)
+  })
+  test('12/09 00:00 BRT => true (chegou no exato instante da virada civil)', () => {
+    assert.equal(downgradeDeveEfetivar(efetivarEm12set, new Date('2026-09-12T00:00:00-03:00')), true)
+  })
+  test('12/09 23:59 BRT => true (ainda dentro do dia de efetivação)', () => {
+    assert.equal(downgradeDeveEfetivar(efetivarEm12set, new Date('2026-09-12T23:59:00-03:00')), true)
+  })
+  test('dia seguinte (13/09) => true (scheduler atrasado, efetivação continua valendo)', () => {
+    assert.equal(downgradeDeveEfetivar(efetivarEm12set, new Date('2026-09-13T10:00:00-03:00')), true)
+  })
+  test('bem antes (01/09 BRT) => false', () => {
+    assert.equal(downgradeDeveEfetivar(efetivarEm12set, new Date('2026-09-01T12:00:00-03:00')), false)
+  })
+})
+
+// Correção pós-revisão (Fase 8B) — a versão anterior recebia só
+// `cobranca: Pick<CobrancaAsaas,'status'> | null` e tratava null como um
+// único bloqueio, confundindo "ainda não gerada" (deveria liberar) com
+// "falha ao consultar" (deve bloquear). Agora recebe a RESOLUÇÃO completa
+// (ResolucaoCobrancaProximoCiclo) — os 6 estados pedidos pela tarefa.
+describe('motivoRestauracaoDowngradeBloqueada — resolução explícita fail-closed pro cancelamento (Fase 8B)', () => {
+  const cobranca = (status: string): CobrancaAsaas => ({
+    id: 'pay_x', status, value: 349, customer: 'cus_1', subscription: 'sub_1', dueDate: '2026-09-12', paymentDate: null,
+  })
+
+  test('nao_encontrada (nenhuma cobrança gerada ainda) => permite restaurar (só o subscription.value, nada a tocar na cobrança)', () => {
+    const motivo = motivoRestauracaoDowngradeBloqueada({ tipo: 'consultada', situacao: 'nao_encontrada' })
+    assert.equal(motivo, null)
+  })
+  test('identificada + PENDING => permite restaurar (com updatePendingPayments:true)', () => {
+    const motivo = motivoRestauracaoDowngradeBloqueada({ tipo: 'consultada', situacao: 'identificada', cobranca: cobranca('PENDING') })
+    assert.equal(motivo, null)
+  })
+  test('identificada + OVERDUE => permite restaurar', () => {
+    const motivo = motivoRestauracaoDowngradeBloqueada({ tipo: 'consultada', situacao: 'identificada', cobranca: cobranca('OVERDUE') })
+    assert.equal(motivo, null)
+  })
+  test('identificada + CONFIRMED => bloqueia (já foi paga no valor destino, restaurar não desfaz o pagamento)', () => {
+    const motivo = motivoRestauracaoDowngradeBloqueada({ tipo: 'consultada', situacao: 'identificada', cobranca: cobranca('CONFIRMED') })
+    assert.match(motivo ?? '', /já foi processada/i)
+  })
+  test('identificada + RECEIVED => bloqueia', () => {
+    const motivo = motivoRestauracaoDowngradeBloqueada({ tipo: 'consultada', situacao: 'identificada', cobranca: cobranca('RECEIVED') })
+    assert.match(motivo ?? '', /já foi processada/i)
+  })
+  test('identificada + status desconhecido => bloqueia (fail-closed, nunca whitelist por exclusão)', () => {
+    const motivo = motivoRestauracaoDowngradeBloqueada({ tipo: 'consultada', situacao: 'identificada', cobranca: cobranca('REFUNDED') })
+    assert.match(motivo ?? '', /já foi processada/i)
+  })
+  test('ambigua (múltiplas candidatas) => bloqueia — nunca resolvida arbitrariamente', () => {
+    const motivo = motivoRestauracaoDowngradeBloqueada({ tipo: 'consultada', situacao: 'ambigua', quantidade: 2 })
+    assert.match(motivo ?? '', /mais de uma cobrança/i)
+  })
+  test('falha_consulta => bloqueia — nunca confundida com "nao_encontrada"', () => {
+    const motivo = motivoRestauracaoDowngradeBloqueada({ tipo: 'falha_consulta' })
+    assert.match(motivo ?? '', /não foi possível confirmar/i)
+  })
+})
+
+describe('motivoCobrancaAnteriorBloqueiaDowngrade — proteção antes de uma futura reprecificação (Fase 8B, fundação)', () => {
+  const efetivarEm = new Date('2026-09-12T00:00:00Z')
+  const cobranca = (over: Partial<{ status: string; dueDate: string }> = {}) => ({ status: 'PENDING', dueDate: '2026-09-12', ...over })
+
+  test('PENDING com dueDate ANTERIOR à efetivação => bloqueia', () => {
+    const motivo = motivoCobrancaAnteriorBloqueiaDowngrade([cobranca({ dueDate: '2026-08-12' })], efetivarEm)
+    assert.match(motivo ?? '', /cobrança em aberto/i)
+  })
+  test('OVERDUE com dueDate ANTERIOR à efetivação => bloqueia', () => {
+    const motivo = motivoCobrancaAnteriorBloqueiaDowngrade([cobranca({ status: 'OVERDUE', dueDate: '2026-08-12' })], efetivarEm)
+    assert.match(motivo ?? '', /cobrança em aberto/i)
+  })
+  test('PENDING com dueDate NA data de efetivação => não é "anterior", não bloqueia por este motivo', () => {
+    assert.equal(motivoCobrancaAnteriorBloqueiaDowngrade([cobranca({ dueDate: '2026-09-12' })], efetivarEm), null)
+  })
+  test('PENDING com dueDate POSTERIOR à efetivação => não bloqueia', () => {
+    assert.equal(motivoCobrancaAnteriorBloqueiaDowngrade([cobranca({ dueDate: '2026-10-12' })], efetivarEm), null)
+  })
+  test('CONFIRMED/RECEIVED anteriores nunca bloqueiam (já pagas, fora do domínio desta proteção)', () => {
+    assert.equal(motivoCobrancaAnteriorBloqueiaDowngrade([cobranca({ status: 'CONFIRMED', dueDate: '2026-08-12' })], efetivarEm), null)
+  })
+  test('lista vazia => não bloqueia', () => {
+    assert.equal(motivoCobrancaAnteriorBloqueiaDowngrade([], efetivarEm), null)
+  })
+  test('comparação por dia civil, não ms — dueDate um dia antes só bloqueia de verdade (garante que não há deslocamento de fuso na comparação)', () => {
+    // dueDate=2026-09-11 é literalmente 1 dia civil antes de 2026-09-12,
+    // sem ambiguidade nenhuma de fuso possível (ambos strings YYYY-MM-DD).
+    const motivo = motivoCobrancaAnteriorBloqueiaDowngrade([cobranca({ dueDate: '2026-09-11' })], efetivarEm)
+    assert.match(motivo ?? '', /cobrança em aberto/i)
+  })
+})
+
+describe('identificarCobrancaProximoCiclo — fail-closed (Fase 8B, fundação)', () => {
+  const efetivarEm = new Date('2026-09-12T00:00:00Z')
+  const cobranca = (over: Partial<CobrancaAsaas> = {}): CobrancaAsaas => ({
+    id: 'pay_x', status: 'PENDING', value: 349, customer: 'cus_1', subscription: 'sub_1',
+    dueDate: '2026-09-12', paymentDate: null, ...over,
+  })
+
+  test('exatamente 1 candidata (mesma subscription, dueDate = efetivarEm) => identificada', () => {
+    const resultado = identificarCobrancaProximoCiclo([cobranca()], 'sub_1', efetivarEm)
+    assert.equal(resultado.situacao, 'identificada')
+    assert.equal(resultado.situacao === 'identificada' && resultado.cobranca.id, 'pay_x')
+  })
+  test('nenhuma candidata (Asaas ainda não gerou a cobrança do próximo ciclo) => nao_encontrada', () => {
+    const resultado = identificarCobrancaProximoCiclo([cobranca({ dueDate: '2026-08-12' })], 'sub_1', efetivarEm)
+    assert.equal(resultado.situacao, 'nao_encontrada')
+  })
+  test('mais de 1 candidata => ambigua, nunca resolvida arbitrariamente', () => {
+    const resultado = identificarCobrancaProximoCiclo([cobranca({ id: 'pay_a' }), cobranca({ id: 'pay_b' })], 'sub_1', efetivarEm)
+    assert.equal(resultado.situacao, 'ambigua')
+    assert.equal(resultado.situacao === 'ambigua' && resultado.quantidade, 2)
+  })
+  test('candidata de OUTRA assinatura (mesma data) nunca conta', () => {
+    const resultado = identificarCobrancaProximoCiclo([cobranca({ subscription: 'sub_outro' })], 'sub_1', efetivarEm)
+    assert.equal(resultado.situacao, 'nao_encontrada')
+  })
+  test('candidata em horário tarde do dia (dueDate ainda YYYY-MM-DD) casa normalmente — comparação por dia civil, não por instante', () => {
+    // dueDate do Asaas é sempre "YYYY-MM-DD" (sem hora) — mesmo assim
+    // confirma que new Date(dueDate) comparado via dia civil bate com
+    // efetivarEm codificado da mesma forma (meia-noite UTC do dia).
+    const resultado = identificarCobrancaProximoCiclo([cobranca({ dueDate: '2026-09-12' })], 'sub_1', new Date('2026-09-12T00:00:00Z'))
+    assert.equal(resultado.situacao, 'identificada')
   })
 })
 

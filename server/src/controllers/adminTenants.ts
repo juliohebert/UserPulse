@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { AdminRole, Prisma, TenantStatus } from '@prisma/client'
 import prisma from '../lib/prisma'
-import { checarLimiteUsuariosAdmin } from '../lib/tenantGuards'
+import { checarLimiteUsuariosAdmin, planoEfetivoParaLimite } from '../lib/tenantGuards'
 
 // Mesmo custo de hash usado em prisma/seedAdmin.ts — sem lib compartilhada de
 // bcrypt no projeto ainda, duplicar essa constante é o padrão já existente.
@@ -296,7 +296,12 @@ export async function listarAdmins(req: Request, res: Response) {
 export async function criarAcesso(req: Request, res: Response) {
   try {
     const tenantId = req.params.id as string
-    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, include: { plano: true } })
+    // plano_downgrade entra no include (Fase 8B) só pra planoEfetivoParaLimite
+    // decidir a capacidade EFETIVA de admins — mesmo raciocínio do include
+    // ampliado em requireAdminAuth.ts, mas aqui local: esta rota (Gestão
+    // SaaS, criação de acesso por SUPER_ADMIN num tenant arbitrário) nunca
+    // passa por req.adminUser.tenant.
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, include: { plano: true, plano_downgrade: true } })
     if (!tenant) { res.status(404).json({ erro: 'Tenant não encontrado.' }); return }
 
     const { nome, email, senha, role } = req.body as { nome?: string; email?: string; senha?: string; role?: string }
@@ -314,7 +319,7 @@ export async function criarAcesso(req: Request, res: Response) {
       return
     }
 
-    const limiteErro = await checarLimiteUsuariosAdmin(tenantId, tenant.plano)
+    const limiteErro = await checarLimiteUsuariosAdmin(tenantId, planoEfetivoParaLimite(tenant))
     if (limiteErro) { res.status(400).json({ erro: limiteErro }); return }
 
     const password_hash = await bcrypt.hash(senha, SALT_ROUNDS)

@@ -703,13 +703,22 @@ export interface CobrancaEmAbertoResumo {
 // decide se a UI oferece "Assinar" ou "Reativar"/cobranças vencidas.
 export interface SituacaoBillingResposta {
   possuiAssinatura: boolean
-  plano: { nome: string; valor: string | number | null; ciclo: string | null } | null
+  // id/nivel entraram na Fase 8B — nivel é a hierarquia EXPLÍCITA (nunca
+  // preço, ver compararNivelPlanos no backend) usada pra classificar cada
+  // plano de PlanoContratavel como upgrade/downgrade/sem troca.
+  plano: { id: string; nome: string; nivel: number | null; valor: string | number | null; ciclo: string | null } | null
   // Fase 6B — presente só entre a escolha de um plano pago (POST
   // /billing/assinatura) e a confirmação do pagamento pelo webhook Asaas.
   // Nesse intervalo, `plano` acima continua sendo o plano ATUAL (ex.:
   // teste-gratis) — nunca troca antes da confirmação (ver plano_pendente_id
   // em server/prisma/schema.prisma).
   planoPendente: { nome: string; valor: string | number | null; ciclo: string | null } | null
+  // Fase 8B — downgrade agendado, só presente quando o backend confirma
+  // AGENDAMENTO COMPLETO (nunca um claim técnico incompleto em andamento,
+  // ver downgradeAgendamentoCompleto/obterSituacao em controllers/billing.ts).
+  // valorDestino é sempre o snapshot combinado no agendamento (downgrade_valor_destino),
+  // nunca o preço atual de catálogo do plano futuro.
+  downgradeAgendado: { plano: { id: string; nome: string }; efetivarEm: string; valorDestino: string | number | null } | null
   // Correção pós-homologação — planoPendente sozinho não distingue upgrade
   // (Fase 8A, cancelável via DELETE /billing/upgrade) de uma primeira
   // assinatura ainda não paga (nunca cancelável por essa rota). Só true
@@ -739,6 +748,10 @@ export interface PlanoContratavel {
   id: string
   nome: string
   descricao: string | null
+  // Fase 8B — hierarquia EXPLÍCITA (nunca inferida por preço, ver
+  // compararNivelPlanos no backend). null (plano sem nivel configurado)
+  // nunca oferece troca self-service, nem upgrade nem downgrade.
+  nivel: number | null
   valor: string | number | null
   ciclo: string | null
   limite_campanhas_ativas: number | null
@@ -792,6 +805,62 @@ export interface UpgradeSolicitadoResposta {
   cicloDias: number
   invoiceUrl: string | null
   planoNovo: PlanoResumoUpgrade
+}
+
+// Fase 8B — downgrade agendado (efetivação só na data, via scheduler
+// interno do backend — nunca imediata). Mesmo recorte mínimo do upgrade:
+// nenhum id financeiro/técnico do claim, nenhum preço calculado aqui.
+interface PlanoResumoDowngrade {
+  id: string
+  nome: string
+}
+
+export interface RecursoIncompativelDowngrade {
+  recurso: string
+  usoAtual: number
+  limiteDestino: number
+  excedente: number
+}
+
+// Só as 3 situações que o backend já distingue (identificarCobrancaProximoCiclo) —
+// "ambigua"/"identificada com status != PENDING/OVERDUE" já vêm refletidas
+// em podeSolicitar=false, o frontend nunca decide isso sozinho.
+export type CobrancaProximoCicloDowngrade =
+  | { situacao: 'identificada'; status: string; value: number; dueDate: string }
+  | { situacao: 'ambigua'; quantidade: number }
+  | { situacao: 'nao_encontrada' }
+
+// GET /billing/downgrade/preview — sem efeito colateral nenhum (nunca
+// chama o Asaas, nunca escreve no banco), mesmo padrão de
+// UpgradePreviewResposta. valorAtualContratado vem do Asaas ao vivo;
+// valorDestino do catálogo atual do plano escolhido (o valor só vira
+// snapshot definitivo depois de POST /billing/downgrade confirmar — até
+// lá, o preview sempre reflete o catálogo de agora). podeSolicitar já
+// resume limites/cobrança anterior/cobrança ambígua — o frontend nunca
+// recalcula essa decisão, só exibe.
+export interface DowngradePreviewResposta {
+  planoAtual: PlanoResumoDowngrade | null
+  planoDestino: PlanoResumoDowngrade
+  valorAtualContratado: number
+  valorDestino: string | number | null
+  efetivarEm: string
+  limites: { compativel: boolean; detalhes: RecursoIncompativelDowngrade[] }
+  cobrancaAnteriorBloqueio: string | null
+  cobrancaProximoCiclo: CobrancaProximoCicloDowngrade
+  podeSolicitar: boolean
+}
+
+// POST /billing/downgrade — nunca cria cobrança nem redireciona a lugar
+// nenhum (diferente do upgrade): só agenda. valorDestino aqui já É o
+// snapshot que vai reger a troca (congelado no claim), mesmo que o
+// catálogo mude depois — ver bug corrigido em asaasClient.ts/billing.ts.
+export interface DowngradeSolicitadoResposta {
+  planoAtual: PlanoResumoDowngrade | null
+  planoDestino: PlanoResumoDowngrade
+  valorAtualContratado: number
+  valorDestino: number
+  efetivarEm: string
+  downgradeAgendado: true
 }
 
 export interface TenantAdminDetail extends Omit<TenantAdminItem, '_count'> {
