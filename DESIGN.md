@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: Meta-design-analysis
-description: Meta's design system spans hardware commerce (Quest VR, Ray-Ban Meta AI glasses) and brand surfaces with a confident product-merchandising voice. This project adapts that visual language to the Apple system font stack: stark white canvas, full-bleed feature cards, dual-CTA hero patterns (black primary + outlined secondary), and saturated cobalt blue (#0064E0) for in-product purchase actions. Pill-shaped 100px-radius buttons, generous 24-32px card rounding, and tight three-tier text hierarchy carry across homepage, product detail (PDP), buy-now configurator, and accessory subpages.
+description: Meta's design system spans hardware commerce (Quest VR, Ray-Ban Meta AI glasses) and brand surfaces with a confident product-merchandising voice. This project adapts that visual language to the Apple system font stack: stark white canvas, full-bleed feature cards, dual-CTA hero patterns (black primary + outlined secondary), and UserPulse cobalt blue (#0064E0) for in-product purchase/configurator actions. Pill-shaped 100px-radius buttons, generous 24-32px card rounding, and tight three-tier text hierarchy carry across homepage, product detail (PDP), buy-now configurator, and accessory subpages.
 
 colors:
   primary: "#0064e0"
@@ -10,7 +10,7 @@ colors:
   on-primary: "#ffffff"
   ink-button: "#000000"
   on-ink-button: "#ffffff"
-  fb-blue: "#1876f2"
+  fb-blue: "#0064e0"
   meta-link: "#385898"
   oculus-purple: "#a121ce"
   success: "#31a24c"
@@ -365,7 +365,7 @@ The Apple system font stack anchors this adaptation, ranging from a 64px hero di
 - **Cobalt Primary** ({colors.primary}): The buy-now CTA color. Used on every "Add to cart", "Configure", "Pre-order" button inside the commerce flow and the right-rail purchase panel.
 - **Deep Cobalt** ({colors.primary-deep}): Pressed-state and dark-surface variant of the cobalt primary; also the active link color.
 - **Soft Cobalt** ({colors.primary-soft}): Translucent background tint for informational callouts (`{colors.primary-soft}` at 15% alpha).
-- **Facebook Blue** ({colors.fb-blue}): Selected radio/checkbox state and inline form-control activation color.
+- **UserPulse Cobalt** ({colors.fb-blue}): Selected radio/checkbox state and inline form-control activation color.
 - **Meta Link Blue** ({colors.meta-link}): Reserved for legacy navigation and footer link affordances.
 - **Oculus Purple** ({colors.oculus-purple}): VR product accent — used inside Quest-branded surfaces for category emphasis.
 
