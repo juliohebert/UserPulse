@@ -154,6 +154,93 @@ function OnboardingState({ navigate, podeEscrever }: { navigate: (path: string) 
   )
 }
 
+// Modal de boas-vindas do trial (Fase de melhoria visual) — mostrado uma
+// única vez por trial, ver mostrarModalTrial/fecharModalTrial em Dashboard()
+// abaixo. Limites vêm sempre de user.tenant.plano (já devolvido em
+// /auth/me), nunca hardcoded aqui (mesmo raciocínio de TrialCard em
+// MinhaAssinatura.tsx).
+function fmtLimiteModal(n: number | null): string {
+  return n != null ? String(n) : 'Ilimitado'
+}
+
+function TrialWelcomeModal({
+  dias, plano, onVerPlanos, onComecar, onClose,
+}: {
+  dias: number | null
+  plano: { limite_campanhas_ativas: number | null; limite_tours_ativos: number | null; limite_jornadas_ativas: number | null } | null
+  onVerPlanos: () => void
+  onComecar: () => void
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  // Mesmos ícones já usados pelos itens de navegação equivalentes na
+  // Sidebar (campaign/map/route) — mantém consistência visual sem inventar
+  // um novo conjunto de ícones só para este modal.
+  const limites = plano ? [
+    { icon: 'campaign', valor: fmtLimiteModal(plano.limite_campanhas_ativas), label: plano.limite_campanhas_ativas === 1 ? 'Campanha' : 'Campanhas' },
+    { icon: 'map', valor: fmtLimiteModal(plano.limite_tours_ativos), label: plano.limite_tours_ativos === 1 ? 'Tour Guiado' : 'Tours Guiados' },
+    { icon: 'route', valor: fmtLimiteModal(plano.limite_jornadas_ativas), label: plano.limite_jornadas_ativas === 1 ? 'Jornada' : 'Jornadas' },
+  ] : []
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40"
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="trial-modal-title"
+    >
+      <div className="bg-surface rounded-2xl shadow-xl w-full max-w-md overflow-hidden max-h-[90vh] overflow-y-auto">
+        <div className="bg-gradient-to-br from-primary/15 to-secondary/15 py-8 flex items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-surface shadow-md flex items-center justify-center">
+            <span className="material-symbols-outlined text-primary text-[30px]">rocket_launch</span>
+          </div>
+        </div>
+        <div className="p-6 text-center">
+          <h3 id="trial-modal-title" className="text-headline-md font-bold text-on-surface mb-2">Seu teste grátis começou</h3>
+          <p className="text-body-md text-on-surface-variant mb-5">
+            {dias != null
+              ? `Você tem ${dias} dia${dias === 1 ? '' : 's'} para explorar o UserPulse e conhecer os principais recursos.`
+              : 'Explore o UserPulse e conheça os principais recursos.'}
+          </p>
+
+          {limites.length > 0 && (
+            <div className="bg-surface-container-low rounded-xl border border-outline-variant/40 p-4 mb-5 text-left">
+              <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-on-surface-variant mb-3">
+                <span className="material-symbols-outlined text-[16px]">fact_check</span>
+                Limites do plano
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {limites.map(l => (
+                  <div key={l.label} className="text-center bg-surface rounded-lg border border-outline-variant/30 py-3 px-1">
+                    <span className="material-symbols-outlined text-primary text-[20px]">{l.icon}</span>
+                    <p className="text-title-md font-bold text-on-surface mt-1">{l.valor}</p>
+                    <p className="text-[11px] text-on-surface-variant leading-tight">{l.label}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button variant="ghost" fullWidthMobile onClick={onVerPlanos} className="sm:flex-1">Ver planos</Button>
+            <Button fullWidthMobile onClick={onComecar} className="sm:flex-1">Começar a explorar</Button>
+          </div>
+          <p className="flex items-center justify-center gap-1 text-label-sm text-on-surface-variant mt-4">
+            <span className="material-symbols-outlined text-[14px]">lock</span>
+            Não é necessário cadastrar cartão agora.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Feed combinado de campanhas + tours guiados — não existe endpoint de
 // atividade unificado no backend, então a lista é montada no front a partir
 // dos dois recursos já carregados para esta tela, ordenada por criado_em.
@@ -176,6 +263,20 @@ interface Insight {
   onCta: () => void
 }
 
+// Persistência mínima local (mesmo mecanismo já usado no projeto pra "visto
+// uma vez" — ver localStorage de sidebar collapsed em Layout.tsx e wasShown
+// do widget.js) — não existe nenhum flag de onboarding no backend/AdminUser
+// pra reaproveitar, então não criamos migration nova só pra isto. Chave
+// composta por tenant + usuário + trial_fim: um trial FUTURO (trial_fim
+// diferente, ex.: reativação manual por suporte) nunca fica bloqueado por
+// uma flag de um trial anterior já visto. Nenhum dado sensível armazenado,
+// só a marca "1".
+const TRIAL_MODAL_KEY_PREFIX = 'userpulse:trial-modal-visto:'
+
+function trialModalKey(tenantId: string, userId: string, trialFim: string | null): string {
+  return `${TRIAL_MODAL_KEY_PREFIX}${tenantId}:${userId}:${trialFim ?? 'sem-data'}`
+}
+
 export function Dashboard() {
   const { user } = useAuth()
   // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — esconder
@@ -191,7 +292,28 @@ export function Dashboard() {
   const [campanhaInativar, setCampanhaInativar] = useState<Campanha | null>(null)
   const [inativandoId, setInativandoId] = useState<string | null>(null)
   const [erroConfirmacao, setErroConfirmacao] = useState<string | null>(null)
+  const [mostrarModalTrial, setMostrarModalTrial] = useState(false)
   const navigate = useNavigate()
+
+  // Modal de boas-vindas do trial — só quando tenant está em trial ATIVO
+  // (situacao_comercial já vem calculada do backend, nunca recalculada aqui,
+  // mesmo padrão de AvisoComercial.tsx) e o usuário ainda não viu essa
+  // apresentação deste trial específico (ver trialModalKey acima).
+  useEffect(() => {
+    if (!user || user.tenant.situacao_comercial !== 'trial_ativo') return
+    const chave = trialModalKey(user.tenant.id, user.id, user.tenant.trial_fim)
+    try {
+      if (localStorage.getItem(chave) !== '1') setMostrarModalTrial(true)
+    } catch { /* localStorage indisponível (modo privado, etc.) — nunca bloqueia a tela por isso */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, user?.tenant.id, user?.tenant.trial_fim, user?.tenant.situacao_comercial])
+
+  const fecharModalTrial = () => {
+    setMostrarModalTrial(false)
+    if (user) {
+      try { localStorage.setItem(trialModalKey(user.tenant.id, user.id, user.tenant.trial_fim), '1') } catch {}
+    }
+  }
 
   const load = () => {
     setLoading(true)
@@ -650,6 +772,15 @@ export function Dashboard() {
             </>
           )}
         </>
+      )}
+      {mostrarModalTrial && (
+        <TrialWelcomeModal
+          dias={user?.tenant.trial_dias_restantes ?? null}
+          plano={user?.tenant.plano ?? null}
+          onVerPlanos={() => { fecharModalTrial(); navigate('/minha-assinatura') }}
+          onComecar={() => { fecharModalTrial(); navigate('/campanhas/nova') }}
+          onClose={fecharModalTrial}
+        />
       )}
       {campanhaInativar && (
         <ConfirmDialog
