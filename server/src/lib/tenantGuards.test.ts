@@ -17,9 +17,9 @@ const passado = (dias: number) => new Date(AGORA.getTime() - dias * DIA_MS)
 
 // Fase 2 do widget multi-tenant — decisão pura de acesso público (sem banco),
 // usada por resolverTenantPublico em cima de um tenant já buscado por
-// public_key ou pelo fallback do tenant Quark. Ver widget.ts.
+// public_key. Ver widget.ts.
 describe('tenantPublicoPermiteAcesso — decisão de acesso público (sem banco)', () => {
-  test('tenant nulo (public_key/slug não encontrado) nunca tem acesso', () => {
+  test('tenant nulo (public_key não encontrada) nunca tem acesso', () => {
     assert.equal(tenantPublicoPermiteAcesso(null), false)
   })
 
