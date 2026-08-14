@@ -59,33 +59,19 @@ export function AparenciaWidgetPage() {
   }, [])
 
   useEffect(() => {
-    let cancelado = false
-    const selecoes: Selecao[] = [
-      { tipo: 'default', id: 'default', nome: 'Padrão', descricao: '' },
-      ...sistemas.map(s => ({ tipo: 'sistema' as const, id: s.id, nome: s.nome, descricao: s.identificador })),
-    ]
-
-    Promise.all(
-      selecoes.map(item =>
-        get<AparenciaWidget>(`/aparencia-widget/${encodeURIComponent(pathAparencia(item))}`)
-          .then(dados => [chaveAparencia(item), { cor_principal: dados.cor_principal, logo_url: dados.logo_url }] as const)
-          .catch(() => [chaveAparencia(item), { cor_principal: null, logo_url: null }] as const)
-      )
-    ).then(entries => {
-      if (cancelado) return
-      setAparencias(Object.fromEntries(entries))
-    })
-
-    return () => { cancelado = true }
-  }, [sistemas])
-
-  useEffect(() => {
     setErro('')
     setSalvoEm(null)
-    const aparenciaCache = aparencias[chaveAparencia(selecao)]
+    const chave = chaveAparencia(selecao)
+    const aparenciaCache = aparencias[chave]
     setCorPrincipal(aparenciaCache?.cor_principal || '')
     setLogoUrl(aparenciaCache?.logo_url || '')
     setLogoQuebrada(false)
+
+    if (aparenciaCache) {
+      setCarregando(false)
+      return
+    }
+
     setCarregando(true)
     get<AparenciaWidget>(`/aparencia-widget/${encodeURIComponent(pathAparencia(selecao))}`)
       .then(dados => {
@@ -99,7 +85,7 @@ export function AparenciaWidgetPage() {
       })
       .catch(() => setErro('Erro ao carregar a aparência selecionada.'))
       .finally(() => setCarregando(false))
-  }, [selecao])
+  }, [aparencias, selecao])
 
   useEffect(() => {
     if (!salvoEm) return

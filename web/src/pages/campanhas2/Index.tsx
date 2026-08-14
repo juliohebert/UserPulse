@@ -195,13 +195,16 @@ function pareceUrlVideo(valor: string): boolean {
   }
 }
 
-function PillDropdown({ label, value, options, onChange, placeholder = 'Selecionar', highlightValue }: {
+function PillDropdown({ label, value, options, onChange, placeholder = 'Selecionar', highlightValue, emptyMessage = 'Defina no dock lateral', manageLabel, onManage }: {
   label: string
   value: string
   options: string[]
   onChange: (value: string) => void
   placeholder?: string
   highlightValue?: string
+  emptyMessage?: string
+  manageLabel?: string
+  onManage?: () => void
 }) {
   const [aberto, setAberto] = useState(false)
   const opcoes = Array.from(new Set([value, ...options].map(opcao => opcao.trim()).filter(Boolean)))
@@ -241,7 +244,20 @@ function PillDropdown({ label, value, options, onChange, placeholder = 'Selecion
               </span>
             </button>
           )) : (
-            <p className="whitespace-nowrap px-3 py-2 text-[12px] leading-4 text-[#5d6c7b]">Defina no dock lateral</p>
+            <p className="whitespace-nowrap px-3 py-2 text-[12px] leading-4 text-[#5d6c7b]">{emptyMessage}</p>
+          )}
+          {onManage && manageLabel && (
+            <div className="mt-1 border-t border-[#dee3e9] pt-2">
+              <button
+                type="button"
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => { onManage(); setAberto(false) }}
+                className="flex w-full items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-left text-[14px] font-bold text-[#0064e0] transition hover:bg-[#eff4ff]"
+              >
+                <span className="material-symbols-outlined text-[18px]">settings</span>
+                {manageLabel}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -421,15 +437,17 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
   )
 }
 
-function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onLimpar, onPreview }: {
+function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview }: {
   secao: SecaoDock
   form: FormState
   catalogoTelas: TelaCatalogo[]
+  temSistemas: boolean
   salvando: boolean
   setCampo: <K extends keyof FormState>(campo: K, valor: FormState[K]) => void
   setSecao: (secao: SecaoDock) => void
   onSelecionarTela: (telaId: string) => void
   onAdicionarTela: (busca?: string) => void
+  onGerenciarSistemas: () => void
   onLimpar: () => void
   onPreview: () => void
 }) {
@@ -643,7 +661,17 @@ function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao,
                 <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Tela cadastrada</span>
                 {!sistemaSelecionado ? (
                   <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
-                    Selecione um sistema no card para listar as telas cadastradas.
+                    {temSistemas ? 'Selecione um sistema no card para listar as telas cadastradas.' : 'Este cliente ainda não tem sistemas cadastrados. Crie um sistema antes de escolher telas para a campanha.'}
+                    {!temSistemas && (
+                      <button
+                        type="button"
+                        onClick={onGerenciarSistemas}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#0064e0] px-4 py-2 text-[12px] font-bold text-white transition hover:bg-[#0457cb]"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">add</span>
+                        Criar sistema
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <SeletorTelaCatalogo
@@ -868,7 +896,7 @@ function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao,
   )
 }
 
-function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, embedUrl, mostrarMidia, mediaPosition, arrastandoMidia, setCampo, onDragStartMedia, onMostrarMidia, onRemoverMidia, onMoverMidia, onFecharPreview, modo = 'construtor' }: {
+function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, embedUrl, mostrarMidia, mediaPosition, arrastandoMidia, setCampo, onDragStartMedia, onMostrarMidia, onRemoverMidia, onMoverMidia, onFecharPreview, onGerenciarSistemas, modo = 'construtor' }: {
   form: FormState
   sistemas: string[]
   sistemaPadraoIdentificador?: string
@@ -883,6 +911,7 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
   onRemoverMidia: () => void
   onMoverMidia: (posicao: PosicaoMidia) => void
   onFecharPreview?: () => void
+  onGerenciarSistemas?: () => void
   modo?: 'construtor' | 'preview'
 }) {
   const preview = modo === 'preview'
@@ -1230,7 +1259,17 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
           <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
             <PillDropdown label="Tipo da campanha" value={form.tipo} options={TIPOS_CAMPANHA} onChange={valor => setCampo('tipo', valor)} />
             <PillDropdown label="Categoria do badge" value={form.categoria} options={CATEGORIAS} onChange={valor => setCampo('categoria', valor)} />
-            <PillDropdown label="Sistema do design" value={form.sistema} options={sistemas} onChange={valor => setCampo('sistema', valor)} placeholder="Sistema" highlightValue={sistemaPadraoIdentificador} />
+            <PillDropdown
+              label="Sistema do design"
+              value={form.sistema}
+              options={sistemas}
+              onChange={valor => setCampo('sistema', valor)}
+              placeholder="Sistema"
+              highlightValue={sistemaPadraoIdentificador}
+              emptyMessage="Nenhum sistema cadastrado"
+              manageLabel="Gerenciar sistemas"
+              onManage={onGerenciarSistemas}
+            />
           </div>
         </div>
       )}
@@ -1498,36 +1537,39 @@ export function Campanhas2Index() {
   useEffect(() => {
     let cancelado = false
 
-    async function carregarSistemasEAparencias() {
-      const [campanhas, sistemasConfig, aparenciaPadrao] = await Promise.all([
-        get<Campanha[]>('/campanhas').catch(() => []),
-        get<Sistema[]>('/sistemas?ativo=true').catch(() => []),
-        get<AparenciaWidget>('/aparencia-widget/default').catch(() => null),
-      ])
+    async function carregarSistemas() {
+      const sistemasConfig = await get<Sistema[]>('/sistemas?ativo=true').catch(() => [])
       if (cancelado) return
 
-      const identificadores = [
-        ...campanhas.map(c => c.sistema).filter(Boolean),
-        ...sistemasConfig.map(s => s.identificador).filter(Boolean),
-      ]
-      const unicos = [...new Set(identificadores)]
+      const unicos = [...new Set(sistemasConfig.map(s => s.identificador).filter(Boolean))]
       setSistemas(unicos)
       setSistemasConfig(sistemasConfig)
       const sistemaPadrao = sistemasConfig.find(sistema => sistema.padrao && sistema.ativo) ?? sistemasConfig[0]
       if (sistemaPadrao) {
         setForm(prev => prev.sistema.trim() ? prev : { ...prev, sistema: sistemaPadrao.identificador })
       }
-      setAparenciaDefault(aparenciaPadrao ? { cor_principal: aparenciaPadrao.cor_principal, logo_url: aparenciaPadrao.logo_url } : null)
-
-      const entries = await Promise.all(unicos.map(sistema =>
-        get<AparenciaWidget>(`/aparencia-widget/${encodeURIComponent(sistema)}`)
-          .then(aparencia => [sistema, { cor_principal: aparencia.cor_principal, logo_url: aparencia.logo_url }] as const)
-          .catch(() => [sistema, { cor_principal: null, logo_url: null }] as const)
-      ))
-      if (!cancelado) setAparencias(Object.fromEntries(entries))
     }
 
-    carregarSistemasEAparencias().catch(() => {})
+    async function carregarSistemasDeCampanhasExistentes() {
+      const campanhas = await get<Campanha[]>('/campanhas').catch(() => [])
+      if (cancelado) return
+
+      const sistemasCampanhas = campanhas.map(c => c.sistema).filter(Boolean)
+      if (sistemasCampanhas.length === 0) return
+
+      setSistemas(prev => [...new Set([...prev, ...sistemasCampanhas])])
+    }
+
+    async function carregarAparenciaPadrao() {
+      const aparenciaPadrao = await get<AparenciaWidget>('/aparencia-widget/default').catch(() => null)
+      if (cancelado) return
+
+      setAparenciaDefault(aparenciaPadrao ? { cor_principal: aparenciaPadrao.cor_principal, logo_url: aparenciaPadrao.logo_url } : null)
+    }
+
+    carregarSistemas().catch(() => {})
+    carregarSistemasDeCampanhasExistentes().catch(() => {})
+    carregarAparenciaPadrao().catch(() => {})
     get<TelaCatalogo[]>('/catalogo-telas?ativo=true').then(telas => { if (!cancelado) setCatalogoTelas(telas) }).catch(() => {})
     return () => { cancelado = true }
   }, [])
@@ -1731,6 +1773,7 @@ export function Campanhas2Index() {
               onMostrarMidia={(posicao = 'topo') => { setMostrarMidia(true); setMediaPosition(posicao) }}
               onRemoverMidia={removerMidia}
               onMoverMidia={moverMidia}
+              onGerenciarSistemas={() => navigate('/configuracoes/sistemas')}
             />
           </div>
 
@@ -1740,11 +1783,13 @@ export function Campanhas2Index() {
           secao={secaoDock}
           form={form}
           catalogoTelas={catalogoTelas}
+          temSistemas={sistemasConfig.length > 0}
           salvando={salvando}
           setCampo={setCampo}
           setSecao={setSecaoDock}
           onSelecionarTela={selecionarTelaCatalogo}
           onAdicionarTela={abrirModalNovaTela}
+          onGerenciarSistemas={() => navigate('/configuracoes/sistemas')}
           onLimpar={limparConstrutor}
           onPreview={() => setPreviewAberto(true)}
         />
