@@ -525,6 +525,11 @@ export interface PlanoAdmin {
   // de plano do Cliente, nunca removível (ver server/src/controllers/
   // adminPlanos.ts, remover()).
   interno: boolean
+  // Fase 8B — hierarquia explícita entre planos comerciais (upgrade/
+  // downgrade), nunca inferida por preço. Obrigatório quando interno=false,
+  // sempre null pra planos internos (ver validarCamposPlano em
+  // server/src/controllers/adminPlanos.ts).
+  nivel: number | null
   // Fase 6A (fundação do trial) — marca o plano usado como fonte de limites/
   // duração do cadastro self-service (ainda não implementado). Deve haver
   // exatamente 1 plano com eh_plano_trial=true (ver resolverPlanoTrial em
