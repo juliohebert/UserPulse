@@ -14,6 +14,10 @@ const EMPTY_FORM = {
   slug: '',
   descricao: '',
   preco_mensal: '',
+  // Fase 8B — hierarquia explícita entre planos comerciais (upgrade/
+  // downgrade), nunca inferida por preço. Obrigatório quando interno=false
+  // (ver validarCamposPlano em server/src/controllers/adminPlanos.ts).
+  nivel: '',
   limite_campanhas_ativas: '',
   limite_tours_ativos: '',
   limite_eventos_mes: '',
@@ -156,6 +160,7 @@ export function AdminPlanosIndex() {
       slug: plano.slug,
       descricao: plano.descricao ?? '',
       preco_mensal: plano.preco_mensal ?? '',
+      nivel: plano.nivel != null ? String(plano.nivel) : '',
       limite_campanhas_ativas: plano.limite_campanhas_ativas != null ? String(plano.limite_campanhas_ativas) : '',
       limite_tours_ativos: plano.limite_tours_ativos != null ? String(plano.limite_tours_ativos) : '',
       limite_eventos_mes: plano.limite_eventos_mes != null ? String(plano.limite_eventos_mes) : '',
@@ -189,6 +194,10 @@ export function AdminPlanosIndex() {
         slug: form.slug.trim(),
         descricao: form.descricao.trim() || null,
         preco_mensal: form.preco_mensal.trim() || null,
+        // Plano interno nunca tem nível comercial (ver validarCamposPlano no
+        // backend, que já zera pra null nesse caso) — normalizado aqui pra
+        // number pra não mandar string numérica no payload.
+        nivel: form.interno ? null : (form.nivel.trim() ? Number(form.nivel.trim()) : null),
         limite_campanhas_ativas: form.limite_campanhas_ativas.trim() || null,
         limite_tours_ativos: form.limite_tours_ativos.trim() || null,
         limite_eventos_mes: form.limite_eventos_mes.trim() || null,
@@ -244,6 +253,7 @@ export function AdminPlanosIndex() {
           slug: plano.slug,
           descricao: plano.descricao,
           preco_mensal: plano.preco_mensal,
+          nivel: plano.nivel,
           limite_campanhas_ativas: plano.limite_campanhas_ativas,
           limite_tours_ativos: plano.limite_tours_ativos,
           limite_eventos_mes: plano.limite_eventos_mes,
@@ -450,6 +460,25 @@ export function AdminPlanosIndex() {
                   placeholder="Vazio = sem preço definido"
                   className={field}
                 />
+              </div>
+              <div>
+                <label className="block text-label-md text-on-surface-variant mb-1.5">
+                  Nível do plano {!form.interno && <span className="text-error">*</span>}
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  required={!form.interno}
+                  value={form.nivel}
+                  onChange={e => set('nivel', e.target.value)}
+                  placeholder={form.interno ? 'Não se aplica a plano interno' : 'Ex: 0, 1, 2…'}
+                  disabled={form.interno}
+                  className={field}
+                />
+                <p className="text-[11px] text-on-surface-variant mt-1">
+                  Define a ordem do plano para upgrades e downgrades. Quanto maior o nível, superior é o plano.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
