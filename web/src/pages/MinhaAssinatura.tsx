@@ -506,14 +506,14 @@ export function MinhaAssinatura() {
 
   return (
     <>
-      <div className="px-4 lg:px-margin-desktop py-5">
+      <div className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1280px]">
         <h2 className="text-title-lg font-bold text-on-surface">Minha Assinatura</h2>
         <p className="text-body-md text-on-surface-variant mt-0.5">
           Situação do seu plano e pagamento via Pix ou cartão diretamente pela página segura do Asaas.
         </p>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1000px] space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1280px] space-y-4">
         {loading && <LoadingSpinner />}
         {!loading && erro && <ErrorState message={erro} onRetry={carregar} />}
 
@@ -548,8 +548,11 @@ export function MinhaAssinatura() {
 
             {!bloqueadoPorStatus && !estaEmTrial && (
               <div className={card}>
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <h3 className="text-title-md font-bold text-on-surface">{SITUACAO_COMERCIAL_LABEL[situacao.situacaoComercial]}</h3>
+                <div className="flex items-center justify-between gap-2 pb-3 border-b border-outline-variant">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined ms-fill text-primary text-[20px]">verified</span>
+                    <h3 className="text-title-md font-bold text-on-surface">{SITUACAO_COMERCIAL_LABEL[situacao.situacaoComercial]}</h3>
+                  </div>
                   <button
                     onClick={carregar}
                     className="flex items-center gap-1 text-[12px] font-bold text-primary hover:bg-primary/10 rounded-lg px-2 py-1 transition-colors"
@@ -558,30 +561,32 @@ export function MinhaAssinatura() {
                     Atualizar
                   </button>
                 </div>
-                {textoTopo && <p className="text-body-md text-on-surface-variant">{textoTopo}</p>}
+                {textoTopo && <p className="text-body-md text-on-surface-variant mt-3">{textoTopo}</p>}
                 {situacao.possuiAssinatura && !situacao.planoPendente && situacao.plano && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-body-md mt-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 mt-4">
                     <div>
-                      <span className="block text-[12px] text-on-surface-variant">Plano</span>
-                      <span className="text-on-surface font-semibold">{situacao.plano.nome}</span>
+                      <span className="block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">Plano</span>
+                      <span className="block text-title-md font-bold text-on-surface mt-0.5">{situacao.plano.nome}</span>
                     </div>
                     <div>
-                      <span className="block text-[12px] text-on-surface-variant">Valor</span>
-                      <span className="text-on-surface font-semibold">
+                      <span className="block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">Valor</span>
+                      <span className="block text-title-md font-bold text-on-surface mt-0.5">
                         {situacao.plano.valor != null ? formatarValorReais(Number(situacao.plano.valor)) : 'Sem custo'}
-                        {situacao.plano.ciclo && ` / ${CICLO_LABEL[situacao.plano.ciclo] ?? situacao.plano.ciclo}`}
+                        {situacao.plano.ciclo && (
+                          <span className="text-body-md font-normal text-on-surface-variant"> / {CICLO_LABEL[situacao.plano.ciclo] ?? situacao.plano.ciclo}</span>
+                        )}
                       </span>
                     </div>
                     <div>
-                      <span className="block text-[12px] text-on-surface-variant">Situação do pagamento</span>
-                      <span className={`inline-block mt-0.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${SITUACAO_ASAAS_LABEL[situacao.situacaoAsaas].className}`}>
+                      <span className="block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">Situação do pagamento</span>
+                      <span className={`inline-block mt-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase ${SITUACAO_ASAAS_LABEL[situacao.situacaoAsaas].className}`}>
                         {SITUACAO_ASAAS_LABEL[situacao.situacaoAsaas].label}
                       </span>
                     </div>
                     {situacao.proximaCobranca && (
                       <div>
-                        <span className="block text-[12px] text-on-surface-variant">Próxima cobrança</span>
-                        <span className="text-on-surface">{formatDateCivil(situacao.proximaCobranca)}</span>
+                        <span className="block text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">Próxima cobrança</span>
+                        <span className="block text-body-md text-on-surface mt-1.5">{formatDateCivil(situacao.proximaCobranca)}</span>
                       </div>
                     )}
                   </div>
@@ -646,9 +651,12 @@ export function MinhaAssinatura() {
                 si só, permitiria). Orienta regularizar em vez de simplesmente
                 esconder o upgrade sem explicação. */}
             {upgradeIndisponivelPorAsaas && (
-              <p className="text-body-md text-on-surface-variant">
-                Regularize sua pendência financeira para solicitar upgrade de plano.
-              </p>
+              <div className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-primary/5 border border-primary/20">
+                <span className="material-symbols-outlined text-primary text-[20px] shrink-0">info</span>
+                <p className="text-body-md text-primary">
+                  Regularize sua pendência financeira para solicitar upgrade de plano.
+                </p>
+              </div>
             )}
 
             {/* Fase 8A — upgrade self-service. Só aparece pra quem já é
@@ -1104,7 +1112,10 @@ export function MinhaAssinatura() {
 
             {!bloqueadoPorStatus && situacao.cobrancasEmAberto.length > 0 && (
               <div className={card}>
-                <h3 className="text-title-md font-bold text-on-surface mb-2">Cobranças em aberto</h3>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="material-symbols-outlined text-on-surface text-[20px]">receipt_long</span>
+                  <h3 className="text-title-md font-bold text-on-surface">Cobranças em aberto</h3>
+                </div>
                 <p className="text-[12px] text-on-surface-variant mb-3">
                   Cobranças pendentes podem ser pagas antes do vencimento — não é preciso esperar vencer pra
                   trocar a forma de pagamento. Se você paga via Pix ou boleto, é esperado regularizar aqui a
@@ -1113,24 +1124,30 @@ export function MinhaAssinatura() {
                 {pagarErro && <div className="mb-3 p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{pagarErro}</div>}
                 <div className="divide-y divide-outline-variant">
                   {situacao.cobrancasEmAberto.map(c => (
-                    <div key={c.id} className="py-2.5 first:pt-0 last:pb-0">
-                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div
+                      key={c.id}
+                      className={`py-3 first:pt-0 last:pb-0 ${c.status === 'OVERDUE' ? 'border-l-4 border-error pl-3 -ml-3' : ''}`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                         <div>
-                          <span className="text-body-md font-semibold text-on-surface">{formatarValorReais(c.value)}</span>
-                          <span className={`ml-2 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${
-                            c.status === 'OVERDUE' ? 'bg-error-container text-error' : 'bg-outline-variant/30 text-on-surface-variant'
-                          }`}>
-                            {c.status === 'OVERDUE' ? 'Vencida' : 'Pendente'}
-                          </span>
-                          <span className="ml-2 text-[12px] text-on-surface-variant">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-title-md font-bold text-on-surface">{formatarValorReais(c.value)}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold uppercase ${
+                              c.status === 'OVERDUE' ? 'bg-error-container text-error' : 'bg-outline-variant/30 text-on-surface-variant'
+                            }`}>
+                              {c.status === 'OVERDUE' ? 'Vencida' : 'Pendente'}
+                            </span>
+                          </div>
+                          <p className="text-[12px] text-on-surface-variant mt-1">
                             {c.status === 'OVERDUE' ? 'venceu em' : 'vence em'} {formatDateCivil(c.dueDate)}
-                          </span>
-                          <span className="block text-[12px] text-on-surface-variant">
+                          </p>
+                          <p className="flex items-center gap-1 text-[12px] text-on-surface-variant mt-0.5">
+                            <span className="material-symbols-outlined text-[14px]">payments</span>
                             Forma desta cobrança: {FORMA_PAGAMENTO_LABEL[c.billingType ?? 'UNDEFINED']}
-                          </span>
+                          </p>
                         </div>
                         {trocandoFormaId !== c.id && (
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 flex-wrap shrink-0">
                             <button
                               type="button"
                               className="text-[12px] text-primary font-semibold hover:underline"
