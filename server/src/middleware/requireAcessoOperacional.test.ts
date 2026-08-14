@@ -53,7 +53,16 @@ const futuro = (dias: number) => new Date(AGORA.getTime() + dias * DIA_MS)
 const passado = (dias: number) => new Date(AGORA.getTime() - dias * DIA_MS)
 
 describe('requireAcessoOperacional — comportamento por papel/situação de tenant', () => {
-  test('trial ativo permite (next chamado, sem 403)', () => {
+  // futuro(5) contra o relógio real (motivoBloqueioOperacionalTrial não
+  // recebe `agora` do middleware, então sempre usa `new Date()`) parecia
+  // seguro quando escrito, mas era uma bomba-relógio: 5 dias depois de
+  // AGORA (2026-08-09), o relógio real ultrapassou o fixture e o teste
+  // passou a falhar sozinho, sem nenhuma mudança de código (reproduzido
+  // também em origin/main). Trava o relógio no próprio AGORA, mesmo padrão
+  // já usado mais abaixo neste arquivo (Fase 7) — determinístico pra
+  // sempre, sem tocar a regra de negócio.
+  test('trial ativo permite (next chamado, sem 403)', (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: AGORA.getTime() })
     const r = chamar('ADMIN', { status: 'TRIAL', trial_fim: futuro(5), licenca_fim: null })
     assert.equal(r.permitido, true)
     assert.equal(r.status, undefined)
@@ -80,7 +89,10 @@ describe('requireAcessoOperacional — comportamento por papel/situação de ten
     assert.equal(r.status, undefined)
   })
 
-  test('tenant pago (ACTIVE, licença em dia) não é afetado', () => {
+  test('tenant pago (ACTIVE, licença em dia) não é afetado', (t) => {
+    // Mesma bomba-relógio de futuro(5) acima (aqui só ainda não tinha
+    // estourado) — trava o relógio pela mesma razão.
+    t.mock.timers.enable({ apis: ['Date'], now: AGORA.getTime() })
     const r = chamar('ADMIN', { status: 'ACTIVE', trial_fim: null, licenca_fim: futuro(30) })
     assert.equal(r.permitido, true)
     assert.equal(r.status, undefined)
@@ -186,7 +198,10 @@ describe('requireAcessoOperacional — tolerância de inadimplência (Fase 7)', 
     assert.equal(r.status, undefined)
   })
 
-  test('pagamento confirmado libera automaticamente — licenca_fim no futuro nunca bloqueia, mesmo tendo passado da tolerância antes', () => {
+  test('pagamento confirmado libera automaticamente — licenca_fim no futuro nunca bloqueia, mesmo tendo passado da tolerância antes', (t) => {
+    // Mesma bomba-relógio de futuro(5)/futuro(30) acima — trava o relógio
+    // pela mesma razão.
+    t.mock.timers.enable({ apis: ['Date'], now: AGORA.getTime() })
     const r = chamar('ADMIN', { status: 'ACTIVE', trial_fim: null, licenca_fim: futuro(30) })
     assert.equal(r.permitido, true)
     assert.equal(r.status, undefined)
