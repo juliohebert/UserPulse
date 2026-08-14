@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import { podeEscreverConfiguracao, podeEscreverConteudo } from '../../utils/permissions'
+import { podeEscreverConfiguracao } from '../../utils/permissions'
 
 type LinkItem = { icon: string; label: string; to: string }
 type ActionItem = { icon: string; label: string; action: 'configuracoes' }
@@ -152,7 +152,6 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
   const itemsPrincipais: Item[] = [
     { icon: 'dashboard', label: 'Dashboard', to: '/' },
     { icon: 'campaign', label: 'Campanhas', to: '/campanhas' },
-    ...(podeEscreverConteudo(user?.role) ? [{ icon: 'view_agenda', label: 'Campanhas 2', to: '/campanhas-2' }] : []),
     { icon: 'map', label: 'Tours Guiados', to: '/tours' },
     { icon: 'route', label: 'Jornadas', to: '/jornadas' },
     ...(podeEscreverConfiguracao(user?.role) ? navItemsConfiguracao : []),

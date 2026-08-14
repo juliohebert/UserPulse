@@ -112,9 +112,9 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
     const t = window.setTimeout(async () => {
       try {
         const [campanhas, tours, jornadas] = await Promise.all([
-          get<Campanha[]>('/campanhas'),
-          get<TourGuiadoListaPaginada>(`/tours?busca=${encodeURIComponent(termo)}&page=1&pageSize=5`),
-          get<Jornada[]>('/jornadas'),
+          get<Campanha[]>('/campanhas').catch(() => []),
+          get<TourGuiadoListaPaginada>(`/tours?busca=${encodeURIComponent(termo)}&page=1&pageSize=5`).catch(() => null),
+          get<Jornada[]>('/jornadas').catch(() => []),
         ])
         if (cancelado) return
 
@@ -132,7 +132,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
             to: `/campanhas/${c.id}/dashboard`,
           }))
 
-        const toursFiltrados = tours.items.slice(0, 5).map<ResultadoBusca>(t => ({
+        const toursFiltrados = (tours?.items ?? []).slice(0, 5).map<ResultadoBusca>(t => ({
           id: `tour-${t.id}`,
           tipo: 'tour',
           titulo: t.titulo,

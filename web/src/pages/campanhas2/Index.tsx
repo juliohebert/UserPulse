@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { get, post } from '../../services/api'
 import type { AparenciaWidget, Campanha, Sistema, TelaCatalogo } from '../../types'
+import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
 
 interface FormState {
   titulo: string
@@ -51,6 +52,9 @@ interface FormState {
 
 type SecaoDock = 'destino' | 'exibicao' | 'feedback' | 'segmentacao'
 type PosicaoMidia = 'topo' | 'antes_cta'
+type FrequenciaExibicao = 'uma_vez' | 'ate_responder' | 'reexibir_depois'
+type AcaoFinalCampanha = 'feedback' | 'confirmacao' | 'visualizacao'
+type ModoSegmentacao = 'todos' | 'cliente' | 'perfil' | 'combinada'
 
 type AparenciaCard = Pick<AparenciaWidget, 'cor_principal' | 'logo_url'>
 
@@ -84,9 +88,9 @@ const formInicial: FormState = {
   data_cy: '',
   url_contem: '',
   atraso_ms: '800',
-  mostrar_uma_vez: false,
+  mostrar_uma_vez: true,
   prioridade: '0',
-  ordem: '0',
+  ordem: '1',
   ativo: true,
   data_inicio: '',
   data_fim: '',
@@ -191,12 +195,13 @@ function pareceUrlVideo(valor: string): boolean {
   }
 }
 
-function PillDropdown({ label, value, options, onChange, placeholder = 'Selecionar' }: {
+function PillDropdown({ label, value, options, onChange, placeholder = 'Selecionar', highlightValue }: {
   label: string
   value: string
   options: string[]
   onChange: (value: string) => void
   placeholder?: string
+  highlightValue?: string
 }) {
   const [aberto, setAberto] = useState(false)
   const opcoes = Array.from(new Set([value, ...options].map(opcao => opcao.trim()).filter(Boolean)))
@@ -207,12 +212,15 @@ function PillDropdown({ label, value, options, onChange, placeholder = 'Selecion
         type="button"
         onClick={() => setAberto(prev => !prev)}
         onBlur={() => window.setTimeout(() => setAberto(false), 120)}
-        className="inline-flex items-center gap-2 rounded-full border border-[#ced0d4] bg-white px-4 py-2 text-[12px] font-semibold text-[#1c1e21] transition hover:border-[#0064e0] focus:border-[#0064e0] focus:outline-none focus:ring-1 focus:ring-[#0064e0]"
+        className="inline-flex items-center gap-1.5 rounded-full border border-[#ced0d4] bg-white px-3 py-1.5 text-[12px] font-semibold text-[#1c1e21] transition hover:border-[#0064e0] focus:border-[#0064e0] focus:outline-none focus:ring-1 focus:ring-[#0064e0]"
         aria-haspopup="listbox"
         aria-expanded={aberto}
         aria-label={label}
       >
-        <span className="max-w-[120px] truncate">{value || placeholder}</span>
+        <span className="flex max-w-[115px] items-center gap-1 truncate">
+          {value && value === highlightValue && <span className="material-symbols-outlined text-[14px] leading-none text-[#0064e0]">star</span>}
+          <span className="truncate">{value || placeholder}</span>
+        </span>
         <span className="material-symbols-outlined text-[18px] text-[#444950]">expand_more</span>
       </button>
       {aberto && (
@@ -227,7 +235,10 @@ function PillDropdown({ label, value, options, onChange, placeholder = 'Selecion
               role="option"
               aria-selected={opcao === value}
             >
-              {opcao}
+              <span className="inline-flex items-center gap-1.5">
+                {opcao === highlightValue && <span className="material-symbols-outlined text-[14px] leading-none">star</span>}
+                {opcao}
+              </span>
             </button>
           )) : (
             <p className="whitespace-nowrap px-3 py-2 text-[12px] leading-4 text-[#5d6c7b]">Defina no dock lateral</p>
@@ -238,9 +249,10 @@ function PillDropdown({ label, value, options, onChange, placeholder = 'Selecion
   )
 }
 
-function CampoDock({ label, hint, value, onChange, placeholder, type = 'text' }: {
+function CampoDock({ label, hint, tooltip, value, onChange, placeholder, type = 'text' }: {
   label: string
   hint?: string
+  tooltip?: string
   value: string
   onChange: (value: string) => void
   placeholder?: string
@@ -248,7 +260,17 @@ function CampoDock({ label, hint, value, onChange, placeholder, type = 'text' }:
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-[12px] font-semibold text-[#444950]">{label}</span>
+      <span className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-[#444950]">
+        {label}
+        {tooltip && (
+          <span className="group relative inline-flex">
+            <span className="material-symbols-outlined cursor-help text-[16px] text-[#8595a4]">help</span>
+            <span className="pointer-events-none absolute right-0 top-[calc(100%+8px)] z-40 w-64 rounded-xl border border-[#dee3e9] bg-[#0a1317] px-3 py-2 text-[12px] font-semibold leading-4 text-white opacity-0 shadow-[0_12px_30px_rgba(20,22,26,0.22)] transition group-hover:opacity-100 group-focus-within:opacity-100">
+              {tooltip}
+            </span>
+          </span>
+        )}
+      </span>
       <input
         type={type}
         value={value}
@@ -286,7 +308,120 @@ function CampoListaDock({ label, value, onChange, hint }: {
   )
 }
 
-function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao, onSelecionarTela, onLimpar, onPreview, onLista }: {
+function alvoTelaCatalogo(tela: TelaCatalogo): string {
+  return tela.tela ?? tela.url_contem ?? tela.data_cy ?? 'Sem alvo definido'
+}
+
+function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCriar }: {
+  telas: TelaCatalogo[]
+  selecionada: TelaCatalogo | undefined
+  disabled?: boolean
+  onSelecionar: (telaId: string) => void
+  onCriar: (busca?: string) => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  const [busca, setBusca] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!aberto) return
+    const onMouseDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setAberto(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setAberto(false) }
+    document.addEventListener('mousedown', onMouseDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [aberto])
+
+  const termo = busca.trim().toLowerCase()
+  const filtradas = termo
+    ? telas.filter(tela => [tela.nome, alvoTelaCatalogo(tela)].some(valor => valor.toLowerCase().includes(termo)))
+    : telas
+  const temIgual = termo
+    ? telas.some(tela => [tela.nome, alvoTelaCatalogo(tela)].some(valor => valor.trim().toLowerCase() === termo))
+    : false
+  const mostrarCriar = !disabled && Boolean(termo) && !temIgual
+
+  return (
+    <div className="relative" ref={ref}>
+      <div className={`flex min-h-11 w-full items-stretch overflow-hidden border border-[#ced0d4] bg-white text-[16px] text-[#1c1e21] transition focus-within:border-[#0064e0] focus-within:ring-1 focus-within:ring-[#0064e0] hover:border-[#0064e0] ${aberto ? 'rounded-t-2xl rounded-b-none border-[#0064e0]' : 'rounded-2xl'}`}>
+        <div className="relative flex min-w-0 flex-1 items-center">
+          <span className="material-symbols-outlined pointer-events-none absolute left-3 text-[20px] text-[#8595a4]">search</span>
+          <input
+            disabled={disabled}
+            value={aberto ? busca : (busca || selecionada?.nome || '')}
+            onFocus={() => setAberto(true)}
+            onClick={() => setAberto(true)}
+            onChange={event => { setBusca(event.target.value); setAberto(true) }}
+            placeholder="Buscar ou selecionar tela..."
+            className="h-full min-h-11 w-full border-0 bg-transparent py-2 pl-10 pr-10 text-[16px] font-semibold text-[#1c1e21] outline-none placeholder:text-[#8595a4] disabled:cursor-not-allowed disabled:bg-[#f8f9ff] disabled:text-[#8595a4]"
+          />
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setAberto(prev => !prev)}
+            aria-label={aberto ? 'Fechar lista de telas' : 'Abrir lista de telas'}
+            className="absolute right-1 flex h-9 w-9 items-center justify-center rounded-lg text-[#8595a4] transition hover:bg-[#eff4ff] disabled:cursor-not-allowed disabled:text-[#8595a4]"
+          >
+            <span className={`material-symbols-outlined text-[18px] transition-transform ${aberto ? 'rotate-180' : ''}`}>expand_more</span>
+          </button>
+        </div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => { setAberto(false); setBusca(''); onCriar() }}
+          aria-label="Criar nova tela"
+          title="Criar nova tela"
+          className="flex w-9 shrink-0 items-center justify-center border-l border-[#dee3e9] text-[#0064e0] transition hover:bg-[#eff4ff] disabled:cursor-not-allowed disabled:bg-[#f8f9ff] disabled:text-[#8595a4]"
+        >
+          <span className="material-symbols-outlined text-[18px]">add</span>
+        </button>
+      </div>
+
+      {aberto && !disabled && (
+        <div className="absolute left-0 top-full z-40 w-full overflow-hidden rounded-b-2xl border border-t-0 border-[#0064e0] bg-white shadow-[0_16px_36px_rgba(20,22,26,0.12)]">
+          <div className="max-h-[168px] overflow-y-auto p-2">
+            {filtradas.length > 0 ? filtradas.map(tela => (
+              <button
+                key={tela.id}
+                type="button"
+                onClick={() => { onSelecionar(tela.id); setAberto(false); setBusca('') }}
+                className={`flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2 text-left transition ${selecionada?.id === tela.id ? 'bg-[#eff4ff] text-[#0064e0]' : 'text-[#1c1e21] hover:bg-[#f8f9ff]'}`}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-[14px] font-bold leading-5">{tela.nome}</span>
+                  <span className="mt-0.5 block truncate text-[12px] font-semibold leading-4 text-[#5d6c7b]">{alvoTelaCatalogo(tela)}</span>
+                </span>
+                {selecionada?.id === tela.id && <span className="material-symbols-outlined mt-0.5 text-[16px]">check</span>}
+              </button>
+            )) : (
+              <p className="px-3 py-4 text-center text-[12px] font-semibold leading-4 text-[#5d6c7b]">Nenhuma tela encontrada.</p>
+            )}
+          </div>
+
+          {mostrarCriar && (
+            <div className="border-t border-[#dee3e9] p-2">
+              <button
+                type="button"
+                onClick={() => { onCriar(busca.trim() || undefined); setAberto(false); setBusca('') }}
+                className="flex w-full items-center gap-2 rounded-xl bg-[#0064e0] px-3 py-2.5 text-left text-[14px] font-bold text-white transition hover:bg-[#0457cb]"
+              >
+                <span className="material-symbols-outlined text-[18px]">add</span>
+                Criar tela "{busca.trim()}"
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onLimpar, onPreview }: {
   secao: SecaoDock
   form: FormState
   catalogoTelas: TelaCatalogo[]
@@ -294,14 +429,15 @@ function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao,
   setCampo: <K extends keyof FormState>(campo: K, valor: FormState[K]) => void
   setSecao: (secao: SecaoDock) => void
   onSelecionarTela: (telaId: string) => void
+  onAdicionarTela: (busca?: string) => void
   onLimpar: () => void
   onPreview: () => void
-  onLista: () => void
 }) {
+  const [modoSegmentacao, setModoSegmentacao] = useState<ModoSegmentacao>('todos')
   const secoes: Array<{ id: SecaoDock; label: string }> = [
     { id: 'destino', label: 'Destino' },
-    { id: 'exibicao', label: 'Exibição' },
     { id: 'feedback', label: 'Feedback' },
+    { id: 'exibicao', label: 'Exibição' },
     { id: 'segmentacao', label: 'Segmentação' },
   ]
 
@@ -315,28 +451,97 @@ function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao,
     (tela.url_contem ?? '') === form.url_contem &&
     (tela.data_cy ?? '') === form.data_cy
   )
+  const frequenciaExibicao: FrequenciaExibicao = form.politica_reexibicao === 'reexibir_apos_dias'
+    ? 'reexibir_depois'
+    : form.politica_reexibicao === 'ate_responder_ou_confirmar'
+      ? 'ate_responder'
+      : 'uma_vez'
+  const acaoFinal: AcaoFinalCampanha = form.feedback_habilitado
+    ? 'feedback'
+    : form.exige_confirmacao_leitura
+      ? 'confirmacao'
+      : 'visualizacao'
 
-  function alternarFeedback(valor: boolean) {
-    setCampo('feedback_habilitado', valor)
-    if (valor) {
-      setCampo('exige_confirmacao_leitura', false)
-      return
-    }
-    if (!form.exige_confirmacao_leitura && !form.permitir_fechar_modal) {
-      setCampo('permitir_fechar_modal', true)
+  function resetarFrequenciaAteResponder() {
+    if (form.politica_reexibicao === 'ate_responder_ou_confirmar') {
+      setCampo('mostrar_uma_vez', true)
+      setCampo('politica_reexibicao', 'uma_vez_apos_visualizacao')
+      setCampo('reexibir_apos_dias', '')
     }
   }
 
-  function alternarConfirmacao(valor: boolean) {
-    setCampo('exige_confirmacao_leitura', valor)
-    if (valor) {
-      setCampo('feedback_habilitado', false)
-      setCampo('observacao_obrigatoria', false)
+  function selecionarAcaoFinal(acao: AcaoFinalCampanha) {
+    if (acao === 'feedback') {
+      setCampo('feedback_habilitado', true)
+      setCampo('exige_confirmacao_leitura', false)
+      setCampo('permitir_fechar_modal', true)
       return
     }
-    if (!form.feedback_habilitado && !form.permitir_fechar_modal) {
+
+    setCampo('feedback_habilitado', false)
+    setCampo('observacao_obrigatoria', false)
+    resetarFrequenciaAteResponder()
+
+    if (acao === 'confirmacao') {
+      setCampo('exige_confirmacao_leitura', true)
       setCampo('permitir_fechar_modal', true)
+      return
     }
+
+    setCampo('exige_confirmacao_leitura', false)
+    setCampo('permitir_fechar_modal', true)
+  }
+
+  function selecionarFrequenciaExibicao(frequencia: FrequenciaExibicao) {
+    if (frequencia === 'ate_responder' && !form.feedback_habilitado && !form.exige_confirmacao_leitura) return
+
+    if (frequencia === 'uma_vez') {
+      setCampo('mostrar_uma_vez', true)
+      setCampo('politica_reexibicao', 'uma_vez_apos_visualizacao')
+      setCampo('reexibir_apos_dias', '')
+      return
+    }
+
+    if (frequencia === 'reexibir_depois') {
+      setCampo('mostrar_uma_vez', false)
+      setCampo('politica_reexibicao', 'reexibir_apos_dias')
+      if (!form.reexibir_apos_dias.trim()) setCampo('reexibir_apos_dias', '7')
+      return
+    }
+
+    setCampo('mostrar_uma_vez', false)
+    setCampo('politica_reexibicao', 'ate_responder_ou_confirmar')
+    setCampo('reexibir_apos_dias', '')
+  }
+  const tipoDestino = form.gatilho === 'apos_evento'
+    ? 'acao'
+    : form.modo_identificacao === 'data_cy'
+      ? 'data_cy'
+      : 'tela'
+
+  function selecionarTipoDestino(tipo: 'tela' | 'data_cy' | 'acao') {
+    if (tipo === 'tela') {
+      setCampo('gatilho', 'ao_abrir_tela')
+      setCampo('modo_identificacao', 'sistema_tela')
+      setCampo('evento', '')
+      setCampo('data_cy', '')
+      setCampo('url_contem', '')
+      return
+    }
+
+    if (tipo === 'data_cy') {
+      setCampo('gatilho', 'ao_abrir_tela')
+      setCampo('modo_identificacao', 'data_cy')
+      setCampo('evento', '')
+      setCampo('tela', '')
+      setCampo('url_contem', '')
+      return
+    }
+
+    setCampo('gatilho', 'apos_evento')
+    setCampo('modo_identificacao', 'sistema_tela')
+    setCampo('data_cy', '')
+    setCampo('url_contem', '')
   }
 
   function alternarFechamento(valor: boolean) {
@@ -352,27 +557,51 @@ function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao,
     }
   }
 
+  function selecionarModoSegmentacao(modo: ModoSegmentacao) {
+    setModoSegmentacao(modo)
+
+    if (modo === 'todos') {
+      setCampo('segmentar_cliente_ids', [])
+      setCampo('segmentar_unidade_ids', [])
+      setCampo('segmentar_perfis', [])
+      setCampo('segmentar_usuario_tipos', [])
+      setCampo('segmentar_estados', [])
+      return
+    }
+
+    if (modo === 'cliente') {
+      setCampo('segmentar_perfis', [])
+      setCampo('segmentar_usuario_tipos', [])
+      setCampo('segmentar_estados', [])
+      return
+    }
+
+    if (modo === 'perfil') {
+      setCampo('segmentar_cliente_ids', [])
+      setCampo('segmentar_unidade_ids', [])
+    }
+  }
+
   return (
-    <aside className="rounded-3xl border border-[#dee3e9] bg-white/95 p-6 shadow-[0_18px_50px_rgba(20,22,26,0.12)] backdrop-blur xl:mr-6">
-      <div className="mb-6 border-b border-[#dee3e9] pb-5">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#eff4ff] text-[#0064e0]">
-            <span className="material-symbols-outlined text-[20px]">tune</span>
+    <aside className="w-full self-start rounded-3xl border border-[#dee3e9] bg-white/95 p-5 shadow-[0_18px_50px_rgba(20,22,26,0.12)] backdrop-blur">
+      <div className="mb-5 border-b border-[#dee3e9] pb-4">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#eff4ff] text-[#0064e0]">
+            <span className="material-symbols-outlined text-[19px]">tune</span>
           </span>
           <div>
             <p className="text-[22px] font-semibold leading-tight text-[#0a1317]">Configurações</p>
-            <p className="mt-1 text-[13px] leading-5 text-[#5d6c7b]">Ajuste o card, destino, exibição e público.</p>
           </div>
         </div>
-        <div className="mt-5 rounded-2xl bg-[#f8f9ff] p-2">
-          <p className="px-2 pb-2 text-[11px] font-bold uppercase tracking-[0.12em] text-[#5d6c7b]">Etapas</p>
+        <div className="mt-4 rounded-2xl bg-[#f8f9ff] p-2">
+          <p className="px-2 pb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-[#5d6c7b]">Etapas</p>
           <div className="flex flex-wrap gap-2">
           {secoes.map(item => (
             <button
               key={item.id}
               type="button"
               onClick={() => setSecao(item.id)}
-              className={`rounded-full border px-4 py-2 text-[14px] font-semibold transition ${secao === item.id ? 'border-[#0064e0] bg-[#0064e0] text-white' : 'border-[#ced0d4] bg-white text-[#1c1e21] hover:border-[#0064e0] hover:text-[#0064e0]'}`}
+              className={`rounded-full border px-4 py-1.5 text-[14px] font-semibold transition ${secao === item.id ? 'border-[#0064e0] bg-[#0064e0] text-white' : 'border-[#ced0d4] bg-white text-[#1c1e21] hover:border-[#0064e0] hover:text-[#0064e0]'}`}
             >
               {item.label}
             </button>
@@ -381,89 +610,184 @@ function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao,
         </div>
       </div>
 
-      <div className="min-h-[320px]">
+      <div>
       {secao === 'destino' && (
         <div className="space-y-5">
           <div>
-            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Tela cadastrada</span>
-            {!sistemaSelecionado ? (
-              <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
-                Selecione um sistema no card para listar as telas cadastradas.
-              </div>
-            ) : telasDoSistema.length === 0 ? (
-              <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
-                Nenhuma tela cadastrada para <strong>{sistemaSelecionado}</strong>. Use os campos manuais abaixo.
-              </div>
-            ) : (
-              <select
-                value={telaSelecionada?.id ?? ''}
-                onChange={event => onSelecionarTela(event.target.value)}
-                className="h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
-              >
-                <option value="">Selecionar tela do catálogo</option>
-                {telasDoSistema.map(tela => (
-                  <option key={tela.id} value={tela.id}>{tela.nome} · {tela.categoria}</option>
-                ))}
-              </select>
-            )}
+            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Quando esta campanha aparece?</span>
+            <div className="grid gap-2">
+              {[
+                { id: 'tela' as const, icon: 'web_asset', titulo: 'Ao abrir uma tela', desc: 'Use uma tela cadastrada ou adicione uma nova ao catálogo.' },
+                { id: 'data_cy' as const, icon: 'ads_click', titulo: 'Ao encontrar um elemento', desc: 'Mostra quando um elemento específico estiver disponível na página.' },
+                { id: 'acao' as const, icon: 'bolt', titulo: 'Depois de uma ação', desc: 'Mostra somente quando o sistema disparar um evento pelo widget.' },
+              ].map(opcao => (
+                <button
+                  key={opcao.id}
+                  type="button"
+                  onClick={() => selecionarTipoDestino(opcao.id)}
+                  className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${tipoDestino === opcao.id ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
+                >
+                  <span className={`material-symbols-outlined mt-0.5 text-[20px] ${tipoDestino === opcao.id ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
+                    <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">{opcao.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
-          <label className="block">
-            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Modo de identificação</span>
-            <select value={form.modo_identificacao} onChange={e => setCampo('modo_identificacao', e.target.value)} className="h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]">
-              <option value="sistema_tela">Sistema + tela</option>
-              <option value="data_cy">Elemento data-cy</option>
-              <option value="url_contem">URL contém</option>
-            </select>
-          </label>
-          <CampoDock label="Tela" value={form.tela} onChange={valor => setCampo('tela', valor)} placeholder="Geral" />
-          <CampoDock label="data-cy" value={form.data_cy} onChange={valor => setCampo('data_cy', valor)} />
-          <CampoDock label="URL contém" value={form.url_contem} onChange={valor => setCampo('url_contem', normalizarUrlContem(valor))} placeholder="/financeiro" />
-          <label className="block">
-            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Gatilho</span>
-            <select value={form.gatilho} onChange={e => setCampo('gatilho', e.target.value)} className="h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]">
-              <option value="ao_abrir_tela">Ao abrir tela</option>
-              <option value="apos_evento">Após evento</option>
-            </select>
-          </label>
-          <CampoDock label="Evento" value={form.evento} onChange={valor => setCampo('evento', valor)} />
+
+          {tipoDestino === 'tela' && (
+            <>
+              <div>
+                <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Tela cadastrada</span>
+                {!sistemaSelecionado ? (
+                  <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
+                    Selecione um sistema no card para listar as telas cadastradas.
+                  </div>
+                ) : (
+                  <SeletorTelaCatalogo
+                    telas={telasDoSistema}
+                    selecionada={telaSelecionada}
+                    onSelecionar={onSelecionarTela}
+                    onCriar={onAdicionarTela}
+                  />
+                )}
+              </div>
+            </>
+          )}
+
+          {tipoDestino === 'data_cy' && (
+            <CampoDock
+              label="data-cy"
+              value={form.data_cy}
+              onChange={valor => setCampo('data_cy', valor)}
+              placeholder="botao-finalizar-compra"
+              tooltip="Informe o valor do atributo data-cy do elemento. O widget usa esse identificador técnico para saber quando esse elemento existe na tela."
+              hint="Exemplo: botao-finalizar-compra."
+            />
+          )}
+
+          {tipoDestino === 'acao' && (
+            <CampoDock
+              label="Evento da ação"
+              value={form.evento}
+              onChange={valor => setCampo('evento', valor)}
+              placeholder="checkout_concluido"
+              hint="Esse nome precisa ser o mesmo enviado pelo sistema quando a ação acontecer."
+            />
+          )}
         </div>
       )}
 
       {secao === 'exibicao' && (
         <div className="space-y-5">
           <CampoBooleanoDock label="Campanha ativa" checked={form.ativo} onChange={valor => setCampo('ativo', valor)} />
-          <CampoDock label="Atraso (ms)" value={form.atraso_ms} onChange={valor => setCampo('atraso_ms', valor)} type="number" />
-          <CampoDock label="Prioridade" value={form.prioridade} onChange={valor => setCampo('prioridade', valor)} type="number" />
-          <CampoDock label="Ordem" value={form.ordem} onChange={valor => setCampo('ordem', valor)} type="number" />
-          <label className="block">
-            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Política de reexibição</span>
-            <select value={form.politica_reexibicao} onChange={e => setCampo('politica_reexibicao', e.target.value)} className="h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]">
-              <option value="uma_vez_apos_visualizacao">Uma vez após visualização</option>
-              <option value="ate_responder_ou_confirmar">Até responder/confirmar</option>
-              <option value="reexibir_apos_dias">Reexibir após X dias</option>
-            </select>
-          </label>
-          <CampoDock label="Reexibir após dias" value={form.reexibir_apos_dias} onChange={valor => setCampo('reexibir_apos_dias', valor)} type="number" />
-          <CampoBooleanoDock label="Mostrar uma vez" checked={form.mostrar_uma_vez} onChange={valor => setCampo('mostrar_uma_vez', valor)} />
-          <CampoBooleanoDock label="Encerrar após evento" checked={form.encerrar_apos_evento} onChange={valor => setCampo('encerrar_apos_evento', valor)} />
-          <CampoDock label="Evento de conclusão" value={form.evento_conclusao} onChange={valor => setCampo('evento_conclusao', valor)} />
+
+          <div>
+            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Com que frequência esta campanha deve aparecer?</span>
+            <div className="grid gap-2">
+              {[
+                { id: 'uma_vez' as const, icon: 'looks_one', titulo: 'Uma vez', desc: 'Mostra uma única vez para cada usuário.' },
+                { id: 'ate_responder' as const, icon: 'repeat', titulo: 'Até responder', desc: 'Continua aparecendo até o usuário responder ou confirmar.' },
+                { id: 'reexibir_depois' as const, icon: 'event_repeat', titulo: 'Reexibir depois', desc: 'Mostra novamente após um intervalo definido em dias.' },
+              ].map(opcao => {
+                const desabilitado = opcao.id === 'ate_responder' && !form.feedback_habilitado && !form.exige_confirmacao_leitura
+                const selecionado = frequenciaExibicao === opcao.id
+                return (
+                  <button
+                    key={opcao.id}
+                    type="button"
+                    onClick={() => selecionarFrequenciaExibicao(opcao.id)}
+                    disabled={desabilitado}
+                    title={desabilitado ? 'Ative feedback ou confirmação de leitura para usar esta frequência.' : undefined}
+                    className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${desabilitado ? 'cursor-not-allowed border-[#dee3e9] bg-[#f1f3f5] text-[#9aa3ad]' : selecionado ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
+                  >
+                    <span className={`material-symbols-outlined mt-0.5 text-[20px] ${desabilitado ? 'text-[#a8b0b8]' : selecionado ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
+                    <span className="min-w-0">
+                      <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
+                      <span className={`mt-0.5 block text-[12px] font-semibold leading-4 ${desabilitado ? 'text-[#8d98a3]' : 'text-[#5d6c7b]'}`}>
+                        {desabilitado ? 'Ative feedback ou confirmação para manter a campanha aparecendo até a ação final.' : opcao.desc}
+                      </span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {frequenciaExibicao === 'reexibir_depois' && (
+            <CampoDock label="Reexibir após quantos dias?" value={form.reexibir_apos_dias} onChange={valor => setCampo('reexibir_apos_dias', valor)} type="number" />
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <CampoDock label="Tempo antes de aparecer (ms)" value={form.atraso_ms} onChange={valor => setCampo('atraso_ms', valor)} type="number" />
+            <CampoDock label="Prioridade" value={form.prioridade} onChange={valor => setCampo('prioridade', valor)} type="number" />
+          </div>
         </div>
       )}
 
       {secao === 'feedback' && (
         <div className="space-y-5">
-          <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
-            Escolha uma ação principal: coletar feedback ou exigir confirmação de leitura. Quando uma é ativada, a outra é desativada para evitar uma experiência confusa para o usuário.
+          <div>
+            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">O que o usuário precisa fazer no final da campanha?</span>
+            <div className="grid gap-2">
+              {[
+                { id: 'feedback' as const, icon: 'rate_review', titulo: 'Enviar feedback', desc: 'Coleta uma nota e, opcionalmente, uma observação.' },
+                { id: 'confirmacao' as const, icon: 'task_alt', titulo: 'Confirmar leitura', desc: 'Exige que o usuário clique em Li e entendi.' },
+                { id: 'visualizacao' as const, icon: 'visibility', titulo: 'Apenas visualizar', desc: 'Mostra a campanha sem exigir resposta ou confirmação.' },
+              ].map(opcao => (
+                <button
+                  key={opcao.id}
+                  type="button"
+                  onClick={() => selecionarAcaoFinal(opcao.id)}
+                  className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${acaoFinal === opcao.id ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
+                >
+                  <span className={`material-symbols-outlined mt-0.5 text-[20px] ${acaoFinal === opcao.id ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
+                    <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">{opcao.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
-          <CampoBooleanoDock label="Habilitar feedback" checked={form.feedback_habilitado} onChange={alternarFeedback} />
+
           {form.feedback_habilitado && (
-            <>
-              <CampoDock label="Pergunta de feedback" value={form.pergunta_feedback} onChange={valor => setCampo('pergunta_feedback', valor)} placeholder="Como podemos melhorar?" />
-              <CampoBooleanoDock label="Observação obrigatória" checked={form.observacao_obrigatoria} onChange={valor => setCampo('observacao_obrigatoria', valor)} />
-            </>
+            <div className="space-y-3 rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3">
+              <label className="flex items-start gap-3 text-[13px] font-semibold leading-5 text-[#1c1e21]">
+                <input
+                  type="checkbox"
+                  checked={form.observacao_obrigatoria}
+                  onChange={event => setCampo('observacao_obrigatoria', event.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#0064e0]"
+                />
+                <span>
+                  <span className="block font-bold">Exigir observação junto com a nota</span>
+                  <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">O usuário precisa escrever um comentário para enviar o feedback.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-3 border-t border-[#dee3e9] pt-3 text-[13px] font-semibold leading-5 text-[#1c1e21]">
+                <input
+                  type="checkbox"
+                  checked={form.permitir_fechar_modal}
+                  onChange={event => alternarFechamento(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#0064e0]"
+                />
+                <span>
+                  <span className="block font-bold">Permitir fechar sem responder</span>
+                  <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">O usuário pode fechar a campanha mesmo sem enviar feedback.</span>
+                </span>
+              </label>
+            </div>
           )}
-          <CampoBooleanoDock label="Exigir confirmação de leitura" checked={form.exige_confirmacao_leitura} onChange={alternarConfirmacao} />
-          <CampoBooleanoDock label="Permitir fechar modal" checked={form.permitir_fechar_modal} onChange={alternarFechamento} />
+          {acaoFinal === 'visualizacao' ? (
+            <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
+              Nesta opção, o usuário sempre pode fechar a campanha porque não há ação obrigatória.
+            </div>
+          ) : acaoFinal === 'feedback' ? null : (
+            <CampoBooleanoDock label="Permitir fechar sem responder" checked={form.permitir_fechar_modal} onChange={alternarFechamento} />
+          )}
           {!form.permitir_fechar_modal && (
             <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
               Fechamento desabilitado exige uma saída clara: feedback ou confirmação de leitura. Se nenhuma estiver ativa, a confirmação é ligada automaticamente.
@@ -474,30 +798,80 @@ function DockLateral({ secao, form, catalogoTelas, salvando, setCampo, setSecao,
 
       {secao === 'segmentacao' && (
         <div className="space-y-5">
-          <CampoListaDock label="Clientes" value={form.segmentar_cliente_ids} onChange={valor => setCampo('segmentar_cliente_ids', valor)} />
-          <CampoListaDock label="Unidades" value={form.segmentar_unidade_ids} onChange={valor => setCampo('segmentar_unidade_ids', valor)} />
-          <CampoListaDock label="Perfis" value={form.segmentar_perfis} onChange={valor => setCampo('segmentar_perfis', valor)} />
-          <CampoListaDock label="Tipos de usuário" value={form.segmentar_usuario_tipos} onChange={valor => setCampo('segmentar_usuario_tipos', valor)} />
-          <CampoListaDock label="Estados" value={form.segmentar_estados} onChange={valor => setCampo('segmentar_estados', valor)} hint="Ex.: SP, RJ, MG." />
+          <div>
+            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Para quem esta campanha deve aparecer?</span>
+            <div className="grid gap-2">
+              {[
+                { id: 'todos' as const, icon: 'groups', titulo: 'Todos', desc: 'Sem filtros. Aparece para qualquer usuário elegível.' },
+                { id: 'cliente' as const, icon: 'domain', titulo: 'Por cliente', desc: 'Filtra por IDs de clientes e unidades.' },
+                { id: 'perfil' as const, icon: 'person_search', titulo: 'Por perfil', desc: 'Filtra por perfis, tipos de usuário e estados.' },
+              ].map(opcao => (
+                <button
+                  key={opcao.id}
+                  type="button"
+                  onClick={() => selecionarModoSegmentacao(opcao.id)}
+                  className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${modoSegmentacao === opcao.id ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
+                >
+                  <span className={`material-symbols-outlined mt-0.5 text-[20px] ${modoSegmentacao === opcao.id ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
+                    <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">{opcao.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {modoSegmentacao !== 'todos' && (
+            <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3">
+              <label className="flex items-start gap-3 text-[13px] font-semibold leading-5 text-[#1c1e21]">
+                <input
+                  type="checkbox"
+                  checked={modoSegmentacao === 'combinada'}
+                  onChange={event => selecionarModoSegmentacao(event.target.checked ? 'combinada' : 'todos')}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#0064e0]"
+                />
+                <span>
+                  <span className="block font-bold">Combinar filtros</span>
+                  <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">Use cliente, unidade, perfil, tipo de usuário e estado na mesma campanha.</span>
+                </span>
+              </label>
+            </div>
+          )}
+
+          {(modoSegmentacao === 'cliente' || modoSegmentacao === 'combinada') && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <CampoListaDock label="IDs de clientes" value={form.segmentar_cliente_ids} onChange={valor => setCampo('segmentar_cliente_ids', valor)} />
+              <CampoListaDock label="IDs de unidades" value={form.segmentar_unidade_ids} onChange={valor => setCampo('segmentar_unidade_ids', valor)} />
+            </div>
+          )}
+
+          {(modoSegmentacao === 'perfil' || modoSegmentacao === 'combinada') && (
+            <div className="space-y-4">
+              <CampoListaDock label="Perfis permitidos" value={form.segmentar_perfis} onChange={valor => setCampo('segmentar_perfis', valor)} />
+              <CampoListaDock label="Tipos permitidos" value={form.segmentar_usuario_tipos} onChange={valor => setCampo('segmentar_usuario_tipos', valor)} />
+              <CampoListaDock label="Estados permitidos" value={form.segmentar_estados} onChange={valor => setCampo('segmentar_estados', valor)} hint="Ex.: SP, RJ, MG." />
+            </div>
+          )}
         </div>
       )}
       </div>
 
       <div className="mt-6 border-t border-[#dee3e9] pt-5">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-2">
-          <Button type="submit" size="md" fullWidthMobile disabled={salvando} className="sm:col-span-2">{salvando ? 'Salvando...' : 'Criar campanha'}</Button>
-          <Button type="button" variant="ghost" fullWidthMobile onClick={onPreview} disabled={salvando}>Preview</Button>
-          <Button type="button" variant="ghost" fullWidthMobile onClick={onLimpar} disabled={salvando}>Limpar</Button>
-          <Button type="button" variant="ghost" fullWidthMobile onClick={onLista} className="sm:col-span-2">Ver campanhas atuais</Button>
+          <Button type="button" variant="ghost" fullWidthMobile onClick={onPreview} disabled={salvando} iconLeft={<span className="material-symbols-outlined text-[18px]">visibility</span>}>Simular</Button>
+          <Button type="button" variant="ghost" fullWidthMobile onClick={onLimpar} disabled={salvando} iconLeft={<span className="material-symbols-outlined text-[18px]">restart_alt</span>}>Resetar</Button>
+          <Button type="submit" variant="gradient" size="md" fullWidthMobile disabled={salvando} className="sm:col-span-2 shadow-[0_10px_24px_rgba(0,100,224,0.22)]">{salvando ? 'Salvando...' : 'Criar campanha'}</Button>
         </div>
       </div>
     </aside>
   )
 }
 
-function CardEditavel({ form, sistemas, aparencia, embedUrl, mostrarMidia, mediaPosition, arrastandoMidia, setCampo, onDragStartMedia, onMostrarMidia, onRemoverMidia, onMoverMidia, onFecharPreview, modo = 'construtor' }: {
+function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, embedUrl, mostrarMidia, mediaPosition, arrastandoMidia, setCampo, onDragStartMedia, onMostrarMidia, onRemoverMidia, onMoverMidia, onFecharPreview, modo = 'construtor' }: {
   form: FormState
   sistemas: string[]
+  sistemaPadraoIdentificador?: string
   aparencia: AparenciaCard | null
   embedUrl: string
   mostrarMidia: boolean
@@ -520,6 +894,7 @@ function CardEditavel({ form, sistemas, aparencia, embedUrl, mostrarMidia, media
   const corSubtitulo = corTextoSistemaLegivel(corAcao)
   const iconeCampanha = iconeTipoCampanha(form.tipo)
   const midiaRef = useRef<HTMLDivElement>(null)
+  const descricaoRef = useRef<HTMLTextAreaElement>(null)
   const [editandoMidia, setEditandoMidia] = useState(false)
   const [linkMidiaInline, setLinkMidiaInline] = useState(form.video_url || form.imagem_url)
   const [notaFeedbackPreview, setNotaFeedbackPreview] = useState<number | null>(null)
@@ -532,6 +907,13 @@ function CardEditavel({ form, sistemas, aparencia, embedUrl, mostrarMidia, media
     if (editandoMidia) return
     setLinkMidiaInline(form.video_url || form.imagem_url)
   }, [editandoMidia, form.video_url, form.imagem_url])
+
+  useEffect(() => {
+    const textarea = descricaoRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [form.descricao])
 
   function aplicarLinkMidia(valor: string) {
     const link = valor.trim()
@@ -704,13 +1086,14 @@ function CardEditavel({ form, sistemas, aparencia, embedUrl, mostrarMidia, media
     </p>
   ) : (
     <textarea
+      ref={descricaoRef}
       value={form.descricao}
       onChange={e => setCampo('descricao', e.target.value)}
       required
-      rows={2}
+      rows={1}
       aria-label="Descrição da campanha"
       placeholder="Escreva a mensagem da campanha..."
-      className="min-h-[48px] w-full resize-none border-0 bg-transparent p-0 text-body-md leading-snug text-on-surface-variant outline-none placeholder:italic placeholder:text-on-surface-variant/40 focus:ring-0"
+      className="min-h-[28px] w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-body-md leading-[1.35] text-on-surface-variant outline-none placeholder:italic placeholder:text-on-surface-variant/40 focus:ring-0"
     />
   )
 
@@ -724,9 +1107,20 @@ function CardEditavel({ form, sistemas, aparencia, embedUrl, mostrarMidia, media
           <p className="m-0 text-[12px] font-semibold leading-4">{mensagemSimulacao.texto}</p>
         </div>
       )}
-      <p className="mb-2 text-body-md font-semibold text-on-surface">
-        {form.pergunta_feedback.trim() || 'Como podemos melhorar?'}
-      </p>
+      {preview ? (
+        <p className="mb-2 text-body-md font-semibold text-on-surface">
+          {form.pergunta_feedback.trim() || 'Como podemos melhorar?'}
+        </p>
+      ) : (
+        <input
+          value={form.pergunta_feedback}
+          onChange={event => setCampo('pergunta_feedback', event.target.value)}
+          onBlur={() => { if (!form.pergunta_feedback.trim()) setCampo('pergunta_feedback', 'Como podemos melhorar?') }}
+          aria-label="Pergunta de feedback"
+          placeholder="Como podemos melhorar?"
+          className="mb-2 w-full border-0 bg-transparent p-0 text-body-md font-semibold text-on-surface outline-none placeholder:text-on-surface/70 focus:ring-0"
+        />
+      )}
       <div className="grid grid-cols-6 gap-1 sm:grid-cols-11">
         {Array.from({ length: 11 }, (_, nota) => (
           <button
@@ -824,21 +1218,21 @@ function CardEditavel({ form, sistemas, aparencia, embedUrl, mostrarMidia, media
   )
 
   return (
-    <article className={`mx-auto w-full text-on-surface ${preview ? 'max-w-[520px]' : 'max-w-[500px] rounded-2xl border border-outline-variant/70 bg-surface-container-lowest p-5 shadow-sm'}`}>
+    <article className={`mx-auto w-full text-on-surface ${preview ? 'max-w-[560px]' : 'max-w-[580px] rounded-2xl border border-outline-variant/70 bg-surface-container-lowest p-5 shadow-sm'}`}>
       {!preview && (
-        <>
-          <div className="mb-4 flex items-center gap-2">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-error" />
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-primary" />
-            <span className="text-label-md font-bold uppercase tracking-widest text-on-surface-variant">Construtor</span>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 xl:flex-nowrap">
+          <div className="flex min-w-0 shrink-0 items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#eff4ff] text-[#0064e0]">
+              <span className="material-symbols-outlined text-[19px]">view_quilt</span>
+            </span>
+            <p className="text-[22px] font-semibold leading-tight text-[#0a1317]">Preview</p>
           </div>
-
-          <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
             <PillDropdown label="Tipo da campanha" value={form.tipo} options={TIPOS_CAMPANHA} onChange={valor => setCampo('tipo', valor)} />
             <PillDropdown label="Categoria do badge" value={form.categoria} options={CATEGORIAS} onChange={valor => setCampo('categoria', valor)} />
-            <PillDropdown label="Sistema do design" value={form.sistema} options={sistemas} onChange={valor => setCampo('sistema', valor)} placeholder="Sistema" />
+            <PillDropdown label="Sistema do design" value={form.sistema} options={sistemas} onChange={valor => setCampo('sistema', valor)} placeholder="Sistema" highlightValue={sistemaPadraoIdentificador} />
           </div>
-        </>
+        </div>
       )}
 
       <div className="overflow-hidden rounded-xl border border-outline-variant shadow-sm">
@@ -873,16 +1267,15 @@ function CardEditavel({ form, sistemas, aparencia, embedUrl, mostrarMidia, media
 
         <div className="space-y-3 bg-surface-container-lowest p-4">
           {preview ? (
-            form.subtitulo && <p className="m-0 whitespace-pre-wrap text-label-md font-bold" style={{ color: corSubtitulo }}>{form.subtitulo}</p>
+            form.subtitulo.trim() && <p className="m-0 text-label-md font-bold" style={{ color: corSubtitulo }}>{form.subtitulo.trim()}</p>
           ) : (
-            <textarea
+            <input
               value={form.subtitulo}
-              onChange={e => setCampo('subtitulo', e.target.value)}
+              onChange={e => setCampo('subtitulo', e.target.value.replace(/[\r\n]+/g, ' '))}
               aria-label="Subtítulo da campanha"
               placeholder="Subtítulo opcional"
-              rows={1}
               style={{ color: corSubtitulo }}
-              className="min-h-[20px] w-full resize-none whitespace-pre-wrap border-0 bg-transparent p-0 text-label-md font-bold outline-none placeholder:text-outline focus:ring-0"
+              className="w-full truncate border-0 bg-transparent p-0 text-label-md font-bold outline-none placeholder:text-outline focus:ring-0"
             />
           )}
           {mostrarMidia ? (mediaPosition === 'topo' ? blocoMidia : pontoMidia('topo')) : (mediaPosition === 'topo' ? pontoMidia('topo') : null)}
@@ -929,38 +1322,143 @@ function CardEditavel({ form, sistemas, aparencia, embedUrl, mostrarMidia, media
   )
 }
 
-function PreviewCampanhaModal({ form, sistemas, aparencia, embedUrl, mostrarMidia, mediaPosition, setCampo, onMostrarMidia, onRemoverMidia, onMoverMidia, onClose }: {
+function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
   form: FormState
-  sistemas: string[]
   aparencia: AparenciaCard | null
   embedUrl: string
-  mostrarMidia: boolean
-  mediaPosition: PosicaoMidia
-  setCampo: <K extends keyof FormState>(campo: K, valor: FormState[K]) => void
-  onMostrarMidia: (posicao?: PosicaoMidia) => void
-  onRemoverMidia: () => void
-  onMoverMidia: (posicao: PosicaoMidia) => void
   onClose: () => void
 }) {
+  const [nota, setNota] = useState<number | null>(null)
+  const [observacao, setObservacao] = useState('')
+  const [confirmado, setConfirmado] = useState(false)
+  const [erro, setErro] = useState('')
+  const [enviado, setEnviado] = useState(false)
+  const corAcao = corSistemaValida(aparencia?.cor_principal)
+  const pergunta = form.pergunta_feedback.trim() || 'Como podemos melhorar?'
+  const descricao = form.descricao.trim()
+  const titulo = form.titulo.trim() || 'Título da campanha'
+  const iconeCampanha = iconeTipoCampanha(form.tipo)
+  const subtitulo = form.subtitulo.trim()
+  const imagemUrl = form.imagem_url.trim()
+  const temCta = Boolean(form.texto_botao.trim() && form.url_botao.trim())
+  const feedbackHabilitado = form.feedback_habilitado !== false
+
+  function simularEnvio() {
+    if (nota === null) return
+    if (form.observacao_obrigatoria && !observacao.trim()) {
+      setErro('Observação obrigatória')
+      return
+    }
+    setErro('')
+    setEnviado(true)
+  }
+
+  function simularConfirmacao() {
+    if (!confirmado) {
+      setErro('Marque a confirmação de leitura para continuar.')
+      return
+    }
+    setErro('')
+    setEnviado(true)
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Preview da campanha">
-      <div className="max-h-[calc(100vh-32px)] w-full max-w-[620px] overflow-y-auto rounded-[28px]">
-        <CardEditavel
-          form={form}
-          sistemas={sistemas}
-          aparencia={aparencia}
-          embedUrl={embedUrl}
-          mostrarMidia={mostrarMidia}
-          mediaPosition={mediaPosition}
-          arrastandoMidia={false}
-          setCampo={setCampo}
-          onDragStartMedia={() => {}}
-          onMostrarMidia={onMostrarMidia}
-          onRemoverMidia={onRemoverMidia}
-          onMoverMidia={onMoverMidia}
-          onFecharPreview={onClose}
-          modo="preview"
-        />
+      <div className="flex max-h-[calc(100vh-32px)] w-full max-w-[560px] flex-col overflow-hidden rounded-2xl border border-[#c2c6d6] bg-white text-[#0b1c30] shadow-[0_24px_70px_rgba(11,28,48,.22)]">
+        {enviado ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto px-[22px] py-[26px] text-center">
+            <div className="flex h-[62px] w-[62px] items-center justify-center rounded-full bg-[rgba(0,105,71,.1)] text-[#006947]">
+              <span className="material-symbols-outlined text-[34px]">check</span>
+            </div>
+            <h4 className="m-0 text-[20px] font-extrabold leading-7 text-[#0b1c30]">Obrigado!</h4>
+            <p className="m-0 text-[14px] leading-5 text-[#424754]">Seu feedback foi registrado e nos ajudará a melhorar.</p>
+            <button type="button" onClick={onClose} className="h-10 w-full rounded-xl border border-[#c2c6d6] bg-white text-[12px] font-extrabold text-[#424754]">
+              Fechar
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[rgba(194,198,214,.45)] px-5 py-4">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white" style={{ backgroundColor: corAcao }}>
+                  <span className="material-symbols-outlined text-[18px]">{iconeCampanha}</span>
+                </div>
+                <p className="m-0 truncate text-[15px] font-extrabold leading-[21px] text-[#0b1c30]">{titulo}</p>
+              </div>
+              {form.permitir_fechar_modal !== false && (
+                <button type="button" onClick={onClose} aria-label="Fechar campanha" title="Fechar" className="flex shrink-0 items-center justify-center rounded-lg p-1 text-[#727785] hover:bg-[#eff4ff] hover:text-[#0b1c30]">
+                  <span className="material-symbols-outlined text-[20px]">close</span>
+                </button>
+              )}
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-5 pt-[18px]">
+              {subtitulo && <p className="m-0 text-[13px] font-extrabold leading-[18px]" style={{ color: corAcao }}>{subtitulo}</p>}
+
+              {embedUrl ? (
+                <div className="relative h-0 w-full overflow-hidden rounded-xl border border-[rgba(194,198,214,.45)] bg-[#eff4ff] pb-[56.25%]">
+                  <iframe src={embedUrl} title="Vídeo da campanha" tabIndex={-1} loading="lazy" allowFullScreen className="absolute left-0 top-0 block h-full w-full border-0" />
+                </div>
+              ) : imagemUrl ? (
+                <div className="w-full overflow-hidden rounded-xl border border-[rgba(194,198,214,.45)] bg-[#eff4ff]">
+                  <img src={imagemUrl} alt="" className="block h-auto w-full object-contain" />
+                </div>
+              ) : null}
+
+              {descricao && <p className="m-0 whitespace-pre-wrap text-[14px] leading-[21px] text-[#424754]">{descricao}</p>}
+
+              {temCta && (
+                <button type="button" style={{ backgroundColor: corAcao }} className="flex min-h-[42px] w-full items-center justify-center rounded-xl border-0 text-[12px] font-extrabold leading-4 text-white transition hover:opacity-90">
+                  {form.texto_botao.trim()}
+                </button>
+              )}
+
+              {form.exige_confirmacao_leitura ? (
+                <div className="flex flex-col gap-2.5 border-t border-[#e0e2ef] pt-3">
+                  {erro && <p className="m-0 text-[12px] leading-4 text-[#ba1a1a]">{erro}</p>}
+                  <label className="flex items-center gap-3 rounded-xl border border-[#c2c6d6] bg-[#f8f9ff] px-3 py-2.5 text-[13px] font-bold leading-5 text-[#424754]">
+                    <input type="checkbox" checked={confirmado} onChange={event => { setConfirmado(event.target.checked); setErro('') }} className="h-4 w-4 accent-[#0058be]" />
+                    Confirmo que li esta comunicação
+                  </label>
+                  <button type="button" disabled={!confirmado} onClick={simularConfirmacao} style={{ backgroundColor: corAcao }} className="h-[42px] w-full rounded-xl border-0 text-[12px] font-extrabold leading-4 text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
+                    Li e entendi
+                  </button>
+                </div>
+              ) : feedbackHabilitado ? (
+                <div className="flex flex-col gap-2.5 border-t border-[#e0e2ef] pt-3">
+                  <p className="m-0 text-[15px] font-bold leading-[21px] text-[#0b1c30]">{pergunta}</p>
+                  <div>
+                    <div className="flex w-full gap-1">
+                      {Array.from({ length: 11 }, (_, n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => { setNota(n); setErro('') }}
+                          className="h-[34px] min-w-[22px] flex-1 rounded-lg border text-[12px] font-extrabold transition hover:-translate-y-px"
+                          style={nota === n ? { backgroundColor: corAcao, borderColor: corAcao, color: '#fff' } : { borderColor: '#c2c6d6', backgroundColor: '#fff', color: '#424754' }}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-1.5 flex justify-between text-[10px] font-extrabold uppercase leading-[14px] text-[#727785]"><span>Ruim</span><span>Excelente</span></div>
+                  </div>
+                  <textarea
+                    value={observacao}
+                    onChange={event => { setObservacao(event.target.value); setErro('') }}
+                    placeholder={form.observacao_obrigatoria ? 'Obrigatório: escreva sua observação...' : 'Observação (opcional)'}
+                    className="min-h-[72px] w-full resize-y rounded-xl border border-[#c2c6d6] bg-[#f8f9ff] px-3 py-2.5 text-[14px] leading-5 text-[#0b1c30] outline-none focus:border-[#0058be] focus:shadow-[0_0_0_3px_rgba(0,88,190,.16)]"
+                  />
+                  {form.observacao_obrigatoria && <p className="m-[-8px_0_0] text-[11px] leading-4 text-[#ba1a1a]">Observação obrigatória</p>}
+                  {erro && <p className="m-0 text-[12px] leading-4 text-[#ba1a1a]">{erro}</p>}
+                  <button type="button" disabled={nota === null} onClick={simularEnvio} style={{ backgroundColor: corAcao }} className="h-[42px] w-full rounded-xl border-0 text-[12px] font-extrabold leading-4 text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
+                    Enviar Feedback
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </>
+        )}
       </div>
     </div>,
     document.body
@@ -971,6 +1469,7 @@ export function Campanhas2Index() {
   const navigate = useNavigate()
   const [form, setForm] = useState<FormState>(formInicial)
   const [sistemas, setSistemas] = useState<string[]>([])
+  const [sistemasConfig, setSistemasConfig] = useState<Sistema[]>([])
   const [aparencias, setAparencias] = useState<Record<string, AparenciaCard>>({})
   const [aparenciaDefault, setAparenciaDefault] = useState<AparenciaCard | null>(null)
   const [catalogoTelas, setCatalogoTelas] = useState<TelaCatalogo[]>([])
@@ -980,6 +1479,10 @@ export function Campanhas2Index() {
   const [mostrarMidia, setMostrarMidia] = useState(true)
   const [mediaPosition, setMediaPosition] = useState<PosicaoMidia>('topo')
   const [previewAberto, setPreviewAberto] = useState(false)
+  const [modalNovaTelaAberto, setModalNovaTelaAberto] = useState(false)
+  const [formNovaTela, setFormNovaTela] = useState(TELA_CATALOGO_EMPTY_FORM)
+  const [salvandoNovaTela, setSalvandoNovaTela] = useState(false)
+  const [erroNovaTela, setErroNovaTela] = useState<string | null>(null)
   const [secaoDock, setSecaoDock] = useState<SecaoDock>('destino')
 
   const embedUrl = useMemo(() => converterVideoEmbed(form.video_url), [form.video_url])
@@ -987,6 +1490,10 @@ export function Campanhas2Index() {
     const chave = form.sistema.trim()
     return (chave ? aparencias[chave] : null) ?? aparenciaDefault
   }, [aparenciaDefault, aparencias, form.sistema])
+  const sistemaPadraoIdentificador = useMemo(
+    () => sistemasConfig.find(sistema => sistema.padrao && sistema.ativo)?.identificador ?? '',
+    [sistemasConfig]
+  )
 
   useEffect(() => {
     let cancelado = false
@@ -1005,6 +1512,11 @@ export function Campanhas2Index() {
       ]
       const unicos = [...new Set(identificadores)]
       setSistemas(unicos)
+      setSistemasConfig(sistemasConfig)
+      const sistemaPadrao = sistemasConfig.find(sistema => sistema.padrao && sistema.ativo) ?? sistemasConfig[0]
+      if (sistemaPadrao) {
+        setForm(prev => prev.sistema.trim() ? prev : { ...prev, sistema: sistemaPadrao.identificador })
+      }
       setAparenciaDefault(aparenciaPadrao ? { cor_principal: aparenciaPadrao.cor_principal, logo_url: aparenciaPadrao.logo_url } : null)
 
       const entries = await Promise.all(unicos.map(sistema =>
@@ -1053,6 +1565,68 @@ export function Campanhas2Index() {
       url_contem: tela.url_contem ?? '',
       data_cy: tela.data_cy ?? '',
     }))
+  }
+
+  function usarTelaCriada(tela: TelaCatalogo) {
+    setCatalogoTelas(prev => [tela, ...prev.filter(item => item.id !== tela.id)])
+    setForm(prev => ({
+      ...prev,
+      sistema: tela.sistema,
+      modo_identificacao: tela.modo_identificacao,
+      tela: tela.tela ?? '',
+      url_contem: tela.url_contem ?? '',
+      data_cy: tela.data_cy ?? '',
+    }))
+    setModalNovaTelaAberto(false)
+  }
+
+  function abrirModalNovaTela(busca?: string) {
+    const sistemaAtual = form.sistema.trim()
+    const sistemaConfig = sistemasConfig.find(sistema => sistema.identificador === sistemaAtual)
+    const valorBusca = busca?.trim() ?? ''
+    setErroNovaTela(null)
+    setFormNovaTela({
+      ...TELA_CATALOGO_EMPTY_FORM,
+      nome: valorBusca,
+      sistema_id: sistemaConfig?.id ?? '',
+      sistema: sistemaAtual,
+      categoria: 'Produto',
+      modo_identificacao: 'sistema_tela',
+      tela: valorBusca || form.tela,
+    })
+    setModalNovaTelaAberto(true)
+  }
+
+  async function salvarNovaTela(event: FormEvent) {
+    event.preventDefault()
+    setErroNovaTela(null)
+    setSalvandoNovaTela(true)
+    try {
+      const urlConterNormalizada = normalizarPathUrl(formNovaTela.url_contem)
+      if (formNovaTela.modo_identificacao === 'url_contem' && !pathUrlValido(urlConterNormalizada)) {
+        setErroNovaTela('Informe apenas um caminho relativo, como /app/faturamento. A URL completa vem do embed do widget no sistema.')
+        return
+      }
+      const criada = await post<TelaCatalogo>('/catalogo-telas', {
+        ...formNovaTela,
+        sistema: sistemasConfig.find(sistema => sistema.id === formNovaTela.sistema_id)?.identificador ?? formNovaTela.sistema,
+        tela: formNovaTela.tela.trim() || null,
+        url_contem: urlConterNormalizada || null,
+        data_cy: formNovaTela.data_cy.trim() || null,
+      })
+      usarTelaCriada(criada)
+    } catch (err) {
+      setErroNovaTela(err instanceof Error ? err.message : 'Erro ao criar tela.')
+    } finally {
+      setSalvandoNovaTela(false)
+    }
+  }
+
+  function limparConstrutor() {
+    const sistemaPadrao = sistemasConfig.find(sistema => sistema.padrao && sistema.ativo) ?? sistemasConfig[0]
+    setForm({ ...formInicial, sistema: sistemaPadrao?.identificador ?? '' })
+    setMostrarMidia(true)
+    setMediaPosition('topo')
   }
 
   useEffect(() => {
@@ -1106,7 +1680,7 @@ export function Campanhas2Index() {
         url_contem: normalizarUrlContem(form.url_contem) || null,
         atraso_ms: Number(form.atraso_ms || 800),
         prioridade: Number(form.prioridade || 0),
-        ordem: Number(form.ordem || 0),
+        ordem: Number(form.ordem || 1),
         data_inicio: form.data_inicio || null,
         data_fim: form.data_fim || null,
         pergunta_feedback: form.pergunta_feedback || null,
@@ -1126,20 +1700,27 @@ export function Campanhas2Index() {
 
   return (
     <div className="space-y-5 xl:pr-3">
-      <div className="rounded-3xl border border-[#dee3e9] bg-white px-5 py-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <h1 className="text-[24px] font-semibold leading-tight text-[#0a1317]">Crie a campanha construindo seu card</h1>
+      <div className="mx-auto w-full max-w-[1128px] rounded-3xl border border-[#dee3e9] bg-white px-6 py-5">
+        <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="max-w-[680px]">
+            <h1 className="text-[24px] font-semibold leading-tight text-[#0a1317]">Crie uma campanha in-app</h1>
+            <p className="mt-1.5 text-[14px] font-normal leading-5 text-[#5d6c7b]">Monte o card, escolha o momento de exibição e valide a experiência antes de publicar.</p>
+          </div>
+          <Button type="button" variant="primary" onClick={() => navigate('/campanhas')} className="shadow-[0_10px_24px_rgba(0,100,224,0.18)]">
+            Ver outras campanhas
+          </Button>
         </div>
       </div>
 
-      <form onSubmit={salvar} className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_440px]">
-        <section className="mx-auto w-full max-w-[860px] min-w-0 rounded-[32px] border border-[#dee3e9] bg-white p-5 sm:p-6 lg:p-7">
+      <form onSubmit={salvar} className="grid items-start gap-8 xl:grid-cols-[minmax(0,580px)_minmax(460px,520px)] xl:justify-center">
+        <div className="mx-auto w-full max-w-[580px] min-w-0">
           {erro && <div className="mb-5 rounded-lg border border-[#f0284a] bg-white px-4 py-3 text-[14px] font-semibold text-[#e41e3f]">{erro}</div>}
 
           <div className="flex justify-center" onDragEnd={() => setArrastandoMidia(false)}>
             <CardEditavel
               form={form}
               sistemas={sistemas}
+              sistemaPadraoIdentificador={sistemaPadraoIdentificador}
               aparencia={aparenciaAtual}
               embedUrl={embedUrl}
               mostrarMidia={mostrarMidia}
@@ -1153,7 +1734,7 @@ export function Campanhas2Index() {
             />
           </div>
 
-        </section>
+        </div>
 
         <DockLateral
           secao={secaoDock}
@@ -1163,24 +1744,31 @@ export function Campanhas2Index() {
           setCampo={setCampo}
           setSecao={setSecaoDock}
           onSelecionarTela={selecionarTelaCatalogo}
-          onLimpar={() => { setForm(formInicial); setMostrarMidia(true); setMediaPosition('topo') }}
+          onAdicionarTela={abrirModalNovaTela}
+          onLimpar={limparConstrutor}
           onPreview={() => setPreviewAberto(true)}
-          onLista={() => navigate('/campanhas')}
         />
       </form>
+
+      {modalNovaTelaAberto && (
+        <TelaCatalogoModal
+          form={formNovaTela}
+          sistemas={sistemasConfig}
+          saving={salvandoNovaTela}
+          error={erroNovaTela}
+          titulo="Nova Tela"
+          submitLabel="Criar e usar"
+          onClose={() => setModalNovaTelaAberto(false)}
+          onSubmit={salvarNovaTela}
+          setForm={setFormNovaTela}
+        />
+      )}
 
       {previewAberto && (
         <PreviewCampanhaModal
           form={form}
-          sistemas={sistemas}
           aparencia={aparenciaAtual}
           embedUrl={embedUrl}
-          mostrarMidia={mostrarMidia}
-          mediaPosition={mediaPosition}
-          setCampo={setCampo}
-          onMostrarMidia={(posicao = 'topo') => { setMostrarMidia(true); setMediaPosition(posicao) }}
-          onRemoverMidia={removerMidia}
-          onMoverMidia={moverMidia}
           onClose={() => setPreviewAberto(false)}
         />
       )}

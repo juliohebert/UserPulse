@@ -116,6 +116,7 @@ export interface Sistema {
   identificador: string
   url_base: string | null
   ativo: boolean
+  padrao: boolean
   criado_em: string
   atualizado_em: string
   _count?: { telas: number; aparencias: number }

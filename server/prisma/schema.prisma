@@ -212,6 +212,7 @@ model Sistema {
   identificador String
   url_base      String?
   ativo         Boolean  @default(true)
+  padrao        Boolean  @default(false)
   criado_em     DateTime @default(now())
   atualizado_em DateTime @updatedAt
 
@@ -222,6 +223,7 @@ model Sistema {
   @@unique([tenant_id, slug])
   @@unique([tenant_id, identificador])
   @@index([tenant_id])
+  @@index([tenant_id, padrao])
   @@map("sistemas")
 }
 

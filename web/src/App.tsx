@@ -14,7 +14,7 @@ import { MinhaContaPage } from './pages/MinhaConta'
 import { Dashboard } from './pages/Dashboard'
 import { CampanhasIndex } from './pages/campanhas/Index'
 import { Campanhas2Index } from './pages/campanhas2/Index'
-import { CampanhaForm } from './pages/campanhas/Form'
+import { CampanhaForm as CampanhaFormBackup } from './pages/campanhas/Form'
 import { CampanhaDashboard } from './pages/campanhas/CampanhaDashboard'
 import { CampanhaPreview } from './pages/campanhas/Preview'
 import { CatalogoTelasIndex } from './pages/catalogo/Index'
@@ -77,9 +77,10 @@ export default function App() {
                 tours/guia fica FORA (é só documentação de como criar tours,
                 sem ação de escrita — ok pra qualquer papel ler). */}
             <Route element={<RequireEscritaConteudo />}>
-              <Route path="campanhas-2" element={<Campanhas2Index />} />
-              <Route path="campanhas/nova" element={<CampanhaForm />} />
-              <Route path="campanhas/:id/editar" element={<CampanhaForm />} />
+              <Route path="campanhas-2" element={<Navigate to="/campanhas/nova" replace />} />
+              <Route path="campanhas/nova" element={<Campanhas2Index />} />
+              <Route path="campanhas/nova-backup" element={<CampanhaFormBackup />} />
+              <Route path="campanhas/:id/editar" element={<CampanhaFormBackup />} />
               <Route path="tours/gravador" element={<TourGravador />} />
               <Route path="tours/novo" element={<TourForm />} />
               <Route path="tours/:id/editar" element={<TourForm />} />
