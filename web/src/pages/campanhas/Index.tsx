@@ -517,8 +517,8 @@ export function CampanhasIndex() {
       const merged: Campanha = atual ? { ...atual, ...updated, _count: atual._count } : updated
       setCampanhas(prev => prev.map(x => (x.id === id ? merged : x)))
       if (quickView?.id === id) setQuickView(merged)
-    } catch {
-      alert('Erro ao reativar campanha.')
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao reativar campanha.')
     }
   }
 

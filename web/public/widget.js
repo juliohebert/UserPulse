@@ -1874,15 +1874,17 @@
             for (var i = 0; i < candidatos.length; i++) {
               var c = candidatos[i];
               var okModo = checkMode(c, normalized);
+              var jaVista = okModo && wasShown(c, normalized);
               if (debugState.enabled) {
                 linhasDebug.push({
                   id: c.id,
                   titulo: c.titulo || c.slug || null,
                   modo_identificacao: c.modo_identificacao || 'sistema_tela',
-                  motivo: !okModo ? 'bloqueada: modo_identificacao não corresponde' : (selecionada ? 'elegível, porém outra já selecionada' : 'selecionada'),
+                  motivo: !okModo ? 'bloqueada: modo_identificacao não corresponde' : (jaVista ? 'bloqueada: já visto (localStorage)' : (selecionada ? 'elegível, porém outra já selecionada' : 'selecionada')),
                 });
               }
               if (!okModo) continue;
+              if (jaVista) continue;
               if (!selecionada) selecionada = c;
             }
             if (debugState.enabled) debugLog('Campanhas candidatas (' + (normalized.tela || 'ao_abrir_tela') + ')', linhasDebug);
