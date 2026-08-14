@@ -15,6 +15,7 @@ export function LoginPage() {
 
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
+  const [mostrarSenha, setMostrarSenha] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [entrando, setEntrando] = useState(false)
 
@@ -80,16 +81,28 @@ export function LoginPage() {
             <label htmlFor="login-senha" className="block text-label-sm text-on-surface-variant">Senha</label>
             <Link to="/esqueci-senha" className="text-label-sm text-primary font-bold hover:underline">Esqueci minha senha?</Link>
           </div>
-          <input
-            id="login-senha"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={senha}
-            onChange={e => setSenha(e.target.value)}
-            className={field}
-            placeholder="••••••••"
-          />
+          <div className="relative">
+            <input
+              id="login-senha"
+              type={mostrarSenha ? 'text' : 'password'}
+              autoComplete="current-password"
+              required
+              value={senha}
+              onChange={e => setSenha(e.target.value)}
+              className={`${field} pr-10`}
+              placeholder="••••••••"
+            />
+            <button
+              type="button"
+              onClick={() => setMostrarSenha(v => !v)}
+              tabIndex={-1}
+              aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+              title={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant"
+            >
+              <span className="material-symbols-outlined text-[20px]">{mostrarSenha ? 'visibility_off' : 'visibility'}</span>
+            </button>
+          </div>
         </div>
 
         {erro && (

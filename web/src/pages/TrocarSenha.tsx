@@ -16,6 +16,9 @@ export function TrocarSenhaPage() {
   const [senhaAtual, setSenhaAtual] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
   const [confirmarSenha, setConfirmarSenha] = useState('')
+  const [mostrarSenhaAtual, setMostrarSenhaAtual] = useState(false)
+  const [mostrarNovaSenha, setMostrarNovaSenha] = useState(false)
+  const [mostrarConfirmarSenha, setMostrarConfirmarSenha] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [salvando, setSalvando] = useState(false)
 
@@ -73,45 +76,81 @@ export function TrocarSenhaPage() {
         >
           <div>
             <label htmlFor="senha-atual" className="block text-label-sm text-on-surface-variant mb-1">Senha atual</label>
-            <input
-              id="senha-atual"
-              type="password"
-              autoComplete="current-password"
-              required
-              autoFocus
-              value={senhaAtual}
-              onChange={e => setSenhaAtual(e.target.value)}
-              className={field}
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input
+                id="senha-atual"
+                type={mostrarSenhaAtual ? 'text' : 'password'}
+                autoComplete="current-password"
+                required
+                autoFocus
+                value={senhaAtual}
+                onChange={e => setSenhaAtual(e.target.value)}
+                className={`${field} pr-10`}
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarSenhaAtual(v => !v)}
+                tabIndex={-1}
+                aria-label={mostrarSenhaAtual ? 'Ocultar senha' : 'Mostrar senha'}
+                title={mostrarSenhaAtual ? 'Ocultar senha' : 'Mostrar senha'}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant"
+              >
+                <span className="material-symbols-outlined text-[20px]">{mostrarSenhaAtual ? 'visibility_off' : 'visibility'}</span>
+              </button>
+            </div>
           </div>
           <div>
             <label htmlFor="nova-senha" className="block text-label-sm text-on-surface-variant mb-1">Nova senha</label>
-            <input
-              id="nova-senha"
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={8}
-              value={novaSenha}
-              onChange={e => setNovaSenha(e.target.value)}
-              className={field}
-              placeholder="Mínimo 8 caracteres"
-            />
+            <div className="relative">
+              <input
+                id="nova-senha"
+                type={mostrarNovaSenha ? 'text' : 'password'}
+                autoComplete="new-password"
+                required
+                minLength={8}
+                value={novaSenha}
+                onChange={e => setNovaSenha(e.target.value)}
+                className={`${field} pr-10`}
+                placeholder="Mínimo 8 caracteres"
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarNovaSenha(v => !v)}
+                tabIndex={-1}
+                aria-label={mostrarNovaSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                title={mostrarNovaSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant"
+              >
+                <span className="material-symbols-outlined text-[20px]">{mostrarNovaSenha ? 'visibility_off' : 'visibility'}</span>
+              </button>
+            </div>
           </div>
           <div>
             <label htmlFor="confirmar-senha" className="block text-label-sm text-on-surface-variant mb-1">Confirmar nova senha</label>
-            <input
-              id="confirmar-senha"
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={8}
-              value={confirmarSenha}
-              onChange={e => setConfirmarSenha(e.target.value)}
-              className={field}
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input
+                id="confirmar-senha"
+                type={mostrarConfirmarSenha ? 'text' : 'password'}
+                autoComplete="new-password"
+                required
+                minLength={8}
+                value={confirmarSenha}
+                onChange={e => setConfirmarSenha(e.target.value)}
+                className={`${field} pr-10`}
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarConfirmarSenha(v => !v)}
+                tabIndex={-1}
+                aria-label={mostrarConfirmarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                title={mostrarConfirmarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant"
+              >
+                <span className="material-symbols-outlined text-[20px]">{mostrarConfirmarSenha ? 'visibility_off' : 'visibility'}</span>
+              </button>
+            </div>
           </div>
 
           <p className="text-[12px] text-on-surface-variant bg-surface-container-low rounded-xl px-3 py-2">
