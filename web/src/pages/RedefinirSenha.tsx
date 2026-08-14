@@ -19,7 +19,8 @@ export function RedefinirSenhaPage() {
 
   const [novaSenha, setNovaSenha] = useState('')
   const [confirmarSenha, setConfirmarSenha] = useState('')
-  const [mostrarSenha, setMostrarSenha] = useState(false)
+  const [mostrarNovaSenha, setMostrarNovaSenha] = useState(false)
+  const [mostrarConfirmarSenha, setMostrarConfirmarSenha] = useState(false)
   const [tocado, setTocado] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -83,7 +84,7 @@ export function RedefinirSenhaPage() {
             <div className="relative">
               <input
                 id="redefinir-nova-senha"
-                type={mostrarSenha ? 'text' : 'password'}
+                type={mostrarNovaSenha ? 'text' : 'password'}
                 autoComplete="new-password"
                 value={novaSenha}
                 onChange={e => setNovaSenha(e.target.value)}
@@ -93,12 +94,13 @@ export function RedefinirSenhaPage() {
               />
               <button
                 type="button"
-                onClick={() => setMostrarSenha(v => !v)}
+                onClick={() => setMostrarNovaSenha(v => !v)}
                 tabIndex={-1}
-                aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                aria-label={mostrarNovaSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                title={mostrarNovaSenha ? 'Ocultar senha' : 'Mostrar senha'}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant"
               >
-                <span className="material-symbols-outlined text-[20px]">{mostrarSenha ? 'visibility_off' : 'visibility'}</span>
+                <span className="material-symbols-outlined text-[20px]">{mostrarNovaSenha ? 'visibility_off' : 'visibility'}</span>
               </button>
             </div>
             <RequisitosSenha senha={novaSenha} />
@@ -106,16 +108,28 @@ export function RedefinirSenhaPage() {
 
           <div>
             <label htmlFor="redefinir-confirmar-senha" className="block text-label-sm text-on-surface-variant mb-1">Confirmar nova senha</label>
-            <input
-              id="redefinir-confirmar-senha"
-              type={mostrarSenha ? 'text' : 'password'}
-              autoComplete="new-password"
-              value={confirmarSenha}
-              onChange={e => setConfirmarSenha(e.target.value)}
-              onBlur={() => setTocado(true)}
-              className={`${field} ${confirmacaoNaoConfere ? 'border-error focus:ring-error' : ''}`}
-              placeholder="Repita a nova senha"
-            />
+            <div className="relative">
+              <input
+                id="redefinir-confirmar-senha"
+                type={mostrarConfirmarSenha ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={confirmarSenha}
+                onChange={e => setConfirmarSenha(e.target.value)}
+                onBlur={() => setTocado(true)}
+                className={`${field} pr-10 ${confirmacaoNaoConfere ? 'border-error focus:ring-error' : ''}`}
+                placeholder="Repita a nova senha"
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarConfirmarSenha(v => !v)}
+                tabIndex={-1}
+                aria-label={mostrarConfirmarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                title={mostrarConfirmarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant"
+              >
+                <span className="material-symbols-outlined text-[20px]">{mostrarConfirmarSenha ? 'visibility_off' : 'visibility'}</span>
+              </button>
+            </div>
             {confirmacaoNaoConfere && <p className="text-label-sm text-error mt-1">As senhas não coincidem.</p>}
           </div>
 

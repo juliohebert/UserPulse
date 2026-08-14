@@ -173,6 +173,7 @@ export function CadastroPage() {
               onClick={() => setMostrarSenha(v => !v)}
               tabIndex={-1}
               aria-label={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
+              title={mostrarSenha ? 'Ocultar senha' : 'Mostrar senha'}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface-variant"
             >
               <span className="material-symbols-outlined text-[20px]">{mostrarSenha ? 'visibility_off' : 'visibility'}</span>
