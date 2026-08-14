@@ -1741,7 +1741,7 @@ export function Campanhas2Index() {
   }
 
   return (
-    <div className="space-y-5 xl:pr-3">
+    <div className="space-y-5 xl:pr-3 pt-6 pb-8">
       <div className="mx-auto w-full max-w-[1128px] rounded-3xl border border-[#dee3e9] bg-white px-6 py-5">
         <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
           <div className="max-w-[680px]">
