@@ -11,6 +11,7 @@ const EMPTY_FORM = {
   descricao: '',
   url_base: '',
   ativo: true,
+  padrao: false,
 }
 
 type FormState = typeof EMPTY_FORM
@@ -70,6 +71,7 @@ export function SistemasPage() {
       descricao: sistema.descricao ?? '',
       url_base: sistema.url_base ?? '',
       ativo: sistema.ativo,
+      padrao: sistema.padrao,
     })
     setFormError(null)
     setShowForm(true)
@@ -105,6 +107,10 @@ export function SistemasPage() {
   const toggleAtivo = async (sistema: Sistema) => {
     setToggling(sistema.id)
     try {
+      if (sistema.padrao) {
+        setErro('Sistema padrão não pode ser removido. Defina outro sistema como padrão antes.')
+        return
+      }
       if (sistema.ativo) await del(`/sistemas/${sistema.id}`)
       else await put(`/sistemas/${sistema.id}`, { ...sistema, ativo: true })
       load()
@@ -158,6 +164,12 @@ export function SistemasPage() {
                   <span className={`rounded-[100px] px-3 py-1 text-[12px] font-bold uppercase leading-[1.33] ${sistema.ativo ? 'bg-[#31a24c] text-white' : 'bg-[#ced0d4] text-[#444950]'}`}>
                     {sistema.ativo ? 'Ativo' : 'Inativo'}
                   </span>
+                  {sistema.padrao && (
+                    <span className="inline-flex items-center gap-1 rounded-[100px] bg-[#e8f2ff] px-3 py-1 text-[12px] font-bold uppercase leading-[1.33] text-[#0064e0]">
+                      <span className="material-symbols-outlined text-[14px] leading-none">star</span>
+                      Padrão
+                    </span>
+                  )}
                 </div>
                 <p className="truncate font-mono text-[12px] leading-[1.33] text-[#5d6c7b]">/{sistema.slug}</p>
                 {sistema.descricao && <p className="mt-1 truncate text-[14px] leading-[1.43] tracking-[-0.14px] text-[#444950]">{sistema.descricao}</p>}
@@ -166,7 +178,7 @@ export function SistemasPage() {
                 <span>{sistema._count?.telas ?? 0} telas</span>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                <ToggleSwitch checked={sistema.ativo} onChange={() => toggleAtivo(sistema)} disabled={toggling === sistema.id} />
+                <ToggleSwitch checked={sistema.ativo} onChange={() => toggleAtivo(sistema)} disabled={toggling === sistema.id || sistema.padrao} />
                 <button onClick={() => openEditar(sistema)} title="Editar" aria-label={`Editar ${sistema.nome}`} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]">
                   <span className="material-symbols-outlined text-[18px] leading-none">edit</span>
                 </button>
@@ -215,8 +227,15 @@ export function SistemasPage() {
                 <textarea value={form.descricao} onChange={e => set('descricao', e.target.value)} rows={3} placeholder="Uso interno para orientar o time." className={textareaField} />
               </div>
               <div className="flex items-center gap-3 pt-1">
-                <ToggleSwitch checked={form.ativo} onChange={v => set('ativo', v)} />
-                <label onClick={() => set('ativo', !form.ativo)} className="cursor-pointer select-none text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21]">{form.ativo ? 'Sistema ativo' : 'Sistema inativo'}</label>
+                <ToggleSwitch checked={form.ativo} onChange={v => set('ativo', v)} disabled={editando?.padrao} />
+                <label onClick={() => { if (!editando?.padrao) set('ativo', !form.ativo) }} className={`select-none text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] ${editando?.padrao ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>{form.ativo ? 'Sistema ativo' : 'Sistema inativo'}</label>
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <ToggleSwitch checked={form.padrao} onChange={v => set('padrao', v)} disabled={editando?.padrao} />
+                <label onClick={() => { if (!editando?.padrao) set('padrao', !form.padrao) }} className={`select-none text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] ${editando?.padrao ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'}`}>
+                  Sistema padrão
+                  <span className="ml-1 text-[12px] leading-[1.33] text-[#5d6c7b]">{editando?.padrao ? '(para trocar, marque outro sistema como padrão)' : '(pré-selecionado em novos cadastros)'}</span>
+                </label>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">

@@ -839,11 +839,28 @@ async function seedCatalogo(tenant_id: string) {
   ]
 
   for (const [index, tela] of telas.entries()) {
+    const sistema = await prisma.sistema.upsert({
+      where: { tenant_id_identificador: { tenant_id, identificador: tela.sistema } },
+      create: {
+        tenant_id,
+        nome: tela.sistema,
+        slug: tela.sistema.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+        identificador: tela.sistema,
+        ativo: true,
+        padrao: index === 0,
+      },
+      update: {
+        nome: tela.sistema,
+        ativo: true,
+      },
+    })
+
     await prisma.telaCatalogo.upsert({
       where: { id: `00000000-0000-0000-0000-${String(index + 1).padStart(12, '0')}` },
       create: {
         id: `00000000-0000-0000-0000-${String(index + 1).padStart(12, '0')}`,
-        tenant_id,
+        tenant: { connect: { id: tenant_id } },
+        sistemaConfig: { connect: { id: sistema.id } },
         nome: tela.nome,
         sistema: tela.sistema,
         categoria: tela.categoria,
@@ -853,6 +870,7 @@ async function seedCatalogo(tenant_id: string) {
       },
       update: {
         tenant_id,
+        sistema_id: sistema.id,
         nome: tela.nome,
         sistema: tela.sistema,
         categoria: tela.categoria,

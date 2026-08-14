@@ -10,6 +10,7 @@
     open: false,
     nota: null,
     observacao: '',
+    confirmacaoMarcada: false,
     submitting: false,
     submitted: false,
     error: '',
@@ -167,7 +168,7 @@
       '.up-modal-enter{animation:up-fade-in .2s ease-out}',
       '.up-modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid rgba(194,198,214,.45);flex-shrink:0}',
       '.up-brand{display:flex;align-items:center;gap:10px;min-width:0}',
-      '.up-brand-icon{width:32px;height:32px;border-radius:999px;background:#d8e2ff;color:#0058be;display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
+      '.up-brand-icon{width:32px;height:32px;border-radius:999px;background:var(--up-primary, #0058be);color:#fff;display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
       '.up-title{font-size:15px;line-height:21px;font-weight:800;color:#0b1c30;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.up-close{border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0;flex-shrink:0;display:flex;align-items:center;justify-content:center}',
       '.up-close:hover{background:#eff4ff;color:#0b1c30}',
@@ -193,6 +194,8 @@
       '.up-textarea:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
       '.up-required{margin:-8px 0 0;color:#ba1a1a;font-size:11px;line-height:16px}',
       '.up-error{margin:0;color:#ba1a1a;font-size:12px;line-height:16px}',
+      '.up-confirm-check{display:flex;align-items:center;gap:10px;border:1px solid #c2c6d6;border-radius:12px;background:#f8f9ff;padding:10px 12px;color:#424754;font-size:13px;line-height:18px;font-weight:700}',
+      '.up-confirm-check input{width:16px;height:16px;accent-color:var(--up-primary, #0058be);flex:0 0 auto}',
       '.up-submit{width:100%;height:42px;border:0;border-radius:12px;background:var(--up-primary, #0058be);color:#fff;font-size:12px;line-height:16px;font-weight:800;cursor:pointer;transition:opacity .15s ease,transform .15s ease}',
       '.up-submit:hover{opacity:.92}',
       '.up-submit:active{transform:scale(.98)}',
@@ -954,7 +957,23 @@
     if (name === 'search') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5Zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14Z"/></svg>';
     }
+    if (name === 'campaign') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V5h2v14h-2v-6H8l-4 4V7l4 4h10Zm-2-2H8.8L6 7.6v8.8L8.8 15H16V9Z"/></svg>';
+    }
+    if (name === 'rocket_launch') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c3.2.4 5.6 1.8 7.2 4.2-1.4.2-2.8.7-4.1 1.5l1.2 1.2c.8-.4 1.6-.7 2.5-.8.3 1 .4 2 .4 3.2 0 3.3-1.2 6.5-3.4 9.5l-4.4-4.4-3.2 3.2H4.4v-3.8l3.2-3.2-4.4-4.4C6.2 5.9 9.1 2.8 12 2Zm.7 3.1c-1.8.5-3.8 2.2-5.9 5l7.1 7.1c2.8-2.1 4.5-4.7 4.9-7.7-2.6.4-4.8 1.8-6.7 4.1L10.6 12c1.7-2.1 3.7-3.7 6-4.8-1-1-2.3-1.7-3.9-2.1ZM5.8 16.2v1.9h1.9l2.3-2.3-1.9-1.9-2.3 2.3Z"/></svg>';
+    }
+    if (name === 'quiz') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 1 7 7c0 2.8-1.6 5.2-4 6.3V21H9v-4.7A7 7 0 0 1 12 3Zm0 2a5 5 0 0 0-1.6 9.7l.6.2V19h2v-4.1l.6-.2A5 5 0 0 0 12 5Zm-1 9h2v2h-2v-2Zm1-7c1.7 0 3 1.1 3 2.6 0 1-.5 1.7-1.4 2.3l-.7.5V13H11v-1.5l1.4-1c.5-.4.6-.6.6-.9 0-.4-.4-.7-1-.7-.7 0-1.1.4-1.2 1.1H9c.2-1.8 1.4-3 3-3Z"/></svg>';
+    }
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8l-5 4V6a2 2 0 0 1 2-2Zm0 13.85L7.3 15H20V6H4v11.85Z"/></svg>';
+  }
+
+  function campaignIconName(campanha) {
+    var tipo = campanha && campanha.tipo ? String(campanha.tipo) : '';
+    if (tipo === 'melhoria') return 'rocket_launch';
+    if (tipo === 'pesquisa') return 'quiz';
+    return 'campaign';
   }
 
   function renderScale() {
@@ -1027,7 +1046,8 @@
       feedback = [
         '<div class="up-feedback-section">',
         state.error ? '<p class="up-error">' + escapeHtml(state.error) + '</p>' : '',
-        '<button type="button" class="up-submit" data-up-confirm="true"' + (state.submitting ? ' disabled' : '') + '>',
+        '<label class="up-confirm-check"><input type="checkbox" data-up-confirm-check="true"' + (state.confirmacaoMarcada ? ' checked' : '') + '>Confirmo que li esta comunicação</label>',
+        '<button type="button" class="up-submit" data-up-confirm="true"' + (!state.confirmacaoMarcada || state.submitting ? ' disabled' : '') + '>',
         state.submitting ? 'Aguarde…' : 'Li e entendi',
         '</button>',
         '</div>',
@@ -1050,7 +1070,7 @@
     return [
       '<div class="' + modalClass + '" role="dialog" aria-modal="true" aria-label="' + escapeHtml(campanha.titulo) + '">',
       '<div class="up-modal-header">',
-      '<div class="up-brand"><div class="up-brand-icon">' + icon('chat') + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
+      '<div class="up-brand"><div class="up-brand-icon">' + icon(campaignIconName(campanha)) + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
       campanha.permitir_fechar_modal !== false ? '<button type="button" class="up-close" aria-label="Fechar campanha" title="Fechar" data-up-toggle="true">' + icon('close') + '</button>' : '',
       '</div>',
       '<div class="up-body">',
@@ -1166,6 +1186,7 @@
     state.submitted = false;
     state.nota = null;
     state.observacao = '';
+    state.confirmacaoMarcada = false;
     state.error = '';
     render();
   }
@@ -1282,6 +1303,16 @@
         state.telefone = masked;
         var btn = state.root.querySelector('[data-up-telefone-submit]');
         if (btn) btn.disabled = !masked.trim();
+      }
+    });
+
+    state.root.addEventListener('change', function (event) {
+      var target = event.target;
+      if (target && target.matches && target.matches('[data-up-confirm-check]')) {
+        state.confirmacaoMarcada = !!target.checked;
+        state.error = '';
+        var btn = state.root.querySelector('[data-up-confirm]');
+        if (btn) btn.disabled = !state.confirmacaoMarcada || state.submitting;
       }
     });
   }
@@ -1586,6 +1617,12 @@
     var config = state.config;
     if (!campanha || !config || state.submitting) return;
 
+    if (!state.confirmacaoMarcada) {
+      state.error = 'Marque a confirmacao de leitura para continuar.';
+      render();
+      return;
+    }
+
     if (!config.usuario_id) {
       state.submitted = true;
       render();
@@ -1717,6 +1754,7 @@
     state.open = false;
     state.nota = null;
     state.observacao = '';
+    state.confirmacaoMarcada = false;
     state.submitting = false;
     state.submitted = false;
     state.error = '';
@@ -1965,6 +2003,7 @@
           state.open = false;
           state.nota = null;
           state.observacao = '';
+          state.confirmacaoMarcada = false;
           state.submitting = false;
           state.submitted = false;
           state.error = '';
@@ -2023,6 +2062,7 @@
           state.open = false;
           state.nota = null;
           state.observacao = '';
+          state.confirmacaoMarcada = false;
           state.submitting = false;
           state.submitted = false;
           state.error = '';
@@ -2073,6 +2113,7 @@
           state.open = false;
           state.nota = null;
           state.observacao = '';
+          state.confirmacaoMarcada = false;
           state.submitting = false;
           state.submitted = false;
           state.error = '';

@@ -86,7 +86,8 @@ describe('requireAcessoOperacional — comportamento por papel/situação de ten
     assert.equal(r.status, undefined)
   })
 
-  test('ACTIVE com licença vencida NÃO leva o 403 de TRIAL_EXPIRADO (continua só bloqueio de escrita, sem mudança)', () => {
+  test('ACTIVE com licença vencida NÃO leva o 403 de TRIAL_EXPIRADO (continua só bloqueio de escrita, sem mudança)', (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: AGORA.getTime() })
     const r = chamar('ADMIN', { status: 'ACTIVE', trial_fim: null, licenca_fim: passado(1) })
     assert.equal(r.permitido, true)
     assert.equal(r.status, undefined)
