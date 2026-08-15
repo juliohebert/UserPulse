@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { get, del, post, put } from '../../services/api'
 import type { Campanha, StatusCampanha } from '../../types'
-import { getStatus } from '../../utils/campanha'
+import { getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { useAuth } from '../../hooks/useAuth'
 import { podeEscreverConteudo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
@@ -280,7 +280,7 @@ function CampanhaCard({
         </button>
         {podeEscrever && (
           <button
-            onClick={() => navigate(`/campanhas/${c.id}/editar`)}
+            onClick={() => navigate(rotaEditarCampanha(c))}
             aria-label={`Editar ${c.titulo}`}
             className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-surface-container-high`}
           >
@@ -474,7 +474,7 @@ export function CampanhasIndex() {
     try {
       const copia = await post<Campanha>(`/campanhas/${c.id}/duplicar`, {})
       setCampanhas(prev => [{ ...copia, _count: copia._count ?? { feedbacks: 0 } }, ...prev])
-      navigate(`/campanhas/${copia.id}/editar`)
+      navigate(rotaEditarCampanha(copia))
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Não foi possível duplicar a campanha. Tente novamente.')
     } finally {
@@ -924,7 +924,7 @@ export function CampanhasIndex() {
                               {podeEscrever && (
                                 <TooltipIconButton
                                   label="Editar"
-                                  onClick={() => navigate(`/campanhas/${c.id}/editar`)}
+                                  onClick={() => navigate(rotaEditarCampanha(c))}
                                   ariaLabel={`Editar ${c.titulo}`}
                                   className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all"
                                 >

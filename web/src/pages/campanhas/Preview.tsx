@@ -5,8 +5,14 @@ import type { Campanha, Criterio, ResultadoElegibilidade } from '../../types'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
-import { gerarEmbed, gerarEmbedParts } from '../../utils/campanha'
+import { gerarEmbed, gerarEmbedParts, rotaEditarCampanha } from '../../utils/campanha'
 import { useAuth } from '../../hooks/useAuth'
+import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
+
+// Esta página não busca a aparência por sistema (diferente de campanhas2,
+// que usa a cor do tenant) — cobalto fixo, mesmo tom de {colors.primary} no
+// DESIGN.md, único usado nos outros elementos desta simulação (bg-primary).
+const CORACAO_SIMULACAO = '#0064e0'
 
 function maskPhone(raw: string): string {
   const d = raw.replace(/\D/g, '').slice(0, 11)
@@ -154,7 +160,7 @@ export function CampanhaPreview() {
           </Button>
           <Button
             type="button"
-            onClick={() => navigate(`/campanhas/${campanha.id}/editar`)}
+            onClick={() => navigate(rotaEditarCampanha(campanha))}
           >
             Editar
           </Button>
@@ -183,6 +189,19 @@ export function CampanhaPreview() {
           <>
             <div className="absolute inset-0 z-10 bg-black/40" onClick={() => setOpen(false)} />
             <div className="relative z-20 flex min-h-[560px] items-center justify-center p-6">
+            {campanha.modo_exibicao === 'destaque_elemento' ? (
+              <DestaqueElementoSimulacao
+                corAcao={CORACAO_SIMULACAO}
+                dataCyLabel={campanha.data_cy?.trim() ?? ''}
+                placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
+                badgeTexto={campanha.subtitulo?.trim() || 'Novo'}
+                titulo={campanha.titulo}
+                descricao={campanha.descricao}
+                ctaTexto={campanha.texto_botao && campanha.url_botao ? campanha.texto_botao : null}
+                permitirDispensar={campanha.permitir_fechar_modal !== false}
+                onFechar={() => setOpen(false)}
+              />
+            ) : (
             <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-2xl">
             {submitted ? (
               <div className="p-6 space-y-4">
@@ -303,6 +322,7 @@ export function CampanhaPreview() {
               </>
             )}
           </div>
+            )}
             </div>
           </>
         )}

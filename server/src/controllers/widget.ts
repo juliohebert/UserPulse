@@ -61,6 +61,44 @@ function passaSegmentacao(campanha: SegCampanha, ctx: SegCtx): boolean {
   )
 }
 
+// Filtro de /api/widget/candidatas — extraído de buscarCandidatas() pra
+// poder testar sem banco (mesmo padrão de fonteReferenciaReexibicao/
+// avaliarReexibicaoPorDias acima). tenant_id/ativo continuam aplicados pelo
+// caller (buscarCandidatas), fora daqui — nunca weakened por esta função.
+//
+// sistema agora usa mode:'insensitive' — o cadastro de Sistema já trata
+// `identificador` como case-insensitive pra unicidade (ver sistemas.ts,
+// mesmo mode:'insensitive'), mas essa rota comparava com igualdade exata:
+// uma campanha com sistema "quarkclinic" nunca batia com uma consulta
+// sistema=QuarkClinic (nem o inverso), embora ambos sejam "o mesmo sistema"
+// pra quem cadastrou. Sem isso, /api/widget/candidatas podia devolver []
+// pra uma campanha ativa, elegível em todo o resto, só por causa da caixa.
+//
+// modo_identificacao=data_cy (e url_contem) continuam SEMPRE incluídos no
+// OR, independente da `tela` da campanha ou da que o widget informou — o
+// alvo de um data_cy é o próprio elemento, não uma tela; a checagem real
+// (elemento existe no DOM) é feita pelo widget depois de receber a
+// candidata (ver checkMode em widget.js). Isso já era o comportamento
+// antes desta extração — só ficou mais fácil de testar/documentar.
+export function construirFiltroCandidatas(sistema: unknown, tela: unknown, gatilho: unknown, evento: unknown): object {
+  const gatilhoStr = gatilho === 'apos_evento' ? 'apos_evento' : 'ao_abrir_tela'
+  const gatilhoFilter =
+    gatilhoStr === 'apos_evento' && evento
+      ? { gatilho: 'apos_evento', evento: String(evento) }
+      : { gatilho: 'ao_abrir_tela' }
+
+  const modoFiltros: object[] = []
+  if (tela) modoFiltros.push({ modo_identificacao: 'sistema_tela', tela: String(tela) })
+  modoFiltros.push({ modo_identificacao: 'data_cy' })
+  modoFiltros.push({ modo_identificacao: 'url_contem' })
+
+  return {
+    sistema: { equals: String(sistema), mode: 'insensitive' as const },
+    ...gatilhoFilter,
+    OR: modoFiltros,
+  }
+}
+
 function isAlwaysShowUser(usuarioId?: string): boolean {
   if (!usuarioId) return false
   const raw = process.env.USERPULSE_ALWAYS_SHOW_USER_IDS || ''
@@ -340,26 +378,11 @@ export async function buscarCandidatas(req: Request, res: Response) {
       ],
     }
 
-    const gatilhoStr = gatilho === 'apos_evento' ? 'apos_evento' : 'ao_abrir_tela'
-    const gatilhoFilter =
-      gatilhoStr === 'apos_evento' && evento
-        ? { gatilho: 'apos_evento', evento: String(evento) }
-        : { gatilho: 'ao_abrir_tela' }
-
-    // sistema_tela campaigns are filtered by tela server-side (tela must match).
-    // data_cy and url_contem campaigns are always included — the widget validates client-side.
-    const modoFiltros: object[] = []
-    if (tela) modoFiltros.push({ modo_identificacao: 'sistema_tela', tela: String(tela) })
-    modoFiltros.push({ modo_identificacao: 'data_cy' })
-    modoFiltros.push({ modo_identificacao: 'url_contem' })
-
     const campanhas = await prisma.campanha.findMany({
       where: {
         tenant_id: resolucao.tenantId,
         ativo: true,
-        sistema: String(sistema),
-        ...gatilhoFilter,
-        OR: modoFiltros,
+        ...construirFiltroCandidatas(sistema, tela, gatilho, evento),
         ...filtroData,
       },
       orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
