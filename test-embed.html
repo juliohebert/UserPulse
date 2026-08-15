@@ -454,12 +454,41 @@
          commit, ainda que não resolva nada sob file://).
          document.write mantém o carregamento síncrono/bloqueante, igual a um
          <script src> estático, para que o UserPulse.init() abaixo já encontre
-         a fila (window.UserPulse._q) pronta. -->
+         a fila (window.UserPulse._q) pronta.
+
+         Com ?local=1, NÃO usa widget-loader.js: o loader embute
+         widget.js?v=__UP_VERSION__ com a versão fixa no momento em que o
+         servidor Express o serviu (server/src/index.ts, WIDGET_VERSION —
+         em dev cai pro npm_package_version estático do package.json, que
+         não muda a cada edição do widget.js), e /widget.js é servido com
+         Cache-Control immutable por 1 ano — então o navegador nunca busca
+         de novo o widget.js editado enquanto a query string não mudar.
+         Em vez disso, carrega widget.js DIRETO com um cache-buster próprio
+         (timestamp, sempre novo a cada reload), reproduzindo aqui a mesma
+         fila _q que widget-loader.js monta, pra window.UserPulse.init()/
+         .track()/etc. chamados logo abaixo continuarem funcionando mesmo
+         antes do script terminar de carregar. Só ativa com ?local=1 —
+         sem o parâmetro, comportamento e cache continuam exatamente como
+         em produção (widget-loader.js normal, sem alterar WIDGET_VERSION). -->
     <script>
     (function () {
-      var params = new URLSearchParams(window.location.search);
-      var base = params.get('local') === '1' ? 'http://localhost:3333' : '';
-      document.write('<script src="' + base + '/widget-loader.js"><\/script>');
+      var local = new URLSearchParams(window.location.search).get('local') === '1';
+      if (local) {
+        if (!window.UserPulse || !window.UserPulse._up_ready) {
+          var _q = (window.UserPulse && window.UserPulse._q) || [];
+          window.UserPulse = {
+            _q: _q,
+            init: function () { _q.push(['init', arguments]); },
+            track: function () { _q.push(['track', arguments]); },
+            updateContext: function () { _q.push(['updateContext', arguments]); },
+            iniciarTour: function () { _q.push(['iniciarTour', arguments]); },
+            debug: function () { _q.push(['debug', arguments]); },
+          };
+        }
+        document.write('<script src="http://localhost:3333/widget.js?local=' + Date.now() + '"><\/script>');
+      } else {
+        document.write('<script src="/widget-loader.js"><\/script>');
+      }
     })();
     </script>
     <script>
