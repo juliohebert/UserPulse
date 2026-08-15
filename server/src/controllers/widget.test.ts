@@ -1,6 +1,9 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { avaliarReexibicaoPorDias, construirFiltroCandidatas, fonteReferenciaReexibicao, ocultarTenantId } from './widget'
+import {
+  avaliarReexibicaoPorDias, construirFiltroCandidatas, fonteReferenciaReexibicao, ocultarTenantId,
+  validarDestaqueItemEvento, TIPOS_EVENTO_CAMPANHA,
+} from './widget'
 
 const DIA_MS = 86_400_000
 const AGORA = new Date('2026-07-10T12:00:00Z')
@@ -217,5 +220,67 @@ describe('construirFiltroCandidatas — GET /api/widget/candidatas', () => {
     const filtro = construirFiltroCandidatas('quarkclinic', 'home', 'ao_abrir_tela', undefined) as Record<string, unknown>
     assert.equal('tenant_id' in filtro, false)
     assert.equal('public_key' in filtro, false)
+  })
+})
+
+// Fase 3 — tracking por item de destaque_elemento (destaque_item_id em
+// EventoCampanha). validarDestaqueItemEvento é a função que decide
+// ownership/isolamento — a query real (registrarEvento) busca o item só
+// por id (sem where campanha_id, de propósito, ver comentário em
+// widget.ts), então esta função pura é o único lugar que garante que um
+// item de outra campanha (ou de outro tenant) nunca é aceito.
+describe('TIPOS_EVENTO_CAMPANHA', () => {
+  test('inclui os 2 tipos legados de modal_automatica e os 2 novos de destaque_elemento', () => {
+    assert.deepEqual(TIPOS_EVENTO_CAMPANHA, ['visualizacao', 'clique_cta', 'interacao_badge', 'dispensa'])
+  })
+})
+
+describe('validarDestaqueItemEvento', () => {
+  test('destaque_item_id ausente/null/vazio -> válido, sem item (evento legado ou de modal_automatica)', () => {
+    assert.deepEqual(validarDestaqueItemEvento(undefined, null, 'camp-1'), { erro: null, destaqueItemId: null })
+    assert.deepEqual(validarDestaqueItemEvento(null, null, 'camp-1'), { erro: null, destaqueItemId: null })
+    assert.deepEqual(validarDestaqueItemEvento('', null, 'camp-1'), { erro: null, destaqueItemId: null })
+  })
+
+  test('tipo errado (não string) -> inválido', () => {
+    const r = validarDestaqueItemEvento(123, null, 'camp-1')
+    assert.notEqual(r.erro, null)
+    assert.equal(r.destaqueItemId, null)
+  })
+
+  test('item encontrado e pertence à campanha do evento -> aceito', () => {
+    const item = { id: 'item-1', campanha_id: 'camp-1' }
+    const r = validarDestaqueItemEvento('item-1', item, 'camp-1')
+    assert.equal(r.erro, null)
+    assert.equal(r.destaqueItemId, 'item-1')
+  })
+
+  test('ownership: item existe mas pertence a OUTRA campanha -> rejeitado', () => {
+    const item = { id: 'item-1', campanha_id: 'camp-outra' }
+    const r = validarDestaqueItemEvento('item-1', item, 'camp-1')
+    assert.notEqual(r.erro, null)
+    assert.equal(r.destaqueItemId, null)
+  })
+
+  test('isolamento de tenant: item de uma campanha de outro tenant (campanha_id diferente) -> rejeitado, mesmo caminho do ownership — nunca existe um "id de item" isolado sem passar pela campanha dele', () => {
+    // A query real busca só por id (sem escopar por tenant/campanha) — é
+    // esta comparação que impede um id de item vazado/adivinhado de outro
+    // tenant de ser aceito, já que a campanha_id do evento nunca vai bater
+    // com a campanha_id do item de outro tenant.
+    const itemDeOutroTenant = { id: 'item-vazado', campanha_id: 'camp-de-outro-tenant' }
+    const r = validarDestaqueItemEvento('item-vazado', itemDeOutroTenant, 'camp-do-tenant-atual')
+    assert.notEqual(r.erro, null)
+    assert.equal(r.destaqueItemId, null)
+  })
+
+  test('item não encontrado (id não existe em nenhuma campanha) -> rejeitado', () => {
+    const r = validarDestaqueItemEvento('id-que-nao-existe', null, 'camp-1')
+    assert.notEqual(r.erro, null)
+  })
+
+  test('id do item retornado pela query não bate com o id enviado (defesa extra) -> rejeitado', () => {
+    const item = { id: 'item-diferente', campanha_id: 'camp-1' }
+    const r = validarDestaqueItemEvento('item-1', item, 'camp-1')
+    assert.notEqual(r.erro, null)
   })
 })

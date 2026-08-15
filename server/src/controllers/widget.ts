@@ -445,16 +445,48 @@ export async function buscarCandidatas(req: Request, res: Response) {
   }
 }
 
+// Tipos de evento aceitos por /api/widget/evento. Os 2 primeiros já
+// existiam (modal_automatica); os 2 últimos são específicos de
+// destaque_elemento — o widget manda destaque_item_id junto (ver
+// validarDestaqueItemEvento abaixo), nunca os outros dois formatos.
+export const TIPOS_EVENTO_CAMPANHA = ['visualizacao', 'clique_cta', 'interacao_badge', 'dispensa']
+
+// Decide se um destaque_item_id enviado no evento pode ser aceito — função
+// pura (não toca no banco), testável sem DB/tenant de verdade. Quem chama
+// busca o item só por id (sem escopar por campanha_id na query, de
+// propósito — ver comentário em validarOwnershipDestaques, campanhas.ts,
+// mesmo raciocínio): a comparação `itemEncontrado.campanha_id === campanhaId`
+// AQUI é que garante ownership + isolamento de tenant (um item de outra
+// campanha, mesmo de outro tenant, nunca tem campanha_id igual ao da
+// campanha resolvida por public_key). destaque_item_id ausente/vazio é
+// válido (eventos de modal_automatica nunca mandam) — só valida quando
+// alguma coisa foi de fato enviada.
+export function validarDestaqueItemEvento(
+  destaqueItemIdBruto: unknown,
+  itemEncontrado: { id: string; campanha_id: string } | null,
+  campanhaId: string
+): { erro: string | null; destaqueItemId: string | null } {
+  if (destaqueItemIdBruto === undefined || destaqueItemIdBruto === null || destaqueItemIdBruto === '') {
+    return { erro: null, destaqueItemId: null }
+  }
+  if (typeof destaqueItemIdBruto !== 'string') {
+    return { erro: 'destaque_item_id inválido.', destaqueItemId: null }
+  }
+  if (!itemEncontrado || itemEncontrado.id !== destaqueItemIdBruto || itemEncontrado.campanha_id !== campanhaId) {
+    return { erro: 'destaque_item_id não pertence a esta campanha.', destaqueItemId: null }
+  }
+  return { erro: null, destaqueItemId: destaqueItemIdBruto }
+}
+
 export async function registrarEvento(req: Request, res: Response) {
   try {
-    const { public_key, campanha_id, tipo_evento, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
+    const { public_key, campanha_id, tipo_evento, destaque_item_id, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
 
     if (!campanha_id) return res.status(400).json({ erro: 'campanha_id é obrigatório.' })
     if (!tipo_evento) return res.status(400).json({ erro: 'tipo_evento é obrigatório.' })
 
-    const TIPOS_VALIDOS = ['visualizacao', 'clique_cta']
-    if (!TIPOS_VALIDOS.includes(tipo_evento)) {
-      return res.status(400).json({ erro: `tipo_evento inválido. Use: ${TIPOS_VALIDOS.join(', ')}.` })
+    if (!TIPOS_EVENTO_CAMPANHA.includes(tipo_evento)) {
+      return res.status(400).json({ erro: `tipo_evento inválido. Use: ${TIPOS_EVENTO_CAMPANHA.join(', ')}.` })
     }
 
     const resolucao = await resolverTenantPublico(public_key)
@@ -468,10 +500,19 @@ export async function registrarEvento(req: Request, res: Response) {
       return res.status(404).json({ erro: 'Campanha não encontrada.' })
     }
 
+    // Busca só por id (sem where campanha_id) — ownership/isolamento de
+    // tenant são decididos por validarDestaqueItemEvento, não pela query.
+    const itemDestaque = destaque_item_id
+      ? await prisma.campanhaDestaqueItem.findUnique({ where: { id: String(destaque_item_id) } })
+      : null
+    const { erro: erroItem, destaqueItemId } = validarDestaqueItemEvento(destaque_item_id, itemDestaque, campanha_id)
+    if (erroItem) return res.status(400).json({ erro: erroItem })
+
     await prisma.eventoCampanha.create({
       data: {
         campanha_id,
         tipo_evento,
+        destaque_item_id: destaqueItemId,
         usuario_id: usuario_id || null,
         sistema: sistema || null,
         tela: tela || null,

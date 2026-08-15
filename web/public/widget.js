@@ -122,25 +122,37 @@
     return scriptOrigin + path;
   }
 
-  function registrarEvento(tipoEvento) {
-    var campanha = state.campanha;
-    var config = state.config;
-    if (!campanha || !config) return;
-    fetch(apiUrl('/api/widget/evento'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        public_key: config.public_key || undefined,
-        campanha_id: campanha.id,
-        tipo_evento: tipoEvento,
-        usuario_id: config.usuario_id || undefined,
-        sistema: config.sistema || undefined,
-        tela: config.tela || undefined,
-        navegador: window.navigator.userAgent,
-        dispositivo: getDevice(),
-        contexto: config.contexto || undefined,
-      }),
-    }).catch(function () { /* fail silently */ });
+  // campanhaParam/configParam (opcionais) — os 4 call sites de
+  // modal_automatica (scheduleAutoOpen, toggle, CTA, formulário de
+  // telefone) continuam chamando só com tipoEvento, usando o singleton
+  // state.campanha/state.config de sempre. destaque_elemento passa os 4
+  // parâmetros explícitos (campanha/config/destaqueItemId vêm do fechamento
+  // de destaqueElementoMontarItem, nunca do state singleton — cada
+  // instância tem seu próprio item). Tudo dentro de try/catch: falha de
+  // rastreamento (erro síncrono ou de rede via .catch) nunca pode quebrar o
+  // site do cliente onde o widget está embarcado.
+  function registrarEvento(tipoEvento, campanhaParam, configParam, destaqueItemId) {
+    try {
+      var campanha = campanhaParam || state.campanha;
+      var config = configParam || state.config;
+      if (!campanha || !config) return;
+      fetch(apiUrl('/api/widget/evento'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          public_key: config.public_key || undefined,
+          campanha_id: campanha.id,
+          tipo_evento: tipoEvento,
+          destaque_item_id: destaqueItemId || undefined,
+          usuario_id: config.usuario_id || undefined,
+          sistema: config.sistema || undefined,
+          tela: config.tela || undefined,
+          navegador: window.navigator.userAgent,
+          dispositivo: getDevice(),
+          contexto: config.contexto || undefined,
+        }),
+      }).catch(function () { /* fail silently */ });
+    } catch (_e) { /* rastreamento nunca pode quebrar o site do cliente */ }
   }
 
   function getDevice() {
@@ -1743,17 +1755,20 @@
       // interagir aqui nunca marca/esconde os outros itens da campanha.
       if (closeEl) {
         markShown(campanha, config, item.id);
+        registrarEvento('dispensa', campanha, config, item.id);
         destaqueElementoDesmontarInstancia(instancia);
         return;
       }
       if (ctaEl) {
         markShown(campanha, config, item.id);
+        registrarEvento('clique_cta', campanha, config, item.id);
         var url = ctaEl.getAttribute('data-up-url');
         if (url) window.open(url, '_blank', 'noopener');
         return;
       }
       if (toggleEl) {
         markShown(campanha, config, item.id);
+        registrarEvento('interacao_badge', campanha, config, item.id);
         instancia.aberto = !instancia.aberto;
         destaqueElementoRender(instancia);
       }
@@ -1774,6 +1789,11 @@
         // tempo — nunca opera sobre uma instância que não existe mais.
         if (instancia.desmontada) return;
         destaqueElementoRender(instancia);
+        // "visualizacao" só aqui — no primeiro render de verdade da
+        // instância (badge já visível na tela), nunca nos re-renders
+        // disparados por destaqueElementoRender dentro do toggle (abrir/
+        // fechar o tooltip não é uma nova visualização do badge).
+        registrarEvento('visualizacao', campanha, config, item.id);
         // Cobre reflow tardio que só muda a POSIÇÃO do alvo (não o
         // tamanho) — o ResizeObserver acima não pega esse caso. Curta,
         // se auto-encerra (ver destaqueElementoEstabilizar).

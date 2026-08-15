@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, getBlob } from '../../services/api'
 import type { DashboardData, EventoCampanha, Feedback } from '../../types'
@@ -6,6 +7,7 @@ import { formatDateTime, getStatus, rotaEditarCampanha } from '../../utils/campa
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
+import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
 
 // ─── filter types ─────────────────────────────────────────────────────────────
 
@@ -71,6 +73,18 @@ const LONG_TEXT_COLS = new Set([
 
 const DEFAULT_COLS = new Set(COLUNAS.filter(c => c.defaultOn).map(c => c.id))
 const NI = 'Não informado'
+
+// ─── ajuda contextual — "Desempenho dos destaques" ──────────────────────────
+// Só o tooltip do título da seção (nenhum ícone por coluna) — \n + a classe
+// whitespace-pre-line no balão (ver uso abaixo) fazem cada métrica ficar em
+// linha própria, sem precisar de markup/ReactNode no componente compartilhado.
+const TOOLTIP_DESEMPENHO_DESTAQUES = [
+  'Visualizações: vezes que o destaque apareceu para os usuários.',
+  'Únicos: quantidade de usuários diferentes em cada métrica.',
+  'Interações: cliques no badge para abrir ou fechar os detalhes da novidade.',
+  'Cliques CTA: cliques no botão de ação configurado no destaque.',
+  'Dispensaram: usuários que fecharam o destaque explicitamente.',
+].join('\n')
 
 // ─── period filter ─────────────────────────────────────────────────────────────
 
@@ -186,10 +200,14 @@ export function CampanhaDashboard() {
   const [error, setError] = useState<string | null>(null)
   const [visibleCols, setVisibleCols] = useState<Set<string>>(() => new Set(DEFAULT_COLS))
   const [showColMenu, setShowColMenu] = useState(false)
+  const [colMenuPos, setColMenuPos] = useState<{ top: number; right: number } | null>(null)
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIAIS)
   const [showFiltrosAvancados, setShowFiltrosAvancados] = useState(false)
-  const [filtroEvento, setFiltroEvento] = useState<'Todos' | 'Visualização' | 'Clique'>('Todos')
+  const [filtroEvento, setFiltroEvento] = useState<'Todos' | 'Visualização' | 'Clique' | 'Interação' | 'Dispensa'>('Todos')
   const [buscaEvento, setBuscaEvento] = useState('')
+  // Só usado/exibido pra campanhas destaque_elemento (ver ehDestaqueElemento
+  // abaixo) — '' significa "todos os destaques".
+  const [filtroDestaque, setFiltroDestaque] = useState('')
   const [periodo, setPeriodo] = useState<Periodo>(PERIODO_INICIAL)
   const [csvLoading, setCsvLoading] = useState(false)
   const [csvError, setCsvError] = useState<string | null>(null)
@@ -200,6 +218,7 @@ export function CampanhaDashboard() {
   const [pagInter, setPagInter] = useState(1)
   const [tamPagInter, setTamPagInter] = useState(10)
   const colMenuRef = useRef<HTMLDivElement>(null)
+  const colMenuPopoverRef = useRef<HTMLDivElement>(null)
 
   const load = () => {
     setLoading(true)
@@ -214,20 +233,36 @@ export function CampanhaDashboard() {
 
   useEffect(() => {
     if (!showColMenu) return
+    // Popover é portalado pra <body> (ver render) pra escapar do
+    // overflow-hidden do card — por isso o clique-fora precisa checar os
+    // DOIS refs (botão + popover), já que o popover não é mais descendente
+    // do botão no DOM.
+    const atualizarPosicao = () => {
+      const rect = colMenuRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setColMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    }
+    atualizarPosicao()
     function handleClick(e: MouseEvent) {
-      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
-        setShowColMenu(false)
-      }
+      const target = e.target as Node
+      if (colMenuRef.current?.contains(target) || colMenuPopoverRef.current?.contains(target)) return
+      setShowColMenu(false)
     }
     document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    window.addEventListener('scroll', atualizarPosicao, true)
+    window.addEventListener('resize', atualizarPosicao)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      window.removeEventListener('scroll', atualizarPosicao, true)
+      window.removeEventListener('resize', atualizarPosicao)
+    }
   }, [showColMenu])
 
   // reset respostas page when filters or period change
   useEffect(() => { setPagResp(1) }, [filtros, periodo])
 
   // reset interações page when filters change
-  useEffect(() => { setPagInter(1) }, [filtroEvento, buscaEvento, periodo])
+  useEffect(() => { setPagInter(1) }, [filtroEvento, filtroDestaque, buscaEvento, periodo])
 
   const toggleCol = (colId: string) => {
     setVisibleCols(prev => {
@@ -320,11 +355,21 @@ export function CampanhaDashboard() {
     filtros.unidade !== '', filtros.perfil !== '', filtros.estado !== '', filtros.telefone !== 'Todos',
   ].filter(Boolean).length
 
+  const TIPO_EVENTO_POR_FILTRO: Record<string, string> = {
+    Visualização: 'visualizacao',
+    Clique: 'clique_cta',
+    Interação: 'interacao_badge',
+    Dispensa: 'dispensa',
+  }
+
   const eventosFiltrados = useMemo(() => {
     let list = eventosPeriodo
     if (filtroEvento !== 'Todos') {
-      const tipo = filtroEvento === 'Visualização' ? 'visualizacao' : 'clique_cta'
+      const tipo = TIPO_EVENTO_POR_FILTRO[filtroEvento]
       list = list.filter(e => e.tipo_evento === tipo)
+    }
+    if (filtroDestaque) {
+      list = list.filter(e => e.destaque_item_id === filtroDestaque)
     }
     if (buscaEvento.trim()) {
       const q = buscaEvento.toLowerCase()
@@ -337,7 +382,7 @@ export function CampanhaDashboard() {
       })
     }
     return list
-  }, [eventosPeriodo, filtroEvento, buscaEvento])
+  }, [eventosPeriodo, filtroEvento, filtroDestaque, buscaEvento])
 
   // paginação interações
   const eventosPaginados = useMemo(() => {
@@ -346,7 +391,15 @@ export function CampanhaDashboard() {
   }, [eventosFiltrados, pagInter, tamPagInter])
   const totalPagInter = Math.ceil(eventosFiltrados.length / tamPagInter)
 
-  const temFiltroEvento = filtroEvento !== 'Todos' || buscaEvento !== ''
+  const temFiltroEvento = filtroEvento !== 'Todos' || filtroDestaque !== '' || buscaEvento !== ''
+
+  const ehDestaqueElemento = data?.campanha.modo_exibicao === 'destaque_elemento'
+  const desempenhoDestaques = data?.desempenho_destaques ?? []
+  const destaqueTituloPorId = useMemo(() => {
+    const mapa = new Map<string, string>()
+    for (const item of desempenhoDestaques) mapa.set(item.destaque_item_id, item.titulo)
+    return mapa
+  }, [desempenhoDestaques])
 
   // ── KPI metrics — período-aware ──────────────────────────────────────────
   const kpiVisualizacoes = periodoAtivo
@@ -791,8 +844,12 @@ export function CampanhaDashboard() {
                     <span className="material-symbols-outlined text-[16px]">view_column</span>
                     {visibleCols.size > 0 ? `Colunas extras (${visibleCols.size})` : 'Colunas extras'}
                   </button>
-                  {showColMenu && (
-                    <div className="absolute right-0 top-full mt-1 z-20 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-lg py-2 w-52 max-h-80 overflow-y-auto">
+                  {showColMenu && colMenuPos && createPortal(
+                    <div
+                      ref={colMenuPopoverRef}
+                      style={{ position: 'fixed', top: colMenuPos.top, right: colMenuPos.right }}
+                      className="z-50 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-lg py-2 w-52 max-h-80 overflow-y-auto"
+                    >
                       {COLUNAS.map(col => (
                         <label key={col.id} className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-surface-container-low cursor-pointer">
                           <input
@@ -804,7 +861,8 @@ export function CampanhaDashboard() {
                           <span className="text-body-sm text-on-surface">{col.label}</span>
                         </label>
                       ))}
-                    </div>
+                    </div>,
+                    document.body
                   )}
                 </div>
               </div>
@@ -1033,6 +1091,50 @@ export function CampanhaDashboard() {
             )}
           </div>
 
+          {/* ── Seção: Desempenho dos destaques (só destaque_elemento) ──────── */}
+          {ehDestaqueElemento && desempenhoDestaques.length > 0 && (
+            <>
+              <SectionTitle icon="new_releases" tooltip={TOOLTIP_DESEMPENHO_DESTAQUES}>Desempenho dos destaques</SectionTitle>
+              <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden mb-6">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-surface-container-low border-b border-outline-variant">
+                      <tr>
+                        {['Destaque', 'Visualizações', 'Únicos', 'Interações', 'Únicos', 'Cliques CTA', 'Únicos', 'Dispensaram', 'Únicos'].map((h, i) => (
+                          <th key={`${h}-${i}`} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/30">
+                      {desempenhoDestaques.map(item => (
+                        <tr key={item.destaque_item_id} className="hover:bg-surface-container-low/50 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[220px]">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[13px] truncate text-on-surface" title={item.titulo}>{item.titulo}</span>
+                              {!item.ativo && (
+                                <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-outline-variant/30 text-outline">
+                                  Removido
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.visualizacoes.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.visualizacoes_unicas.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.interacoes.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.interacoes_unicas.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.cliques_cta.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.cliques_cta_unicos.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.dispensas.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.dispensas_unicas.toLocaleString('pt-BR')} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+
           {/* ── Seção: Interações ─────────────────────────────────────────── */}
           <SectionTitle icon="touch_app">Interações</SectionTitle>
 
@@ -1078,9 +1180,22 @@ export function CampanhaDashboard() {
                     { value: 'Todos', label: 'Todos' },
                     { value: 'Visualização', label: 'Visualização' },
                     { value: 'Clique', label: 'Clique CTA' },
+                    { value: 'Interação', label: 'Interação badge' },
+                    { value: 'Dispensa', label: 'Dispensa' },
                   ]}
                   onChange={v => setFiltroEvento(v as typeof filtroEvento)}
                 />
+                {ehDestaqueElemento && desempenhoDestaques.length > 0 && (
+                  <FiltroSelect
+                    label="Destaque"
+                    value={filtroDestaque}
+                    options={[
+                      { value: '', label: 'Todos' },
+                      ...desempenhoDestaques.map(item => ({ value: item.destaque_item_id, label: item.titulo })),
+                    ]}
+                    onChange={setFiltroDestaque}
+                  />
+                )}
               </div>
             </div>
 
@@ -1131,7 +1246,11 @@ export function CampanhaDashboard() {
                   <table className="w-full text-left">
                     <thead className="bg-surface-container-low border-b border-outline-variant">
                       <tr>
-                        {['Tipo', 'Data/Hora', 'Usuário', 'Perfil', 'Cliente', 'Unidade', 'Estado'].map(h => (
+                        {[
+                          'Tipo', 'Data/Hora',
+                          ...(ehDestaqueElemento ? ['Destaque'] : []),
+                          'Usuário', 'Perfil', 'Cliente', 'Unidade', 'Estado',
+                        ].map(h => (
                           <th key={h} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
@@ -1142,6 +1261,7 @@ export function CampanhaDashboard() {
                         const nome = c.usuario_nome || e.usuario_id
                         const email = c.usuario_email
                         const unidade = c.unidade_nome || c.clinica_nome
+                        const destaqueTitulo = e.destaque_item_id ? destaqueTituloPorId.get(e.destaque_item_id) : undefined
                         return (
                           <tr key={e.id} className="hover:bg-surface-container-low/50 transition-colors">
                             <td className="px-4 py-3 whitespace-nowrap align-middle">
@@ -1150,6 +1270,13 @@ export function CampanhaDashboard() {
                             <td className="px-4 py-3 whitespace-nowrap align-middle">
                               <CellText value={formatDateTime(e.criado_em)} />
                             </td>
+                            {ehDestaqueElemento && (
+                              <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[160px]">
+                                <span className={`text-[13px] truncate block ${destaqueTitulo ? 'text-on-surface' : 'text-outline italic'}`} title={destaqueTitulo}>
+                                  {destaqueTitulo ?? NI}
+                                </span>
+                              </td>
+                            )}
                             <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[180px]">
                               <div className="flex flex-col gap-0.5">
                                 <span className={`text-[13px] truncate ${nome ? 'text-on-surface' : 'text-outline italic'}`} title={nome ?? undefined}>
@@ -1186,7 +1313,11 @@ export function CampanhaDashboard() {
                 {/* Mobile (< md): cards */}
                 <div className="md:hidden divide-y divide-outline-variant/20">
                   {eventosPaginados.map(e => (
-                    <InteracaoCard key={e.id} e={e} />
+                    <InteracaoCard
+                      key={e.id}
+                      e={e}
+                      destaqueTitulo={e.destaque_item_id ? destaqueTituloPorId.get(e.destaque_item_id) : undefined}
+                    />
                   ))}
                 </div>
 
@@ -1212,11 +1343,21 @@ export function CampanhaDashboard() {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-function SectionTitle({ icon, children }: { icon: string; children: React.ReactNode }) {
+function SectionTitle({ icon, tooltip, children }: { icon: string; tooltip?: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 mb-3 mt-2">
       <span className="material-symbols-outlined text-[18px] text-on-surface-variant">{icon}</span>
       <h3 className="text-label-md font-bold text-on-surface-variant uppercase tracking-wider">{children}</h3>
+      {tooltip && (
+        <TooltipIconButton
+          label={tooltip}
+          ariaLabel="Ajuda"
+          className="flex items-center justify-center text-outline/50 hover:text-outline"
+          tooltipClassName="w-max max-w-[280px] whitespace-pre-line text-left"
+        >
+          <span className="material-symbols-outlined text-[13px]">info</span>
+        </TooltipIconButton>
+      )}
     </div>
   )
 }
@@ -1299,19 +1440,43 @@ function FiltroSelect({ label, value, options, onChange }: {
   onChange: (v: string) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number | null; right: number | null } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
+    // Menu é portalado pra <body> (ver render) pra escapar do overflow-hidden
+    // do card — por isso o clique-fora precisa checar os DOIS refs (gatilho +
+    // menu), já que o menu não é mais descendente do gatilho no DOM.
+    const atualizarPosicao = () => {
+      const rect = ref.current?.getBoundingClientRect()
+      if (!rect) return
+      // Perto da borda direita da viewport: alinha o menu pela direita (ele
+      // cresce pra esquerda) em vez de deixar vazar pra fora da tela.
+      const alinharDireita = rect.left > window.innerWidth / 2
+      setPos({
+        top: rect.bottom + 4,
+        left: alinharDireita ? null : rect.left,
+        right: alinharDireita ? window.innerWidth - rect.right : null,
+      })
+    }
+    atualizarPosicao()
     const onMouseDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (ref.current?.contains(target) || menuRef.current?.contains(target)) return
+      setOpen(false)
     }
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('mousedown', onMouseDown)
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('scroll', atualizarPosicao, true)
+    window.addEventListener('resize', atualizarPosicao)
     return () => {
       document.removeEventListener('mousedown', onMouseDown)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('scroll', atualizarPosicao, true)
+      window.removeEventListener('resize', atualizarPosicao)
     }
   }, [open])
 
@@ -1336,28 +1501,33 @@ function FiltroSelect({ label, value, options, onChange }: {
             expand_more
           </span>
         </button>
-        {open && (
-          <div className="absolute left-0 top-full z-50 mt-1 min-w-max rounded-xl border border-outline-variant bg-surface-bright shadow-lg overflow-hidden">
-            {options.map(o => (
-              <button
-                key={o.value}
-                type="button"
-                onClick={() => { onChange(o.value); setOpen(false) }}
-                className={`w-full flex items-center justify-between gap-4 px-3 py-2 text-[13px] text-left transition-colors whitespace-nowrap ${
-                  value === o.value
-                    ? 'bg-primary/10 text-primary font-bold'
-                    : 'text-on-surface hover:bg-surface-container-low'
-                }`}
-              >
-                {o.label}
-                {value === o.value && (
-                  <span className="material-symbols-outlined text-[13px] shrink-0">check</span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
+      {open && pos && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: 'fixed', top: pos.top, left: pos.left ?? undefined, right: pos.right ?? undefined }}
+          className="z-50 min-w-max max-w-[min(320px,calc(100vw-16px))] rounded-xl border border-outline-variant bg-surface-bright shadow-lg overflow-hidden"
+        >
+          {options.map(o => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => { onChange(o.value); setOpen(false) }}
+              className={`w-full flex items-center justify-between gap-4 px-3 py-2 text-[13px] text-left transition-colors ${
+                value === o.value
+                  ? 'bg-primary/10 text-primary font-bold'
+                  : 'text-on-surface hover:bg-surface-container-low'
+              }`}
+            >
+              <span className="whitespace-normal break-words">{o.label}</span>
+              {value === o.value && (
+                <span className="material-symbols-outlined text-[13px] shrink-0">check</span>
+              )}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
@@ -1482,7 +1652,7 @@ function RespostaCard({ f, activeCols }: { f: Feedback; activeCols: ColDef[] }) 
 }
 
 // Card de interação para telas mobile (< md) — mesma lógica de substituição da tabela.
-function InteracaoCard({ e }: { e: EventoCampanha }) {
+function InteracaoCard({ e, destaqueTitulo }: { e: EventoCampanha; destaqueTitulo?: string }) {
   const c = (e.contexto ?? {}) as Record<string, string>
   const nome = c.usuario_nome || e.usuario_id
   const email = c.usuario_email
@@ -1495,6 +1665,12 @@ function InteracaoCard({ e }: { e: EventoCampanha }) {
       </div>
 
       <div className="mt-3 pt-3 border-t border-outline-variant/20 grid grid-cols-2 gap-x-3 gap-y-2.5">
+        {destaqueTitulo && (
+          <div className="min-w-0 col-span-2">
+            <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Destaque</p>
+            <span className="text-[13px] block truncate text-on-surface" title={destaqueTitulo}>{destaqueTitulo}</span>
+          </div>
+        )}
         <div className="min-w-0 col-span-2">
           <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Usuário</p>
           <span className={`text-[13px] block truncate ${nome ? 'text-on-surface' : 'text-outline italic'}`} title={nome ?? undefined}>
@@ -1570,6 +1746,22 @@ function EventoBadge({ tipo }: { tipo: string }) {
       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-secondary/10 text-secondary">
         <span className="material-symbols-outlined text-[12px]">ads_click</span>
         Clique CTA
+      </span>
+    )
+  }
+  if (tipo === 'interacao_badge') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-tertiary/10 text-tertiary">
+        <span className="material-symbols-outlined text-[12px]">touch_app</span>
+        Interação badge
+      </span>
+    )
+  }
+  if (tipo === 'dispensa') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-outline-variant/30 text-outline">
+        <span className="material-symbols-outlined text-[12px]">close</span>
+        Dispensa
       </span>
     )
   }

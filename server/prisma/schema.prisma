@@ -447,7 +447,8 @@ model CampanhaDestaqueItem {
   criado_em     DateTime @default(now())
   atualizado_em DateTime @updatedAt
 
-  campanha Campanha @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
+  campanha Campanha         @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
+  eventos  EventoCampanha[]
 
   @@index([campanha_id, ordem])
   @@index([tenant_id])
@@ -539,20 +540,38 @@ model AparenciaWidget {
   @@map("aparencias_widget")
 }
 
+// destaque_item_id (Fase 3 de destaque_elemento — tracking por item) é
+// opcional e nunca ganha tenant_id próprio: o isolamento de tenant continua
+// vindo só de campanha_id -> Campanha.tenant_id, igual a todo o resto deste
+// model (ver comentário no topo do arquivo sobre child tables sem tenant_id
+// próprio). onDelete: SetNull — um CampanhaDestaqueItem removido da
+// configuração vira ativo:false (nunca é hard-deletado, ver
+// sincronizarDestaques/atualizar em campanhas.ts), então SetNull na prática
+// só protege contra o caso extremo de o item em si ser apagado por outro
+// caminho; o histórico do evento nunca é perdido de qualquer forma (a FK
+// nunca é RESTRICT/CASCADE aqui).
 model EventoCampanha {
-  id          String   @id @default(uuid())
-  campanha_id String
-  tipo_evento String
-  usuario_id  String?
-  sistema     String?
-  tela        String?
-  navegador   String?
-  dispositivo String?
-  contexto    Json?
-  criado_em   DateTime @default(now())
+  id               String   @id @default(uuid())
+  campanha_id      String
+  tipo_evento      String
+  usuario_id       String?
+  destaque_item_id String?
+  sistema          String?
+  tela             String?
+  navegador        String?
+  dispositivo      String?
+  contexto         Json?
+  criado_em        DateTime @default(now())
 
-  campanha Campanha @relation(fields: [campanha_id], references: [id])
+  campanha     Campanha              @relation(fields: [campanha_id], references: [id])
+  destaqueItem CampanhaDestaqueItem? @relation(fields: [destaque_item_id], references: [id], onDelete: SetNull)
 
+  // Nomes explícitos (map) curtos de propósito — o nome default do Prisma
+  // pra este segundo índice bate quase exatamente no limite de 63
+  // caracteres do Postgres; nomear explicitamente evita qualquer ambiguidade
+  // de truncamento entre este arquivo e a migration hand-written.
+  @@index([campanha_id, tipo_evento, criado_em], map: "evt_campanha_tipo_criado_idx")
+  @@index([campanha_id, destaque_item_id, tipo_evento], map: "evt_campanha_item_tipo_idx")
   @@map("eventos_campanha")
 }
 
