@@ -8,69 +8,27 @@ import { get, post, put } from '../../services/api'
 import type { AparenciaWidget, Campanha, Sistema, TelaCatalogo } from '../../types'
 import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
 import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
-
-interface FormState {
-  titulo: string
-  // Eyebrow do modal; reutilizado como texto do badge quando
-  // modo_exibicao === FORMATO_DESTAQUE_ELEMENTO (ver CampoDock "Texto do
-  // badge" na aba Exibição).
-  subtitulo: string
-  descricao: string
-  tipo: string
-  sistema: string
-  tela: string
-  imagem_url: string
-  video_url: string
-  texto_botao: string
-  url_botao: string
-  feedback_habilitado: boolean
-  modo_exibicao: string
-  gatilho: string
-  evento: string
-  modo_identificacao: string
-  data_cy: string
-  url_contem: string
-  atraso_ms: string
-  mostrar_uma_vez: boolean
-  prioridade: string
-  ordem: string
-  ativo: boolean
-  data_inicio: string
-  data_fim: string
-  pergunta_feedback: string
-  observacao_obrigatoria: boolean
-  exige_confirmacao_leitura: boolean
-  permitir_fechar_modal: boolean
-  intervalo_reexibicao_dias: string
-  politica_reexibicao: string
-  reexibir_apos_dias: string
-  encerrar_apos_evento: boolean
-  evento_conclusao: string
-  categoria: string
-  cta_habilitado: boolean
-  segmentar_cliente_ids: string[]
-  segmentar_unidade_ids: string[]
-  segmentar_perfis: string[]
-  segmentar_usuario_tipos: string[]
-  segmentar_estados: string[]
-}
+import type { DestaqueFormItem, FormState, FormatoExibicao, TipoDestino } from './campanhaForm'
+import {
+  FORMATO_DESTAQUE_ELEMENTO,
+  CATEGORIAS,
+  TIPOS_CAMPANHA,
+  formInicial,
+  converterVideoEmbed,
+  pareceUrlVideo,
+  resolverTipoDestino,
+  hidratarFormState,
+  montarPayloadCampanha,
+} from './campanhaForm'
 
 type SecaoDock = 'destino' | 'exibicao' | 'feedback' | 'segmentacao'
 type PosicaoMidia = 'topo' | 'antes_cta'
 type FrequenciaExibicao = 'uma_vez' | 'ate_responder' | 'reexibir_depois'
 type AcaoFinalCampanha = 'feedback' | 'confirmacao' | 'visualizacao'
 type ModoSegmentacao = 'todos' | 'cliente' | 'perfil' | 'combinada'
-// Fase 1 de adoção — "Destaque em elemento". Reaproveita modo_exibicao
-// (já existia, só faltava opção no formulário e no widget), modo_identificacao
-// + data_cy (já existiam pro modo "Ao encontrar um elemento" no destino) e
-// subtitulo (passa a carregar o texto do badge). Nenhum campo novo no schema.
-type FormatoExibicao = 'modal_automatica' | 'destaque_elemento'
-const FORMATO_DESTAQUE_ELEMENTO: FormatoExibicao = 'destaque_elemento'
 
 type AparenciaCard = Pick<AparenciaWidget, 'cor_principal' | 'logo_url'>
 
-const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
-const TIPOS_CAMPANHA = ['comunicado', 'melhoria', 'pesquisa']
 const ICONES_TIPO_CAMPANHA: Record<string, string> = {
   comunicado: 'campaign',
   melhoria: 'rocket_launch',
@@ -79,98 +37,6 @@ const ICONES_TIPO_CAMPANHA: Record<string, string> = {
 
 function iconeTipoCampanha(tipo: string): string {
   return ICONES_TIPO_CAMPANHA[tipo] ?? 'campaign'
-}
-const formInicial: FormState = {
-  titulo: 'Novidade no produto',
-  subtitulo: 'Atualização importante',
-  descricao: 'Conte para o usuário o que mudou, por que isso importa e qual é o próximo passo.',
-  tipo: 'comunicado',
-  sistema: '',
-  tela: '',
-  imagem_url: '',
-  video_url: '',
-  texto_botao: 'Saiba mais',
-  url_botao: '',
-  feedback_habilitado: true,
-  modo_exibicao: 'modal_automatica',
-  gatilho: 'ao_abrir_tela',
-  evento: '',
-  modo_identificacao: 'sistema_tela',
-  data_cy: '',
-  url_contem: '',
-  atraso_ms: '800',
-  mostrar_uma_vez: true,
-  prioridade: '0',
-  ordem: '1',
-  ativo: true,
-  data_inicio: '',
-  data_fim: '',
-  pergunta_feedback: '',
-  observacao_obrigatoria: false,
-  exige_confirmacao_leitura: false,
-  permitir_fechar_modal: true,
-  intervalo_reexibicao_dias: '',
-  politica_reexibicao: 'uma_vez_apos_visualizacao',
-  reexibir_apos_dias: '',
-  encerrar_apos_evento: false,
-  evento_conclusao: '',
-  categoria: 'Novidade',
-  cta_habilitado: true,
-  segmentar_cliente_ids: [],
-  segmentar_unidade_ids: [],
-  segmentar_perfis: [],
-  segmentar_usuario_tipos: [],
-  segmentar_estados: [],
-}
-
-function normalizarUrl(valor: string): string {
-  const trimmed = valor.trim()
-  if (!trimmed) return ''
-  try {
-    return new URL(trimmed).toString()
-  } catch {
-    return trimmed
-  }
-}
-
-function normalizarUrlContem(valor: string): string {
-  const trimmed = valor.trim()
-  if (!trimmed) return ''
-  try {
-    return new URL(trimmed).pathname
-  } catch {
-    return trimmed
-  }
-}
-
-function extrairYouTubeId(url: URL): string | null {
-  if (url.hostname.includes('youtu.be')) return url.pathname.split('/').filter(Boolean)[0] ?? null
-  if (url.hostname.includes('youtube.com')) {
-    if (url.pathname.startsWith('/shorts/')) return url.pathname.split('/').filter(Boolean)[1] ?? null
-    if (url.pathname.startsWith('/embed/')) return url.pathname.split('/').filter(Boolean)[1] ?? null
-    return url.searchParams.get('v')
-  }
-  return null
-}
-
-function converterVideoEmbed(valor: string): string {
-  const trimmed = valor.trim()
-  if (!trimmed) return ''
-  try {
-    const url = new URL(trimmed)
-    const youtubeId = extrairYouTubeId(url)
-    if (youtubeId) return `https://www.youtube.com/embed/${youtubeId}`
-    if (url.hostname.includes('vimeo.com')) {
-      const id = url.pathname.split('/').filter(Boolean).pop()
-      if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}`
-    }
-    if (url.hostname.includes('loom.com') && url.pathname.includes('/share/')) {
-      return url.toString().replace('/share/', '/embed/')
-    }
-    return url.toString()
-  } catch {
-    return trimmed
-  }
 }
 
 function corSistemaValida(valor: string | null | undefined): string {
@@ -193,17 +59,6 @@ function corTextoSistemaLegivel(cor: string): string {
     ajustada = ajustada.map(valor => Math.max(0, Math.round(valor * 0.85)))
   }
   return `#${ajustada.map(valor => valor.toString(16).padStart(2, '0')).join('')}`
-}
-
-function pareceUrlVideo(valor: string): boolean {
-  const trimmed = valor.trim()
-  if (!trimmed) return false
-  try {
-    const url = new URL(trimmed)
-    return Boolean(extrairYouTubeId(url)) || url.hostname.includes('vimeo.com') || url.hostname.includes('loom.com')
-  } catch {
-    return false
-  }
 }
 
 function PillDropdown({ label, value, options, onChange, placeholder = 'Selecionar', highlightValue, emptyMessage = 'Defina no dock lateral', manageLabel, onManage }: {
@@ -464,9 +319,41 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
   onPreview: () => void
 }) {
   const [modoSegmentacao, setModoSegmentacao] = useState<ModoSegmentacao>('todos')
+  // Índice do destaque com os campos abertos pra edição — só 1 por vez
+  // (mesmo padrão de "editar" expansível usado em outras listas do dock).
+  const [destaqueExpandido, setDestaqueExpandido] = useState<number | null>(0)
   const formatoExibicao: FormatoExibicao = form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
     ? FORMATO_DESTAQUE_ELEMENTO
     : 'modal_automatica'
+
+  function adicionarDestaque() {
+    const novoIndice = form.destaques.length
+    setCampo('destaques', [...form.destaques, {
+      data_cy: '', texto_badge: '', titulo: '', descricao: '', cta_habilitado: false, texto_botao: '', url_botao: '',
+    }])
+    setDestaqueExpandido(novoIndice)
+  }
+
+  function removerDestaque(indice: number) {
+    if (form.destaques.length <= 1) return // sempre precisa de pelo menos 1
+    setCampo('destaques', form.destaques.filter((_, i) => i !== indice))
+    setDestaqueExpandido(prev => (prev === indice ? null : prev !== null && prev > indice ? prev - 1 : prev))
+  }
+
+  function moverDestaque(indice: number, direcao: -1 | 1) {
+    const alvo = indice + direcao
+    if (alvo < 0 || alvo >= form.destaques.length) return
+    const lista = form.destaques.slice()
+    const temp = lista[indice]
+    lista[indice] = lista[alvo]
+    lista[alvo] = temp
+    setCampo('destaques', lista)
+    setDestaqueExpandido(prev => (prev === indice ? alvo : prev === alvo ? indice : prev))
+  }
+
+  function atualizarDestaque<K extends keyof DestaqueFormItem>(indice: number, campo: K, valor: DestaqueFormItem[K]) {
+    setCampo('destaques', form.destaques.map((item, i) => (i === indice ? { ...item, [campo]: valor } : item)))
+  }
   // Destaque em elemento não tem feedback/confirmação nesta fase (fora de
   // escopo — ver comentário em selecionarFormatoExibicao) — a aba some em
   // vez de mostrar opções que não fazem sentido pro formato.
@@ -549,13 +436,9 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
     setCampo('politica_reexibicao', 'ate_responder_ou_confirmar')
     setCampo('reexibir_apos_dias', '')
   }
-  const tipoDestino = form.gatilho === 'apos_evento'
-    ? 'acao'
-    : form.modo_identificacao === 'data_cy'
-      ? 'data_cy'
-      : 'tela'
+  const tipoDestino = resolverTipoDestino(form)
 
-  function selecionarTipoDestino(tipo: 'tela' | 'data_cy' | 'acao') {
+  function selecionarTipoDestino(tipo: TipoDestino) {
     if (tipo === 'tela') {
       setCampo('gatilho', 'ao_abrir_tela')
       setCampo('modo_identificacao', 'sistema_tela')
@@ -571,6 +454,15 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
       setCampo('evento', '')
       setCampo('tela', '')
       setCampo('url_contem', '')
+      return
+    }
+
+    if (tipo === 'url') {
+      setCampo('gatilho', 'ao_abrir_tela')
+      setCampo('modo_identificacao', 'url_contem')
+      setCampo('evento', '')
+      setCampo('tela', '')
+      setCampo('data_cy', '')
       return
     }
 
@@ -600,6 +492,22 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
       setCampo('permitir_fechar_modal', true)
       if (form.politica_reexibicao === 'ate_responder_ou_confirmar') {
         setCampo('politica_reexibicao', 'uma_vez_apos_visualizacao')
+      }
+      // Ao criar, inicia com 1 item — semeado a partir dos campos únicos que
+      // já estavam preenchidos (ex.: admin digitou título/descrição antes de
+      // trocar o formato), pra não perder o que já tinha sido digitado. Uma
+      // campanha carregada do backend (edição) já chega com `destaques`
+      // populado pelo useEffect de carregamento — nunca reseta aqui.
+      if (form.destaques.length === 0) {
+        setCampo('destaques', [{
+          data_cy: form.data_cy,
+          texto_badge: form.subtitulo,
+          titulo: form.titulo,
+          descricao: form.descricao,
+          cta_habilitado: form.cta_habilitado,
+          texto_botao: form.texto_botao,
+          url_botao: form.url_botao,
+        }])
       }
       if (secao === 'feedback') setSecao('exibicao')
       return
@@ -683,6 +591,7 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
               {[
                 { id: 'tela' as const, icon: 'web_asset', titulo: 'Ao abrir uma tela', desc: 'Use uma tela cadastrada ou adicione uma nova ao catálogo.' },
                 { id: 'data_cy' as const, icon: 'ads_click', titulo: 'Ao encontrar um elemento', desc: 'Mostra quando um elemento específico estiver disponível na página.' },
+                { id: 'url' as const, icon: 'link', titulo: 'Ao acessar uma URL', desc: 'Mostra quando o caminho da URL corresponder ao valor informado.' },
                 { id: 'acao' as const, icon: 'bolt', titulo: 'Depois de uma ação', desc: 'Mostra somente quando o sistema disparar um evento pelo widget.' },
               ].map(opcao => {
                 // Destaque em elemento só existe ancorado por data-cy — as
@@ -739,13 +648,33 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
           )}
 
           {tipoDestino === 'data_cy' && (
+            formatoExibicao === FORMATO_DESTAQUE_ELEMENTO ? (
+              // Destaque em elemento tem N destaques independentes, cada um
+              // com seu próprio data-cy — não faz mais sentido um campo
+              // único aqui. Configuração real fica na aba Exibição.
+              <p className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
+                Este formato tem vários destaques independentes, cada um com seu próprio data-cy. Configure-os na aba <strong>Exibição</strong>.
+              </p>
+            ) : (
+              <CampoDock
+                label="data-cy"
+                value={form.data_cy}
+                onChange={valor => setCampo('data_cy', valor)}
+                placeholder="botao-finalizar-compra"
+                tooltip="Informe o valor do atributo data-cy do elemento. O widget usa esse identificador técnico para saber quando esse elemento existe na tela."
+                hint="Exemplo: botao-finalizar-compra."
+              />
+            )
+          )}
+
+          {tipoDestino === 'url' && (
             <CampoDock
-              label="data-cy"
-              value={form.data_cy}
-              onChange={valor => setCampo('data_cy', valor)}
-              placeholder="botao-finalizar-compra"
-              tooltip="Informe o valor do atributo data-cy do elemento. O widget usa esse identificador técnico para saber quando esse elemento existe na tela."
-              hint="Exemplo: botao-finalizar-compra."
+              label="Caminho da URL"
+              value={form.url_contem}
+              onChange={valor => setCampo('url_contem', valor)}
+              placeholder="/app/faturamento"
+              tooltip="Informe um caminho relativo da URL (sem domínio). O widget mostra a campanha quando o caminho atual contiver esse valor."
+              hint="Exemplo: /app/faturamento."
             />
           )}
 
@@ -790,32 +719,92 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
 
           {formatoExibicao === FORMATO_DESTAQUE_ELEMENTO && (
             <div className="space-y-3 rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3">
-              <CampoDock
-                label="Texto do badge"
-                value={form.subtitulo}
-                onChange={valor => setCampo('subtitulo', valor)}
-                placeholder="Novo"
-                hint='Selo mostrado ao lado do elemento. Em branco, mostramos "Novo".'
-              />
-              <CampoDock label="Título" value={form.titulo} onChange={valor => setCampo('titulo', valor)} placeholder="Título da novidade" />
-              <label className="block">
-                <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Descrição</span>
-                <textarea
-                  value={form.descricao}
-                  onChange={event => setCampo('descricao', event.target.value)}
-                  rows={3}
-                  placeholder="Explique brevemente a novidade para o usuário."
-                  className="w-full rounded-lg border border-[#ced0d4] bg-white px-3 py-2 text-[14px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
-                />
-              </label>
-              <CampoBooleanoDock label="Mostrar botão de ação (CTA)" checked={form.cta_habilitado} onChange={valor => setCampo('cta_habilitado', valor)} />
-              {form.cta_habilitado && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <CampoDock label="Texto do botão" value={form.texto_botao} onChange={valor => setCampo('texto_botao', valor)} placeholder="Saiba mais" />
-                  <CampoDock label="Link do botão" value={form.url_botao} onChange={valor => setCampo('url_botao', valor)} placeholder="https://" />
-                </div>
-              )}
-              <p className="text-[11px] font-semibold leading-4 text-[#8595a4]">O usuário sempre pode dispensar o destaque — não é possível torná-lo obrigatório.</p>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[14px] font-bold text-[#0a1317]">Destaques da campanha</span>
+                <button
+                  type="button"
+                  onClick={adicionarDestaque}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#0064e0] px-3 py-1.5 text-[12px] font-bold text-white transition hover:bg-[#0457cb]"
+                >
+                  <span className="material-symbols-outlined text-[16px]">add</span>
+                  Adicionar destaque
+                </button>
+              </div>
+
+              {form.destaques.map((item, indice) => {
+                const expandido = destaqueExpandido === indice
+                return (
+                  <div key={indice} className="rounded-xl border border-[#dee3e9] bg-white p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDestaqueExpandido(expandido ? null : indice)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <p className="truncate text-[13px] font-bold text-[#1c1e21]">{item.titulo.trim() || `Destaque ${indice + 1}`}</p>
+                        <p className="truncate text-[11px] font-semibold text-[#8595a4]">
+                          {item.data_cy.trim() ? `[data-cy="${item.data_cy.trim()}"]` : 'Sem data-cy configurado'}
+                          {item.texto_badge.trim() ? ` · ${item.texto_badge.trim()}` : ''}
+                        </p>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button type="button" onClick={() => moverDestaque(indice, -1)} disabled={indice === 0} title="Subir" aria-label="Subir destaque" className="flex h-7 w-7 items-center justify-center rounded-lg text-[#5d6c7b] transition hover:bg-[#f1f4f7] disabled:cursor-not-allowed disabled:opacity-30">
+                          <span className="material-symbols-outlined text-[18px]">arrow_upward</span>
+                        </button>
+                        <button type="button" onClick={() => moverDestaque(indice, 1)} disabled={indice === form.destaques.length - 1} title="Descer" aria-label="Descer destaque" className="flex h-7 w-7 items-center justify-center rounded-lg text-[#5d6c7b] transition hover:bg-[#f1f4f7] disabled:cursor-not-allowed disabled:opacity-30">
+                          <span className="material-symbols-outlined text-[18px]">arrow_downward</span>
+                        </button>
+                        <button type="button" onClick={() => setDestaqueExpandido(expandido ? null : indice)} title="Editar" aria-label="Editar destaque" className="flex h-7 w-7 items-center justify-center rounded-lg text-[#5d6c7b] transition hover:bg-[#f1f4f7]">
+                          <span className="material-symbols-outlined text-[18px]">edit</span>
+                        </button>
+                        <button type="button" onClick={() => removerDestaque(indice)} disabled={form.destaques.length <= 1} title="Remover" aria-label="Remover destaque" className="flex h-7 w-7 items-center justify-center rounded-lg text-[#e41e3f] transition hover:bg-[#fdecef] disabled:cursor-not-allowed disabled:opacity-30">
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {expandido && (
+                      <div className="mt-3 space-y-3 border-t border-[#eef1f5] pt-3">
+                        <CampoDock
+                          label="data-cy"
+                          value={item.data_cy}
+                          onChange={valor => atualizarDestaque(indice, 'data_cy', valor)}
+                          placeholder="filtro-status"
+                          tooltip="Informe o valor do atributo data-cy do elemento alvo deste destaque. O widget usa esse identificador técnico para saber quando o elemento existe na tela."
+                          hint="Exemplo: filtro-status."
+                        />
+                        <CampoDock
+                          label="Texto do badge"
+                          value={item.texto_badge}
+                          onChange={valor => atualizarDestaque(indice, 'texto_badge', valor)}
+                          placeholder="Novo"
+                          hint='Selo mostrado ao lado do elemento. Em branco, mostramos "Novo".'
+                        />
+                        <CampoDock label="Título" value={item.titulo} onChange={valor => atualizarDestaque(indice, 'titulo', valor)} placeholder="Título da novidade" />
+                        <label className="block">
+                          <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Descrição</span>
+                          <textarea
+                            value={item.descricao}
+                            onChange={event => atualizarDestaque(indice, 'descricao', event.target.value)}
+                            rows={3}
+                            placeholder="Explique brevemente a novidade para o usuário."
+                            className="w-full rounded-lg border border-[#ced0d4] bg-white px-3 py-2 text-[14px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
+                          />
+                        </label>
+                        <CampoBooleanoDock label="Mostrar botão de ação (CTA)" checked={item.cta_habilitado} onChange={valor => atualizarDestaque(indice, 'cta_habilitado', valor)} />
+                        {item.cta_habilitado && (
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <CampoDock label="Texto do botão" value={item.texto_botao} onChange={valor => atualizarDestaque(indice, 'texto_botao', valor)} placeholder="Saiba mais" />
+                            <CampoDock label="Link do botão" value={item.url_botao} onChange={valor => atualizarDestaque(indice, 'url_botao', valor)} placeholder="https://" />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              <p className="text-[11px] font-semibold leading-4 text-[#8595a4]">O usuário sempre pode dispensar cada destaque — não é possível torná-lo obrigatório.</p>
             </div>
           )}
 
@@ -1021,14 +1010,34 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
 // (media, arrastar, etc. não se aplicam a este formato).
 function DestaqueElementoCard({ form, aparencia }: { form: FormState; aparencia: AparenciaCard | null }) {
   const corAcao = corSistemaValida(aparencia?.cor_principal)
+  const [indicePreview, setIndicePreview] = useState(0)
+  const itens = form.destaques
+  // Clampa contra remoção/reordenação de itens acontecendo enquanto este
+  // índice estava selecionado — nunca aponta pra fora da lista atual.
+  const indice = itens.length > 0 ? Math.min(indicePreview, itens.length - 1) : 0
+  const item = itens[indice]
 
   return (
     <article className="mx-auto w-full max-w-[580px] rounded-2xl border border-[#dee3e9] bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#eff4ff] text-[#0064e0]">
-          <span className="material-symbols-outlined text-[19px]">new_releases</span>
-        </span>
-        <p className="text-[22px] font-semibold leading-tight text-[#0a1317]">Preview</p>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#eff4ff] text-[#0064e0]">
+            <span className="material-symbols-outlined text-[19px]">new_releases</span>
+          </span>
+          <p className="text-[22px] font-semibold leading-tight text-[#0a1317]">Preview</p>
+        </div>
+        {itens.length > 1 && (
+          <select
+            value={indice}
+            onChange={event => setIndicePreview(Number(event.target.value))}
+            aria-label="Escolher qual destaque visualizar"
+            className="max-w-[220px] rounded-lg border border-[#ced0d4] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
+          >
+            {itens.map((it, i) => (
+              <option key={i} value={i}>{it.titulo.trim() || `Destaque ${i + 1}`}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-outline-variant">
@@ -1048,12 +1057,12 @@ function DestaqueElementoCard({ form, aparencia }: { form: FormState; aparencia:
         <div className="relative flex min-h-[320px] items-start justify-center bg-[#f1f4f7] px-6 pb-10 pt-12">
           <DestaqueElementoSimulacao
             corAcao={corAcao}
-            dataCyLabel={form.data_cy.trim()}
+            dataCyLabel={(item?.data_cy ?? '').trim()}
             placeholderSemAlvo="Informe o data-cy do elemento alvo no dock ao lado para ver o destaque posicionado aqui."
-            badgeTexto={form.subtitulo.trim() || 'Novo'}
-            titulo={form.titulo.trim() || 'Título da novidade'}
-            descricao={form.descricao.trim() || 'Explique brevemente a novidade para o usuário.'}
-            ctaTexto={form.cta_habilitado ? (form.texto_botao.trim() || 'Saiba mais') : null}
+            badgeTexto={item?.texto_badge.trim() || 'Novo'}
+            titulo={item?.titulo.trim() || 'Título da novidade'}
+            descricao={item?.descricao.trim() || 'Explique brevemente a novidade para o usuário.'}
+            ctaTexto={item?.cta_habilitado ? (item.texto_botao.trim() || 'Saiba mais') : null}
             permitirDispensar
           />
         </div>
@@ -1538,6 +1547,7 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
   const [confirmado, setConfirmado] = useState(false)
   const [erro, setErro] = useState('')
   const [enviado, setEnviado] = useState(false)
+  const [indicePreviewDestaque, setIndicePreviewDestaque] = useState(0)
   const corAcao = corSistemaValida(aparencia?.cor_principal)
   const pergunta = form.pergunta_feedback.trim() || 'Como podemos melhorar?'
   const descricao = form.descricao.trim()
@@ -1573,17 +1583,32 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
   // DestaqueElementoSimulacao (mesmo componente do builder canvas e de
   // /campanhas/:id/preview — nunca reimplementar um terceiro mock aqui).
   if (form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO) {
+    const itens = form.destaques
+    const indice = itens.length > 0 ? Math.min(indicePreviewDestaque, itens.length - 1) : 0
+    const item = itens[indice]
     return createPortal(
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Preview do destaque em elemento" onClick={onClose}>
-        <div onClick={event => event.stopPropagation()}>
+        <div className="flex flex-col items-center gap-3" onClick={event => event.stopPropagation()}>
+          {itens.length > 1 && (
+            <select
+              value={indice}
+              onChange={event => setIndicePreviewDestaque(Number(event.target.value))}
+              aria-label="Escolher qual destaque visualizar"
+              className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[12px] font-bold text-white outline-none backdrop-blur"
+            >
+              {itens.map((it, i) => (
+                <option key={i} value={i} className="text-[#1c1e21]">{it.titulo.trim() || `Destaque ${i + 1}`}</option>
+              ))}
+            </select>
+          )}
           <DestaqueElementoSimulacao
             corAcao={corAcao}
-            dataCyLabel={form.data_cy.trim()}
+            dataCyLabel={(item?.data_cy ?? '').trim()}
             placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
-            badgeTexto={subtitulo || 'Novo'}
-            titulo={titulo}
-            descricao={descricao}
-            ctaTexto={temCta ? form.texto_botao.trim() : null}
+            badgeTexto={item?.texto_badge.trim() || 'Novo'}
+            titulo={item?.titulo.trim() || titulo}
+            descricao={item?.descricao.trim() || descricao}
+            ctaTexto={item?.cta_habilitado ? (item.texto_botao.trim() || null) : null}
             permitirDispensar={form.permitir_fechar_modal !== false}
             onFechar={onClose}
           />
@@ -1805,50 +1830,7 @@ export function Campanhas2Index() {
     get<Campanha>(`/campanhas/${id}`)
       .then(c => {
         if (cancelado) return
-        setForm({
-          titulo: c.titulo,
-          subtitulo: c.subtitulo ?? '',
-          descricao: c.descricao,
-          tipo: c.tipo,
-          sistema: c.sistema,
-          tela: c.tela ?? '',
-          imagem_url: c.imagem_url ?? '',
-          video_url: c.video_url ?? '',
-          texto_botao: c.texto_botao ?? '',
-          url_botao: c.url_botao ?? '',
-          feedback_habilitado: c.feedback_habilitado,
-          modo_exibicao: c.modo_exibicao,
-          gatilho: c.gatilho,
-          evento: c.evento ?? '',
-          modo_identificacao: c.modo_identificacao,
-          data_cy: c.data_cy ?? '',
-          url_contem: c.url_contem ?? '',
-          atraso_ms: String(c.atraso_ms),
-          mostrar_uma_vez: c.mostrar_uma_vez,
-          prioridade: String(c.prioridade),
-          ordem: String(c.ordem),
-          ativo: c.ativo,
-          data_inicio: c.data_inicio ?? '',
-          data_fim: c.data_fim ?? '',
-          pergunta_feedback: c.pergunta_feedback ?? '',
-          observacao_obrigatoria: c.observacao_obrigatoria,
-          exige_confirmacao_leitura: c.exige_confirmacao_leitura,
-          permitir_fechar_modal: c.permitir_fechar_modal,
-          intervalo_reexibicao_dias: c.intervalo_reexibicao_dias != null ? String(c.intervalo_reexibicao_dias) : '',
-          politica_reexibicao: c.politica_reexibicao,
-          reexibir_apos_dias: c.reexibir_apos_dias != null ? String(c.reexibir_apos_dias) : '',
-          encerrar_apos_evento: c.encerrar_apos_evento,
-          evento_conclusao: c.evento_conclusao ?? '',
-          categoria: c.categoria ?? '',
-          // texto_botao/url_botao só existem juntos (ver salvar()) — a
-          // presença de qualquer um dos dois já indica CTA habilitado.
-          cta_habilitado: Boolean(c.texto_botao || c.url_botao),
-          segmentar_cliente_ids: c.segmentar_cliente_ids,
-          segmentar_unidade_ids: c.segmentar_unidade_ids,
-          segmentar_perfis: c.segmentar_perfis,
-          segmentar_usuario_tipos: c.segmentar_usuario_tipos,
-          segmentar_estados: c.segmentar_estados,
-        })
+        setForm(hidratarFormState(c))
       })
       .catch(err => {
         if (!cancelado) setErroCarregarCampanha(err instanceof Error ? err.message : 'Erro ao carregar campanha.')
@@ -1971,39 +1953,7 @@ export function Campanhas2Index() {
     setErro(null)
     setSalvando(true)
     try {
-      const exigeConfirmacao = Boolean(form.exige_confirmacao_leitura)
-      const feedbackHabilitado = exigeConfirmacao ? false : form.feedback_habilitado
-      const exigeSaidaObrigatoria = !form.permitir_fechar_modal && !exigeConfirmacao && !feedbackHabilitado
-      const payload = {
-        ...form,
-        permitir_fechar_modal: exigeSaidaObrigatoria ? true : form.permitir_fechar_modal,
-        feedback_habilitado: feedbackHabilitado,
-        observacao_obrigatoria: exigeConfirmacao ? false : form.observacao_obrigatoria,
-        // Destaque em elemento reaproveita subtitulo como texto do badge —
-        // "Novo" é o default explícito quando o campo fica em branco (ver
-        // CampoDock "Texto do badge" no dock lateral).
-        subtitulo: form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
-          ? (form.subtitulo.trim() || 'Novo')
-          : (form.subtitulo || null),
-        imagem_url: normalizarUrl(form.imagem_url) || null,
-        video_url: embedUrl || null,
-        texto_botao: form.cta_habilitado ? (form.texto_botao.trim() || null) : null,
-        url_botao: form.cta_habilitado ? (normalizarUrl(form.url_botao) || null) : null,
-        evento: form.evento || null,
-        tela: form.modo_identificacao === 'sistema_tela' ? (form.tela || 'Geral') : '',
-        data_cy: form.data_cy || null,
-        url_contem: normalizarUrlContem(form.url_contem) || null,
-        atraso_ms: Number(form.atraso_ms || 800),
-        prioridade: Number(form.prioridade || 0),
-        ordem: Number(form.ordem || 1),
-        data_inicio: form.data_inicio || null,
-        data_fim: form.data_fim || null,
-        pergunta_feedback: form.pergunta_feedback || null,
-        intervalo_reexibicao_dias: form.intervalo_reexibicao_dias !== '' ? Number(form.intervalo_reexibicao_dias) : null,
-        reexibir_apos_dias: form.reexibir_apos_dias !== '' ? Number(form.reexibir_apos_dias) : null,
-        evento_conclusao: form.evento_conclusao.trim() || null,
-        categoria: form.categoria || null,
-      }
+      const payload = montarPayloadCampanha(form)
       const salva = id ? await put<Campanha>(`/campanhas/${id}`, payload) : await post<Campanha>('/campanhas', payload)
       navigate(`/campanhas/${salva.id}/preview`)
     } catch (err) {
