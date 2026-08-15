@@ -168,7 +168,28 @@
       '.up-modal-enter{animation:up-fade-in .2s ease-out}',
       '.up-modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid rgba(194,198,214,.45);flex-shrink:0}',
       '.up-brand{display:flex;align-items:center;gap:10px;min-width:0}',
-      '.up-brand-icon{width:32px;height:32px;border-radius:999px;background:var(--up-primary, #0058be);color:#fff;display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
+      // Fundo azul-claro + ícone azul (mesmo par de tokens já usado por
+      // .up-tour-progress logo abaixo: --up-primary-soft pro fundo,
+      // --up-primary pro texto/ícone) — mesmo estilo do círculo no preview
+      // do Campanhas 2 (ícone campaign/rocket_launch/quiz sobre fundo suave
+      // da cor do sistema, ver campanhas2/Index.tsx), não mais fundo sólido
+      // + ícone branco.
+      '.up-brand-icon{width:32px;height:32px;border-radius:999px;background:var(--up-primary-soft, rgba(0,88,190,.1));color:var(--up-primary, #0058be);display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
+      // Sem esta regra, o <svg> de campaignIconName() (sem width/height nem
+      // fill próprios, mesmo padrão de .up-fab svg/.up-close svg logo abaixo)
+      // cai no tamanho padrão do navegador pra um <svg> só com viewBox (bem
+      // maior que os 32px do círculo) e no fill preto padrão do SVG — o
+      // ícone real do widget fica estourado, bem diferente do ícone de
+      // 18px que o preview do Campanhas 2 mostra pro mesmo tipo
+      // (iconeTipoCampanha, campanhas2/Index.tsx) — mesma regra de ícone
+      // por tipo nos dois lados, só a exibição no widget que faltava.
+      // `color` repetido aqui (já existe em .up-brand-icon, o pai) de
+      // propósito: currentColor em `fill` resolve o `color` computado do
+      // PRÓPRIO elemento — declarar os dois juntos na mesma regra evita
+      // depender da herança de color atravessar corretamente do container
+      // pro svg (qualquer regra/estilo do site hospedeiro que reset color
+      // no meio do caminho não quebra o ícone).
+      '.up-brand-icon svg{width:18px;height:18px;color:var(--up-primary, #0058be);fill:currentColor;flex-shrink:0}',
       '.up-title{font-size:15px;line-height:21px;font-weight:800;color:#0b1c30;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.up-close{border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0;flex-shrink:0;display:flex;align-items:center;justify-content:center}',
       '.up-close:hover{background:#eff4ff;color:#0b1c30}',
@@ -992,7 +1013,16 @@
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5Zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14Z"/></svg>';
     }
     if (name === 'campaign') {
-      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 11V5h2v14h-2v-6H8l-4 4V7l4 4h10Zm-2-2H8.8L6 7.6v8.8L8.8 15H16V9Z"/></svg>';
+      // Path oficial do Material Symbols Outlined "campaign" (24px), igual
+      // ao que campanhas2/Index.tsx exibe via material-symbols-outlined
+      // (ICONES_TIPO_CAMPANHA/iconeTipoCampanha) — copiado de
+      // github.com/google/material-design-icons,
+      // symbols/web/campaign/materialsymbolsoutlined/campaign_24px.svg.
+      // viewBox próprio (0 -960 960 960, convenção do Material Symbols,
+      // diferente do 0 0 24 24 usado pelos outros ícones deste arquivo) —
+      // funciona igual, o <svg> escala pro tamanho definido em CSS
+      // (.up-brand-icon svg) independente do viewBox interno.
+      return '<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M720-440v-80h160v80H720Zm48 280-128-96 48-64 128 96-48 64Zm-80-480-48-64 128-96 48 64-128 96ZM200-200v-160h-40q-33 0-56.5-23.5T80-440v-80q0-33 23.5-56.5T160-600h160l200-120v480L320-360h-40v160h-80Zm240-182v-196l-98 58H160v80h182l98 58Zm120 36v-268q27 24 43.5 58.5T620-480q0 41-16.5 75.5T560-346ZM300-480Z"/></svg>';
     }
     if (name === 'rocket_launch') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c3.2.4 5.6 1.8 7.2 4.2-1.4.2-2.8.7-4.1 1.5l1.2 1.2c.8-.4 1.6-.7 2.5-.8.3 1 .4 2 .4 3.2 0 3.3-1.2 6.5-3.4 9.5l-4.4-4.4-3.2 3.2H4.4v-3.8l3.2-3.2-4.4-4.4C6.2 5.9 9.1 2.8 12 2Zm.7 3.1c-1.8.5-3.8 2.2-5.9 5l7.1 7.1c2.8-2.1 4.5-4.7 4.9-7.7-2.6.4-4.8 1.8-6.7 4.1L10.6 12c1.7-2.1 3.7-3.7 6-4.8-1-1-2.3-1.7-3.9-2.1ZM5.8 16.2v1.9h1.9l2.3-2.3-1.9-1.9-2.3 2.3Z"/></svg>';
@@ -10148,6 +10178,11 @@
     // nunca só por ter renderizado (ver comentário em destaqueElementoMontar).
     wasShown: wasShown,
     markShown: markShown,
+    // Ícone do cabeçalho da modal por tipo de campanha (comunicado/melhoria/
+    // pesquisa) — regra pura, exposta só pra confirmar por teste que fica em
+    // paridade com iconeTipoCampanha/ICONES_TIPO_CAMPANHA (campanhas2/Index.tsx,
+    // "preview"), a mesma regra do lado do admin. Ver server/src/widgetCampaignIcon.test.ts.
+    campaignIconName: campaignIconName,
   };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
