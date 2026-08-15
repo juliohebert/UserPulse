@@ -13,6 +13,7 @@ import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
 import { CampanhaQuickView } from './CampanhaQuickView'
 
 const PER_PAGE = 10
@@ -107,45 +108,6 @@ function MetricCard({ label, value, icon }: { label: string; value: string | num
   )
 }
 
-function TooltipIconButton({
-  label,
-  ariaLabel,
-  onClick,
-  className,
-  children,
-}: {
-  label: string
-  ariaLabel: string
-  onClick: () => void
-  className: string
-  children: ReactNode
-}) {
-  const [visible, setVisible] = useState(false)
-
-  return (
-    <span className="relative inline-flex">
-      <button
-        onClick={onClick}
-        aria-label={ariaLabel}
-        onMouseEnter={() => setVisible(true)}
-        onMouseLeave={() => setVisible(false)}
-        onFocus={() => setVisible(true)}
-        onBlur={() => setVisible(false)}
-        className={className}
-      >
-        {children}
-      </button>
-      <span
-        role="tooltip"
-        className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-2xl bg-on-surface px-2.5 py-1.5 text-[11px] font-semibold text-surface shadow-panel transition-opacity duration-100 ${
-          visible ? 'opacity-100' : 'opacity-0'
-        }`}
-      >
-        {label}
-      </span>
-    </span>
-  )
-}
 
 function Tooltip({ label, children }: { label: string; children: ReactNode }) {
   const [visible, setVisible] = useState(false)

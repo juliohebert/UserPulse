@@ -90,12 +90,33 @@ export interface EventoCampanha {
   campanha_id: string
   tipo_evento: string
   usuario_id: string | null
+  // Só presente pra eventos de destaque_elemento (Fase 3 de múltiplos
+  // destaques) — null pros demais formatos e pra eventos legados
+  // registrados antes desta fase existir.
+  destaque_item_id: string | null
   sistema: string | null
   tela: string | null
   navegador: string | null
   dispositivo: string | null
   contexto: Record<string, string> | null
   criado_em: string
+}
+
+// Desempenho de 1 CampanhaDestaqueItem — inclui itens já removidos
+// (ativo:false) pra preservar o histórico de eventos que apontam pra eles;
+// o frontend usa `ativo` pra sinalizar "removido" em vez de escondê-los.
+export interface DesempenhoDestaqueItem {
+  destaque_item_id: string
+  titulo: string
+  ativo: boolean
+  visualizacoes: number
+  visualizacoes_unicas: number
+  interacoes: number
+  interacoes_unicas: number
+  cliques_cta: number
+  cliques_cta_unicos: number
+  dispensas: number
+  dispensas_unicas: number
 }
 
 export interface DashboardData {
@@ -113,6 +134,8 @@ export interface DashboardData {
   visualizacoes_unicas: number
   cliques_unicos: number
   respondentes_unicos: number
+  // Só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
+  desempenho_destaques: DesempenhoDestaqueItem[]
 }
 
 export interface TelaCatalogo {

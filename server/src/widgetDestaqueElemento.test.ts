@@ -92,6 +92,12 @@ let ultimoRootDestaque: { style: Record<string, string>; contains: (node: unknow
 // múltiplos destaques usam .length (delta antes/depois da própria ação) pra
 // confirmar quantas instâncias foram montadas de verdade.
 let todasAsRaizesDestaque: Array<{ style: Record<string, string> }> = []
+// Mesmo padrão — acumula TODAS as chamadas de fetch (POST /api/widget/evento)
+// já feitas pelo widget na sandbox compartilhada, nunca resetado sozinho.
+// Fica com o corpo já parseado (JSON.parse do body enviado) pra assert direto
+// em tipo_evento/campanha_id/destaque_item_id sem reimplementar o parsing em
+// cada teste.
+let chamadasRastreamento: Array<{ url: string; body: Record<string, unknown> }> = []
 // Sandbox compartilhada (ver before() abaixo) — exposta pra testes que
 // precisam mutar window.visualViewport/innerWidth/document.documentElement/
 // document.fonts pontualmente, sem recriar o contexto vm inteiro.
@@ -181,6 +187,14 @@ before(() => {
     console,
     URL,
     URLSearchParams,
+    // widget.js chama fetch(...) sem prefixo window. — bare global call,
+    // resolve contra o CONTEXTO da vm (este objeto sandbox em si), nunca
+    // contra sandbox.window (que só cobre window.algo explícito). Precisa
+    // estar aqui em cima, não dentro de sandbox.window abaixo.
+    fetch: (url: string, opts?: { body?: string }) => {
+      chamadasRastreamento.push({ url, body: opts?.body ? JSON.parse(opts.body) : {} })
+      return Promise.resolve({ ok: true })
+    },
     document: {
       currentScript: { src: 'http://localhost/widget.js' },
       querySelectorAll: () => [],
@@ -227,8 +241,10 @@ before(() => {
     open() {},
     history: { pushState() {}, replaceState() {} },
     CSS: { escape: (valor: string) => valor.replace(/["\\]/g, '\\$&') },
+    navigator: { userAgent: 'node:test' },
+    innerWidth: 1024,
   }
-  sandboxCompartilhado = sandbox as unknown as { document: Record<string, unknown>; window: Record<string, unknown> }
+  sandboxCompartilhado = sandbox as unknown as { document: Record<string, unknown>; window: Record<string, unknown>; fetch: unknown }
   vm.createContext(sandbox)
   vm.runInContext(codigo, sandbox, { filename: 'widget.js' })
   const UserPulse = (sandbox.window as {
@@ -1227,4 +1243,141 @@ describe('destaqueElementoMontarTodos — mount/interação independentes por it
     assert.doesNotThrow(() => destaqueElementoMontarTodos(campanha, config))
     assert.equal(todasAsRaizesDestaque.length - antes, 0)
   })
+})
+
+// Fase 3 — tracking por item (destaque_item_id em EventoCampanha). Cobre só
+// o que acontece no WIDGET: quais eventos disparam, com qual payload, e que
+// uma falha de rede/exceção síncrona no rastreamento nunca impede o resto do
+// clique (markShown/CTA/toggle) de rodar. Ownership/isolamento de tenant do
+// destaque_item_id são validados do lado do servidor — ver
+// server/src/controllers/widget.test.ts (validarDestaqueItemEvento).
+describe('registrarEvento (destaque_elemento) — visualizacao/interacao_badge/clique_cta/dispensa por item', () => {
+  test('renderizou -> visualizacao, com destaque_item_id do item montado', () => {
+    presentes.add('filtro-track-view');
+    const campanha: Campanha = {
+      id: 'destaque-track-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-track-view', data_cy: 'filtro-track-view', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-track-1' };
+    const antes = chamadasRastreamento.length;
+    destaqueElementoMontarTodos(campanha, config);
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1, 'mount deve gerar exatamente 1 chamada de rastreamento (visualizacao)');
+    assert.equal(novas[0].url, 'http://localhost/api/widget/evento');
+    assert.equal(novas[0].body.tipo_evento, 'visualizacao');
+    assert.equal(novas[0].body.campanha_id, 'destaque-track-1');
+    assert.equal(novas[0].body.destaque_item_id, 'item-track-view');
+  });
+
+  test('clicou no badge (abrir) -> interacao_badge com o destaque_item_id certo', () => {
+    presentes.add('filtro-track-badge');
+    const campanha: Campanha = {
+      id: 'destaque-track-2', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-track-badge', data_cy: 'filtro-track-badge', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-track-2' };
+    destaqueElementoMontarTodos(campanha, config);
+    const listener = destaqueElementoGetTestClickListener(0);
+    const antes = chamadasRastreamento.length;
+    listener!({ target: elementoClique('data-up-destaque-toggle') });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].body.tipo_evento, 'interacao_badge');
+    assert.equal(novas[0].body.destaque_item_id, 'item-track-badge');
+  });
+
+  test('clicou no CTA -> clique_cta com o destaque_item_id certo', () => {
+    presentes.add('filtro-track-cta');
+    const campanha: Campanha = {
+      id: 'destaque-track-3', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-track-cta', data_cy: 'filtro-track-cta', titulo: 'T', texto_botao: 'Ver', url_botao: 'https://x.com' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-track-3' };
+    destaqueElementoMontarTodos(campanha, config);
+    const listener = destaqueElementoGetTestClickListener(0);
+    const antes = chamadasRastreamento.length;
+    listener!({ target: elementoClique('data-up-destaque-cta', { 'data-up-url': 'https://x.com' }) });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].body.tipo_evento, 'clique_cta');
+    assert.equal(novas[0].body.destaque_item_id, 'item-track-cta');
+  });
+
+  test('fechou (dispensou) -> dispensa com o destaque_item_id certo, e markShown continua funcionando junto', () => {
+    presentes.add('filtro-track-close');
+    const campanha: Campanha = {
+      id: 'destaque-track-4', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-track-close', data_cy: 'filtro-track-close', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-track-4' };
+    destaqueElementoMontarTodos(campanha, config);
+    const listener = destaqueElementoGetTestClickListener(0);
+    const antes = chamadasRastreamento.length;
+    listener!({ target: elementoClique('data-up-destaque-close') });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].body.tipo_evento, 'dispensa');
+    assert.equal(novas[0].body.destaque_item_id, 'item-track-close');
+    // "Até interagir" não pode ser afetado por rastreamento ter sido
+    // adicionado — o item continua marcado como visto normalmente.
+    assert.equal(wasShown(campanha, config, 'item-track-close'), true);
+  });
+
+  test('campanha legada (sem destaques[], pseudo-item id:null) -> visualizacao SEM destaque_item_id (chave ausente, nunca null solto)', () => {
+    presentes.add('filtro-track-legado');
+    const campanha: Campanha = {
+      id: 'destaque-track-legado', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      data_cy: 'filtro-track-legado', titulo: 'Legado', descricao: 'D',
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-track-legado' };
+    const antes = chamadasRastreamento.length;
+    destaqueElementoMontarTodos(campanha, config);
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].body.tipo_evento, 'visualizacao');
+    assert.equal('destaque_item_id' in novas[0].body, false, 'destaque_item_id nunca deve ir como null solto — ausente do payload quando o item não tem id');
+  });
+
+  test('falha de rastreamento (fetch lança síncrono) nunca impede o resto do clique de rodar — markShown continua funcionando', () => {
+    presentes.add('filtro-track-falha-sync');
+    const campanha: Campanha = {
+      id: 'destaque-track-falha-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-track-falha-sync', data_cy: 'filtro-track-falha-sync', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-track-falha-1' };
+    const fetchOriginal = sandboxCompartilhado.fetch;
+    sandboxCompartilhado.fetch = () => { throw new Error('falha de rede simulada'); };
+    try {
+      assert.doesNotThrow(() => destaqueElementoMontarTodos(campanha, config), 'mount não pode lançar mesmo com fetch quebrado');
+      const listener = destaqueElementoGetTestClickListener(0);
+      assert.doesNotThrow(() => listener!({ target: elementoClique('data-up-destaque-close') }), 'clique de fechar não pode lançar mesmo com fetch quebrado');
+      assert.equal(wasShown(campanha, config, 'item-track-falha-sync'), true, 'markShown deve continuar funcionando mesmo com o rastreamento quebrado');
+    } finally {
+      sandboxCompartilhado.fetch = fetchOriginal;
+    }
+  });
+
+  test('falha de rastreamento (fetch rejeita a Promise) nunca impede o resto do clique de rodar — CTA continua abrindo', () => {
+    presentes.add('filtro-track-falha-async');
+    const campanha: Campanha = {
+      id: 'destaque-track-falha-2', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-track-falha-async', data_cy: 'filtro-track-falha-async', titulo: 'T', texto_botao: 'Ver', url_botao: 'https://x.com' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-track-falha-2' };
+    const fetchOriginal = sandboxCompartilhado.fetch;
+    let urlAberta: string | null = null;
+    sandboxCompartilhado.fetch = () => Promise.reject(new Error('falha de rede simulada'));
+    const openOriginal = sandboxCompartilhado.window.open;
+    sandboxCompartilhado.window.open = (url: string) => { urlAberta = url; };
+    try {
+      destaqueElementoMontarTodos(campanha, config);
+      const listener = destaqueElementoGetTestClickListener(0);
+      assert.doesNotThrow(() => listener!({ target: elementoClique('data-up-destaque-cta', { 'data-up-url': 'https://x.com' }) }));
+      assert.equal(urlAberta, 'https://x.com', 'CTA deve abrir a URL normalmente mesmo com o rastreamento falhando');
+      assert.equal(wasShown(campanha, config, 'item-track-falha-async'), true);
+    } finally {
+      sandboxCompartilhado.fetch = fetchOriginal;
+      sandboxCompartilhado.window.open = openOriginal;
+    }
+  });
 })

@@ -499,10 +499,12 @@ export function validarOwnershipDestaques(idsExistentes: string[], lista: Destaq
 // Sincronização por identidade (substitui o antigo delete+recreate total):
 // item com `id` reconhecido -> UPDATE (preserva o id, só troca os campos e a
 // ordem); item sem `id` -> CREATE; id que existia antes mas não veio mais na
-// lista -> DELETE. `ordem` é sempre a posição do item na lista recebida
-// (1-based), então reordenar é só reenviar a lista na nova ordem mantendo os
-// ids — nenhuma linha reordenada troca de id. Função pura: só decide o QUE
-// fazer, quem chama é responsável por já ter validado ownership antes.
+// lista -> INATIVAÇÃO (ativo:false, nunca DELETE — preserva o histórico de
+// eventos que apontam pra esse id). `ordem` é sempre a posição do item na
+// lista recebida (1-based), então reordenar é só reenviar a lista na nova
+// ordem mantendo os ids — nenhuma linha reordenada troca de id. Função pura:
+// só decide o QUE fazer, quem chama é responsável por já ter validado
+// ownership antes.
 export interface SincronizacaoDestaques {
   paraCriar: Array<{ ordem: number; item: DestaqueItemInput }>
   paraAtualizar: Array<{ id: string; ordem: number; item: DestaqueItemInput }>
@@ -595,7 +597,12 @@ export async function buscarPorId(req: Request, res: Response) {
   try {
     const campanha = await prisma.campanha.findFirst({
       where: { id: req.params.id as string, tenant_id: req.adminUser!.tenant_id },
-      include: { _count: { select: { feedbacks: true } }, destaques: { orderBy: { ordem: 'asc' } } },
+      // destaques inativos (removidos da configuração, ver atualizar() —
+      // viram ativo:false em vez de apagados, pra preservar o histórico de
+      // eventos) nunca voltam a aparecer no formulário de edição — do ponto
+      // de vista do admin, "remover e salvar" continua parecendo uma
+      // remoção de verdade.
+      include: { _count: { select: { feedbacks: true } }, destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
     })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
     res.json(campanha)
@@ -757,7 +764,12 @@ export async function atualizar(req: Request, res: Response) {
 
     const id = req.params.id as string
 
-    const existente = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId }, include: { destaques: true } })
+    // Só os destaques ATIVOS entram em idsExistentes/ownership abaixo — um
+    // item já removido (ativo:false) não deve ficar sendo "reencontrado
+    // como removido" (e regravado ativo:false de novo) a cada save só
+    // porque o form nunca o reenvia (buscarPorId também não devolve
+    // inativos, então o form nunca teria como reenviá-lo mesmo se quisesse).
+    const existente = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId }, include: { destaques: { where: { ativo: true } } } })
     if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
     const modoExibicaoAtualizado = req.body.modo_exibicao !== undefined
@@ -865,13 +877,16 @@ export async function atualizar(req: Request, res: Response) {
       slug = await slugUnico(tenantId, gerarSlugBase(titulo.trim()), id)
     }
 
-    // Nested write única (Prisma resolve create/update/deleteMany da relação
+    // Nested write única (Prisma resolve create/update/updateMany da relação
     // dentro da mesma escrita atômica) — sincronização por identidade em vez
     // do antigo delete+recreate total: `update` preserva o id de cada linha
     // existente (só troca ordem/campos), `create` só roda pros itens sem id,
-    // `deleteMany` só remove os ids que saíram da lista (ver sincronizacao
-    // acima). Só roda quando `sincronizacao` não é nula — do contrário os
-    // itens existentes ficam completamente intocados.
+    // `updateMany` marca ativo:false só os ids que saíram da lista (nunca
+    // DELETE — preserva a linha e o histórico de EventoCampanha.
+    // destaque_item_id que apontar pra ela; buscarCampanha/buscarCandidatas
+    // já filtram destaques por ativo:true, então o widget para de mostrar o
+    // item imediatamente, igual a antes). Só roda quando `sincronizacao` não
+    // é nula — do contrário os itens existentes ficam completamente intocados.
     const campanha = await prisma.campanha.update({
       where: { id },
       data: {
@@ -926,7 +941,7 @@ export async function atualizar(req: Request, res: Response) {
         ...(sincronizacao && {
           destaques: {
             ...(sincronizacao.idsParaRemover.length > 0 && {
-              deleteMany: { id: { in: sincronizacao.idsParaRemover } },
+              updateMany: { where: { id: { in: sincronizacao.idsParaRemover } }, data: { ativo: false } },
             }),
             ...(sincronizacao.paraAtualizar.length > 0 && {
               update: sincronizacao.paraAtualizar.map(({ id, ordem, item }) => ({
@@ -977,7 +992,10 @@ export async function duplicar(req: Request, res: Response) {
     if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
 
     const id = req.params.id as string
-    const original = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId }, include: { destaques: { orderBy: { ordem: 'asc' } } } })
+    // Só os destaques ATIVOS — a cópia reflete o que está configurado hoje,
+    // nunca itens já removidos (ativo:false) que só existem pra preservar
+    // histórico de eventos da campanha original.
+    const original = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId }, include: { destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } } } })
     if (!original) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
     // Fase 6D — a cópia nasce sempre inativa (ver `ativo: false` abaixo), mas
