@@ -18,6 +18,7 @@ type SortDirection = 'asc' | 'desc'
 type ColumnKey = SortKey | 'acoes'
 type FiltroStatus = 'todos' | 'ativos' | 'inativos'
 type FiltroEtapas = 'todas' | 'com' | 'sem'
+const FILTRO_STATUS_PADRAO: FiltroStatus = 'ativos'
 
 const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
   { label: 'Jornada', key: 'jornada', sortKey: 'jornada' },
@@ -141,7 +142,7 @@ export function JornadasIndex() {
   const [filtrosAberto, setFiltrosAberto] = useState(false)
   const [colunasVisiveis, setColunasVisiveis] = useState(COLUNAS_INICIAIS)
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
-  const [filterAtivo, setFilterAtivo] = useState<FiltroStatus>('todos')
+  const [filterAtivo, setFilterAtivo] = useState<FiltroStatus>(FILTRO_STATUS_PADRAO)
   const [filterEtapas, setFilterEtapas] = useState<FiltroEtapas>('todas')
   const [excluindoId, setExcluindoId] = useState<string | null>(null)
   const [jornadaExcluir, setJornadaExcluir] = useState<Jornada | null>(null)
@@ -226,11 +227,11 @@ export function JornadasIndex() {
   const limiteJornadas = limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_jornadas_ativas, jornadas.length, 'jornada')
   const clearFilters = () => {
     setBusca('')
-    setFilterAtivo('todos')
+    setFilterAtivo(FILTRO_STATUS_PADRAO)
     setFilterEtapas('todas')
     setPage(1)
   }
-  const totalFiltrosAtivos = [filterAtivo !== 'todos', filterEtapas !== 'todas'].filter(Boolean).length
+  const totalFiltrosAtivos = [filterAtivo !== FILTRO_STATUS_PADRAO, filterEtapas !== 'todas'].filter(Boolean).length
   const hasFilters = Boolean(busca || totalFiltrosAtivos > 0)
   const totalColunasSelecionadas = TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).length
 
@@ -447,8 +448,8 @@ export function JornadasIndex() {
           {!loading && !error && hasFilters && (
             <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-low/30">
               {busca && <FilterChip label={busca} onRemove={() => { setBusca(''); setPage(1) }} />}
-              {filterAtivo !== 'todos' && (
-                <FilterChip label={filterAtivo === 'ativos' ? 'Ativas' : 'Inativas'} onRemove={() => { setFilterAtivo('todos'); setPage(1) }} />
+              {filterAtivo !== FILTRO_STATUS_PADRAO && (
+                <FilterChip label={filterAtivo === 'ativos' ? 'Ativas' : 'Inativas'} onRemove={() => { setFilterAtivo(FILTRO_STATUS_PADRAO); setPage(1) }} />
               )}
               {filterEtapas !== 'todas' && (
                 <FilterChip label={filterEtapas === 'com' ? 'Com etapas' : 'Sem etapas'} onRemove={() => { setFilterEtapas('todas'); setPage(1) }} />

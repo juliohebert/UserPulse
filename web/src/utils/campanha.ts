@@ -8,11 +8,8 @@ export function getStatus(c: Campanha): StatusCampanha {
   return 'ativa'
 }
 
-// Campanhas 2 é o fluxo que será mantido — campanhas destaque_elemento (só
-// existem lá, ver campanhas2/Index.tsx) editam por lá; os demais formatos
-// continuam temporariamente no Form.tsx antigo até migrarem.
 export function rotaEditarCampanha(c: Campanha): string {
-  return c.modo_exibicao === 'destaque_elemento' ? `/campanhas2/${c.id}/editar` : `/campanhas/${c.id}/editar`
+  return `/campanhas/${c.id}/editar`
 }
 
 export function gerarSlug(titulo: string): string {

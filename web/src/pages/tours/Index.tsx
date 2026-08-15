@@ -22,6 +22,7 @@ type SortKey = 'tour' | 'sistema' | 'status' | 'passos' | 'atualizado'
 type SortDirection = 'asc' | 'desc'
 type ColumnKey = SortKey | 'acoes'
 type FiltroPassos = 'todos' | 'com' | 'sem'
+const STATUS_FILTRO_PADRAO: StatusFiltro = 'ativos'
 
 const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
   { label: 'Tour', key: 'tour', sortKey: 'tour' },
@@ -137,7 +138,7 @@ export function ToursIndex() {
   const [colunasVisiveis, setColunasVisiveis] = useState(COLUNAS_INICIAIS)
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
   const [filterSistema, setFilterSistema] = useState('')
-  const [filterAtivo, setFilterAtivo] = useState<StatusFiltro>('todos')
+  const [filterAtivo, setFilterAtivo] = useState<StatusFiltro>(STATUS_FILTRO_PADRAO)
   const [filterPassos, setFilterPassos] = useState<FiltroPassos>('todos')
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [exportandoId, setExportandoId] = useState<string | null>(null)
@@ -227,7 +228,7 @@ export function ToursIndex() {
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(busca, '', 'todos', 1, null, 'todos') }, [])
+  useEffect(() => { load(busca, '', STATUS_FILTRO_PADRAO, 1, null, 'todos') }, [])
 
   // Debounce só da busca — status/sistema mudam por clique único (sem
   // motivo pra atrasar) e já chamam load() direto nos próprios handlers.
@@ -252,11 +253,11 @@ export function ToursIndex() {
   const clearFilters = () => {
     setBusca('')
     setFilterSistema('')
-    setFilterAtivo('todos')
+    setFilterAtivo(STATUS_FILTRO_PADRAO)
     setFilterPassos('todos')
-    load('', '', 'todos', 1, sort, 'todos')
+    load('', '', STATUS_FILTRO_PADRAO, 1, sort, 'todos')
   }
-  const totalFiltrosAtivos = [Boolean(filterSistema), filterAtivo !== 'todos', filterPassos !== 'todos'].filter(Boolean).length
+  const totalFiltrosAtivos = [Boolean(filterSistema), filterAtivo !== STATUS_FILTRO_PADRAO, filterPassos !== 'todos'].filter(Boolean).length
   const hasFilters = Boolean(busca || totalFiltrosAtivos > 0)
   const totalColunasSelecionadas = TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).length
 
@@ -555,8 +556,8 @@ export function ToursIndex() {
             <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-low/30">
               {busca && <FilterChip label={busca} onRemove={() => { setBusca(''); load('', filterSistema, filterAtivo, 1) }} />}
               {filterSistema && <FilterChip label={filterSistema} onRemove={() => mudarSistema('')} />}
-              {filterAtivo !== 'todos' && (
-                <FilterChip label={filterAtivo === 'ativos' ? 'Ativos' : 'Inativos'} onRemove={() => mudarStatus('todos')} />
+              {filterAtivo !== STATUS_FILTRO_PADRAO && (
+                <FilterChip label={filterAtivo === 'ativos' ? 'Ativos' : 'Inativos'} onRemove={() => mudarStatus(STATUS_FILTRO_PADRAO)} />
               )}
               {filterPassos !== 'todos' && (
                 <FilterChip label={filterPassos === 'com' ? 'Com passos' : 'Sem passos'} onRemove={() => mudarPassos('todos')} />

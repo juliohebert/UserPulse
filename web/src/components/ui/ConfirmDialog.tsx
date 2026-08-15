@@ -19,9 +19,8 @@ interface ConfirmDialogProps {
 }
 
 // Ícone + cores por variante — "warning" usa a paleta amber padrão do
-// Tailwind (mesmo padrão já usado em avisos pelo resto do painel, ex.:
-// DestinoCampanha.tsx, campanhas/Form.tsx), já que o design system do
-// projeto (tailwind.config) só define tokens de primary/tertiary/error.
+// Tailwind, já que o design system do projeto (tailwind.config) só define
+// tokens de primary/tertiary/error.
 const VARIANT_CFG: Record<ConfirmDialogVariant, { icon: string; iconBg: string; iconColor: string }> = {
   danger: {
     icon: 'warning',
