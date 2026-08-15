@@ -1450,13 +1450,13 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
       )}
 
       <div className="overflow-hidden rounded-xl border border-outline-variant shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-outline-variant/40 bg-surface-container-low px-4 py-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white" style={{ backgroundColor: corAcao }}>
+        <div className="flex items-start justify-between gap-3 border-b border-outline-variant/40 bg-surface-container-low px-4 py-3">
+          <div className="flex min-w-0 flex-1 items-start gap-2">
+            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white ${preview ? '' : 'self-center'}`} style={{ backgroundColor: corAcao }}>
               <span className="material-symbols-outlined text-[18px] leading-none">{iconeCampanha}</span>
             </div>
             {preview ? (
-              <p className="m-0 min-w-0 flex-1 truncate text-label-md font-bold text-on-surface">{form.titulo || 'Título da campanha'}</p>
+              <p className="m-0 min-w-0 flex-1 break-words text-label-md font-bold text-on-surface">{form.titulo || 'Título da campanha'}</p>
             ) : (
               <input
                 value={form.titulo}
@@ -1464,7 +1464,7 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
                 required
                 aria-label="Título da campanha"
                 placeholder="Título da campanha"
-                className="min-w-0 flex-1 truncate border-0 bg-transparent p-0 text-label-md font-bold text-on-surface outline-none placeholder:text-outline focus:ring-0"
+                className="min-w-0 flex-1 self-center truncate border-0 bg-transparent p-0 text-label-md font-bold text-on-surface outline-none placeholder:text-outline focus:ring-0"
               />
             )}
           </div>
@@ -1634,12 +1634,12 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
           </div>
         ) : (
           <>
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[rgba(194,198,214,.45)] px-5 py-4">
-              <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[rgba(194,198,214,.45)] px-5 py-4">
+              <div className="flex min-w-0 items-start gap-2.5">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white" style={{ backgroundColor: corAcao }}>
                   <span className="material-symbols-outlined text-[18px]">{iconeCampanha}</span>
                 </div>
-                <p className="m-0 truncate text-[15px] font-extrabold leading-[21px] text-[#0b1c30]">{titulo}</p>
+                <p className="m-0 min-w-0 flex-1 break-words text-[15px] font-extrabold leading-[21px] text-[#0b1c30]">{titulo}</p>
               </div>
               {form.permitir_fechar_modal !== false && (
                 <button type="button" onClick={onClose} aria-label="Fechar campanha" title="Fechar" className="flex shrink-0 items-center justify-center rounded-lg p-1 text-[#727785] hover:bg-[#eff4ff] hover:text-[#0b1c30]">
