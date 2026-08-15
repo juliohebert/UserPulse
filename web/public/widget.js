@@ -166,8 +166,13 @@
       '.up-fab-close{background:#0b1c30;color:#f8f9ff}',
       '.up-modal{position:static;width:100%;max-width:560px;background:#fff;border:1px solid #c2c6d6;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.22);overflow:hidden;display:flex;flex-direction:column;max-height:calc(100vh - 32px)}',
       '.up-modal-enter{animation:up-fade-in .2s ease-out}',
-      '.up-modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid rgba(194,198,214,.45);flex-shrink:0}',
-      '.up-brand{display:flex;align-items:center;gap:10px;min-width:0}',
+      // align-items:flex-start (era center) nas duas regras abaixo — com
+      // .up-title agora permitindo quebra de linha (ver comentário logo
+      // abaixo), um título de 2+ linhas deve alinhar o ícone ao topo da
+      // primeira linha e manter o botão fechar encostado no topo direito,
+      // em vez de tudo recentralizar verticalmente conforme o header cresce.
+      '.up-modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid rgba(194,198,214,.45);flex-shrink:0}',
+      '.up-brand{display:flex;align-items:flex-start;gap:10px;min-width:0}',
       // Fundo azul-claro + ícone azul (mesmo par de tokens já usado por
       // .up-tour-progress logo abaixo: --up-primary-soft pro fundo,
       // --up-primary pro texto/ícone) — mesmo estilo do círculo no preview
@@ -190,7 +195,13 @@
       // pro svg (qualquer regra/estilo do site hospedeiro que reset color
       // no meio do caminho não quebra o ícone).
       '.up-brand-icon svg{width:18px;height:18px;color:var(--up-primary, #0058be);fill:currentColor;flex-shrink:0}',
-      '.up-title{font-size:15px;line-height:21px;font-weight:800;color:#0b1c30;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      // Sem white-space:nowrap/overflow:hidden/text-overflow:ellipsis — título
+      // grande agora quebra linha em vez de truncar com "...", igual ao
+      // preview do Campanhas 2 (CardEditavel/PreviewCampanhaModal, ver
+      // campanhas2/Index.tsx). overflow-wrap:break-word só protege o caso de
+      // uma palavra única maior que a largura disponível (ex.: sem espaços);
+      // não afeta a quebra normal entre palavras.
+      '.up-title{font-size:15px;line-height:21px;font-weight:800;color:#0b1c30;margin:0;overflow-wrap:break-word}',
       '.up-close{border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0;flex-shrink:0;display:flex;align-items:center;justify-content:center}',
       '.up-close:hover{background:#eff4ff;color:#0b1c30}',
       '.up-close svg{width:20px;height:20px;fill:currentColor;display:block;flex-shrink:0}',
