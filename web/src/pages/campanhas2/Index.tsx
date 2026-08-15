@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { get, post, put } from '../../services/api'
@@ -1698,12 +1698,7 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
 
 export function Campanhas2Index() {
   const navigate = useNavigate()
-  // Rota genérica de edição (campanhas2/:id/editar) — mesma tela de
-  // campanhas/nova, só que populada a partir de uma campanha existente.
-  // Hoje só campanhas destaque_elemento linkam pra cá (ver campanhas/Index.tsx),
-  // mas não é uma checagem de formato: qualquer campanha cujos campos este
-  // formulário já suporte (inclui modal_automatica, via CardEditavel) edita
-  // aqui normalmente.
+  const location = useLocation()
   const { id } = useParams<{ id: string }>()
   const [carregandoCampanha, setCarregandoCampanha] = useState(Boolean(id))
   const [erroCarregarCampanha, setErroCarregarCampanha] = useState<string | null>(null)
@@ -1794,7 +1789,15 @@ export function Campanhas2Index() {
   }, [aparencias, form.sistema])
 
   useEffect(() => {
-    if (!id) return
+    if (!id) {
+      const sistemaPadrao = sistemasConfig.find(sistema => sistema.padrao && sistema.ativo) ?? sistemasConfig[0]
+      setForm({ ...formInicial, sistema: sistemaPadrao?.identificador ?? '' })
+      setMostrarMidia(true)
+      setMediaPosition('topo')
+      setCarregandoCampanha(false)
+      setErroCarregarCampanha(null)
+      return
+    }
     let cancelado = false
     setCarregandoCampanha(true)
     setErroCarregarCampanha(null)
@@ -1855,7 +1858,7 @@ export function Campanhas2Index() {
       })
 
     return () => { cancelado = true }
-  }, [id])
+  }, [id, location.key])
 
   function setCampo<K extends keyof FormState>(campo: K, valor: FormState[K]) {
     setForm(prev => ({ ...prev, [campo]: valor }))

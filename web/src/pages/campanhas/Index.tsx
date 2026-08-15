@@ -22,6 +22,7 @@ type SortDirection = 'asc' | 'desc'
 type ColumnKey = SortKey | 'acoes'
 type FiltroStatus = 'todas' | StatusCampanha
 type FiltroRespostas = 'todas' | 'com' | 'sem'
+const FILTRO_STATUS_PADRAO: FiltroStatus = 'ativa'
 
 const TIPOS = ['comunicado', 'melhoria', 'pesquisa']
 const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
@@ -346,7 +347,7 @@ export function CampanhasIndex() {
   const [colunasAberto, setColunasAberto] = useState(false)
   const [colunasVisiveis, setColunasVisiveis] = useState(COLUNAS_INICIAIS)
   const [filtrosAberto, setFiltrosAberto] = useState(false)
-  const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>('todas')
+  const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>(FILTRO_STATUS_PADRAO)
   const [filtroTipo, setFiltroTipo] = useState('')
   const [filtroCategoria, setFiltroCategoria] = useState('')
   const [filtroSistema, setFiltroSistema] = useState('')
@@ -424,7 +425,7 @@ export function CampanhasIndex() {
   const limiteCampanhas = limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_campanhas_ativas, campanhas.length, 'campanha')
   const totalColunasSelecionadas = TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).length
   const totalFiltrosAtivos = [
-    filtroStatus !== 'todas',
+    filtroStatus !== FILTRO_STATUS_PADRAO,
     Boolean(filtroTipo),
     Boolean(filtroCategoria),
     Boolean(filtroSistema),
@@ -460,7 +461,7 @@ export function CampanhasIndex() {
   }
 
   const limparFiltros = () => {
-    setFiltroStatus('todas')
+    setFiltroStatus(FILTRO_STATUS_PADRAO)
     setFiltroTipo('')
     setFiltroCategoria('')
     setFiltroSistema('')
@@ -730,8 +731,8 @@ export function CampanhasIndex() {
 
         {!loading && !error && totalFiltrosAtivos > 0 && (
           <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-low/30">
-            {filtroStatus !== 'todas' && (
-              <FilterChip label={STATUS_FILTRO.find(s => s.value === filtroStatus)?.label ?? filtroStatus} onRemove={() => { setFiltroStatus('todas'); setPage(1) }} />
+            {filtroStatus !== FILTRO_STATUS_PADRAO && (
+              <FilterChip label={STATUS_FILTRO.find(s => s.value === filtroStatus)?.label ?? filtroStatus} onRemove={() => { setFiltroStatus(FILTRO_STATUS_PADRAO); setPage(1) }} />
             )}
             {filtroTipo && (
               <FilterChip label={filtroTipo.charAt(0).toUpperCase() + filtroTipo.slice(1)} onRemove={() => { setFiltroTipo(''); setPage(1) }} />

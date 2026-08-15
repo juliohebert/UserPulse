@@ -14,7 +14,6 @@ import { MinhaContaPage } from './pages/MinhaConta'
 import { Dashboard } from './pages/Dashboard'
 import { CampanhasIndex } from './pages/campanhas/Index'
 import { Campanhas2Index } from './pages/campanhas2/Index'
-import { CampanhaForm as CampanhaFormBackup } from './pages/campanhas/Form'
 import { CampanhaDashboard } from './pages/campanhas/CampanhaDashboard'
 import { CampanhaPreview } from './pages/campanhas/Preview'
 import { CatalogoTelasIndex } from './pages/catalogo/Index'
@@ -79,15 +78,7 @@ export default function App() {
             <Route element={<RequireEscritaConteudo />}>
               <Route path="campanhas-2" element={<Navigate to="/campanhas/nova" replace />} />
               <Route path="campanhas/nova" element={<Campanhas2Index />} />
-              <Route path="campanhas/nova-backup" element={<CampanhaFormBackup />} />
-              <Route path="campanhas/:id/editar" element={<CampanhaFormBackup />} />
-              {/* Rota genérica de edição pelo Campanhas 2 — não fica presa a
-                  "destaque_elemento": é o mesmo Campanhas2Index de
-                  campanhas/nova, só que populado a partir de um id existente.
-                  Hoje só a listagem linka pra cá quando modo_exibicao é
-                  destaque_elemento (nenhum outro formato migrou ainda), mas a
-                  rota em si serve qualquer campanha assim que o formulário
-                  suportar seus campos. */}
+              <Route path="campanhas/:id/editar" element={<Campanhas2Index />} />
               <Route path="campanhas2/:id/editar" element={<Campanhas2Index />} />
               <Route path="tours/gravador" element={<TourGravador />} />
               <Route path="tours/novo" element={<TourForm />} />
