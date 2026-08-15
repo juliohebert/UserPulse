@@ -11,20 +11,20 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   fullWidthMobile?: boolean
 }
 
-const base = 'inline-flex items-center justify-center gap-2 rounded-full text-label-md font-bold transition-all active:scale-95 disabled:opacity-60 disabled:pointer-events-none'
+const base = 'inline-flex min-h-10 items-center justify-center gap-2 rounded-full text-label-md font-bold tracking-[-0.14px] transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:bg-[#bcc0c4] disabled:text-white disabled:opacity-100'
 
 const variants: Record<ButtonVariant, string> = {
-  primary: 'bg-primary text-on-primary shadow-sm hover:opacity-90',
-  gradient: 'bg-gradient-to-br from-primary via-[#0457cb] to-[#003a8c] text-on-primary shadow-sm hover:opacity-95',
-  secondary: 'border-2 border-on-surface text-on-surface hover:bg-surface-container-low',
-  ghost: 'border border-outline-variant text-on-surface-variant hover:bg-surface-container-low',
-  danger: 'bg-error text-on-error hover:opacity-90',
+  primary: 'bg-primary text-on-primary active:bg-[#0457cb]',
+  gradient: 'bg-primary text-on-primary active:bg-[#0457cb]',
+  secondary: 'border-2 border-[#0a1317] bg-transparent text-[#0a1317] active:bg-surface-container-low',
+  ghost: 'border-2 border-[#0a1317]/12 bg-transparent text-[#0a1317] active:bg-surface-container-low',
+  danger: 'bg-error text-on-error active:bg-[#f0284a]',
 }
 
 const sizes: Record<ButtonSize, string> = {
-  sm: 'px-4 py-2',
-  md: 'px-5 py-2.5',
-  lg: 'px-6 py-3 text-body-md',
+  sm: 'px-5 py-2.5',
+  md: 'px-[30px] py-3.5',
+  lg: 'px-8 py-4 text-body-md',
 }
 
 export function Button({

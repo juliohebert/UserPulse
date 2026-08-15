@@ -179,8 +179,8 @@ function extrairPassosDoJson(texto: string): { passos: PassoState[] } | { erro: 
   return { passos }
 }
 
-const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
-const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const field = 'w-full h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface outline-none transition-colors focus:border-2 focus:border-primary'
+const card = 'w-full bg-surface p-6 rounded-3xl border border-outline-variant'
 
 // ─── Checklist de qualidade ─────────────────────────────────────────────────
 // Só orienta — não bloqueia nada além das validações que já existem em

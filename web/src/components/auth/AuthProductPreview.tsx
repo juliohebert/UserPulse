@@ -24,7 +24,7 @@ const fill = { fontVariationSettings: "'FILL' 1" }
 // player, sem autoplay, sem fonte externa.
 function MockCampanhas() {
   return (
-    <div className="bg-white rounded-xl shadow-xl w-full max-w-[220px] border border-slate-100 overflow-hidden">
+    <div className="bg-white rounded-3xl shadow-panel w-full max-w-[220px] border border-outline-variant overflow-hidden">
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100 bg-slate-50/80">
         <div className="w-3.5 h-3.5 rounded bg-primary flex items-center justify-center shrink-0">
           <span className="material-symbols-outlined text-white text-[9px]" style={fill}>pulse_alert</span>
@@ -37,7 +37,7 @@ function MockCampanhas() {
         <p className="text-[11px] font-bold text-slate-800 leading-snug mb-2">Nova funcionalidade disponível</p>
 
         {/* Vídeo — só representação visual, nunca um player de verdade */}
-        <div className="relative w-full h-14 rounded-lg overflow-hidden bg-gradient-to-br from-slate-700 to-slate-900 mb-2">
+        <div className="relative w-full h-14 rounded-2xl overflow-hidden bg-[#0a1317] mb-2">
           <div className="absolute inset-0 opacity-20 select-none pointer-events-none">
             <div className="absolute top-1.5 left-2 w-9 h-1 bg-white/40 rounded-full" />
             <div className="absolute top-3.5 left-2 w-6 h-1 bg-white/25 rounded-full" />
@@ -52,7 +52,7 @@ function MockCampanhas() {
 
         <p className="text-[9.5px] text-slate-500 leading-relaxed mb-2.5">Veja como usar o novo recurso em menos de um minuto.</p>
 
-        <div className="w-full py-1.5 rounded-lg bg-primary text-white text-[10px] font-bold text-center mb-2.5">Ver novidade</div>
+        <div className="w-full py-1.5 rounded-full bg-primary text-white text-[10px] font-bold text-center mb-2.5">Ver novidade</div>
 
         {/* Feedback rápido — só visual, sem interação, pra não pesar o mock */}
         <div className="pt-2 border-t border-slate-100">
@@ -84,10 +84,10 @@ function MockCampanhas() {
 function MockTours() {
   return (
     <div className="relative w-full max-w-[220px]">
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-2.5">
+      <div className="bg-white rounded-3xl border border-outline-variant p-2.5">
         <div className="flex items-center justify-between mb-2.5">
           <div className="h-2 w-12 bg-slate-200 rounded-full" />
-          <div className="relative h-6 px-2 rounded-md bg-primary shadow-md ring-4 ring-primary/25 flex items-center gap-1 shrink-0">
+          <div className="relative h-6 px-2 rounded-full bg-primary ring-4 ring-primary/25 flex items-center gap-1 shrink-0">
             <span className="material-symbols-outlined text-white text-[12px]">add</span>
             <span className="text-white text-[9px] font-bold">Novo</span>
           </div>
@@ -103,7 +103,7 @@ function MockTours() {
       {/* Tooltip encostado logo abaixo do botão destacado — a proximidade
           mais o losango recortado (aponta direto pro botão) já deixam a
           relação clara, sem precisar de conector extra. */}
-      <div className="absolute top-[38px] right-2 w-[142px] bg-white rounded-lg shadow-xl border border-slate-200 p-2.5">
+      <div className="absolute top-[38px] right-2 w-[142px] bg-white rounded-2xl shadow-panel border border-slate-200 p-2.5">
         <div className="absolute -top-[5px] right-5 w-2.5 h-2.5 bg-white border-t border-l border-slate-200 rotate-45" />
         <p className="text-[8px] font-bold uppercase tracking-wider text-primary mb-0.5">Passo 1 de 3</p>
         <p className="text-[10px] font-bold text-slate-800 leading-snug mb-1.5">Comece por aqui</p>
@@ -124,7 +124,7 @@ function MockJornadas() {
     { titulo: 'Configuração concluída', estado: 'pendente' as const },
   ]
   return (
-    <div className="bg-white rounded-xl shadow-xl p-3.5 w-full max-w-[220px] border border-slate-100">
+    <div className="bg-white rounded-3xl shadow-panel p-3.5 w-full max-w-[220px] border border-outline-variant">
       <div className="flex items-center gap-1.5 mb-3">
         <span className="material-symbols-outlined text-primary text-[14px]" style={fill}>route</span>
         <span className="text-[10px] font-bold text-slate-700">Jornada de ativação</span>
@@ -169,8 +169,8 @@ export function AuthProductPreview() {
             key={o.key}
             type="button"
             onClick={() => setAtivo(o.key)}
-            className={`flex-1 flex items-center justify-center gap-1 px-1.5 py-2 rounded-lg text-[10px] lg:text-[11px] font-bold transition-all ${
-              ativo === o.key ? 'bg-white text-primary shadow-sm' : 'bg-white/10 text-white/70 hover:bg-white/15'
+            className={`flex-1 flex items-center justify-center gap-1 px-1.5 py-2 rounded-full text-[10px] lg:text-[11px] font-bold transition-colors ${
+              ativo === o.key ? 'bg-white text-primary' : 'bg-white/10 text-white/70 hover:bg-white/15'
             }`}
           >
             <span className="material-symbols-outlined text-[13px] lg:text-[14px]">{o.icon}</span>
@@ -179,7 +179,7 @@ export function AuthProductPreview() {
         ))}
       </div>
 
-      <div className="rounded-xl overflow-hidden border border-white/15 bg-white/5">
+      <div className="rounded-3xl overflow-hidden border border-white/15 bg-white/5">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10 bg-black/10">
           <div className="flex gap-1">
             <div className="w-2 h-2 rounded-full bg-white/25" />

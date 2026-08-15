@@ -4,11 +4,37 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
-  background-color: #fafafa;
+  background-color: #ffffff;
   color: #0a1317;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+@layer base {
+  html {
+    background: #ffffff;
+  }
+
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .up-card {
+    @apply rounded-3xl border border-outline-variant bg-surface p-6;
+  }
+
+  .up-input {
+    @apply h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface outline-none transition-colors focus:border-2 focus:border-primary;
+  }
+
+  .up-section {
+    @apply px-4 py-8 lg:px-margin-desktop;
+  }
 }
 
 .material-symbols-outlined {

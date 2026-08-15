@@ -42,7 +42,7 @@ function NavItem({ icon, label, to, collapsed, onClick }: LinkItem & { collapsed
       className={({ isActive }) =>
         `group flex items-center justify-start rounded-2xl transition-all text-body-md ${
           isActive
-            ? 'bg-primary/10 text-primary font-bold shadow-sm ring-1 ring-inset ring-primary/20'
+            ? 'bg-primary text-white font-bold'
             : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'
         }`
       }
@@ -72,7 +72,7 @@ function NavAction({ icon, label, collapsed, active, onClick }: { icon: string; 
       type="button"
       onClick={onClick}
       title={label}
-      className={`group flex w-full items-center justify-start rounded-2xl text-body-md transition-all ${active ? 'bg-primary/10 text-primary font-bold shadow-sm ring-1 ring-inset ring-primary/20' : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'}`}
+      className={`group flex w-full items-center justify-start rounded-2xl text-body-md transition-all ${active ? 'bg-primary text-white font-bold' : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'}`}
     >
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl">
         <span className="material-symbols-outlined text-[21px]" style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}>{icon}</span>
@@ -91,7 +91,7 @@ function RailLink({ item, active, onClick }: { item: LinkItem; active: boolean; 
       end={item.to === '/'}
       title={item.label}
       onClick={onClick}
-      className={`flex h-10 w-10 items-center justify-center rounded-2xl transition-all ${active ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-inset ring-primary/20' : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'}`}
+      className={`flex h-10 w-10 items-center justify-center rounded-full transition-all ${active ? 'bg-primary text-white' : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'}`}
     >
       <span className="material-symbols-outlined text-[21px]" style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}>{item.icon}</span>
     </NavLink>
@@ -104,7 +104,7 @@ function RailAction({ item, active, onClick }: { item: ActionItem; active: boole
       type="button"
       onClick={onClick}
       title={item.label}
-      className={`flex h-10 w-10 items-center justify-center rounded-2xl transition-all ${active ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-inset ring-primary/20' : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'}`}
+      className={`flex h-10 w-10 items-center justify-center rounded-full transition-all ${active ? 'bg-primary text-white' : 'text-on-surface-variant hover:bg-surface hover:text-on-surface'}`}
     >
       <span className="material-symbols-outlined text-[21px]" style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}>{item.icon}</span>
     </button>
@@ -160,10 +160,10 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
 
   if (emConfiguracoes) {
     return (
-      <aside className={`fixed left-4 top-3 bottom-3 z-50 flex overflow-hidden rounded-[2rem] border border-white/45 bg-surface-container-lowest/95 shadow-[0_18px_60px_rgba(15,23,42,0.13)] ring-1 ring-outline-variant/35 backdrop-blur-xl transition-[transform,width] duration-200 supports-[backdrop-filter]:bg-surface-container-lowest/86 ${collapsed ? 'md:w-16' : 'md:w-[264px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}>
+      <aside className={`fixed left-4 top-3 bottom-3 z-50 flex overflow-hidden rounded-3xl border border-outline-variant bg-white shadow-panel transition-[transform,width] duration-200 ${collapsed ? 'md:w-16' : 'md:w-[264px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}>
         <div className="flex w-16 flex-col items-center px-2.5 py-4">
           <div className="mb-7 flex h-10 items-center justify-center">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary via-[#2d7df0] to-tertiary flex items-center justify-center text-on-primary shrink-0 shadow-sm">
+            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white shrink-0">
               <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
             </div>
           </div>
@@ -196,7 +196,7 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
           )}
         </div>
 
-        <div className={`${collapsed ? 'hidden md:hidden' : 'flex'} w-[200px] flex-col border-l border-white/35 bg-surface/55 px-3 py-4 backdrop-blur-xl supports-[backdrop-filter]:bg-surface/45`}>
+        <div className={`${collapsed ? 'hidden md:hidden' : 'flex'} w-[200px] flex-col border-l border-outline-variant bg-surface px-3 py-4`}>
           <div className="mb-4 flex items-center justify-between gap-2 px-1">
             <div className="min-w-0">
               <p className="truncate text-title-md font-bold text-on-surface">Configurações</p>
@@ -222,7 +222,7 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
                 onClick={navegarMobile}
                 style={{ animationDelay: `${index * 28}ms` }}
                 className={({ isActive }) =>
-                  `flex items-center gap-2 rounded-xl px-3 py-2.5 text-body-md transition-all animate-[submenuItem_160ms_ease-out_both] ${isActive ? 'bg-primary/10 text-primary font-bold' : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'}`
+                  `flex items-center gap-2 rounded-full px-3 py-2.5 text-body-md transition-all animate-[submenuItem_160ms_ease-out_both] ${isActive ? 'bg-primary text-white font-bold' : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface'}`
                 }
               >
                 {({ isActive }) => (
@@ -235,7 +235,7 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
             ))}
           </nav>
 
-          <div className="mt-auto rounded-[1.25rem] border border-outline-variant/45 bg-surface p-3 shadow-sm">
+          <div className="mt-auto rounded-2xl border border-outline-variant bg-surface p-3">
             <p className="truncate text-body-md font-bold text-on-surface">{user?.tenant.nome ?? 'UserPulse'}</p>
             <p className="truncate text-label-md text-outline">Configurações do workspace</p>
           </div>
@@ -252,11 +252,11 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
 
   return (
     <aside
-      className={`fixed left-4 top-3 bottom-3 w-[264px] ${collapsed ? 'md:w-16' : 'md:w-[264px]'} bg-surface-container-lowest/95 border border-white/45 flex flex-col px-2.5 py-4 z-50 shadow-[0_18px_60px_rgba(15,23,42,0.13)] ring-1 ring-outline-variant/35 overflow-hidden rounded-[2rem] backdrop-blur-xl transition-transform duration-200 supports-[backdrop-filter]:bg-surface-container-lowest/86 ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}
+      className={`fixed left-4 top-3 bottom-3 w-[264px] ${collapsed ? 'md:w-16' : 'md:w-[264px]'} bg-white border border-outline-variant flex flex-col px-2.5 py-4 z-50 shadow-panel overflow-hidden rounded-3xl transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}
     >
       <div className={`mb-7 flex h-10 items-center ${collapsed ? 'justify-center' : 'justify-center md:justify-between md:px-1'}`}>
         <div className={`flex h-10 items-center gap-3 min-w-0 ${collapsed ? 'md:pointer-events-none md:w-0 md:opacity-0' : 'md:w-auto md:opacity-100'}`}>
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary via-[#2d7df0] to-tertiary flex items-center justify-center text-on-primary shrink-0 shadow-sm">
+          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white shrink-0">
             <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
           </div>
           <div className={`overflow-hidden ${collapsed ? 'block max-w-[180px] opacity-100 md:hidden md:max-w-0 md:opacity-0' : 'block max-w-[180px] opacity-100'}`}>

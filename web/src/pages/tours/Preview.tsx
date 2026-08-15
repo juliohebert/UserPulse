@@ -6,7 +6,7 @@ import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { comandoIniciarTour, comandoTestarSeletor, downloadJson, testEmbedUrl } from '../../utils/tour'
 
-const card = 'w-full bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden mb-5'
+const card = 'w-full bg-surface rounded-3xl border border-outline-variant overflow-hidden mb-5'
 const codeChip = 'bg-surface-container px-1 py-0.5 rounded text-[12px] font-mono'
 
 export function TourPreview() {

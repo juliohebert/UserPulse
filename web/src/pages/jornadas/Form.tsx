@@ -59,8 +59,8 @@ const BLOCO_VAZIO: BlocoFormState = {
   titulo: '', descricao: '', obrigatorio: true, ativo: true, etapas: [],
 }
 
-const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
-const card = 'bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const field = 'w-full h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface outline-none transition-colors focus:border-2 focus:border-primary'
+const card = 'bg-surface p-6 rounded-3xl border border-outline-variant'
 
 const TIPOS_ETAPA: { value: TipoEtapaJornada; label: string; icon: string }[] = [
   { value: 'tour', label: 'Tour guiado', icon: 'map' },

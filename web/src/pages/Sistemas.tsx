@@ -16,8 +16,8 @@ const EMPTY_FORM = {
 
 type FormState = typeof EMPTY_FORM
 
-const field = 'h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none placeholder:text-[#8595a4] focus:border-[#1876f2] focus:ring-2 focus:ring-[#1876f2]/10'
-const textareaField = 'w-full rounded-lg border border-[#ced0d4] bg-white px-3 py-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none placeholder:text-[#8595a4] focus:border-[#1876f2] focus:ring-2 focus:ring-[#1876f2]/10'
+const field = 'h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none placeholder:text-[#8595a4] focus:border-2 focus:border-[#0064e0]'
+const textareaField = 'w-full rounded-lg border border-[#ced0d4] bg-white px-3 py-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none placeholder:text-[#8595a4] focus:border-2 focus:border-[#0064e0]'
 const botaoPrimario = 'inline-flex items-center justify-center gap-2 rounded-[100px] bg-[#0064e0] px-[30px] py-[14px] text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-white active:bg-[#0457cb] disabled:bg-[#bcc0c4]'
 const botaoGhost = 'inline-flex items-center justify-center rounded-[100px] border-2 border-[rgba(10,19,23,0.12)] px-6 py-3 text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317] active:bg-[#f1f4f7]'
 
