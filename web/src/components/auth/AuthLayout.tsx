@@ -94,9 +94,8 @@ interface AuthLayoutProps {
 // Casca visual compartilhada pelas 4 telas públicas de autenticação (login,
 // cadastro, esqueci-senha, redefinir-senha) — só layout e branding são
 // compartilhados aqui, cada página continua dona do próprio estado, lógica
-// e validação, passados como children. Referência visual é só o que já
-// existe no projeto (tailwind.config.js, index.css e o layout de duas
-// colunas que Cadastro.tsx já usava antes desta tarefa) — nunca DESIGN.md.
+// e validação, passados como children. Segue DESIGN.md: canvas branco,
+// coluna institucional escura, botões pill e hierarquia tipográfica SF/Apple.
 //
 // Mobile e desktop são o MESMO componente/JSX, reordenados via CSS (flex
 // `order` no mobile, que também funciona pra posicionamento em grid no
@@ -123,11 +122,11 @@ export function AuthLayout({
           antes do formulário e da coluna institucional na sequência do
           flex). Some inteiro no desktop, onde a coluna institucional já
           traz logo/wordmark em tamanho cheio. */}
-      <div className="lg:hidden flex items-center gap-3 px-4 sm:px-6 py-4 bg-primary text-on-primary">
+      <div className="lg:hidden flex items-center gap-3 px-4 sm:px-6 py-4 bg-primary text-white">
         <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
           <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
         </div>
-        <span className="text-title-md font-bold">UserPulse</span>
+        <span className="text-title-md font-semibold">UserPulse</span>
       </div>
 
       {/* Formulário — segundo no mobile (primeira viewport, logo após o
@@ -135,7 +134,7 @@ export function AuthLayout({
       <div className="order-1 lg:order-2 flex items-center justify-center px-4 py-6 sm:px-6 sm:py-8 lg:p-12">
         <div className="w-full max-w-md">
           <div className="mb-5 sm:mb-6 lg:mb-7">
-            <h2 className="text-title-lg sm:text-headline-md font-bold text-on-background">{tituloForm}</h2>
+            <h2 className="text-title-lg sm:text-headline-md font-semibold text-on-background">{tituloForm}</h2>
             {subtituloForm && <p className="text-body-md text-outline mt-1.5">{subtituloForm}</p>}
           </div>
           {children}
@@ -148,7 +147,7 @@ export function AuthLayout({
           composição diagonal do preview não pode ficar centralizada como
           um bloco único, então cada ramo cuida do próprio alinhamento
           vertical no desktop. */}
-      <div className={`order-2 lg:order-1 relative overflow-hidden bg-primary text-on-primary px-4 py-6 sm:px-6 sm:py-8 ${mostrarPreview || esconderInstitucionalMobile ? 'hidden lg:flex lg:flex-col' : 'lg:flex lg:flex-col'} ${mostrarPreview ? 'lg:p-10 auth-inst-col' : 'lg:p-14'}`}>
+      <div className={`order-2 lg:order-1 relative overflow-hidden bg-primary text-white px-4 py-6 sm:px-6 sm:py-8 ${mostrarPreview || esconderInstitucionalMobile ? 'hidden lg:flex lg:flex-col' : 'lg:flex lg:flex-col'} ${mostrarPreview ? 'lg:p-10 auth-inst-col' : 'lg:p-14'}`}>
         {/* Formas decorativas, só no desktop — no mobile a coluna já é
             compacta, não sobra altura pra elas respirarem direito. */}
         <div className="hidden lg:block pointer-events-none absolute -top-24 -right-16 w-72 h-72 rounded-full bg-white/10 blur-3xl" aria-hidden="true" />
@@ -176,7 +175,7 @@ export function AuthLayout({
                 </div>
                 <span className="text-title-lg font-bold">UserPulse</span>
               </div>
-              <h1 className="text-title-md lg:text-headline-lg font-bold mb-2 lg:mb-3 leading-tight">{headline}</h1>
+              <h1 className="text-title-md lg:text-headline-lg font-semibold mb-2 lg:mb-3 leading-tight">{headline}</h1>
               <p className="text-body-sm lg:text-body-lg text-white/85">{texto}</p>
 
               {/* 3 destaques do trial — dias/limites só aparecem quando a
@@ -255,7 +254,7 @@ export function AuthLayout({
                 N dias"; ver configCarregando acima). Barra em `1em` dentro
                 do próprio `<h1>` pra herdar exatamente a altura de linha do
                 texto real, sem adivinhar px. */}
-            <h1 className="text-title-md lg:text-headline-lg font-bold mb-2 lg:mb-3 leading-tight">
+            <h1 className="text-title-md lg:text-headline-lg font-semibold mb-2 lg:mb-3 leading-tight">
               {configCarregando
                 ? <span className="inline-block h-[1em] w-3/4 rounded bg-white/20 animate-pulse align-middle" aria-hidden="true" />
                 : headline}

@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 
-const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const card = 'w-full bg-surface p-6 rounded-3xl border border-outline-variant'
 
 function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false)

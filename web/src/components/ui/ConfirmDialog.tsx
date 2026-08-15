@@ -67,29 +67,29 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/40"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/45"
       onMouseDown={e => { if (e.target === e.currentTarget && !loading) onCancel() }}
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
       aria-describedby="confirm-dialog-description"
     >
-      <div className="bg-surface rounded-2xl shadow-xl w-full max-w-sm">
-        <div className="px-5 pt-5 pb-4">
+      <div className="bg-surface rounded-3xl border border-outline-variant shadow-panel w-full max-w-sm">
+        <div className="px-6 pt-6 pb-5">
           <div className="flex items-start gap-3">
             <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${cfg.iconBg}`}>
               <span className={`material-symbols-outlined text-[22px] ${cfg.iconColor}`}>{cfg.icon}</span>
             </div>
             <div className="min-w-0 pt-1">
-              <h3 id="confirm-dialog-title" className="text-title-md font-bold text-on-surface">{title}</h3>
+              <h3 id="confirm-dialog-title" className="text-title-md font-semibold text-on-surface">{title}</h3>
               <p id="confirm-dialog-description" className="mt-1 text-body-md text-on-surface-variant">{description}</p>
             </div>
           </div>
           {erro && (
-            <p className="mt-3 p-3 rounded-xl bg-error-container text-on-error-container text-body-sm">{erro}</p>
+            <p className="mt-4 p-3 rounded-2xl bg-error-container text-on-error-container text-body-sm">{erro}</p>
           )}
         </div>
-        <div className="flex justify-end gap-2 px-5 pb-5">
+        <div className="flex justify-end gap-2 px-6 pb-6">
           <Button
             type="button"
             autoFocus
@@ -104,7 +104,7 @@ export function ConfirmDialog({
             disabled={loading}
             onClick={onConfirm}
             variant={variant === 'danger' ? 'danger' : 'primary'}
-            className={variant === 'warning' ? 'bg-[#e65100] text-white hover:opacity-90' : ''}
+            className={variant === 'warning' ? 'bg-[#f2a918] text-[#0a1317]' : ''}
           >
             {loading ? 'Aguarde…' : confirmLabel}
           </Button>

@@ -50,21 +50,21 @@ const STATUS_FILTRO: Array<{ value: StatusFiltro; label: string }> = [
 
 function MetricCard({ label, value, icon }: { label: string; value: string | number; icon: string }) {
   return (
-    <div className="rounded-2xl border border-l-[8px] border-outline-variant/40 border-l-primary bg-surface-container-lowest px-5 py-4 shadow-sm transition-shadow hover:shadow-md">
+    <div className="rounded-3xl border border-outline-variant bg-surface px-6 py-5">
       <div className="flex items-center gap-2">
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
           <span className="material-symbols-outlined text-[16px]">{icon}</span>
         </span>
         <p className="text-label-md font-bold text-on-surface-variant">{label}</p>
       </div>
-      <p className="mt-2 text-headline-md font-bold leading-none text-on-surface">{value}</p>
+      <p className="mt-3 text-headline-md font-semibold leading-none text-on-surface">{value}</p>
     </div>
   )
 }
 
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-label-md font-bold text-primary">
+    <span className="inline-flex items-center gap-1 rounded-full border border-[#ced0d4] bg-white px-2.5 py-1 text-label-md font-bold text-on-surface">
       {label}
       <button type="button" onClick={onRemove} aria-label={`Remover filtro ${label}`} className="rounded-full p-0.5 transition-colors hover:text-error">
         <span className="material-symbols-outlined text-[14px] leading-none">close</span>
@@ -90,7 +90,7 @@ function FilterSelect({
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="h-10 w-full rounded-xl border border-outline-variant bg-surface-bright px-3 text-body-md text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        className="h-10 w-full rounded-full border border-[#ced0d4] bg-surface-bright px-3 text-body-md text-on-surface focus:border-2 focus:border-primary focus:outline-none"
       >
         {options.map(option => (
           <option key={option.value} value={option.value}>{option.label}</option>

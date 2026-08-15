@@ -103,7 +103,7 @@ const ACAO_CFG: Record<TipoAcaoPlano, { titulo: string; descricao: string; confi
 }
 
 const field =
-  'w-full px-3 py-2 rounded-xl border border-outline-variant bg-surface text-body-md text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-colors'
+  'w-full h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface placeholder:text-outline outline-none transition-colors focus:border-2 focus:border-primary'
 
 function formatarLimite(valor: number | null): string {
   return valor == null ? 'Ilimitado' : String(valor)

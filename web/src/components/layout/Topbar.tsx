@@ -206,7 +206,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
 
   return (
     <header
-      className={`fixed top-0 right-0 left-0 ${collapsed ? 'md:left-24' : 'md:left-[292px]'} h-16 bg-background/90 border-b border-outline-variant/30 flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200 backdrop-blur`}
+      className={`fixed top-0 right-0 left-0 ${collapsed ? 'md:left-24' : 'md:left-[292px]'} h-16 bg-white border-b border-outline-variant flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200`}
     >
       <button
         type="button"
@@ -225,13 +225,13 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
             value={search}
             onChange={e => { setSearch(e.target.value); setBuscaAberta(Boolean(e.target.value.trim())) }}
             onFocus={() => setBuscaAberta(Boolean(search.trim()))}
-            className="w-full pl-10 pr-3 py-2 bg-surface-container-low border-none rounded-xl focus:ring-2 focus:ring-primary text-body-md outline-none transition-all"
+            className="h-10 w-full rounded-full border-0 bg-surface-container-low pl-10 pr-4 text-body-sm text-on-surface outline-none transition-colors placeholder:text-outline focus:ring-2 focus:ring-primary"
             placeholder="Buscar campanhas, tours ou jornadas..."
             type="text"
           />
         </div>
         {buscaAberta && search.trim() && (
-          <div className="absolute left-0 top-full z-50 mt-2 w-full overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface p-2 shadow-lg">
+          <div className="absolute left-0 top-full z-50 mt-2 w-full overflow-hidden rounded-3xl border border-outline-variant bg-surface p-2 shadow-panel">
             {buscaLoading && (
               <div className="flex items-center gap-2 px-3 py-4 text-body-md text-on-surface-variant">
                 <span>Buscando</span>
@@ -250,7 +250,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
                   key={resultado.id}
                   type="button"
                   onClick={() => navegarBusca(resultado.to)}
-                  className="flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-container-low"
+                  className="flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition-colors hover:bg-surface-container-low"
                 >
                   <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <span className="material-symbols-outlined text-[19px]">{resultado.icon}</span>
@@ -271,7 +271,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
             <button
               type="button"
               onClick={() => setNovoAberto(v => !v)}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-gradient-to-br from-primary via-[#0457cb] to-[#003a8c] px-6 text-body-md font-bold text-on-primary shadow-sm shadow-primary/20 transition-all hover:opacity-95 active:scale-95"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-primary px-[30px] text-label-md font-bold tracking-[-0.14px] text-on-primary transition-colors active:bg-[#0457cb] active:scale-[0.98]"
               aria-haspopup="menu"
               aria-expanded={novoAberto}
             >
@@ -279,14 +279,14 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
               <span>Novo</span>
             </button>
             {novoAberto && (
-              <div className="absolute right-0 z-50 mt-2 w-72 origin-top-right overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface p-2 shadow-lg animate-[novo-menu-in_240ms_cubic-bezier(0.16,1,0.3,1)]" role="menu">
+              <div className="absolute right-0 z-50 mt-2 w-72 origin-top-right overflow-hidden rounded-3xl border border-outline-variant bg-surface p-2 shadow-panel animate-[novo-menu-in_240ms_cubic-bezier(0.16,1,0.3,1)]" role="menu">
                 {opcoesNovo.map((opcao, index) => (
                   <button
                     key={opcao.to}
                     type="button"
                     role="menuitem"
                     onClick={() => navegarParaCriacao(opcao.to)}
-                    className="flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left opacity-0 transition-colors hover:bg-surface-container-low animate-[novo-item-in_260ms_cubic-bezier(0.16,1,0.3,1)_forwards]"
+                    className="flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left opacity-0 transition-colors hover:bg-surface-container-low animate-[novo-item-in_260ms_cubic-bezier(0.16,1,0.3,1)_forwards]"
                     style={{ animationDelay: `${index * 45 + 60}ms` }}
                   >
                     <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -302,11 +302,11 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
             )}
           </div>
         )}
-        <button type="button" title="Notificações" aria-label="Notificações" className="relative p-2 rounded-full hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors">
+        <button type="button" title="Notificações" aria-label="Notificações" className="relative flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container hover:text-on-surface">
           <span className="material-symbols-outlined">notifications</span>
           <span className="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface" />
         </button>
-        <button type="button" title="Ajuda" aria-label="Ajuda" className="hidden sm:block p-2 rounded-full hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors">
+        <button type="button" title="Ajuda" aria-label="Ajuda" className="hidden h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container hover:text-on-surface sm:flex">
           <span className="material-symbols-outlined">help_outline</span>
         </button>
 
@@ -318,21 +318,21 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
             onClick={() => setContaAberta(v => !v)}
             aria-haspopup="menu"
             aria-expanded={contaAberta}
-            className="flex items-center gap-2.5 rounded-full hover:bg-surface-container-high transition-colors px-2 py-1.5"
+              className="flex items-center gap-2.5 rounded-full px-2 py-1.5 transition-colors hover:bg-surface-container-low"
           >
             <div className="hidden md:block text-right">
               <p className="text-label-md font-bold text-on-surface">{user?.nome ?? 'Admin'}</p>
               <p className="text-[10px] text-outline uppercase tracking-wider truncate max-w-[160px]">{user?.email ?? 'UserPulse'}</p>
             </div>
             <div
-              className="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-sm border-2 border-primary-fixed"
+              className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white font-bold text-sm"
               title={user?.email}
             >
               {iniciais(user?.nome ?? 'UserPulse')}
             </div>
           </button>
           {contaAberta && (
-            <div className="absolute right-0 z-50 mt-2 w-64 origin-top-right overflow-hidden rounded-3xl border border-outline-variant/30 bg-surface p-3 shadow-lg" role="menu">
+            <div className="absolute right-0 z-50 mt-2 w-64 origin-top-right overflow-hidden rounded-3xl border border-outline-variant bg-surface p-3 shadow-panel" role="menu">
               <button
                 type="button"
                 role="menuitem"

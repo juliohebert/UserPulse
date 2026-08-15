@@ -95,14 +95,14 @@ function compararCampanhas(a: Campanha, b: Campanha, key: SortKey, direction: So
 
 function MetricCard({ label, value, icon }: { label: string; value: string | number; icon: string }) {
   return (
-    <div className="rounded-2xl border border-l-[8px] border-outline-variant/40 border-l-primary bg-surface-container-lowest px-5 py-4 shadow-sm transition-shadow hover:shadow-md">
+    <div className="rounded-3xl border border-outline-variant bg-surface px-6 py-5">
       <div className="flex items-center gap-2">
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
           <span className="material-symbols-outlined text-[16px]">{icon}</span>
         </span>
         <p className="text-label-md font-bold text-on-surface-variant">{label}</p>
       </div>
-      <p className="mt-2 text-headline-md font-bold leading-none text-on-surface">{value}</p>
+      <p className="mt-3 text-headline-md font-semibold leading-none text-on-surface">{value}</p>
     </div>
   )
 }
@@ -137,7 +137,7 @@ function TooltipIconButton({
       </button>
       <span
         role="tooltip"
-        className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-on-surface px-2.5 py-1.5 text-[11px] font-semibold text-surface shadow-lg transition-opacity duration-100 ${
+        className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-2xl bg-on-surface px-2.5 py-1.5 text-[11px] font-semibold text-surface shadow-panel transition-opacity duration-100 ${
           visible ? 'opacity-100' : 'opacity-0'
         }`}
       >
@@ -161,7 +161,7 @@ function Tooltip({ label, children }: { label: string; children: ReactNode }) {
       {children}
       <span
         role="tooltip"
-        className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-on-surface px-2.5 py-1.5 text-[11px] font-semibold text-surface shadow-lg transition-opacity duration-100 ${
+        className={`pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-2xl bg-on-surface px-2.5 py-1.5 text-[11px] font-semibold text-surface shadow-panel transition-opacity duration-100 ${
           visible ? 'opacity-100' : 'opacity-0'
         }`}
       >
@@ -188,7 +188,7 @@ function FilterSelect({
       <select
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="h-10 w-full rounded-xl border border-outline-variant bg-surface-bright px-3 text-body-md text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        className="h-10 w-full rounded-full border border-[#ced0d4] bg-surface-bright px-3 text-body-md text-on-surface focus:border-2 focus:border-primary focus:outline-none"
       >
         {options.map(option => (
           <option key={option.value} value={option.value}>{option.label}</option>
@@ -200,7 +200,7 @@ function FilterSelect({
 
 function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-label-md font-bold text-primary">
+    <span className="inline-flex items-center gap-1 rounded-full border border-[#ced0d4] bg-white px-2.5 py-1 text-label-md font-bold text-on-surface">
       {label}
       <button type="button" onClick={onRemove} aria-label={`Remover filtro ${label}`} className="rounded-full p-0.5 transition-colors hover:text-error">
         <span className="material-symbols-outlined text-[14px] leading-none">close</span>
@@ -425,7 +425,7 @@ export function CampanhasIndex() {
   const limiteCampanhas = limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_campanhas_ativas, campanhas.length, 'campanha')
   const totalColunasSelecionadas = TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).length
   const totalFiltrosAtivos = [
-    filtroStatus !== FILTRO_STATUS_PADRAO,
+    filtroStatus !== 'todas',
     Boolean(filtroTipo),
     Boolean(filtroCategoria),
     Boolean(filtroSistema),
@@ -461,7 +461,7 @@ export function CampanhasIndex() {
   }
 
   const limparFiltros = () => {
-    setFiltroStatus(FILTRO_STATUS_PADRAO)
+    setFiltroStatus('todas')
     setFiltroTipo('')
     setFiltroCategoria('')
     setFiltroSistema('')
@@ -731,8 +731,8 @@ export function CampanhasIndex() {
 
         {!loading && !error && totalFiltrosAtivos > 0 && (
           <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-low/30">
-            {filtroStatus !== FILTRO_STATUS_PADRAO && (
-              <FilterChip label={STATUS_FILTRO.find(s => s.value === filtroStatus)?.label ?? filtroStatus} onRemove={() => { setFiltroStatus(FILTRO_STATUS_PADRAO); setPage(1) }} />
+            {filtroStatus !== 'todas' && (
+              <FilterChip label={STATUS_FILTRO.find(s => s.value === filtroStatus)?.label ?? filtroStatus} onRemove={() => { setFiltroStatus('todas'); setPage(1) }} />
             )}
             {filtroTipo && (
               <FilterChip label={filtroTipo.charAt(0).toUpperCase() + filtroTipo.slice(1)} onRemove={() => { setFiltroTipo(''); setPage(1) }} />

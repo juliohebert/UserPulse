@@ -25,15 +25,15 @@ function KpiCard({
   hintColor?: string
 }) {
   return (
-    <div className="min-h-[164px] bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-md hover:border-primary/40 transition-all p-5 flex flex-col">
+    <div className="min-h-[164px] bg-surface rounded-3xl border border-outline-variant p-6 flex flex-col">
       <div className="flex min-h-10 items-center gap-2.5">
-        <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
+        <span className={`w-8 h-8 rounded-2xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
           <span className="material-symbols-outlined text-[18px]">{icon}</span>
         </span>
         <p className="text-label-md font-medium text-on-surface-variant leading-tight">{label}</p>
       </div>
       <div className="mt-4 flex flex-1 flex-col">
-        <p className="text-headline-lg font-bold text-on-surface leading-none">{value}</p>
+        <p className="text-headline-lg font-semibold text-on-surface leading-none">{value}</p>
         {hint ? (
           <p className={`mt-auto min-h-5 text-[13px] font-medium leading-5 ${hintColor ?? 'text-outline'}`}>{hint}</p>
         ) : (
@@ -57,9 +57,9 @@ function AcaoRapida({
   return (
     <button
       onClick={onClick}
-      className="group relative flex flex-col gap-3 p-5 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 transition-all text-left"
+      className="group relative flex flex-col gap-3 p-6 bg-surface rounded-3xl border border-outline-variant transition-colors text-left hover:border-[#ced0d4]"
     >
-      <span className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
+      <span className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
         <span className="material-symbols-outlined text-[22px]">{icon}</span>
       </span>
       <div className="pr-5">
@@ -85,8 +85,8 @@ function InsightCard({
   onCta: () => void
 }) {
   return (
-    <div className="flex items-start gap-3 p-4 rounded-xl bg-surface-container-low border border-outline-variant/30">
-      <span className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
+    <div className="flex items-start gap-3 p-5 rounded-3xl bg-surface border border-outline-variant">
+      <span className={`w-9 h-9 rounded-2xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor}`}>
         <span className="material-symbols-outlined text-[18px]">{icon}</span>
       </span>
       <div className="min-w-0 flex-1">
@@ -112,11 +112,11 @@ function TourStatusChip({ ativo }: { ativo: boolean }) {
 
 function OnboardingState({ navigate, podeEscrever }: { navigate: (path: string) => void; podeEscrever: boolean }) {
   return (
-    <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-8 sm:p-12 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-5">
+    <div className="bg-surface rounded-3xl border border-outline-variant p-8 sm:p-12 text-center">
+      <div className="w-16 h-16 rounded-3xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-5">
         <span className="material-symbols-outlined text-[32px]">rocket_launch</span>
       </div>
-      <h3 className="text-headline-md font-bold text-on-surface mb-2">Vamos começar</h3>
+      <h3 className="text-headline-md font-semibold text-on-surface mb-2">Vamos começar</h3>
       <p className="text-body-md text-on-surface-variant max-w-md mx-auto mb-6">
         Ainda não há campanhas nem tours guiados por aqui. Crie o primeiro conteúdo para começar a coletar feedback
         e guiar seus usuários dentro do produto.
@@ -457,15 +457,15 @@ export function Dashboard() {
   }
 
   return (
-    <section className="px-4 lg:px-margin-desktop py-5">
+    <section className="px-4 lg:px-margin-desktop py-8">
       {/* Hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary via-primary to-secondary p-6 sm:p-8 text-on-primary shadow-lg mb-6">
+      <div className="relative overflow-hidden rounded-3xl bg-primary p-8 sm:p-10 text-white mb-8">
         <div className="absolute -right-16 -top-16 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
         <div className="absolute -left-12 -bottom-20 w-56 h-56 bg-white/10 rounded-full blur-3xl" />
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
           <div>
             <p className="text-label-md font-bold uppercase tracking-widest opacity-75 mb-2">Visão geral</p>
-            <h2 className="text-headline-lg sm:text-display-lg font-bold leading-tight mb-2">Bem-vindo de volta</h2>
+            <h2 className="text-headline-lg sm:text-display-lg font-semibold leading-tight mb-2">Bem-vindo de volta</h2>
             <p className="text-body-lg opacity-90 max-w-xl">{heroSubtitulo}</p>
           </div>
           {podeEscrever && (
@@ -473,7 +473,7 @@ export function Dashboard() {
               <Button
                 onClick={() => navigate('/campanhas/nova')}
                 size="md"
-                className="!bg-white !text-primary shadow-md hover:opacity-95"
+                className="!bg-white !text-primary"
                 iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
               >
                 Nova campanha
@@ -481,7 +481,7 @@ export function Dashboard() {
               <Button
                 onClick={() => navigate('/tours/gravador')}
                 size="md"
-                className="!bg-white !text-error shadow-md hover:opacity-95"
+                className="!border-white/25 !bg-transparent !text-white"
                 iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
               >
                 Gravar fluxo
@@ -523,7 +523,7 @@ export function Dashboard() {
 
           {/* Ações rápidas */}
           <div className="mb-6">
-            <h3 className="text-title-lg font-bold text-on-surface mb-3">Ações rápidas</h3>
+            <h3 className="text-title-lg font-semibold text-on-surface mb-3">Ações rápidas</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               {podeEscrever && (
                 <>
@@ -570,9 +570,9 @@ export function Dashboard() {
             <>
               {/* O que merece atenção */}
               <div className="mb-6">
-                <h3 className="text-title-lg font-bold text-on-surface mb-3">O que merece atenção</h3>
+                <h3 className="text-title-lg font-semibold text-on-surface mb-3">O que merece atenção</h3>
                 {insightsVisiveis.length === 0 ? (
-                  <div className="flex items-center gap-3 p-5 rounded-xl bg-tertiary/10 border border-tertiary/20">
+                  <div className="flex items-center gap-3 p-6 rounded-3xl bg-white border border-outline-variant">
                     <span className="w-10 h-10 rounded-full bg-tertiary/15 text-tertiary flex items-center justify-center shrink-0">
                       <span className="material-symbols-outlined text-[20px]">check_circle</span>
                     </span>
@@ -590,9 +590,9 @@ export function Dashboard() {
               {/* Table + Sidebar */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                 {/* Recent Campaigns Table */}
-                <div className="lg:col-span-8 bg-surface-container-lowest rounded-2xl shadow-sm border border-outline-variant/30 overflow-hidden">
+                <div className="lg:col-span-8 bg-surface rounded-3xl border border-outline-variant overflow-hidden">
                   <div className="px-5 py-4 flex justify-between items-center">
-                    <h3 className="text-title-lg font-bold text-on-surface">Campanhas Recentes</h3>
+                    <h3 className="text-title-lg font-semibold text-on-surface">Campanhas Recentes</h3>
                     <button onClick={() => navigate('/campanhas')} className="text-primary text-label-md font-bold hover:underline">
                       Ver todas
                     </button>

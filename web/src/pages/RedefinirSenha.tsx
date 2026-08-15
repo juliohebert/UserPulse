@@ -4,9 +4,9 @@ import { useAuth } from '../hooks/useAuth'
 import { RequisitosSenha, senhaAtendeTodasRegras } from '../components/auth/RequisitosSenha'
 import { AuthLayout } from '../components/auth/AuthLayout'
 
-const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
-const card = 'bg-surface-container-lowest p-7 rounded-2xl border border-outline-variant/70 shadow-md space-y-4'
-const cta = 'w-full flex items-center justify-center gap-2 px-5 py-3.5 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:shadow-lg hover:opacity-95 transition-all active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100'
+const field = 'w-full h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface outline-none transition-colors focus:border-2 focus:border-primary'
+const card = 'bg-surface p-6 sm:p-8 rounded-3xl border border-outline-variant space-y-5'
+const cta = 'w-full flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-[30px] py-3.5 text-label-md font-bold tracking-[-0.14px] text-on-primary transition-colors active:bg-[#0457cb] active:scale-[0.98] disabled:bg-[#bcc0c4] disabled:text-white'
 
 // Pública, sem sessão (ver server/src/routes/auth.ts). Nunca autentica
 // automaticamente após sucesso (regra explícita da tarefa) — só mostra uma
