@@ -314,6 +314,13 @@ export async function buscarCampanha(req: Request, res: Response) {
         { prioridade: 'desc' },
         { criado_em: 'desc' },
       ],
+      // Múltiplos destaques (Fase 2) — só os itens ativos, na ordem
+      // configurada; tenant_id de cada item é removido por ocultarTenantId
+      // logo abaixo (recursivo, cobre objetos aninhados). Campos legados de
+      // Campanha (data_cy/titulo/descricao/...) continuam na resposta —
+      // servem de fallback pro widget quando `destaques` vier vazio (campanha
+      // ainda não migrada).
+      include: { destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
     })
 
     if (!campanha) {
@@ -386,6 +393,8 @@ export async function buscarCandidatas(req: Request, res: Response) {
         ...filtroData,
       },
       orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
+      // Ver comentário equivalente em buscarCampanha logo acima.
+      include: { destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
     })
 
     const ctx: SegCtx = {

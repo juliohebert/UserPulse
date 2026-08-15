@@ -9,12 +9,37 @@ import vm from 'node:vm'
 // destaqueElementoSeletorSeguro e destaqueElementoLocalizarAlvo são funções
 // puras/quase-puras (só leem document.querySelector, nunca localStorage/
 // rede), expostas via window.UserPulse._internal só pra este teste.
-type Campanha = { id?: string; modo_exibicao?: string; data_cy?: unknown; mostrar_uma_vez?: boolean; always_show_user?: boolean; permitir_fechar_modal?: boolean }
+type DestaqueItem = {
+  id?: string | null
+  data_cy?: unknown
+  texto_badge?: unknown
+  titulo?: unknown
+  descricao?: unknown
+  texto_botao?: unknown
+  url_botao?: unknown
+  ativo?: boolean
+}
+type Campanha = {
+  id?: string
+  modo_exibicao?: string
+  data_cy?: unknown
+  titulo?: unknown
+  subtitulo?: unknown
+  descricao?: unknown
+  texto_botao?: unknown
+  url_botao?: unknown
+  mostrar_uma_vez?: boolean
+  always_show_user?: boolean
+  permitir_fechar_modal?: boolean
+  atraso_ms?: number
+  gatilho?: string
+  destaques?: DestaqueItem[]
+}
 type ConfigWidget = { slug?: string; sistema?: string; tela?: string; usuario_id?: string }
 type DestaqueElementoSeletorSeguro = (dataCyBruto: unknown) => string | null
-type DestaqueElementoLocalizarAlvo = (campanha: Campanha) => unknown
-type WasShown = (campanha: Campanha, config: ConfigWidget) => boolean
-type MarkShown = (campanha: Campanha, config: ConfigWidget) => void
+type DestaqueElementoLocalizarAlvo = (item: DestaqueItem | null | undefined) => unknown
+type WasShown = (campanha: Campanha, config: ConfigWidget, itemId?: string | null) => boolean
+type MarkShown = (campanha: Campanha, config: ConfigWidget, itemId?: string | null) => void
 type Retangulo = { top: number; left: number; right: number; bottom: number; width: number; height: number }
 type TamanhoBadge = { width: number; height: number }
 type Viewport = { width: number; height: number }
@@ -39,9 +64,11 @@ type DestaqueElementoRectsIguais = (a: Retangulo | null | undefined, b: Retangul
 type DestaqueElementoMutacoesApenasNoRoot = (root: { contains: (node: unknown) => boolean }, mutationsList: Array<{ target: unknown }>) => boolean
 type DestaqueElementoObterViewport = () => Viewport
 type DestaqueElementoMontar = (campanha: Campanha, config: ConfigWidget, alvo: unknown) => void
+type DestaqueElementoResolverItens = (campanha: Campanha | null | undefined) => DestaqueItem[]
+type DestaqueElementoMontarTodos = (campanha: Campanha, config: ConfigWidget) => void
 type ClickEvent = { target: { closest: (seletor: string) => { getAttribute: (chave: string) => string | null } | null } }
 type ClickListener = (event: ClickEvent) => void
-type DestaqueElementoGetTestClickListener = () => ClickListener | null
+type DestaqueElementoGetTestClickListener = (indice?: number) => ClickListener | null
 
 let destaqueElementoSeletorSeguro: DestaqueElementoSeletorSeguro
 let destaqueElementoLocalizarAlvo: DestaqueElementoLocalizarAlvo
@@ -52,6 +79,8 @@ let destaqueElementoRectsIguais: DestaqueElementoRectsIguais
 let destaqueElementoMutacoesApenasNoRoot: DestaqueElementoMutacoesApenasNoRoot
 let destaqueElementoObterViewport: DestaqueElementoObterViewport
 let destaqueElementoMontar: DestaqueElementoMontar
+let destaqueElementoResolverItens: DestaqueElementoResolverItens
+let destaqueElementoMontarTodos: DestaqueElementoMontarTodos
 let destaqueElementoGetTestClickListener: DestaqueElementoGetTestClickListener
 let wasShown: WasShown
 let markShown: MarkShown
@@ -59,6 +88,10 @@ let markShown: MarkShown
 // abaixo) — só pra inspecionar root.style.top/left aplicados de verdade após
 // destaqueElementoMontar/estabilização, sem expor destaqueElementoState.
 let ultimoRootDestaque: { style: Record<string, string>; contains: (node: unknown) => boolean } | null = null
+// Acumula TODOS os roots já criados (nunca é resetado sozinho) — testes de
+// múltiplos destaques usam .length (delta antes/depois da própria ação) pra
+// confirmar quantas instâncias foram montadas de verdade.
+let todasAsRaizesDestaque: Array<{ style: Record<string, string> }> = []
 // Sandbox compartilhada (ver before() abaixo) — exposta pra testes que
 // precisam mutar window.visualViewport/innerWidth/document.documentElement/
 // document.fonts pontualmente, sem recriar o contexto vm inteiro.
@@ -129,6 +162,7 @@ before(() => {
       },
     }
     ultimoRootDestaque = root
+    todasAsRaizesDestaque.push(root)
     return root
   }
   // Fake MutationObserver — não observa nada de verdade (não há DOM real
@@ -209,6 +243,8 @@ before(() => {
         destaqueElementoMutacoesApenasNoRoot?: DestaqueElementoMutacoesApenasNoRoot
         destaqueElementoObterViewport?: DestaqueElementoObterViewport
         destaqueElementoMontar?: DestaqueElementoMontar
+        destaqueElementoResolverItens?: DestaqueElementoResolverItens
+        destaqueElementoMontarTodos?: DestaqueElementoMontarTodos
         destaqueElementoGetTestClickListener?: DestaqueElementoGetTestClickListener
         wasShown?: WasShown
         markShown?: MarkShown
@@ -224,6 +260,8 @@ before(() => {
   const mutacoesApenasNoRootFn = UserPulse?._internal?.destaqueElementoMutacoesApenasNoRoot
   const obterViewportFn = UserPulse?._internal?.destaqueElementoObterViewport
   const montarFn = UserPulse?._internal?.destaqueElementoMontar
+  const resolverItensFn = UserPulse?._internal?.destaqueElementoResolverItens
+  const montarTodosFn = UserPulse?._internal?.destaqueElementoMontarTodos
   const getTestClickListenerFn = UserPulse?._internal?.destaqueElementoGetTestClickListener
   const wasShownFn = UserPulse?._internal?.wasShown
   const markShownFn = UserPulse?._internal?.markShown
@@ -236,6 +274,8 @@ before(() => {
   assert.equal(typeof mutacoesApenasNoRootFn, 'function', 'window.UserPulse._internal.destaqueElementoMutacoesApenasNoRoot não foi exposta por widget.js')
   assert.equal(typeof obterViewportFn, 'function', 'window.UserPulse._internal.destaqueElementoObterViewport não foi exposta por widget.js')
   assert.equal(typeof montarFn, 'function', 'window.UserPulse._internal.destaqueElementoMontar não foi exposta por widget.js')
+  assert.equal(typeof resolverItensFn, 'function', 'window.UserPulse._internal.destaqueElementoResolverItens não foi exposta por widget.js')
+  assert.equal(typeof montarTodosFn, 'function', 'window.UserPulse._internal.destaqueElementoMontarTodos não foi exposta por widget.js')
   assert.equal(typeof getTestClickListenerFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestClickListener não foi exposta por widget.js')
   assert.equal(typeof wasShownFn, 'function', 'window.UserPulse._internal.wasShown não foi exposta por widget.js')
   assert.equal(typeof markShownFn, 'function', 'window.UserPulse._internal.markShown não foi exposta por widget.js')
@@ -248,6 +288,8 @@ before(() => {
   destaqueElementoMutacoesApenasNoRoot = mutacoesApenasNoRootFn as DestaqueElementoMutacoesApenasNoRoot
   destaqueElementoObterViewport = obterViewportFn as DestaqueElementoObterViewport
   destaqueElementoMontar = montarFn as DestaqueElementoMontar
+  destaqueElementoResolverItens = resolverItensFn as DestaqueElementoResolverItens
+  destaqueElementoMontarTodos = montarTodosFn as DestaqueElementoMontarTodos
   destaqueElementoGetTestClickListener = getTestClickListenerFn as DestaqueElementoGetTestClickListener
   wasShown = wasShownFn as WasShown
   markShown = markShownFn as MarkShown
@@ -272,22 +314,26 @@ describe('destaqueElementoSeletorSeguro', () => {
   })
 })
 
-describe('destaqueElementoLocalizarAlvo — decisão de exibir o destaque', () => {
+describe('destaqueElementoLocalizarAlvo — localiza o alvo de UM item (data_cy direto, sem checar modo_exibicao)', () => {
+  // A partir da Fase 2 (múltiplos destaques), destaqueElementoLocalizarAlvo
+  // recebe um ITEM (CampanhaDestaqueItem ou o pseudo-item legado) — só
+  // precisa de `.data_cy`. A checagem de "isso é destaque_elemento mesmo?"
+  // saiu daqui e virou responsabilidade de destaqueElementoResolverItens
+  // (testado abaixo), que é quem decide SE existe algum item pra localizar.
   test('elemento existe no DOM -> retorna o elemento', () => {
     presentes.add('botao-cy')
-    const alvo = destaqueElementoLocalizarAlvo({ modo_exibicao: 'destaque_elemento', data_cy: 'botao-cy' })
+    const alvo = destaqueElementoLocalizarAlvo({ data_cy: 'botao-cy' })
     assert.notEqual(alvo, null)
   })
 
   test('elemento não existe no DOM -> não exibe (retorna null, sem lançar erro)', () => {
-    const alvo = destaqueElementoLocalizarAlvo({ modo_exibicao: 'destaque_elemento', data_cy: 'nao-existe-na-pagina' })
+    const alvo = destaqueElementoLocalizarAlvo({ data_cy: 'nao-existe-na-pagina' })
     assert.equal(alvo, null)
   })
 
-  test('outros formatos continuam inalterados — nunca tenta localizar elemento', () => {
-    presentes.add('botao-cy-2')
-    const alvo = destaqueElementoLocalizarAlvo({ modo_exibicao: 'modal_automatica', data_cy: 'botao-cy-2' })
-    assert.equal(alvo, null)
+  test('item nulo/sem data_cy -> retorna null, sem lançar erro', () => {
+    assert.equal(destaqueElementoLocalizarAlvo(null), null)
+    assert.equal(destaqueElementoLocalizarAlvo({}), null)
   })
 })
 
@@ -672,14 +718,19 @@ describe('estabilização pós-mount — reflow que só muda a posição do alvo
 })
 
 // O corte por tempo (não por frames estáveis) precisa de um cenário onde o
-// alvo NUNCA para de mudar — só testável com requestAnimationFrame
-// assíncrono de verdade (setTimeout), porque com o stub síncrono
-// compartilhado acima uma sequência que nunca estabiliza recursaria
-// indefinidamente na mesma pilha de chamadas (estouro de pilha), o que não
-// reflete o navegador real (onde cada rAF é 1 frame novo, sem empilhar).
-// Sandbox própria e mínima, isolada da instância compartilhada.
-describe('estabilização — limite máximo de execução (tempo)', () => {
-  test('alvo que nunca estabiliza é cortado por tempo máximo (~1s), nunca roda pra sempre', async () => {
+// alvo NUNCA para de mudar. Sandbox própria e mínima, isolada da instância
+// compartilhada — window.requestAnimationFrame e Date.now são controlados
+// pelo próprio teste (relógio falso avançado manualmente, fila de frames
+// drenada sob demanda), nunca por setTimeout/tempo real: cada "frame" é só
+// uma função na fila sendo chamada e o relógio avançando um valor fixo, sem
+// nenhum macrotask real envolvido — determinístico independente de carga da
+// máquina rodando a suíte. Isso também evita o estouro de pilha que um stub
+// SÍNCRONO e recursivo de requestAnimationFrame causaria (chamar passo()
+// direto de dentro de si mesma, sem nunca desempilhar): aqui cada frame só
+// entra na fila (fica pendente) até o teste decidir drenar, então nunca
+// empilha, mesmo sendo síncrono.
+describe('estabilização — limite máximo de execução (tempo, relógio controlado)', () => {
+  test('alvo que nunca estabiliza é cortado por tempo máximo (~1s simulados), nunca roda pra sempre', () => {
     const codigo = fs.readFileSync(path.resolve(__dirname, '../../web/public/widget.js'), 'utf8')
     const localStorageMap = new Map<string, string>()
     let chamadas = 0
@@ -691,10 +742,30 @@ describe('estabilização — limite máximo de execução (tempo)', () => {
       getBoundingClientRect: () => { chamadas++; return retangulo(100 + chamadas, 500, 140, 40) },
     }
     let rootLocal: { style: Record<string, string>; querySelector: (s: string) => unknown } | null = null
+    // Relógio falso — só Date.now() é chamado pelo trecho de estabilização
+    // exercitado aqui (destaqueElementoEstabilizar, ver widget.js), então um
+    // stub mínimo com só `now()` basta; o teste avança `agoraMs` manualmente,
+    // nunca o tempo real da máquina.
+    let agoraMs = 0
+    // Fila de frames pendentes — window.requestAnimationFrame só enfileira
+    // (nunca executa nem agenda via setTimeout/macrotask); o teste decide
+    // quando "rodar 1 frame" chamando drenarFrame(), que também é quem faz o
+    // relógio avançar. rafChamadas conta toda chamada de requestAnimationFrame
+    // (inclusive as que viram o próximo frame reagendado), pra provar que o
+    // monitor realmente para de reagendar depois do corte.
+    let rafFila: Array<() => void> = []
+    let rafChamadas = 0
+    function drenarFrame(incrementoMs: number) {
+      agoraMs += incrementoMs
+      const pendentes = rafFila
+      rafFila = []
+      for (const cb of pendentes) cb()
+    }
     const sandboxLocal: Record<string, unknown> = {
       console,
       URL,
       URLSearchParams,
+      Date: { now: () => agoraMs },
       document: {
         currentScript: { src: 'http://localhost/widget.js' },
         querySelectorAll: () => [],
@@ -731,9 +802,10 @@ describe('estabilização — limite máximo de execução (tempo)', () => {
       },
       addEventListener() {},
       removeEventListener() {},
-      // Assíncrono de verdade — cada "frame" é um novo macrotask, então o
-      // relógio de verdade avança entre eles e a pilha nunca cresce.
-      requestAnimationFrame: (cb: () => void) => setTimeout(cb, 0) as unknown as number,
+      // Só enfileira — nunca executa a callback nem agenda via
+      // setTimeout/macrotask. Quem decide quando o "frame" roda (e faz o
+      // relógio falso avançar) é drenarFrame(), abaixo, chamado pelo teste.
+      requestAnimationFrame: (cb: () => void) => { rafChamadas++; rafFila.push(cb); return rafChamadas },
       open() {},
       history: { pushState() {}, replaceState() {} },
       CSS: { escape: (valor: string) => valor.replace(/["\\]/g, '\\$&') },
@@ -750,13 +822,31 @@ describe('estabilização — limite máximo de execução (tempo)', () => {
       alvo
     )
 
-    // Espera passar do teto de ~1s (DESTAQUE_ESTABILIZACAO_MAX_MS) e confirma
-    // que o monitor realmente parou de agendar novos frames depois disso —
-    // nunca vira polling permanente.
-    await new Promise(resolve => setTimeout(resolve, 1200))
-    const chamadasApos1200ms = chamadas
-    await new Promise(resolve => setTimeout(resolve, 300))
-    assert.equal(chamadas, chamadasApos1200ms, 'depois do corte por tempo máximo, nenhum novo frame pode ser agendado — nunca roda indefinidamente')
+    // Drena frame a frame, avançando o relógio falso ~16ms por vez (~60fps),
+    // até a fila esvaziar sozinha — é isso que prova o corte por tempo: o
+    // alvo nunca estabiliza (rect muda sempre), então só
+    // `Date.now() - inicio >= DESTAQUE_ESTABILIZACAO_MAX_MS` (dentro de
+    // destaqueElementoEstabilizar, ver widget.js) pode fazer passo() parar de
+    // reagendar. Limite de 300 iterações (~4.8s simulados) é só uma rede de
+    // segurança contra uma regressão real que vire loop infinito — bem acima
+    // do ~1s (DESTAQUE_ESTABILIZACAO_MAX_MS) esperado pra sair sozinho.
+    let frames = 0
+    while (rafFila.length > 0 && frames < 300) {
+      drenarFrame(16)
+      frames++
+    }
+    assert.ok(frames < 300, 'não pode ser a rede de segurança que encerrou o loop — o corte por tempo (~1s) precisa ter agido sozinho')
+    assert.equal(rafFila.length, 0, 'depois do corte por tempo máximo, nenhum novo frame pode estar pendente')
+    assert.ok(agoraMs < 2000, `corte deveria acontecer perto de ~1s simulado (DESTAQUE_ESTABILIZACAO_MAX_MS), levou ${agoraMs}ms simulados`)
+
+    const chamadasNoCorte = chamadas
+    const rafChamadasNoCorte = rafChamadas
+    // Avança bem mais o relógio e tenta drenar de novo — fila já está vazia
+    // (nada foi reagendado), então nada deveria rodar: prova que o
+    // monitoramento realmente parou, não é só uma pausa entre frames.
+    drenarFrame(5000)
+    assert.equal(chamadas, chamadasNoCorte, 'depois do corte, nenhum novo frame pode rodar — nunca vira polling permanente')
+    assert.equal(rafChamadas, rafChamadasNoCorte, 'depois do corte, requestAnimationFrame não pode ser chamado de novo')
     assert.ok(rootLocal !== null)
   })
 })
@@ -996,5 +1086,145 @@ describe('mutations no mesmo frame coalescem numa única reação (no máximo 1 
     for (let i = 0; i < 5; i++) mutationObserverCb!([{ target: { tagName: 'DIV' } }])
 
     assert.equal(rafChamadas, 1, 'múltiplas mutations antes do frame virar devem coalescer num único requestAnimationFrame agendado')
+  })
+})
+
+// Fase 2 — múltiplos destaques independentes por campanha (ex.:
+// filtro-status, filtro-profissional, filtro-convenio). destaqueElementoResolverItens
+// é pura (fallback destaques[] vs pseudo-item legado); destaqueElementoMontarTodos
+// é quem orquestra o mount de ponta a ponta.
+describe('destaqueElementoResolverItens — destaques[] tem prioridade, fallback legado quando vazio/ausente', () => {
+  test('campanha com destaques[] -> retorna exatamente esses itens', () => {
+    const destaques: DestaqueItem[] = [
+      { id: 'item-1', data_cy: 'filtro-status', titulo: 'Status' },
+      { id: 'item-2', data_cy: 'filtro-profissional', titulo: 'Profissional' },
+    ]
+    const itens = destaqueElementoResolverItens({ id: 'c1', modo_exibicao: 'destaque_elemento', destaques })
+    assert.equal(itens.length, 2)
+    assert.equal(itens[0].id, 'item-1')
+    assert.equal(itens[1].id, 'item-2')
+  })
+
+  test('sem destaques[] (campanha legada, pré-Fase-2) -> 1 pseudo-item com id:null a partir dos campos antigos', () => {
+    const itens = destaqueElementoResolverItens({
+      id: 'c2', modo_exibicao: 'destaque_elemento',
+      data_cy: 'botao-antigo', titulo: 'Título antigo', descricao: 'Descrição antiga',
+      subtitulo: 'Badge antigo', texto_botao: 'Ver', url_botao: 'https://x',
+    })
+    assert.equal(itens.length, 1)
+    assert.equal(itens[0].id, null)
+    assert.equal(itens[0].data_cy, 'botao-antigo')
+    assert.equal(itens[0].titulo, 'Título antigo')
+    assert.equal(itens[0].texto_badge, 'Badge antigo')
+  })
+
+  test('destaques: [] (array vazio) -> mesmo fallback legado (não retorna vazio se houver data_cy legado)', () => {
+    const itens = destaqueElementoResolverItens({ id: 'c3', modo_exibicao: 'destaque_elemento', data_cy: 'x', titulo: 'T', destaques: [] })
+    assert.equal(itens.length, 1)
+    assert.equal(itens[0].id, null)
+  })
+
+  // .length (não deepEqual contra um []) — o array devolvido é criado DENTRO
+  // do contexto vm (outro realm); deepStrictEqual acusa "same structure but
+  // not reference-equal" ao comparar com um literal do lado de fora, mesmo
+  // quando ambos estão vazios.
+  test('modo_exibicao diferente de destaque_elemento -> sempre []', () => {
+    assert.equal(destaqueElementoResolverItens({ id: 'c4', modo_exibicao: 'modal_automatica', data_cy: 'x' }).length, 0)
+  })
+
+  test('destaque_elemento sem destaques[] e sem data_cy legado -> []', () => {
+    assert.equal(destaqueElementoResolverItens({ id: 'c5', modo_exibicao: 'destaque_elemento' }).length, 0)
+  })
+
+  test('campanha null/undefined -> [], sem lançar erro', () => {
+    assert.equal(destaqueElementoResolverItens(null).length, 0)
+    assert.equal(destaqueElementoResolverItens(undefined).length, 0)
+  })
+})
+
+describe('destaqueElementoMontarTodos — mount/interação independentes por item', () => {
+  test('2 itens com data-cy no DOM -> 2 destaques montados', () => {
+    presentes.add('filtro-status-multi')
+    presentes.add('filtro-profissional-multi')
+    const campanha: Campanha = {
+      id: 'destaque-multi-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [
+        { id: 'item-status', data_cy: 'filtro-status-multi', titulo: 'Status' },
+        { id: 'item-prof', data_cy: 'filtro-profissional-multi', titulo: 'Profissional' },
+      ],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-multi-1' }
+    const antes = todasAsRaizesDestaque.length
+    destaqueElementoMontarTodos(campanha, config)
+    assert.equal(todasAsRaizesDestaque.length - antes, 2, '2 itens com alvo no DOM devem montar 2 instâncias independentes')
+  })
+
+  test('elemento ausente pra um item não bloqueia o outro — só o que existe é montado', () => {
+    presentes.add('filtro-convenio-multi')
+    // 'filtro-inexistente-multi' de propósito NUNCA adicionado a `presentes`.
+    const campanha: Campanha = {
+      id: 'destaque-multi-2', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [
+        { id: 'item-ausente', data_cy: 'filtro-inexistente-multi', titulo: 'Ausente' },
+        { id: 'item-convenio', data_cy: 'filtro-convenio-multi', titulo: 'Convênio' },
+      ],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-multi-2' }
+    const antes = todasAsRaizesDestaque.length
+    assert.doesNotThrow(() => destaqueElementoMontarTodos(campanha, config))
+    assert.equal(todasAsRaizesDestaque.length - antes, 1, 'só o item com alvo real no DOM deve montar')
+  })
+
+  test('interação no destaque A (fechar) marca só o item A como visto — B continua elegível', () => {
+    presentes.add('filtro-a-multi')
+    presentes.add('filtro-b-multi')
+    const campanha: Campanha = {
+      id: 'destaque-multi-3', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [
+        { id: 'item-a', data_cy: 'filtro-a-multi', titulo: 'A' },
+        { id: 'item-b', data_cy: 'filtro-b-multi', titulo: 'B' },
+      ],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-multi-3' }
+    destaqueElementoMontarTodos(campanha, config)
+
+    const listenerA = destaqueElementoGetTestClickListener(0)
+    assert.notEqual(listenerA, null)
+    listenerA!({ target: elementoClique('data-up-destaque-close') })
+
+    assert.equal(wasShown(campanha, config, 'item-a'), true, 'fechar o destaque A deve marcar A como visto')
+    assert.equal(wasShown(campanha, config, 'item-b'), false, 'interagir com A nunca pode marcar/esconder B')
+  })
+
+  test('legado (campanha sem destaques[]) continua funcionando: monta o pseudo-item e respeita Até interagir com a MESMA chave de antes', () => {
+    presentes.add('botao-legado-multi')
+    const campanha: Campanha = {
+      id: 'destaque-multi-legado', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      data_cy: 'botao-legado-multi', titulo: 'Legado', descricao: 'Descrição legada',
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-multi-legado' }
+    const antes = todasAsRaizesDestaque.length
+    destaqueElementoMontarTodos(campanha, config)
+    assert.equal(todasAsRaizesDestaque.length - antes, 1)
+
+    const listener = destaqueElementoGetTestClickListener(0)
+    listener!({ target: elementoClique('data-up-destaque-close') })
+
+    // Chave SEM item_id (undefined) — mesma que já existia antes de existir
+    // `destaques[]`, preservando dispensas anteriores.
+    assert.equal(wasShown(campanha, config), true)
+
+    // Remontar depois de já ter sido dispensado não deve montar de novo.
+    const antesDeNovo = todasAsRaizesDestaque.length
+    destaqueElementoMontarTodos(campanha, config)
+    assert.equal(todasAsRaizesDestaque.length - antesDeNovo, 0, 'item já dispensado não deve remontar')
+  })
+
+  test('nenhum item elegível (data-cy inexistente, sem destaques[] e sem data_cy legado) -> não monta nada, sem lançar erro', () => {
+    const campanha: Campanha = { id: 'destaque-multi-vazio', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-multi-vazio' }
+    const antes = todasAsRaizesDestaque.length
+    assert.doesNotThrow(() => destaqueElementoMontarTodos(campanha, config))
+    assert.equal(todasAsRaizesDestaque.length - antes, 0)
   })
 })

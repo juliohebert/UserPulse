@@ -45,6 +45,27 @@ export interface Campanha {
   criado_em: string
   atualizado_em: string
   _count?: { feedbacks: number }
+  // Múltiplos destaques independentes (Fase 2 de destaque_elemento) — só
+  // presente quando incluído pelo backend (buscarPorId/duplicar). Ausente
+  // (undefined) não significa "sem destaques": ver rotina de fallback em
+  // campanhas2/Index.tsx (mesma lógica de destaqueElementoResolverItens em
+  // widget.js) para campanhas antigas que ainda não têm nenhuma linha aqui.
+  destaques?: CampanhaDestaqueItem[]
+}
+
+export interface CampanhaDestaqueItem {
+  id: string
+  campanha_id: string
+  ordem: number
+  data_cy: string
+  texto_badge: string | null
+  titulo: string
+  descricao: string
+  texto_botao: string | null
+  url_botao: string | null
+  ativo: boolean
+  criado_em: string
+  atualizado_em: string
 }
 
 export interface Feedback {

@@ -406,16 +406,52 @@ model Campanha {
   criado_em                 DateTime  @default(now())
   atualizado_em             DateTime  @updatedAt
 
-  tenant        Tenant               @relation(fields: [tenant_id], references: [id])
+  tenant        Tenant                 @relation(fields: [tenant_id], references: [id])
   feedbacks     Feedback[]
   eventos       EventoCampanha[]
   confirmacoes  ConfirmacaoLeitura[]
   etapasJornada EtapaJornada[]
+  destaques     CampanhaDestaqueItem[]
 
   // slug deixou de ser globalmente único (era @unique) e virou único por
   // tenant — dois clientes podem ter, cada um, uma campanha "boas-vindas".
   @@unique([tenant_id, slug])
   @@map("campanhas")
+}
+
+// Um destaque_elemento independente dentro de uma campanha — Fase 1 permitia
+// só 1 (os campos titulo/descricao/subtitulo/texto_botao/url_botao/data_cy
+// na própria Campanha). Múltiplos destaques (filtro-status,
+// filtro-profissional, filtro-convenio, etc.) viram N linhas aqui; os campos
+// legados em Campanha continuam existindo (nunca removidos) e alimentam o
+// backfill de 1 item + o fallback de leitura quando uma campanha ainda não
+// tem nenhuma linha em `destaques` (ver server/src/controllers/campanhas.ts).
+// tenant_id é denormalizado de propósito (não é só campanha_id, diferente de
+// TourPasso/Feedback/EventoCampanha) — a leitura pública do widget
+// (buscarCandidatas) resolve por tenant primeiro, e um item nunca pode
+// pertencer a um tenant diferente do da sua própria campanha; o controller
+// valida os dois (tenant_id do item == tenant_id da campanha) em toda
+// escrita, nunca confia só na FK.
+model CampanhaDestaqueItem {
+  id            String   @id @default(uuid())
+  tenant_id     String
+  campanha_id   String
+  ordem         Int      @default(1)
+  data_cy       String
+  texto_badge   String?
+  titulo        String
+  descricao     String
+  texto_botao   String?
+  url_botao     String?
+  ativo         Boolean  @default(true)
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  campanha Campanha @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
+
+  @@index([campanha_id, ordem])
+  @@index([tenant_id])
+  @@map("campanha_destaque_itens")
 }
 
 model ConfirmacaoLeitura {

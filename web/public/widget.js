@@ -1160,29 +1160,39 @@
     if (errorEl) errorEl.textContent = '';
   }
 
-  function shownKey(campanha, config) {
+  // itemId opcional (destaque_elemento com múltiplos itens — Fase 2): cada
+  // item tem sua própria chave (campanha_id + item + contexto + usuário),
+  // então interagir com o destaque A nunca marca B/C como visto. Omitido
+  // (undefined/null), a chave fica IDÊNTICA à de antes — modal_automatica
+  // nunca passa itemId, e o fallback de destaque_elemento sem `destaques[]`
+  // (pseudo-item legado, ver destaqueElementoResolverItens) também não, de
+  // propósito: preserva a MESMA chave que já existia antes de existir
+  // `destaques`, então quem já tinha dispensado o destaque legado continua
+  // sem vê-lo de novo depois desta atualização.
+  function shownKey(campanha, config, itemId) {
     var ctx = config.slug || (config.sistema + ':' + config.tela);
     var uid = config.usuario_id ? ':u:' + config.usuario_id : '';
-    return 'userpulse:shown:' + campanha.id + ':' + ctx + uid;
+    var sufixoItem = itemId ? (':item:' + itemId) : '';
+    return 'userpulse:shown:' + campanha.id + ':' + ctx + uid + sufixoItem;
   }
 
-  function wasShown(campanha, config) {
+  function wasShown(campanha, config, itemId) {
     if (!campanha.mostrar_uma_vez) return false;
     if (campanha.always_show_user) return false;
     if (!campanha.permitir_fechar_modal) return false;
     try {
-      return window.localStorage.getItem(shownKey(campanha, config)) === '1';
+      return window.localStorage.getItem(shownKey(campanha, config, itemId)) === '1';
     } catch (_err) {
       return false;
     }
   }
 
-  function markShown(campanha, config) {
+  function markShown(campanha, config, itemId) {
     if (!campanha.mostrar_uma_vez) return;
     if (campanha.always_show_user) return;
     if (!campanha.permitir_fechar_modal) return;
     try {
-      window.localStorage.setItem(shownKey(campanha, config), '1');
+      window.localStorage.setItem(shownKey(campanha, config, itemId), '1');
     } catch (_err) {}
   }
 
@@ -1230,10 +1240,6 @@
   // renderizado — ver comentário em destaqueElementoMontar.
   var FORMATO_DESTAQUE_ELEMENTO = 'destaque_elemento';
   var DATA_CY_SEGURO_REGEX = /^[A-Za-z0-9_][A-Za-z0-9_\-:.]{0,199}$/;
-  var destaqueElementoState = {
-    root: null, campanha: null, config: null, alvo: null, aberto: false, reposicionar: null,
-    resizeObserver: null, mutationObserver: null, layoutShiftObserver: null, reacaoAgendada: false,
-  };
 
   // Nunca interpola data-cy cru num seletor CSS — usa CSS.escape quando
   // disponível (escapa aspas/colchetes de verdade) e, como rede de
@@ -1250,9 +1256,12 @@
     return '[data-cy="' + valor + '"]';
   }
 
-  function destaqueElementoLocalizarAlvo(campanha) {
-    if (!campanha || (campanha.modo_exibicao || '') !== FORMATO_DESTAQUE_ELEMENTO) return null;
-    var seletor = destaqueElementoSeletorSeguro(campanha.data_cy);
+  // `item` é um CampanhaDestaqueItem (ou o pseudo-item legado montado por
+  // destaqueElementoResolverItens) — só precisa de `.data_cy`. A checagem de
+  // modo_exibicao acontece antes, em destaqueElementoResolverItens, não aqui.
+  function destaqueElementoLocalizarAlvo(item) {
+    if (!item) return null;
+    var seletor = destaqueElementoSeletorSeguro(item.data_cy);
     if (!seletor) return null;
     try {
       return document.querySelector(seletor);
@@ -1261,20 +1270,33 @@
     }
   }
 
-  function destaqueElementoDesmontar() {
-    var s = destaqueElementoState;
-    if (s.reposicionar) {
-      window.removeEventListener('scroll', s.reposicionar, true);
-      window.removeEventListener('resize', s.reposicionar);
+  // Uma instância por destaque MONTADO (elemento encontrado na página) — 0 a
+  // N ao mesmo tempo, uma por CampanhaDestaqueItem independente. Substitui o
+  // antigo destaqueElementoState singular (Fase 1, só suportava 1 destaque
+  // por campanha).
+  var destaqueElementoInstancias = [];
+
+  function destaqueElementoDesmontarInstancia(instancia) {
+    if (!instancia || instancia.desmontada) return;
+    instancia.desmontada = true;
+    if (instancia.reposicionar) {
+      window.removeEventListener('scroll', instancia.reposicionar, true);
+      window.removeEventListener('resize', instancia.reposicionar);
     }
-    if (s.resizeObserver) s.resizeObserver.disconnect();
-    if (s.mutationObserver) s.mutationObserver.disconnect();
-    if (s.layoutShiftObserver) s.layoutShiftObserver.disconnect();
-    if (s.root && s.root.parentNode) s.root.parentNode.removeChild(s.root);
-    destaqueElementoState = {
-      root: null, campanha: null, config: null, alvo: null, aberto: false, reposicionar: null,
-      resizeObserver: null, mutationObserver: null, layoutShiftObserver: null, reacaoAgendada: false,
-    };
+    if (instancia.resizeObserver) instancia.resizeObserver.disconnect();
+    if (instancia.mutationObserver) instancia.mutationObserver.disconnect();
+    if (instancia.layoutShiftObserver) instancia.layoutShiftObserver.disconnect();
+    if (instancia.root && instancia.root.parentNode) instancia.root.parentNode.removeChild(instancia.root);
+    var indice = destaqueElementoInstancias.indexOf(instancia);
+    if (indice !== -1) destaqueElementoInstancias.splice(indice, 1);
+  }
+
+  // Desmonta TODOS os destaques montados no momento — chamado antes de
+  // montar uma nova seleção de campanha (nunca deixa destaques de uma
+  // campanha anterior sobrepostos aos da campanha recém-selecionada).
+  function destaqueElementoDesmontarTodos() {
+    var todas = destaqueElementoInstancias.slice();
+    for (var i = 0; i < todas.length; i++) destaqueElementoDesmontarInstancia(todas[i]);
   }
 
   // Função pura: calcula onde o badge deve ficar em relação ao alvo, sempre
@@ -1414,20 +1436,21 @@
   // ou depois de DESTAQUE_ESTABILIZACAO_MAX_MS (~1s) no total, o que vier
   // primeiro — nunca vira polling permanente. Depois disso só scroll/
   // resize/ResizeObserver continuam cobrindo reposições.
-  function destaqueElementoEstabilizar(root, alvo) {
+  function destaqueElementoEstabilizar(instancia) {
+    var alvo = instancia.alvo;
     var framesEstaveis = 0;
     var inicio = Date.now();
     var rectAnterior = alvo.getBoundingClientRect();
 
     function passo() {
-      // Desmontado (fechado, elemento sumiu, outro destaque montado por
-      // cima) nesse meio-tempo — encerra sem reagendar mais frames.
-      if (destaqueElementoState.root !== root) return;
+      // Desmontado (fechado, elemento sumiu, campanha trocada) nesse
+      // meio-tempo — encerra sem reagendar mais frames.
+      if (instancia.desmontada) return;
       var rectAtual = alvo.getBoundingClientRect();
       if (!destaqueElementoRectsIguais(rectAnterior, rectAtual)) {
         framesEstaveis = 0;
         rectAnterior = rectAtual;
-        destaqueElementoReposicionar();
+        destaqueElementoReposicionar(instancia);
       } else {
         framesEstaveis++;
       }
@@ -1453,18 +1476,14 @@
   // várias mutations/sinais no mesmo frame colapsam numa única chamada de
   // reposicionar()+estabilizar(), porque a flag `reacaoAgendada` bloqueia
   // agendar de novo enquanto já existe um rAF pendente.
-  function destaqueElementoAgendarReacao(root, alvo) {
-    var s = destaqueElementoState;
-    if (s.root !== root || s.reacaoAgendada) return;
-    s.reacaoAgendada = true;
+  function destaqueElementoAgendarReacao(instancia) {
+    if (instancia.desmontada || instancia.reacaoAgendada) return;
+    instancia.reacaoAgendada = true;
     window.requestAnimationFrame(function () {
-      // A flag pertence ao destaque ATUAL no momento do agendamento — se
-      // foi desmontado/remontado nesse meio-tempo, destaqueElementoState já
-      // é outro objeto, então isso não vaza pro próximo mount.
-      s.reacaoAgendada = false;
-      if (destaqueElementoState.root !== root) return;
-      destaqueElementoReposicionar();
-      destaqueElementoEstabilizar(root, alvo);
+      instancia.reacaoAgendada = false;
+      if (instancia.desmontada) return;
+      destaqueElementoReposicionar(instancia);
+      destaqueElementoEstabilizar(instancia);
     });
   }
 
@@ -1475,7 +1494,7 @@
   // (mutation -> reposiciona -> muda style/atributo -> nova mutation -> ...).
   // Só uma mutation fora do root já é motivo suficiente pra reagir. Recebe
   // `root` (com um .contains()) e a lista de mutations (cada uma só precisa
-  // de `.target`) — sem acessar destaqueElementoState/rAF, testável isolada.
+  // de `.target`) — sem acessar estado de instância/rAF, testável isolada.
   function destaqueElementoMutacoesApenasNoRoot(root, mutationsList) {
     for (var i = 0; i < mutationsList.length; i++) {
       if (!root.contains(mutationsList[i].target)) return false;
@@ -1492,11 +1511,11 @@
   // root nunca chegam a agendar nada. Feature-detectado — sem
   // MutationObserver, esse sinal simplesmente não existe (scroll/resize/
   // ResizeObserver/estabilização inicial continuam funcionando).
-  function destaqueElementoCriarObservadorMutacoes(root, alvo) {
+  function destaqueElementoCriarObservadorMutacoes(instancia) {
     if (typeof window.MutationObserver !== 'function') return null;
     var observer = new window.MutationObserver(function (mutationsList) {
-      if (destaqueElementoMutacoesApenasNoRoot(root, mutationsList)) return;
-      destaqueElementoAgendarReacao(root, alvo);
+      if (destaqueElementoMutacoesApenasNoRoot(instancia.root, mutationsList)) return;
+      destaqueElementoAgendarReacao(instancia);
     });
     try {
       observer.observe(document.body, { childList: true, subtree: true, attributes: true });
@@ -1522,38 +1541,38 @@
     return { width: window.innerWidth, height: window.innerHeight };
   }
 
-  function destaqueElementoReposicionar() {
-    var s = destaqueElementoState;
-    if (!s.root || !s.alvo) return;
+  function destaqueElementoReposicionar(instancia) {
+    if (!instancia || !instancia.root || !instancia.alvo) return;
     // SPA pode remover o elemento do DOM depois de montado (navegação,
-    // re-render) — desmonta sem quebrar a página em vez de deixar o badge
-    // flutuando "no ar" sobre um alvo que não existe mais.
-    if (!document.body.contains(s.alvo)) {
-      destaqueElementoDesmontar();
+    // re-render) — desmonta só ESTA instância sem quebrar a página, em vez
+    // de deixar o badge flutuando "no ar" sobre um alvo que não existe mais.
+    // Os outros destaques da mesma campanha continuam intactos.
+    if (!document.body.contains(instancia.alvo)) {
+      destaqueElementoDesmontarInstancia(instancia);
       return;
     }
-    var badgeEl = s.root.querySelector('.up-destaque-badge');
+    var badgeEl = instancia.root.querySelector('.up-destaque-badge');
     if (!badgeEl) return;
-    var rect = s.alvo.getBoundingClientRect();
+    var rect = instancia.alvo.getBoundingClientRect();
     var badgeSize = { width: badgeEl.offsetWidth, height: badgeEl.offsetHeight };
     var viewport = destaqueElementoObterViewport();
     var pos = destaqueElementoCalcularPosicao(rect, badgeSize, viewport);
-    s.root.style.top = pos.top + 'px';
-    s.root.style.left = pos.left + 'px';
-    s.root.setAttribute('data-up-pos', pos.posicao);
+    instancia.root.style.top = pos.top + 'px';
+    instancia.root.style.left = pos.left + 'px';
+    instancia.root.setAttribute('data-up-pos', pos.posicao);
 
     // badgeRect é medido DEPOIS de aplicar top/left acima — reflete a
     // posição final já clampada, não a preferencial. É a partir dela (não
     // do badgeSize genérico) que beacon e tooltip calculam onde ficar.
     var badgeRect = badgeEl.getBoundingClientRect();
 
-    var beaconEl = s.root.querySelector('.up-destaque-beacon');
+    var beaconEl = instancia.root.querySelector('.up-destaque-beacon');
     if (beaconEl) {
       var posBeacon = destaqueElementoCalcularBeacon(rect, badgeRect);
       beaconEl.style.left = posBeacon.left + 'px';
     }
 
-    var tooltipEl = s.root.querySelector('.up-destaque-tooltip');
+    var tooltipEl = instancia.root.querySelector('.up-destaque-tooltip');
     if (tooltipEl) {
       var tooltipSize = { width: tooltipEl.offsetWidth, height: tooltipEl.offsetHeight };
       var posTooltip = destaqueElementoCalcularPosicaoTooltip(rect, badgeRect, tooltipSize, viewport);
@@ -1562,9 +1581,11 @@
     }
   }
 
-  function destaqueElementoConteudo(campanha, aberto) {
-    var badgeTexto = (campanha.subtitulo && String(campanha.subtitulo).trim()) || 'Novo';
-    var temCta = Boolean(campanha.texto_botao && campanha.url_botao);
+  // `item` é um CampanhaDestaqueItem (ou o pseudo-item legado) — cada
+  // instância renderiza o SEU próprio item, independente dos outros.
+  function destaqueElementoConteudo(item, aberto) {
+    var badgeTexto = (item.texto_badge && String(item.texto_badge).trim()) || 'Novo';
+    var temCta = Boolean(item.texto_botao && item.url_botao);
     var partes = [
       '<span class="up-destaque-badge" data-up-destaque-toggle="true" role="button" tabindex="0" aria-expanded="' + (aberto ? 'true' : 'false') + '" aria-label="' + escapeHtml(badgeTexto) + '">',
       escapeHtml(badgeTexto),
@@ -1573,45 +1594,50 @@
     ];
     if (aberto) {
       partes.push(
-        '<div class="up-destaque-tooltip" role="dialog" aria-label="' + escapeHtml(campanha.titulo || '') + '">',
+        '<div class="up-destaque-tooltip" role="dialog" aria-label="' + escapeHtml(item.titulo || '') + '">',
         '<button type="button" class="up-destaque-close" data-up-destaque-close="true" aria-label="Fechar">' + icon('close') + '</button>',
-        '<p class="up-destaque-titulo">' + escapeHtml(campanha.titulo || '') + '</p>',
-        campanha.descricao ? '<p class="up-destaque-descricao">' + escapeHtml(campanha.descricao) + '</p>' : '',
-        temCta ? '<button type="button" class="up-destaque-cta" data-up-destaque-cta="true" data-up-url="' + escapeHtml(campanha.url_botao) + '">' + escapeHtml(campanha.texto_botao) + '</button>' : '',
+        '<p class="up-destaque-titulo">' + escapeHtml(item.titulo || '') + '</p>',
+        item.descricao ? '<p class="up-destaque-descricao">' + escapeHtml(item.descricao) + '</p>' : '',
+        temCta ? '<button type="button" class="up-destaque-cta" data-up-destaque-cta="true" data-up-url="' + escapeHtml(item.url_botao) + '">' + escapeHtml(item.texto_botao) + '</button>' : '',
         '</div>'
       );
     }
     return partes.join('');
   }
 
-  function destaqueElementoRender() {
-    var s = destaqueElementoState;
-    if (!s.root) return;
-    s.root.innerHTML = destaqueElementoConteudo(s.campanha, s.aberto);
-    destaqueElementoReposicionar();
+  function destaqueElementoRender(instancia) {
+    if (!instancia.root) return;
+    instancia.root.innerHTML = destaqueElementoConteudo(instancia.item, instancia.aberto);
+    destaqueElementoReposicionar(instancia);
   }
 
-  function destaqueElementoMontar(campanha, config, alvo) {
-    destaqueElementoDesmontar();
+  // Monta UMA instância independente pra `item` (já com o alvo localizado).
+  // Cada instância tem seu próprio root/listeners/observers — fechar ou
+  // interagir com uma nunca afeta as outras.
+  function destaqueElementoMontarItem(campanha, config, item, alvo) {
     var root = document.createElement('div');
     root.className = 'up-destaque-root';
     document.body.appendChild(root);
 
-    destaqueElementoState = {
+    var instancia = {
       root: root,
       campanha: campanha,
       config: config,
+      item: item,
       alvo: alvo,
       aberto: false,
-      reposicionar: destaqueElementoReposicionar,
+      reposicionar: null,
       resizeObserver: null,
       mutationObserver: null,
       layoutShiftObserver: null,
       reacaoAgendada: false,
+      desmontada: false,
     };
+    instancia.reposicionar = function () { destaqueElementoReposicionar(instancia); };
+    destaqueElementoInstancias.push(instancia);
 
-    window.addEventListener('scroll', destaqueElementoState.reposicionar, true);
-    window.addEventListener('resize', destaqueElementoState.reposicionar);
+    window.addEventListener('scroll', instancia.reposicionar, true);
+    window.addEventListener('resize', instancia.reposicionar);
 
     // ResizeObserver no ALVO (não polling) — cobre o caso de o próprio alvo
     // mudar de TAMANHO sem disparar scroll/resize da window (ex.: texto do
@@ -1624,25 +1650,25 @@
     // coberto por destaqueElementoEstabilizar logo abaixo.
     if (typeof window.ResizeObserver === 'function') {
       var resizeObserver = new window.ResizeObserver(function () {
-        destaqueElementoReposicionar();
+        destaqueElementoReposicionar(instancia);
       });
       resizeObserver.observe(alvo);
-      destaqueElementoState.resizeObserver = resizeObserver;
+      instancia.resizeObserver = resizeObserver;
     }
 
     // Cobre reflow tardio que só muda a POSIÇÃO do alvo, mesmo depois da
     // estabilização inicial já ter encerrado — ver destaqueElementoAgendarReacao.
-    destaqueElementoState.mutationObserver = destaqueElementoCriarObservadorMutacoes(root, alvo);
+    instancia.mutationObserver = destaqueElementoCriarObservadorMutacoes(instancia);
 
     // Troca de fonte web costuma re-layoutar texto (e tudo abaixo dele) só
     // depois de várias centenas de ms — bem depois da estabilização inicial.
     // document.fonts.ready é uma Promise que resolve UMA vez; não precisa de
     // disconnect (destaqueElementoAgendarReacao já ignora sozinha se tiver
-    // desmontado nesse meio-tempo, ver checagem de s.root lá dentro).
+    // desmontado nesse meio-tempo).
     // Feature-detectado — sem Fonts API, esse sinal simplesmente não existe.
     if (typeof document !== 'undefined' && document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
       document.fonts.ready.then(function () {
-        destaqueElementoAgendarReacao(root, alvo);
+        destaqueElementoAgendarReacao(instancia);
       });
     }
 
@@ -1654,10 +1680,10 @@
     if (typeof window.PerformanceObserver === 'function') {
       try {
         var layoutShiftObserver = new window.PerformanceObserver(function () {
-          destaqueElementoAgendarReacao(root, alvo);
+          destaqueElementoAgendarReacao(instancia);
         });
         layoutShiftObserver.observe({ type: 'layout-shift', buffered: false });
-        destaqueElementoState.layoutShiftObserver = layoutShiftObserver;
+        instancia.layoutShiftObserver = layoutShiftObserver;
       } catch (_e) { /* 'layout-shift' não suportado neste navegador — sinal opcional, ignora */ }
     }
 
@@ -1671,22 +1697,24 @@
       // modal, onde markShown roda ao abrir (ver scheduleAutoOpen): aqui o
       // usuário pode ver o badge e ignorá-lo (ex.: está no meio de outra
       // tarefa) sem que isso conte como "já viu a novidade" — ela deve
-      // continuar aparecendo até uma dessas 3 ações acontecer.
+      // continuar aparecendo até uma dessas 3 ações acontecer. `item.id`
+      // (null pro pseudo-item legado) escopa a marcação a ESTE destaque —
+      // interagir aqui nunca marca/esconde os outros itens da campanha.
       if (closeEl) {
-        markShown(campanha, config);
-        destaqueElementoDesmontar();
+        markShown(campanha, config, item.id);
+        destaqueElementoDesmontarInstancia(instancia);
         return;
       }
       if (ctaEl) {
-        markShown(campanha, config);
+        markShown(campanha, config, item.id);
         var url = ctaEl.getAttribute('data-up-url');
         if (url) window.open(url, '_blank', 'noopener');
         return;
       }
       if (toggleEl) {
-        markShown(campanha, config);
-        destaqueElementoState.aberto = !destaqueElementoState.aberto;
-        destaqueElementoRender();
+        markShown(campanha, config, item.id);
+        instancia.aberto = !instancia.aberto;
+        destaqueElementoRender(instancia);
       }
     });
 
@@ -1701,41 +1729,107 @@
     // aconteceu. Sem custo perceptível (~1 frame, ~16ms).
     window.requestAnimationFrame(function () {
       window.requestAnimationFrame(function () {
-        // Pode ter sido desmontado (fechado, elemento sumiu) nesse meio
-        // tempo — nunca opera sobre um root que não é mais o atual.
-        if (destaqueElementoState.root !== root) return;
-        destaqueElementoRender();
+        // Pode ter sido desmontada (fechada, elemento sumiu) nesse meio
+        // tempo — nunca opera sobre uma instância que não existe mais.
+        if (instancia.desmontada) return;
+        destaqueElementoRender(instancia);
         // Cobre reflow tardio que só muda a POSIÇÃO do alvo (não o
         // tamanho) — o ResizeObserver acima não pega esse caso. Curta,
         // se auto-encerra (ver destaqueElementoEstabilizar).
-        destaqueElementoEstabilizar(root, alvo);
+        destaqueElementoEstabilizar(instancia);
       });
     });
+
+    return instancia;
+  }
+
+  // Compat: uso antigo (Fase 1) com (campanha, config, alvo) direto — monta
+  // UMA instância usando os campos legados da própria campanha como um
+  // pseudo-item (id:null, mesmo shape do fallback em
+  // destaqueElementoResolverItens). O runtime real (agendarDestaqueElemento)
+  // sempre passa por destaqueElementoMontarTodos; esta função existe pra não
+  // quebrar quem já chamava a API antiga (ver
+  // server/src/widgetDestaqueElemento.test.ts).
+  function destaqueElementoMontar(campanha, config, alvo) {
+    destaqueElementoDesmontarTodos();
+    return destaqueElementoMontarItem(campanha, config, {
+      id: null,
+      data_cy: campanha.data_cy,
+      texto_badge: campanha.subtitulo,
+      titulo: campanha.titulo,
+      descricao: campanha.descricao,
+      texto_botao: campanha.texto_botao,
+      url_botao: campanha.url_botao,
+    }, alvo);
+  }
+
+  // Função pura: resolve a lista de itens a montar pra uma campanha
+  // destaque_elemento. `destaques` (Fase 2, N itens independentes) tem
+  // prioridade; sem nenhum item ali (campanha antiga que ainda não passou
+  // pelo backfill, ou resposta em cache de antes de `destaques` existir),
+  // cai pro fallback legado: um único pseudo-item (id:null, pra usar a MESMA
+  // chave de shownKey que já existia — ver comentário em shownKey) montado a
+  // partir dos campos antigos da própria Campanha. Sem acesso a DOM/window —
+  // testável em node:test puro.
+  function destaqueElementoResolverItens(campanha) {
+    if (!campanha) return [];
+    if (Array.isArray(campanha.destaques) && campanha.destaques.length > 0) {
+      return campanha.destaques;
+    }
+    if ((campanha.modo_exibicao || '') !== FORMATO_DESTAQUE_ELEMENTO) return [];
+    if (!campanha.data_cy) return [];
+    return [{
+      id: null,
+      data_cy: campanha.data_cy,
+      texto_badge: campanha.subtitulo,
+      titulo: campanha.titulo,
+      descricao: campanha.descricao,
+      texto_botao: campanha.texto_botao,
+      url_botao: campanha.url_botao,
+    }];
+  }
+
+  // Monta TODOS os destaques elegíveis da campanha — um alvo ausente ou já
+  // "visto" (Até interagir) nunca bloqueia os demais, cada item é resolvido
+  // de forma independente. Desmonta qualquer destaque de uma seleção de
+  // campanha anterior antes de montar os novos.
+  function destaqueElementoMontarTodos(campanha, config) {
+    destaqueElementoDesmontarTodos();
+    var itens = destaqueElementoResolverItens(campanha);
+    for (var i = 0; i < itens.length; i++) {
+      var item = itens[i];
+      if (item.ativo === false) continue;
+      if (wasShown(campanha, config, item.id)) continue;
+      var alvo = destaqueElementoLocalizarAlvo(item);
+      // Elemento não encontrado — nunca quebra a página, nunca mostra
+      // destaque incorreto; simplesmente não monta ESTE item (os outros
+      // continuam sendo processados normalmente).
+      if (!alvo) continue;
+      destaqueElementoMontarItem(campanha, config, item, alvo);
+    }
   }
 
   // Mesmo padrão de tourGetTestClickListener: devolve só o listener de
-  // clique religado no root atual, sem expor destaqueElementoState (ou
-  // qualquer outro campo) em _internal. `.listeners` é uma propriedade do
-  // elemento FAKE usado só pelo harness de teste (vm) — um DOM real não tem
-  // isso, então este helper nunca resolve nada fora do harness. Usado por
-  // server/src/widgetDestaqueElemento.test.ts pra simular clique real no
-  // badge/CTA/fechar sem chamar a lógica de marcação como função solta.
-  function destaqueElementoGetTestClickListener() {
-    var root = destaqueElementoState.root;
+  // clique religado no root de UMA instância (por padrão a primeira — índice
+  // 0, mesma que os testes da Fase 1 já esperavam), sem expor
+  // destaqueElementoInstancias (ou qualquer outro estado) em _internal.
+  // `.listeners` é uma propriedade do elemento FAKE usado só pelo harness de
+  // teste (vm) — um DOM real não tem isso, então este helper nunca resolve
+  // nada fora do harness. Usado por server/src/widgetDestaqueElemento.test.ts
+  // pra simular clique real no badge/CTA/fechar sem chamar a lógica de
+  // marcação como função solta.
+  function destaqueElementoGetTestClickListener(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    var root = instancia && instancia.root;
     return (root && root.listeners && root.listeners.click && root.listeners.click[0]) || null;
   }
 
   function agendarDestaqueElemento(campanha, config) {
     if ((campanha.gatilho || 'ao_abrir_tela') !== 'ao_abrir_tela') return;
-    if (wasShown(campanha, config)) return;
     var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
     state.timer = window.setTimeout(function () {
       if (tourState.ativo) return;
-      var alvo = destaqueElementoLocalizarAlvo(campanha);
-      // Elemento não encontrado — nunca quebra a página, nunca mostra
-      // destaque incorreto; simplesmente não monta nada.
-      if (!alvo) return;
-      destaqueElementoMontar(campanha, config, alvo);
+      destaqueElementoMontarTodos(campanha, config);
     }, delay);
   }
 
@@ -10036,11 +10130,15 @@
     destaqueElementoRectsIguais: destaqueElementoRectsIguais,
     destaqueElementoMutacoesApenasNoRoot: destaqueElementoMutacoesApenasNoRoot,
     destaqueElementoObterViewport: destaqueElementoObterViewport,
-    // destaqueElementoMontar + destaqueElementoGetTestClickListener: mesmo
-    // padrão de renderTour/tourGetTestClickListener — expõem só o suficiente
-    // pra simular um clique real no badge/CTA/fechar num harness de teste
-    // (vm), sem expor destaqueElementoState inteiro.
+    // destaqueElementoResolverItens: função pura (fallback destaques[] vs
+    // pseudo-item legado). destaqueElementoMontar/MontarTodos +
+    // destaqueElementoGetTestClickListener: mesmo padrão de renderTour/
+    // tourGetTestClickListener — expõem só o suficiente pra simular um
+    // clique real no badge/CTA/fechar num harness de teste (vm), sem expor
+    // destaqueElementoInstancias inteiro.
+    destaqueElementoResolverItens: destaqueElementoResolverItens,
     destaqueElementoMontar: destaqueElementoMontar,
+    destaqueElementoMontarTodos: destaqueElementoMontarTodos,
     destaqueElementoGetTestClickListener: destaqueElementoGetTestClickListener,
     // wasShown/markShown já existiam (política de "mostrar_uma_vez"
     // compartilhada por qualquer formato de campanha, via localStorage) —
