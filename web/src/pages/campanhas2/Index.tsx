@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
-import { get, post } from '../../services/api'
+import { LoadingSpinner } from '../../components/ui/EmptyState'
+import { get, post, put } from '../../services/api'
 import type { AparenciaWidget, Campanha, Sistema, TelaCatalogo } from '../../types'
 import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
+import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 
 interface FormState {
   titulo: string
+  // Eyebrow do modal; reutilizado como texto do badge quando
+  // modo_exibicao === FORMATO_DESTAQUE_ELEMENTO (ver CampoDock "Texto do
+  // badge" na aba Exibição).
   subtitulo: string
   descricao: string
   tipo: string
@@ -55,6 +60,12 @@ type PosicaoMidia = 'topo' | 'antes_cta'
 type FrequenciaExibicao = 'uma_vez' | 'ate_responder' | 'reexibir_depois'
 type AcaoFinalCampanha = 'feedback' | 'confirmacao' | 'visualizacao'
 type ModoSegmentacao = 'todos' | 'cliente' | 'perfil' | 'combinada'
+// Fase 1 de adoção — "Destaque em elemento". Reaproveita modo_exibicao
+// (já existia, só faltava opção no formulário e no widget), modo_identificacao
+// + data_cy (já existiam pro modo "Ao encontrar um elemento" no destino) e
+// subtitulo (passa a carregar o texto do badge). Nenhum campo novo no schema.
+type FormatoExibicao = 'modal_automatica' | 'destaque_elemento'
+const FORMATO_DESTAQUE_ELEMENTO: FormatoExibicao = 'destaque_elemento'
 
 type AparenciaCard = Pick<AparenciaWidget, 'cor_principal' | 'logo_url'>
 
@@ -437,12 +448,13 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
   )
 }
 
-function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview }: {
+function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editando, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview }: {
   secao: SecaoDock
   form: FormState
   catalogoTelas: TelaCatalogo[]
   temSistemas: boolean
   salvando: boolean
+  editando: boolean
   setCampo: <K extends keyof FormState>(campo: K, valor: FormState[K]) => void
   setSecao: (secao: SecaoDock) => void
   onSelecionarTela: (telaId: string) => void
@@ -452,9 +464,15 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, setCam
   onPreview: () => void
 }) {
   const [modoSegmentacao, setModoSegmentacao] = useState<ModoSegmentacao>('todos')
+  const formatoExibicao: FormatoExibicao = form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
+    ? FORMATO_DESTAQUE_ELEMENTO
+    : 'modal_automatica'
+  // Destaque em elemento não tem feedback/confirmação nesta fase (fora de
+  // escopo — ver comentário em selecionarFormatoExibicao) — a aba some em
+  // vez de mostrar opções que não fazem sentido pro formato.
   const secoes: Array<{ id: SecaoDock; label: string }> = [
     { id: 'destino', label: 'Destino' },
-    { id: 'feedback', label: 'Feedback' },
+    ...(formatoExibicao === FORMATO_DESTAQUE_ELEMENTO ? [] : [{ id: 'feedback' as const, label: 'Feedback' }]),
     { id: 'exibicao', label: 'Exibição' },
     { id: 'segmentacao', label: 'Segmentação' },
   ]
@@ -562,6 +580,34 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, setCam
     setCampo('url_contem', '')
   }
 
+  function selecionarFormatoExibicao(formato: FormatoExibicao) {
+    if (formato === FORMATO_DESTAQUE_ELEMENTO) {
+      setCampo('modo_exibicao', FORMATO_DESTAQUE_ELEMENTO)
+      // Destaque em elemento só existe ancorado a um elemento — mesma
+      // seleção que "Ao encontrar um elemento" no destino (força
+      // modo_identificacao=data_cy; o backend também força isso, nunca
+      // confia só no que o front manda).
+      setCampo('gatilho', 'ao_abrir_tela')
+      setCampo('modo_identificacao', 'data_cy')
+      setCampo('evento', '')
+      setCampo('tela', '')
+      setCampo('url_contem', '')
+      // Sem feedback/confirmação/CSAT nesta fase (fora de escopo) — e sempre
+      // dispensável, já que não faz sentido um badge/tooltip bloquear a tela.
+      setCampo('feedback_habilitado', false)
+      setCampo('exige_confirmacao_leitura', false)
+      setCampo('observacao_obrigatoria', false)
+      setCampo('permitir_fechar_modal', true)
+      if (form.politica_reexibicao === 'ate_responder_ou_confirmar') {
+        setCampo('politica_reexibicao', 'uma_vez_apos_visualizacao')
+      }
+      if (secao === 'feedback') setSecao('exibicao')
+      return
+    }
+
+    setCampo('modo_exibicao', 'modal_automatica')
+  }
+
   function alternarFechamento(valor: boolean) {
     setCampo('permitir_fechar_modal', valor)
     if (!valor) {
@@ -638,20 +684,27 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, setCam
                 { id: 'tela' as const, icon: 'web_asset', titulo: 'Ao abrir uma tela', desc: 'Use uma tela cadastrada ou adicione uma nova ao catálogo.' },
                 { id: 'data_cy' as const, icon: 'ads_click', titulo: 'Ao encontrar um elemento', desc: 'Mostra quando um elemento específico estiver disponível na página.' },
                 { id: 'acao' as const, icon: 'bolt', titulo: 'Depois de uma ação', desc: 'Mostra somente quando o sistema disparar um evento pelo widget.' },
-              ].map(opcao => (
-                <button
-                  key={opcao.id}
-                  type="button"
-                  onClick={() => selecionarTipoDestino(opcao.id)}
-                  className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${tipoDestino === opcao.id ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
-                >
-                  <span className={`material-symbols-outlined mt-0.5 text-[20px] ${tipoDestino === opcao.id ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
-                  <span className="min-w-0">
-                    <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
-                    <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">{opcao.desc}</span>
-                  </span>
-                </button>
-              ))}
+              ].map(opcao => {
+                // Destaque em elemento só existe ancorado por data-cy — as
+                // outras duas formas de destino não fazem sentido pra ele.
+                const desabilitado = formatoExibicao === FORMATO_DESTAQUE_ELEMENTO && opcao.id !== 'data_cy'
+                return (
+                  <button
+                    key={opcao.id}
+                    type="button"
+                    onClick={() => selecionarTipoDestino(opcao.id)}
+                    disabled={desabilitado}
+                    title={desabilitado ? 'O formato "Destaque em elemento" exige localizar o elemento por data-cy.' : undefined}
+                    className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${desabilitado ? 'cursor-not-allowed border-[#dee3e9] bg-[#f1f3f5] text-[#9aa3ad]' : tipoDestino === opcao.id ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
+                  >
+                    <span className={`material-symbols-outlined mt-0.5 text-[20px] ${desabilitado ? 'text-[#a8b0b8]' : tipoDestino === opcao.id ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
+                    <span className="min-w-0">
+                      <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
+                      <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">{opcao.desc}</span>
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
@@ -713,10 +766,73 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, setCam
           <CampoBooleanoDock label="Campanha ativa" checked={form.ativo} onChange={valor => setCampo('ativo', valor)} />
 
           <div>
+            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Formato de exibição</span>
+            <div className="grid gap-2">
+              {[
+                { id: 'modal_automatica' as const, icon: 'chat_bubble', titulo: 'Modal automática', desc: 'Card completo, com mídia e feedback opcional.' },
+                { id: FORMATO_DESTAQUE_ELEMENTO, icon: 'new_releases', titulo: 'Destaque em elemento', desc: 'Badge "Novo" ancorado num elemento da tela, com tooltip ao clicar.' },
+              ].map(opcao => (
+                <button
+                  key={opcao.id}
+                  type="button"
+                  onClick={() => selecionarFormatoExibicao(opcao.id)}
+                  className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${formatoExibicao === opcao.id ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
+                >
+                  <span className={`material-symbols-outlined mt-0.5 text-[20px] ${formatoExibicao === opcao.id ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
+                    <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">{opcao.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {formatoExibicao === FORMATO_DESTAQUE_ELEMENTO && (
+            <div className="space-y-3 rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3">
+              <CampoDock
+                label="Texto do badge"
+                value={form.subtitulo}
+                onChange={valor => setCampo('subtitulo', valor)}
+                placeholder="Novo"
+                hint='Selo mostrado ao lado do elemento. Em branco, mostramos "Novo".'
+              />
+              <CampoDock label="Título" value={form.titulo} onChange={valor => setCampo('titulo', valor)} placeholder="Título da novidade" />
+              <label className="block">
+                <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Descrição</span>
+                <textarea
+                  value={form.descricao}
+                  onChange={event => setCampo('descricao', event.target.value)}
+                  rows={3}
+                  placeholder="Explique brevemente a novidade para o usuário."
+                  className="w-full rounded-lg border border-[#ced0d4] bg-white px-3 py-2 text-[14px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
+                />
+              </label>
+              <CampoBooleanoDock label="Mostrar botão de ação (CTA)" checked={form.cta_habilitado} onChange={valor => setCampo('cta_habilitado', valor)} />
+              {form.cta_habilitado && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <CampoDock label="Texto do botão" value={form.texto_botao} onChange={valor => setCampo('texto_botao', valor)} placeholder="Saiba mais" />
+                  <CampoDock label="Link do botão" value={form.url_botao} onChange={valor => setCampo('url_botao', valor)} placeholder="https://" />
+                </div>
+              )}
+              <p className="text-[11px] font-semibold leading-4 text-[#8595a4]">O usuário sempre pode dispensar o destaque — não é possível torná-lo obrigatório.</p>
+            </div>
+          )}
+
+          <div>
             <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Com que frequência esta campanha deve aparecer?</span>
             <div className="grid gap-2">
               {[
-                { id: 'uma_vez' as const, icon: 'looks_one', titulo: 'Uma vez', desc: 'Mostra uma única vez para cada usuário.' },
+                // "Uma vez" persiste exatamente igual pros demais formatos
+                // (mostrar_uma_vez=true / politica_reexibicao=
+                // 'uma_vez_apos_visualizacao', sem mudança de schema) — só o
+                // rótulo muda pra destaque_elemento, porque nesse formato
+                // markShown só roda numa interação explícita (clicar no
+                // badge/CTA ou dispensar), nunca só por o badge ter
+                // renderizado. Ver destaqueElementoMontar em widget.js.
+                formatoExibicao === FORMATO_DESTAQUE_ELEMENTO
+                  ? { id: 'uma_vez' as const, icon: 'touch_app', titulo: 'Até interagir', desc: 'Continua destacando a novidade até o usuário interagir ou dispensá-la.' }
+                  : { id: 'uma_vez' as const, icon: 'looks_one', titulo: 'Uma vez', desc: 'Mostra uma única vez para cada usuário.' },
                 { id: 'ate_responder' as const, icon: 'repeat', titulo: 'Até responder', desc: 'Continua aparecendo até o usuário responder ou confirmar.' },
                 { id: 'reexibir_depois' as const, icon: 'event_repeat', titulo: 'Reexibir depois', desc: 'Mostra novamente após um intervalo definido em dias.' },
               ].map(opcao => {
@@ -889,10 +1005,60 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, setCam
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-2">
           <Button type="button" variant="ghost" fullWidthMobile onClick={onPreview} disabled={salvando} iconLeft={<span className="material-symbols-outlined text-[18px]">visibility</span>}>Simular</Button>
           <Button type="button" variant="ghost" fullWidthMobile onClick={onLimpar} disabled={salvando} iconLeft={<span className="material-symbols-outlined text-[18px]">restart_alt</span>}>Resetar</Button>
-          <Button type="submit" variant="gradient" size="md" fullWidthMobile disabled={salvando} className="sm:col-span-2 shadow-[0_10px_24px_rgba(0,100,224,0.22)]">{salvando ? 'Salvando...' : 'Criar campanha'}</Button>
+          <Button type="submit" variant="gradient" size="md" fullWidthMobile disabled={salvando} className="sm:col-span-2 shadow-[0_10px_24px_rgba(0,100,224,0.22)]">{salvando ? 'Salvando...' : (editando ? 'Salvar alterações' : 'Criar campanha')}</Button>
         </div>
       </div>
     </aside>
+  )
+}
+
+// Preview de "Destaque em elemento" — simula a tela do cliente com o
+// elemento alvo (localizado pelo data-cy configurado no dock), o badge/
+// beacon ancorado nele e o tooltip contextual (título/descrição/CTA
+// opcional/fechar) que abre ao interagir. Edição acontece só no dock lateral
+// (aba Exibição) — este card é só a representação visual, igual ao papel do
+// CardEditavel pros outros formatos, mas sem os campos de edição inline
+// (media, arrastar, etc. não se aplicam a este formato).
+function DestaqueElementoCard({ form, aparencia }: { form: FormState; aparencia: AparenciaCard | null }) {
+  const corAcao = corSistemaValida(aparencia?.cor_principal)
+
+  return (
+    <article className="mx-auto w-full max-w-[580px] rounded-2xl border border-[#dee3e9] bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#eff4ff] text-[#0064e0]">
+          <span className="material-symbols-outlined text-[19px]">new_releases</span>
+        </span>
+        <p className="text-[22px] font-semibold leading-tight text-[#0a1317]">Preview</p>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-outline-variant">
+        <div className="flex items-center gap-2 border-b border-outline-variant/40 bg-surface-container-low px-4 py-2.5 text-[11px] font-semibold text-outline">
+          <span className="material-symbols-outlined text-[15px]">public</span>
+          Simulação da tela do cliente
+        </div>
+
+        {/* items-start (não items-center) + pt-12 pequeno pro badge, deixando
+            toda a folga do min-h pro lado de baixo — o tooltip (título +
+            descrição + CTA) é bem mais alto que o badge acima do alvo, e os
+            dois são absolutamente posicionados (saem do fluxo do alvo), então
+            não empurram a altura do canvas sozinhos. Centralizar
+            verticalmente (como antes) desperdiçava metade da folga do lado
+            do badge, que precisa de bem menos espaço — sobrava pouco pro
+            tooltip e ele cortava no overflow-hidden do wrapper acima. */}
+        <div className="relative flex min-h-[320px] items-start justify-center bg-[#f1f4f7] px-6 pb-10 pt-12">
+          <DestaqueElementoSimulacao
+            corAcao={corAcao}
+            dataCyLabel={form.data_cy.trim()}
+            placeholderSemAlvo="Informe o data-cy do elemento alvo no dock ao lado para ver o destaque posicionado aqui."
+            badgeTexto={form.subtitulo.trim() || 'Novo'}
+            titulo={form.titulo.trim() || 'Título da novidade'}
+            descricao={form.descricao.trim() || 'Explique brevemente a novidade para o usuário.'}
+            ctaTexto={form.cta_habilitado ? (form.texto_botao.trim() || 'Saiba mais') : null}
+            permitirDispensar
+          />
+        </div>
+      </div>
+    </article>
   )
 }
 
@@ -1401,6 +1567,32 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
     setEnviado(true)
   }
 
+  // Destaque em elemento não é uma modal — simular aqui mostraria conteúdo
+  // enganoso (o mock de modal completo abaixo não representa o badge/
+  // tooltip real). Mesmo backdrop/portal do preview normal, conteúdo via
+  // DestaqueElementoSimulacao (mesmo componente do builder canvas e de
+  // /campanhas/:id/preview — nunca reimplementar um terceiro mock aqui).
+  if (form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO) {
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Preview do destaque em elemento" onClick={onClose}>
+        <div onClick={event => event.stopPropagation()}>
+          <DestaqueElementoSimulacao
+            corAcao={corAcao}
+            dataCyLabel={form.data_cy.trim()}
+            placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
+            badgeTexto={subtitulo || 'Novo'}
+            titulo={titulo}
+            descricao={descricao}
+            ctaTexto={temCta ? form.texto_botao.trim() : null}
+            permitirDispensar={form.permitir_fechar_modal !== false}
+            onFechar={onClose}
+          />
+        </div>
+      </div>,
+      document.body
+    )
+  }
+
   return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Preview da campanha">
       <div className="flex max-h-[calc(100vh-32px)] w-full max-w-[560px] flex-col overflow-hidden rounded-2xl border border-[#c2c6d6] bg-white text-[#0b1c30] shadow-[0_24px_70px_rgba(11,28,48,.22)]">
@@ -1506,6 +1698,15 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
 
 export function Campanhas2Index() {
   const navigate = useNavigate()
+  // Rota genérica de edição (campanhas2/:id/editar) — mesma tela de
+  // campanhas/nova, só que populada a partir de uma campanha existente.
+  // Hoje só campanhas destaque_elemento linkam pra cá (ver campanhas/Index.tsx),
+  // mas não é uma checagem de formato: qualquer campanha cujos campos este
+  // formulário já suporte (inclui modal_automatica, via CardEditavel) edita
+  // aqui normalmente.
+  const { id } = useParams<{ id: string }>()
+  const [carregandoCampanha, setCarregandoCampanha] = useState(Boolean(id))
+  const [erroCarregarCampanha, setErroCarregarCampanha] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(formInicial)
   const [sistemas, setSistemas] = useState<string[]>([])
   const [sistemasConfig, setSistemasConfig] = useState<Sistema[]>([])
@@ -1591,6 +1792,70 @@ export function Campanhas2Index() {
 
     return () => { cancelado = true }
   }, [aparencias, form.sistema])
+
+  useEffect(() => {
+    if (!id) return
+    let cancelado = false
+    setCarregandoCampanha(true)
+    setErroCarregarCampanha(null)
+
+    get<Campanha>(`/campanhas/${id}`)
+      .then(c => {
+        if (cancelado) return
+        setForm({
+          titulo: c.titulo,
+          subtitulo: c.subtitulo ?? '',
+          descricao: c.descricao,
+          tipo: c.tipo,
+          sistema: c.sistema,
+          tela: c.tela ?? '',
+          imagem_url: c.imagem_url ?? '',
+          video_url: c.video_url ?? '',
+          texto_botao: c.texto_botao ?? '',
+          url_botao: c.url_botao ?? '',
+          feedback_habilitado: c.feedback_habilitado,
+          modo_exibicao: c.modo_exibicao,
+          gatilho: c.gatilho,
+          evento: c.evento ?? '',
+          modo_identificacao: c.modo_identificacao,
+          data_cy: c.data_cy ?? '',
+          url_contem: c.url_contem ?? '',
+          atraso_ms: String(c.atraso_ms),
+          mostrar_uma_vez: c.mostrar_uma_vez,
+          prioridade: String(c.prioridade),
+          ordem: String(c.ordem),
+          ativo: c.ativo,
+          data_inicio: c.data_inicio ?? '',
+          data_fim: c.data_fim ?? '',
+          pergunta_feedback: c.pergunta_feedback ?? '',
+          observacao_obrigatoria: c.observacao_obrigatoria,
+          exige_confirmacao_leitura: c.exige_confirmacao_leitura,
+          permitir_fechar_modal: c.permitir_fechar_modal,
+          intervalo_reexibicao_dias: c.intervalo_reexibicao_dias != null ? String(c.intervalo_reexibicao_dias) : '',
+          politica_reexibicao: c.politica_reexibicao,
+          reexibir_apos_dias: c.reexibir_apos_dias != null ? String(c.reexibir_apos_dias) : '',
+          encerrar_apos_evento: c.encerrar_apos_evento,
+          evento_conclusao: c.evento_conclusao ?? '',
+          categoria: c.categoria ?? '',
+          // texto_botao/url_botao só existem juntos (ver salvar()) — a
+          // presença de qualquer um dos dois já indica CTA habilitado.
+          cta_habilitado: Boolean(c.texto_botao || c.url_botao),
+          segmentar_cliente_ids: c.segmentar_cliente_ids,
+          segmentar_unidade_ids: c.segmentar_unidade_ids,
+          segmentar_perfis: c.segmentar_perfis,
+          segmentar_usuario_tipos: c.segmentar_usuario_tipos,
+          segmentar_estados: c.segmentar_estados,
+        })
+      })
+      .catch(err => {
+        if (!cancelado) setErroCarregarCampanha(err instanceof Error ? err.message : 'Erro ao carregar campanha.')
+      })
+      .finally(() => {
+        if (!cancelado) setCarregandoCampanha(false)
+      })
+
+    return () => { cancelado = true }
+  }, [id])
 
   function setCampo<K extends keyof FormState>(campo: K, valor: FormState[K]) {
     setForm(prev => ({ ...prev, [campo]: valor }))
@@ -1711,7 +1976,12 @@ export function Campanhas2Index() {
         permitir_fechar_modal: exigeSaidaObrigatoria ? true : form.permitir_fechar_modal,
         feedback_habilitado: feedbackHabilitado,
         observacao_obrigatoria: exigeConfirmacao ? false : form.observacao_obrigatoria,
-        subtitulo: form.subtitulo || null,
+        // Destaque em elemento reaproveita subtitulo como texto do badge —
+        // "Novo" é o default explícito quando o campo fica em branco (ver
+        // CampoDock "Texto do badge" no dock lateral).
+        subtitulo: form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
+          ? (form.subtitulo.trim() || 'Novo')
+          : (form.subtitulo || null),
         imagem_url: normalizarUrl(form.imagem_url) || null,
         video_url: embedUrl || null,
         texto_botao: form.cta_habilitado ? (form.texto_botao.trim() || null) : null,
@@ -1731,13 +2001,22 @@ export function Campanhas2Index() {
         evento_conclusao: form.evento_conclusao.trim() || null,
         categoria: form.categoria || null,
       }
-      const criada = await post<Campanha>('/campanhas', payload)
-      navigate(`/campanhas/${criada.id}/preview`)
+      const salva = id ? await put<Campanha>(`/campanhas/${id}`, payload) : await post<Campanha>('/campanhas', payload)
+      navigate(`/campanhas/${salva.id}/preview`)
     } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Erro ao criar campanha.')
+      setErro(err instanceof Error ? err.message : (id ? 'Erro ao salvar campanha.' : 'Erro ao criar campanha.'))
     } finally {
       setSalvando(false)
     }
+  }
+
+  if (carregandoCampanha) return <div className="px-4 py-8"><LoadingSpinner /></div>
+  if (erroCarregarCampanha) {
+    return (
+      <div className="mx-auto max-w-[680px] rounded-2xl border border-[#f0284a] bg-white px-6 py-5 text-[14px] font-semibold text-[#e41e3f]">
+        {erroCarregarCampanha}
+      </div>
+    )
   }
 
   return (
@@ -1745,7 +2024,7 @@ export function Campanhas2Index() {
       <div className="mx-auto w-full max-w-[1128px] rounded-3xl border border-[#dee3e9] bg-white px-6 py-5">
         <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
           <div className="max-w-[680px]">
-            <h1 className="text-[24px] font-semibold leading-tight text-[#0a1317]">Crie uma campanha in-app</h1>
+            <h1 className="text-[24px] font-semibold leading-tight text-[#0a1317]">{id ? 'Editar campanha in-app' : 'Crie uma campanha in-app'}</h1>
             <p className="mt-1.5 text-[14px] font-normal leading-5 text-[#5d6c7b]">Monte o card, escolha o momento de exibição e valide a experiência antes de publicar.</p>
           </div>
           <Button type="button" variant="primary" onClick={() => navigate('/campanhas')} className="shadow-[0_10px_24px_rgba(0,100,224,0.18)]">
@@ -1759,22 +2038,26 @@ export function Campanhas2Index() {
           {erro && <div className="mb-5 rounded-lg border border-[#f0284a] bg-white px-4 py-3 text-[14px] font-semibold text-[#e41e3f]">{erro}</div>}
 
           <div className="flex justify-center" onDragEnd={() => setArrastandoMidia(false)}>
-            <CardEditavel
-              form={form}
-              sistemas={sistemas}
-              sistemaPadraoIdentificador={sistemaPadraoIdentificador}
-              aparencia={aparenciaAtual}
-              embedUrl={embedUrl}
-              mostrarMidia={mostrarMidia}
-              mediaPosition={mediaPosition}
-              arrastandoMidia={arrastandoMidia}
-              setCampo={setCampo}
-              onDragStartMedia={() => setArrastandoMidia(true)}
-              onMostrarMidia={(posicao = 'topo') => { setMostrarMidia(true); setMediaPosition(posicao) }}
-              onRemoverMidia={removerMidia}
-              onMoverMidia={moverMidia}
-              onGerenciarSistemas={() => navigate('/configuracoes/sistemas')}
-            />
+            {form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO ? (
+              <DestaqueElementoCard form={form} aparencia={aparenciaAtual} />
+            ) : (
+              <CardEditavel
+                form={form}
+                sistemas={sistemas}
+                sistemaPadraoIdentificador={sistemaPadraoIdentificador}
+                aparencia={aparenciaAtual}
+                embedUrl={embedUrl}
+                mostrarMidia={mostrarMidia}
+                mediaPosition={mediaPosition}
+                arrastandoMidia={arrastandoMidia}
+                setCampo={setCampo}
+                onDragStartMedia={() => setArrastandoMidia(true)}
+                onMostrarMidia={(posicao = 'topo') => { setMostrarMidia(true); setMediaPosition(posicao) }}
+                onRemoverMidia={removerMidia}
+                onMoverMidia={moverMidia}
+                onGerenciarSistemas={() => navigate('/configuracoes/sistemas')}
+              />
+            )}
           </div>
 
         </div>
@@ -1785,6 +2068,7 @@ export function Campanhas2Index() {
           catalogoTelas={catalogoTelas}
           temSistemas={sistemasConfig.length > 0}
           salvando={salvando}
+          editando={Boolean(id)}
           setCampo={setCampo}
           setSecao={setSecaoDock}
           onSelecionarTela={selecionarTelaCatalogo}

@@ -922,6 +922,40 @@
       '.up-jorn-fab svg{width:18px;height:18px;fill:currentColor}',
       '.up-jorn-aviso{position:fixed;bottom:24px;right:24px;max-width:260px;padding:10px 14px;border-radius:10px;background:#0b1c30;color:#fff;font-family:inherit;font-size:12.5px;font-weight:600;line-height:1.4;box-shadow:0 14px 32px rgba(11,28,48,.28);z-index:2147483620}',
       '@media (max-width:480px){.up-jorn-painel{width:100vw;max-width:100vw}}',
+      // Destaque em elemento — badge/beacon ancorado num elemento da página
+      // (via data-cy) + tooltip contextual. Mesma linguagem visual do
+      // tooltip de Tour (.up-tour-tooltip: cartão branco, rounded, sombra),
+      // mas z-index abaixo do Tour (2147483600+) — nunca compete com um tour
+      // ativo (agendarDestaqueElemento já nem monta se tourState.ativo).
+      // Posição (top/left) é calculada em JS por destaqueElementoCalcularPosicao
+      // (fora/acima ou fora/abaixo do alvo, nunca sobre ele) — sem transform de
+      // centralização aqui: root já nasce com o canto exato do badge.
+      '.up-destaque-root{position:fixed;z-index:2147483200;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif}',
+      '.up-destaque-badge{position:relative;display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;background:var(--up-primary, #0058be);color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;cursor:pointer;border:2px solid #fff;box-shadow:0 6px 16px rgba(11,28,48,.28)}',
+      // Beacon fica FORA do badge (irmão, position:absolute) no gap entre
+      // badge e alvo — acima do badge quando o badge está abaixo do alvo,
+      // abaixo do badge quando o badge está acima (data-up-pos no root).
+      // `left` NÃO é fixo em 50% aqui — é calculado em JS por
+      // destaqueElementoCalcularBeacon a cada reposição, pra sempre apontar
+      // pro alvo mesmo quando o clamp de viewport desloca o badge pro lado
+      // (comum em telas estreitas).
+      '.up-destaque-beacon{position:absolute;transform:translateX(-50%);display:inline-flex;width:8px;height:8px;flex-shrink:0;pointer-events:none}',
+      '.up-destaque-root[data-up-pos="acima"] .up-destaque-beacon{top:100%;margin-top:2px}',
+      '.up-destaque-root[data-up-pos="abaixo"] .up-destaque-beacon{bottom:100%;margin-bottom:2px}',
+      '.up-destaque-beacon::before{content:"";position:absolute;inset:0;border-radius:999px;background:var(--up-primary, #0058be);opacity:.6;animation:up-destaque-ping 1.6s cubic-bezier(0,0,.2,1) infinite}',
+      '.up-destaque-beacon::after{content:"";position:relative;display:block;width:8px;height:8px;border-radius:999px;background:var(--up-primary, #0058be);border:2px solid #fff}',
+      '@keyframes up-destaque-ping{0%{transform:scale(1);opacity:.85}75%,100%{transform:scale(2.4);opacity:0}}',
+      // position:fixed (não absolute) — top/left são calculados em JS por
+      // destaqueElementoCalcularPosicaoTooltip a cada render/scroll/resize,
+      // pra nunca cobrir o alvo (abaixo/acima/lateral conforme espaço
+      // disponível). Mesmo padrão de .up-tour-tooltip (posição via JS).
+      '.up-destaque-tooltip{position:fixed;width:260px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 1px 2px rgba(11,28,48,.04),0 16px 36px -12px rgba(11,28,48,.22);padding:16px;color:#0b1c30;animation:up-fade-in .16s ease-out}',
+      '.up-destaque-close{position:absolute;top:10px;right:10px;width:22px;height:22px;border:0;border-radius:999px;background:transparent;color:#727785;display:flex;align-items:center;justify-content:center;cursor:pointer}',
+      '.up-destaque-close svg{width:14px;height:14px;fill:currentColor}',
+      '.up-destaque-close:hover{background:#f1f3fa}',
+      '.up-destaque-titulo{margin:0 22px 4px 0;font-size:13.5px;font-weight:800;line-height:1.35;color:#0b1c30}',
+      '.up-destaque-descricao{margin:0;font-size:12.5px;line-height:1.45;color:#4a5164}',
+      '.up-destaque-cta{display:inline-flex;align-items:center;justify-content:center;height:34px;margin-top:12px;padding:0 16px;border:0;border-radius:999px;background:var(--up-primary, #0058be);color:#fff;font-size:12px;font-weight:800;cursor:pointer}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -1158,6 +1192,16 @@
   }
 
   function scheduleAutoOpen(campanha, config) {
+    // "Destaque em elemento" nunca abre como modal — é um badge/beacon
+    // ancorado num elemento da página. Delega pro fluxo próprio; os 4 pontos
+    // de seleção de campanha (slug, candidatas ao_abrir_tela, track x2) já
+    // chamam scheduleAutoOpen pra qualquer campanha selecionada, então
+    // ramificar aqui evita duplicar a lógica de agendamento/atraso em cada
+    // um deles.
+    if ((campanha.modo_exibicao || 'modal_automatica') === FORMATO_DESTAQUE_ELEMENTO) {
+      agendarDestaqueElemento(campanha, config);
+      return;
+    }
     if (!shouldAutoOpen(campanha) || wasShown(campanha, config)) return;
     var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
     state.timer = window.setTimeout(function () {
@@ -1171,6 +1215,527 @@
         registrarEvento('visualizacao');
       }
       render();
+    }, delay);
+  }
+
+  // ─── Destaque em elemento (Fase 1 de adoção de funcionalidades) ───────────
+  // Formato leve: localiza um elemento por data-cy, ancora um badge/beacon
+  // nele e, ao clicar, abre um tooltip contextual (título/descrição/CTA
+  // opcional/fechar). Nunca quebra a página quando o elemento não existe, e
+  // nunca renderiza por cima de um tour ativo. Sem evento de utilização/
+  // feedback pós-uso nesta fase (isso é Fase 2, medido por evento real via
+  // track()) — reaproveita a MESMA infra de wasShown/markShown (localStorage)
+  // do modal, mas com um gatilho diferente: markShown só roda numa interação
+  // explícita (clicar no badge, no CTA, ou dispensar), nunca só por ter
+  // renderizado — ver comentário em destaqueElementoMontar.
+  var FORMATO_DESTAQUE_ELEMENTO = 'destaque_elemento';
+  var DATA_CY_SEGURO_REGEX = /^[A-Za-z0-9_][A-Za-z0-9_\-:.]{0,199}$/;
+  var destaqueElementoState = {
+    root: null, campanha: null, config: null, alvo: null, aberto: false, reposicionar: null,
+    resizeObserver: null, mutationObserver: null, layoutShiftObserver: null, reacaoAgendada: false,
+  };
+
+  // Nunca interpola data-cy cru num seletor CSS — usa CSS.escape quando
+  // disponível (escapa aspas/colchetes de verdade) e, como rede de
+  // segurança adicional, só aceita o mesmo charset validado no servidor
+  // (ver dataCyValido em server/src/controllers/campanhas.ts) antes mesmo
+  // de tentar montar o seletor.
+  function destaqueElementoSeletorSeguro(dataCyBruto) {
+    if (typeof dataCyBruto !== 'string') return null;
+    var dataCy = dataCyBruto.trim();
+    if (!dataCy || !DATA_CY_SEGURO_REGEX.test(dataCy)) return null;
+    var valor = (typeof window.CSS !== 'undefined' && typeof window.CSS.escape === 'function')
+      ? window.CSS.escape(dataCy)
+      : dataCy;
+    return '[data-cy="' + valor + '"]';
+  }
+
+  function destaqueElementoLocalizarAlvo(campanha) {
+    if (!campanha || (campanha.modo_exibicao || '') !== FORMATO_DESTAQUE_ELEMENTO) return null;
+    var seletor = destaqueElementoSeletorSeguro(campanha.data_cy);
+    if (!seletor) return null;
+    try {
+      return document.querySelector(seletor);
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  function destaqueElementoDesmontar() {
+    var s = destaqueElementoState;
+    if (s.reposicionar) {
+      window.removeEventListener('scroll', s.reposicionar, true);
+      window.removeEventListener('resize', s.reposicionar);
+    }
+    if (s.resizeObserver) s.resizeObserver.disconnect();
+    if (s.mutationObserver) s.mutationObserver.disconnect();
+    if (s.layoutShiftObserver) s.layoutShiftObserver.disconnect();
+    if (s.root && s.root.parentNode) s.root.parentNode.removeChild(s.root);
+    destaqueElementoState = {
+      root: null, campanha: null, config: null, alvo: null, aberto: false, reposicionar: null,
+      resizeObserver: null, mutationObserver: null, layoutShiftObserver: null, reacaoAgendada: false,
+    };
+  }
+
+  // Função pura: calcula onde o badge deve ficar em relação ao alvo, sempre
+  // FORA da caixa do alvo (nunca sobrepondo a área clicável). Preferência:
+  // acima, alinhado pela direita, com `gap` de folga; se não houver espaço
+  // acima usa abaixo; sempre clampado dentro da viewport horizontalmente.
+  // Sem acesso a DOM/window — só aritmética, testável em node:test puro.
+  function destaqueElementoCalcularPosicao(alvoRect, badgeSize, viewport, opts) {
+    var gap = (opts && typeof opts.gap === 'number') ? opts.gap : 8;
+    var margem = (opts && typeof opts.margem === 'number') ? opts.margem : 8;
+    var badgeW = badgeSize.width;
+    var badgeH = badgeSize.height;
+
+    var posicao = 'acima';
+    var top = alvoRect.top - gap - badgeH;
+    if (top < margem) {
+      posicao = 'abaixo';
+      top = alvoRect.bottom + gap;
+    }
+
+    var left = alvoRect.right - badgeW;
+    var maxLeft = viewport.width - badgeW - margem;
+    if (left > maxLeft) left = maxLeft;
+    if (left < margem) left = margem;
+
+    return { top: top, left: left, posicao: posicao };
+  }
+
+  // Função pura: calcula onde o tooltip deve ficar quando o destaque é
+  // aberto. Regra obrigatória: nunca intersecta o retângulo do alvo (o badge
+  // já garante isso pra si mesmo — aqui é só o tooltip). Ordem de
+  // preferência: abaixo do alvo, depois acima, depois lateral direita,
+  // depois lateral esquerda; cada candidato só é aceito se couber inteiro na
+  // viewport (com `margem` de folga) — do contrário tenta o próximo. Como
+  // abaixo/acima/direita/esquerda são sempre construídos com uma folga
+  // (`gap`) a partir do retângulo do alvo, a não-interseção é garantida por
+  // construção, não checada a posteriori. Alinhamento horizontal (abaixo/
+  // acima) e vertical (laterais) tenta ficar centralizado no badge/alvo pra
+  // preservar a associação visual, clampando na viewport quando preciso.
+  // Sem acesso a DOM/window — só aritmética, testável em node:test puro.
+  function destaqueElementoCalcularPosicaoTooltip(alvoRect, badgeRect, tooltipSize, viewport, opts) {
+    var gap = (opts && typeof opts.gap === 'number') ? opts.gap : 8;
+    var margem = (opts && typeof opts.margem === 'number') ? opts.margem : 8;
+    var w = tooltipSize.width;
+    var h = tooltipSize.height;
+
+    function clampHorizontal(left) {
+      var maxLeft = viewport.width - w - margem;
+      if (left > maxLeft) left = maxLeft;
+      if (left < margem) left = margem;
+      return left;
+    }
+    function clampVertical(top) {
+      var maxTop = viewport.height - h - margem;
+      if (top > maxTop) top = maxTop;
+      if (top < margem) top = margem;
+      return top;
+    }
+
+    var leftCentralizadoNoBadge = badgeRect.left + badgeRect.width / 2 - w / 2;
+
+    var topAbaixo = alvoRect.bottom + gap;
+    if (topAbaixo + h <= viewport.height - margem) {
+      return { top: topAbaixo, left: clampHorizontal(leftCentralizadoNoBadge), posicao: 'abaixo' };
+    }
+
+    var topAcima = alvoRect.top - gap - h;
+    if (topAcima >= margem) {
+      return { top: topAcima, left: clampHorizontal(leftCentralizadoNoBadge), posicao: 'acima' };
+    }
+
+    var topCentralizadoNoAlvo = clampVertical(alvoRect.top + alvoRect.height / 2 - h / 2);
+
+    var leftDireita = alvoRect.right + gap;
+    if (leftDireita + w <= viewport.width - margem) {
+      return { top: topCentralizadoNoAlvo, left: leftDireita, posicao: 'direita' };
+    }
+
+    var leftEsquerda = alvoRect.left - gap - w;
+    if (leftEsquerda >= margem) {
+      return { top: topCentralizadoNoAlvo, left: leftEsquerda, posicao: 'esquerda' };
+    }
+
+    // Nenhuma direção coube inteira na viewport (ex.: alvo enorme ocupando a
+    // tela). Prioridade é nunca cobrir o alvo — mantém abaixo (sem
+    // interseção por construção) mesmo que ultrapasse a viewport, em vez de
+    // clampar por cima do alvo.
+    return { top: topAbaixo, left: clampHorizontal(leftCentralizadoNoBadge), posicao: 'abaixo' };
+  }
+
+  // Função pura: calcula onde o beacon (ponto conector) deve ficar dentro da
+  // largura do badge. NUNCA assume que o centro do badge corresponde ao
+  // alvo — em viewports estreitas o clamp horizontal de
+  // destaqueElementoCalcularPosicao pode empurrar o badge pra longe do seu
+  // alinhamento preferencial (direita do alvo), e um beacon fixo no centro
+  // do badge acabaria apontando pro lugar errado. Em vez disso, projeta o
+  // centro horizontal do alvo dentro da largura do badge (clampado nas
+  // bordas do próprio badge quando o alvo está fora dessa faixa) — o beacon
+  // sempre aponta pro ponto do badge mais próximo do alvo real. Retorna um
+  // offset em px relativo à borda esquerda do badge (== borda esquerda do
+  // root, já que o badge é o único conteúdo em fluxo do root). Sem acesso a
+  // DOM/window — só aritmética, testável em node:test puro.
+  function destaqueElementoCalcularBeacon(alvoRect, badgeRect) {
+    var alvoCentroX = alvoRect.left + alvoRect.width / 2;
+    var left = alvoCentroX - badgeRect.left;
+    if (left < 0) left = 0;
+    if (left > badgeRect.width) left = badgeRect.width;
+    return { left: left };
+  }
+
+  // Função pura: diz se dois retângulos (getBoundingClientRect-like) são
+  // iguais nas 4 bordas. Usada pela estabilização pós-mount (ver
+  // destaqueElementoEstabilizar) pra decidir se o alvo se moveu entre dois
+  // frames — nunca compara width/height porque isso já é coberto pelo
+  // ResizeObserver; aqui o interesse é justamente o caso que o
+  // ResizeObserver NÃO cobre: o alvo muda de POSIÇÃO (reflow de algo acima
+  // dele) sem mudar de TAMANHO. `null`/`undefined` só são iguais um ao
+  // outro. Sem acesso a DOM/window — testável em node:test puro.
+  function destaqueElementoRectsIguais(a, b) {
+    if (!a || !b) return a === b;
+    return a.top === b.top && a.left === b.left && a.right === b.right && a.bottom === b.bottom;
+  }
+
+  var DESTAQUE_ESTABILIZACAO_FRAMES_ESTAVEIS = 3;
+  var DESTAQUE_ESTABILIZACAO_MAX_MS = 1000;
+
+  // Estabilização pós-mount: cobre o reflow tardio (mais comum em mobile —
+  // menu responsivo, banner, imagem sem dimensão reservada) que MUDA A
+  // POSIÇÃO do alvo sem mudar seu TAMANHO — cenário que o ResizeObserver do
+  // alvo estruturalmente não detecta (ele só dispara em mudança de
+  // tamanho da própria caixa observada, nunca só de posição — é assim que a
+  // API funciona, não uma lacuna desta página específica). Mede o rect do
+  // alvo a cada requestAnimationFrame; se mudou desde o frame anterior,
+  // reposiciona (badge/beacon/tooltip, via destaqueElementoReposicionar) e
+  // zera o contador de frames estáveis; encerra sozinha depois de
+  // DESTAQUE_ESTABILIZACAO_FRAMES_ESTAVEIS frames CONSECUTIVOS sem mudança,
+  // ou depois de DESTAQUE_ESTABILIZACAO_MAX_MS (~1s) no total, o que vier
+  // primeiro — nunca vira polling permanente. Depois disso só scroll/
+  // resize/ResizeObserver continuam cobrindo reposições.
+  function destaqueElementoEstabilizar(root, alvo) {
+    var framesEstaveis = 0;
+    var inicio = Date.now();
+    var rectAnterior = alvo.getBoundingClientRect();
+
+    function passo() {
+      // Desmontado (fechado, elemento sumiu, outro destaque montado por
+      // cima) nesse meio-tempo — encerra sem reagendar mais frames.
+      if (destaqueElementoState.root !== root) return;
+      var rectAtual = alvo.getBoundingClientRect();
+      if (!destaqueElementoRectsIguais(rectAnterior, rectAtual)) {
+        framesEstaveis = 0;
+        rectAnterior = rectAtual;
+        destaqueElementoReposicionar();
+      } else {
+        framesEstaveis++;
+      }
+      if (framesEstaveis >= DESTAQUE_ESTABILIZACAO_FRAMES_ESTAVEIS) return;
+      if (Date.now() - inicio >= DESTAQUE_ESTABILIZACAO_MAX_MS) return;
+      window.requestAnimationFrame(passo);
+    }
+
+    window.requestAnimationFrame(passo);
+  }
+
+  // Qualquer timeout finito na estabilização inicial continua sujeito ao
+  // mesmo bug: um reflow que só assenta DEPOIS da janela de ~1s (confirmado
+  // em mobile real — conteúdo acima do alvo crescendo por API lenta,
+  // hidratação em etapas, troca de fonte) nunca é pego, porque nada mais
+  // reagenda o monitor. Em vez de aumentar o timeout (só empurra o mesmo
+  // problema pra mais tarde), REARMAMOS um novo burst de estabilização toda
+  // vez que algo capaz de mudar o layout acontece enquanto o destaque está
+  // montado — sem virar polling permanente, porque só reage a sinais reais
+  // (mutation/fonte/layout-shift), nunca fica checando sozinho.
+  //
+  // destaqueElementoAgendarReacao agenda NO MÁXIMO uma reação por frame —
+  // várias mutations/sinais no mesmo frame colapsam numa única chamada de
+  // reposicionar()+estabilizar(), porque a flag `reacaoAgendada` bloqueia
+  // agendar de novo enquanto já existe um rAF pendente.
+  function destaqueElementoAgendarReacao(root, alvo) {
+    var s = destaqueElementoState;
+    if (s.root !== root || s.reacaoAgendada) return;
+    s.reacaoAgendada = true;
+    window.requestAnimationFrame(function () {
+      // A flag pertence ao destaque ATUAL no momento do agendamento — se
+      // foi desmontado/remontado nesse meio-tempo, destaqueElementoState já
+      // é outro objeto, então isso não vaza pro próximo mount.
+      s.reacaoAgendada = false;
+      if (destaqueElementoState.root !== root) return;
+      destaqueElementoReposicionar();
+      destaqueElementoEstabilizar(root, alvo);
+    });
+  }
+
+  // Função pura: diz se TODAS as mutations da lista aconteceram dentro do
+  // próprio root do destaque (badge/beacon/tooltip, ou atributos do root
+  // como data-up-pos/style que destaqueElementoReposicionar seta). Essas são
+  // auto-causadas pelo próprio widget — reagir a elas criaria um loop
+  // (mutation -> reposiciona -> muda style/atributo -> nova mutation -> ...).
+  // Só uma mutation fora do root já é motivo suficiente pra reagir. Recebe
+  // `root` (com um .contains()) e a lista de mutations (cada uma só precisa
+  // de `.target`) — sem acessar destaqueElementoState/rAF, testável isolada.
+  function destaqueElementoMutacoesApenasNoRoot(root, mutationsList) {
+    for (var i = 0; i < mutationsList.length; i++) {
+      if (!root.contains(mutationsList[i].target)) return false;
+    }
+    return true;
+  }
+
+  // MutationObserver no <body> inteiro (childList+subtree+attributes) — é
+  // proposital ser amplo: o reflow que desloca o alvo pode vir de QUALQUER
+  // elemento acima dele na página (banner, menu, imagem carregando), não só
+  // de um contêiner previsível. O custo fica sob controle porque: (1) só
+  // registra mutations, não recalcula layout nenhum; (2) destaqueElementoAgendarReacao
+  // coalesce tudo numa reação por frame; (3) mutations de dentro do próprio
+  // root nunca chegam a agendar nada. Feature-detectado — sem
+  // MutationObserver, esse sinal simplesmente não existe (scroll/resize/
+  // ResizeObserver/estabilização inicial continuam funcionando).
+  function destaqueElementoCriarObservadorMutacoes(root, alvo) {
+    if (typeof window.MutationObserver !== 'function') return null;
+    var observer = new window.MutationObserver(function (mutationsList) {
+      if (destaqueElementoMutacoesApenasNoRoot(root, mutationsList)) return;
+      destaqueElementoAgendarReacao(root, alvo);
+    });
+    try {
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+    } catch (_e) {
+      return null;
+    }
+    return observer;
+  }
+
+  // window.innerWidth/innerHeight incluem a faixa da scrollbar — confirmado
+  // em mobile real: innerWidth=390 vs visualViewport.width=375 (~15px de
+  // diferença). Não é a causa do deslocamento vertical reportado, mas é a
+  // fonte correta pro clamp horizontal: visualViewport é o retângulo que o
+  // usuário realmente vê. Preferência: visualViewport > clientWidth/Height
+  // (também exclui scrollbar) > innerWidth/innerHeight (último recurso).
+  function destaqueElementoObterViewport() {
+    if (window.visualViewport) {
+      return { width: window.visualViewport.width, height: window.visualViewport.height };
+    }
+    if (document.documentElement) {
+      return { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
+    }
+    return { width: window.innerWidth, height: window.innerHeight };
+  }
+
+  function destaqueElementoReposicionar() {
+    var s = destaqueElementoState;
+    if (!s.root || !s.alvo) return;
+    // SPA pode remover o elemento do DOM depois de montado (navegação,
+    // re-render) — desmonta sem quebrar a página em vez de deixar o badge
+    // flutuando "no ar" sobre um alvo que não existe mais.
+    if (!document.body.contains(s.alvo)) {
+      destaqueElementoDesmontar();
+      return;
+    }
+    var badgeEl = s.root.querySelector('.up-destaque-badge');
+    if (!badgeEl) return;
+    var rect = s.alvo.getBoundingClientRect();
+    var badgeSize = { width: badgeEl.offsetWidth, height: badgeEl.offsetHeight };
+    var viewport = destaqueElementoObterViewport();
+    var pos = destaqueElementoCalcularPosicao(rect, badgeSize, viewport);
+    s.root.style.top = pos.top + 'px';
+    s.root.style.left = pos.left + 'px';
+    s.root.setAttribute('data-up-pos', pos.posicao);
+
+    // badgeRect é medido DEPOIS de aplicar top/left acima — reflete a
+    // posição final já clampada, não a preferencial. É a partir dela (não
+    // do badgeSize genérico) que beacon e tooltip calculam onde ficar.
+    var badgeRect = badgeEl.getBoundingClientRect();
+
+    var beaconEl = s.root.querySelector('.up-destaque-beacon');
+    if (beaconEl) {
+      var posBeacon = destaqueElementoCalcularBeacon(rect, badgeRect);
+      beaconEl.style.left = posBeacon.left + 'px';
+    }
+
+    var tooltipEl = s.root.querySelector('.up-destaque-tooltip');
+    if (tooltipEl) {
+      var tooltipSize = { width: tooltipEl.offsetWidth, height: tooltipEl.offsetHeight };
+      var posTooltip = destaqueElementoCalcularPosicaoTooltip(rect, badgeRect, tooltipSize, viewport);
+      tooltipEl.style.top = posTooltip.top + 'px';
+      tooltipEl.style.left = posTooltip.left + 'px';
+    }
+  }
+
+  function destaqueElementoConteudo(campanha, aberto) {
+    var badgeTexto = (campanha.subtitulo && String(campanha.subtitulo).trim()) || 'Novo';
+    var temCta = Boolean(campanha.texto_botao && campanha.url_botao);
+    var partes = [
+      '<span class="up-destaque-badge" data-up-destaque-toggle="true" role="button" tabindex="0" aria-expanded="' + (aberto ? 'true' : 'false') + '" aria-label="' + escapeHtml(badgeTexto) + '">',
+      escapeHtml(badgeTexto),
+      '</span>',
+      '<span class="up-destaque-beacon" aria-hidden="true"></span>',
+    ];
+    if (aberto) {
+      partes.push(
+        '<div class="up-destaque-tooltip" role="dialog" aria-label="' + escapeHtml(campanha.titulo || '') + '">',
+        '<button type="button" class="up-destaque-close" data-up-destaque-close="true" aria-label="Fechar">' + icon('close') + '</button>',
+        '<p class="up-destaque-titulo">' + escapeHtml(campanha.titulo || '') + '</p>',
+        campanha.descricao ? '<p class="up-destaque-descricao">' + escapeHtml(campanha.descricao) + '</p>' : '',
+        temCta ? '<button type="button" class="up-destaque-cta" data-up-destaque-cta="true" data-up-url="' + escapeHtml(campanha.url_botao) + '">' + escapeHtml(campanha.texto_botao) + '</button>' : '',
+        '</div>'
+      );
+    }
+    return partes.join('');
+  }
+
+  function destaqueElementoRender() {
+    var s = destaqueElementoState;
+    if (!s.root) return;
+    s.root.innerHTML = destaqueElementoConteudo(s.campanha, s.aberto);
+    destaqueElementoReposicionar();
+  }
+
+  function destaqueElementoMontar(campanha, config, alvo) {
+    destaqueElementoDesmontar();
+    var root = document.createElement('div');
+    root.className = 'up-destaque-root';
+    document.body.appendChild(root);
+
+    destaqueElementoState = {
+      root: root,
+      campanha: campanha,
+      config: config,
+      alvo: alvo,
+      aberto: false,
+      reposicionar: destaqueElementoReposicionar,
+      resizeObserver: null,
+      mutationObserver: null,
+      layoutShiftObserver: null,
+      reacaoAgendada: false,
+    };
+
+    window.addEventListener('scroll', destaqueElementoState.reposicionar, true);
+    window.addEventListener('resize', destaqueElementoState.reposicionar);
+
+    // ResizeObserver no ALVO (não polling) — cobre o caso de o próprio alvo
+    // mudar de TAMANHO sem disparar scroll/resize da window (ex.: texto do
+    // botão quebra em 2 linhas num viewport estreito, alterando a altura do
+    // alvo depois do mount). Feature-detectado — navegador sem suporte
+    // simplesmente não reposiciona nesse cenário específico, sem quebrar o
+    // resto (scroll/resize continuam cobrindo os outros casos).
+    // NÃO cobre o alvo mudar só de POSIÇÃO com o mesmo tamanho (reflow de
+    // algo acima dele) — é assim que a API funciona, por design. Esse caso é
+    // coberto por destaqueElementoEstabilizar logo abaixo.
+    if (typeof window.ResizeObserver === 'function') {
+      var resizeObserver = new window.ResizeObserver(function () {
+        destaqueElementoReposicionar();
+      });
+      resizeObserver.observe(alvo);
+      destaqueElementoState.resizeObserver = resizeObserver;
+    }
+
+    // Cobre reflow tardio que só muda a POSIÇÃO do alvo, mesmo depois da
+    // estabilização inicial já ter encerrado — ver destaqueElementoAgendarReacao.
+    destaqueElementoState.mutationObserver = destaqueElementoCriarObservadorMutacoes(root, alvo);
+
+    // Troca de fonte web costuma re-layoutar texto (e tudo abaixo dele) só
+    // depois de várias centenas de ms — bem depois da estabilização inicial.
+    // document.fonts.ready é uma Promise que resolve UMA vez; não precisa de
+    // disconnect (destaqueElementoAgendarReacao já ignora sozinha se tiver
+    // desmontado nesse meio-tempo, ver checagem de s.root lá dentro).
+    // Feature-detectado — sem Fonts API, esse sinal simplesmente não existe.
+    if (typeof document !== 'undefined' && document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+      document.fonts.ready.then(function () {
+        destaqueElementoAgendarReacao(root, alvo);
+      });
+    }
+
+    // Layout Shift (Web Vitals/CLS) — sinal ADICIONAL opcional, nunca do que
+    // o funcionamento depende (suporte varia muito entre navegadores, ex.:
+    // Safari não tem 'layout-shift'). observe() com um entry type não
+    // suportado lança síncrono — por isso o try/catch, não só o
+    // typeof PerformanceObserver.
+    if (typeof window.PerformanceObserver === 'function') {
+      try {
+        var layoutShiftObserver = new window.PerformanceObserver(function () {
+          destaqueElementoAgendarReacao(root, alvo);
+        });
+        layoutShiftObserver.observe({ type: 'layout-shift', buffered: false });
+        destaqueElementoState.layoutShiftObserver = layoutShiftObserver;
+      } catch (_e) { /* 'layout-shift' não suportado neste navegador — sinal opcional, ignora */ }
+    }
+
+    root.addEventListener('click', function (event) {
+      var target = event.target;
+      var closeEl = target.closest && target.closest('[data-up-destaque-close]');
+      var toggleEl = target.closest && target.closest('[data-up-destaque-toggle]');
+      var ctaEl = target.closest && target.closest('[data-up-destaque-cta]');
+      // "Visto" pra destaque_elemento é uma INTERAÇÃO explícita (clicar no
+      // badge, no CTA ou dispensar) — nunca só a renderização. Diferente do
+      // modal, onde markShown roda ao abrir (ver scheduleAutoOpen): aqui o
+      // usuário pode ver o badge e ignorá-lo (ex.: está no meio de outra
+      // tarefa) sem que isso conte como "já viu a novidade" — ela deve
+      // continuar aparecendo até uma dessas 3 ações acontecer.
+      if (closeEl) {
+        markShown(campanha, config);
+        destaqueElementoDesmontar();
+        return;
+      }
+      if (ctaEl) {
+        markShown(campanha, config);
+        var url = ctaEl.getAttribute('data-up-url');
+        if (url) window.open(url, '_blank', 'noopener');
+        return;
+      }
+      if (toggleEl) {
+        markShown(campanha, config);
+        destaqueElementoState.aberto = !destaqueElementoState.aberto;
+        destaqueElementoRender();
+      }
+    });
+
+    // Duplo requestAnimationFrame antes da primeira medição/posicionamento:
+    // garante que o navegador concluiu pelo menos um ciclo de layout+paint
+    // depois do mount antes de ler getBoundingClientRect/offsetWidth. Sem
+    // isso, medir no mesmo tick do mount pode capturar um layout ainda
+    // instável (fonte web carregando, imagem sem dimensão reservada, menu
+    // responsivo mobile ainda recalculando) — mais comum em mobile, onde a
+    // página tende a ter mais reflows tardios que o desktop. Um único rAF
+    // roda antes do próximo paint; o segundo garante que esse paint já
+    // aconteceu. Sem custo perceptível (~1 frame, ~16ms).
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        // Pode ter sido desmontado (fechado, elemento sumiu) nesse meio
+        // tempo — nunca opera sobre um root que não é mais o atual.
+        if (destaqueElementoState.root !== root) return;
+        destaqueElementoRender();
+        // Cobre reflow tardio que só muda a POSIÇÃO do alvo (não o
+        // tamanho) — o ResizeObserver acima não pega esse caso. Curta,
+        // se auto-encerra (ver destaqueElementoEstabilizar).
+        destaqueElementoEstabilizar(root, alvo);
+      });
+    });
+  }
+
+  // Mesmo padrão de tourGetTestClickListener: devolve só o listener de
+  // clique religado no root atual, sem expor destaqueElementoState (ou
+  // qualquer outro campo) em _internal. `.listeners` é uma propriedade do
+  // elemento FAKE usado só pelo harness de teste (vm) — um DOM real não tem
+  // isso, então este helper nunca resolve nada fora do harness. Usado por
+  // server/src/widgetDestaqueElemento.test.ts pra simular clique real no
+  // badge/CTA/fechar sem chamar a lógica de marcação como função solta.
+  function destaqueElementoGetTestClickListener() {
+    var root = destaqueElementoState.root;
+    return (root && root.listeners && root.listeners.click && root.listeners.click[0]) || null;
+  }
+
+  function agendarDestaqueElemento(campanha, config) {
+    if ((campanha.gatilho || 'ao_abrir_tela') !== 'ao_abrir_tela') return;
+    if (wasShown(campanha, config)) return;
+    var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
+    state.timer = window.setTimeout(function () {
+      if (tourState.ativo) return;
+      var alvo = destaqueElementoLocalizarAlvo(campanha);
+      // Elemento não encontrado — nunca quebra a página, nunca mostra
+      // destaque incorreto; simplesmente não monta nada.
+      if (!alvo) return;
+      destaqueElementoMontar(campanha, config, alvo);
     }, delay);
   }
 
@@ -9459,6 +10024,32 @@
     iniciarPreviewSeNecessario: iniciarPreviewSeNecessario,
     iniciarGravadorSeNecessario: iniciarGravadorSeNecessario,
     recorderTextosPainelFinal: recorderTextosPainelFinal,
+    // Destaque em elemento — funções puras (sem efeito colateral): só
+    // validam/montam um seletor CSS a partir de data-cy (sem tocar em
+    // localStorage/rede) ou consultam o DOM já presente (document.querySelector
+    // real, sem estado do widget). Ver server/src/widgetDestaqueElemento.test.ts.
+    destaqueElementoSeletorSeguro: destaqueElementoSeletorSeguro,
+    destaqueElementoLocalizarAlvo: destaqueElementoLocalizarAlvo,
+    destaqueElementoCalcularPosicao: destaqueElementoCalcularPosicao,
+    destaqueElementoCalcularPosicaoTooltip: destaqueElementoCalcularPosicaoTooltip,
+    destaqueElementoCalcularBeacon: destaqueElementoCalcularBeacon,
+    destaqueElementoRectsIguais: destaqueElementoRectsIguais,
+    destaqueElementoMutacoesApenasNoRoot: destaqueElementoMutacoesApenasNoRoot,
+    destaqueElementoObterViewport: destaqueElementoObterViewport,
+    // destaqueElementoMontar + destaqueElementoGetTestClickListener: mesmo
+    // padrão de renderTour/tourGetTestClickListener — expõem só o suficiente
+    // pra simular um clique real no badge/CTA/fechar num harness de teste
+    // (vm), sem expor destaqueElementoState inteiro.
+    destaqueElementoMontar: destaqueElementoMontar,
+    destaqueElementoGetTestClickListener: destaqueElementoGetTestClickListener,
+    // wasShown/markShown já existiam (política de "mostrar_uma_vez"
+    // compartilhada por qualquer formato de campanha, via localStorage) —
+    // expostas aqui pra confirmar que Destaque em elemento reaproveita a
+    // mesma infra, mas com um gatilho diferente do modal: markShown só roda
+    // numa interação explícita (clicar no badge, no CTA, ou dispensar),
+    // nunca só por ter renderizado (ver comentário em destaqueElementoMontar).
+    wasShown: wasShown,
+    markShown: markShown,
   };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {

@@ -378,6 +378,46 @@ function validarPoliticaReexibicao(
   return null
 }
 
+// ─── Formato "Destaque em elemento" (Fase 1 de adoção) ─────────────────────
+// Reaproveita tipo/modo_exibicao/modo_identificacao/data_cy já existentes —
+// nenhuma coluna nova. `subtitulo` passa a carregar o texto do badge (mesma
+// natureza de conteúdo — um rótulo curto e destacado — já usada como
+// "eyebrow" no modal) quando modo_exibicao === FORMATO_DESTAQUE_ELEMENTO.
+export const FORMATO_DESTAQUE_ELEMENTO = 'destaque_elemento'
+
+// data-cy nunca vira seletor CSS arbitrário: só aceita o charset típico de
+// identificadores técnicos (letras, números, -, _, :, .), começando por
+// letra/número/underscore — bloqueia aspas, colchetes e espaços que
+// poderiam escapar do atributo `[data-cy="..."]` montado no widget.
+const DATA_CY_REGEX = /^[A-Za-z0-9_][A-Za-z0-9_\-:.]{0,199}$/
+
+export function normalizarDataCy(valor: unknown): string {
+  return typeof valor === 'string' ? valor.trim() : ''
+}
+
+export function dataCyValido(valor: string): boolean {
+  return DATA_CY_REGEX.test(valor)
+}
+
+// modoExibicao já deve vir resolvido (default 'modal_automatica' aplicado)
+// e dataCyNormalizado já deve vir de normalizarDataCy — mantém a função pura
+// e sem repetir a resolução de default em cada chamada.
+export function validarFormatoDestaqueElemento(modoExibicao: string, dataCyNormalizado: string): string | null {
+  if (modoExibicao !== FORMATO_DESTAQUE_ELEMENTO) return null
+  if (!dataCyValido(dataCyNormalizado)) {
+    return 'Para o formato "Destaque em elemento", informe um data-cy válido do elemento alvo (letras, números, "-", "_", ":" ou ".").'
+  }
+  return null
+}
+
+// Formato "destaque_elemento" sempre localiza o elemento por data-cy — força
+// isso no servidor (nunca confia no modo_identificacao vindo do cliente),
+// mesma lógica que o front já aplica ao selecionar o formato.
+export function resolverModoIdentificacao(modoExibicao: string, modoIdentificacaoBruto: string): string {
+  if (modoExibicao === FORMATO_DESTAQUE_ELEMENTO) return 'data_cy'
+  return modoIdentificacaoBruto || 'sistema_tela'
+}
+
 function parseArray(v: unknown): string[] {
   if (Array.isArray(v)) return (v as unknown[]).map(String).filter(s => s.trim())
   if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean)
@@ -433,7 +473,8 @@ export async function criar(req: Request, res: Response) {
     const bloqueioEscrita = motivoBloqueioEscrita(tenant)
     if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
 
-    const modo = String(req.body.modo_identificacao || 'sistema_tela')
+    const modoExibicaoResolvido = String(req.body.modo_exibicao || 'modal_automatica').trim() || 'modal_automatica'
+    const modo = resolverModoIdentificacao(modoExibicaoResolvido, String(req.body.modo_identificacao || '').trim())
     const faltando = getCamposObrigatorios(modo).filter(c => !req.body[c]?.toString().trim())
     if (faltando.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
@@ -443,7 +484,7 @@ export async function criar(req: Request, res: Response) {
       titulo, subtitulo, descricao, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
-      modo_exibicao, gatilho, evento, modo_identificacao, data_cy, url_contem,
+      gatilho, evento, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
@@ -452,6 +493,10 @@ export async function criar(req: Request, res: Response) {
       categoria,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
+
+    const dataCyNormalizado = normalizarDataCy(data_cy)
+    const erroDestaque = validarFormatoDestaqueElemento(modoExibicaoResolvido, dataCyNormalizado)
+    if (erroDestaque) return res.status(400).json({ erro: erroDestaque })
 
     const pfm = permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : true
     const erroFechamento = validarFechamentoObrigatorio(
@@ -501,11 +546,11 @@ export async function criar(req: Request, res: Response) {
         texto_botao: texto_botao?.trim() || null,
         url_botao: url_botao?.trim() || null,
         feedback_habilitado: feedback_habilitado !== undefined ? Boolean(feedback_habilitado) : true,
-        modo_exibicao: modo_exibicao?.trim() || 'modal_automatica',
+        modo_exibicao: modoExibicaoResolvido,
         gatilho: gatilho?.trim() || 'ao_abrir_tela',
         evento: evento?.trim() || null,
-        modo_identificacao: modo_identificacao?.trim() || 'sistema_tela',
-        data_cy: data_cy?.trim() || null,
+        modo_identificacao: modo,
+        data_cy: dataCyNormalizado || null,
         url_contem: url_contem?.trim() || null,
         atraso_ms: atraso_ms !== undefined ? Number(atraso_ms) : 800,
         mostrar_uma_vez: Boolean(mostrar_uma_vez),
@@ -552,7 +597,10 @@ export async function atualizar(req: Request, res: Response) {
     const existente = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId } })
     if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
-    const modoAtualizado = String(req.body.modo_identificacao ?? existente.modo_identificacao ?? 'sistema_tela')
+    const modoExibicaoAtualizado = req.body.modo_exibicao !== undefined
+      ? (String(req.body.modo_exibicao).trim() || 'modal_automatica')
+      : existente.modo_exibicao
+    const modoAtualizado = resolverModoIdentificacao(modoExibicaoAtualizado, String(req.body.modo_identificacao ?? existente.modo_identificacao ?? '').trim())
     const vazios = getCamposObrigatorios(modoAtualizado).filter(c => c in req.body && !req.body[c]?.toString().trim())
     if (vazios.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
@@ -562,7 +610,7 @@ export async function atualizar(req: Request, res: Response) {
       titulo, subtitulo, descricao, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
-      modo_exibicao, gatilho, evento, modo_identificacao, data_cy, url_contem,
+      gatilho, evento, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
       ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
@@ -571,6 +619,10 @@ export async function atualizar(req: Request, res: Response) {
       categoria,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
+
+    const dataCyNormalizado = data_cy !== undefined ? normalizarDataCy(data_cy) : normalizarDataCy(existente.data_cy)
+    const erroDestaque = validarFormatoDestaqueElemento(modoExibicaoAtualizado, dataCyNormalizado)
+    if (erroDestaque) return res.status(400).json({ erro: erroDestaque })
 
     // Merge incoming values with existing to validate even on partial update
     const pfm = permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : existente.permitir_fechar_modal
@@ -630,11 +682,18 @@ export async function atualizar(req: Request, res: Response) {
         ...(texto_botao !== undefined && { texto_botao: texto_botao?.trim() || null }),
         ...(url_botao !== undefined && { url_botao: url_botao?.trim() || null }),
         ...(feedback_habilitado !== undefined && { feedback_habilitado: Boolean(feedback_habilitado) }),
-        ...(modo_exibicao !== undefined && { modo_exibicao: modo_exibicao?.trim() || 'modal_automatica' }),
         ...(gatilho !== undefined && { gatilho: gatilho?.trim() || 'ao_abrir_tela' }),
         ...(evento !== undefined && { evento: evento?.trim() || null }),
-        ...(modo_identificacao !== undefined && { modo_identificacao: modo_identificacao?.trim() || 'sistema_tela' }),
-        ...(data_cy !== undefined && { data_cy: data_cy?.trim() || null }),
+        // modo_exibicao/modo_identificacao/data_cy são interdependentes (ver
+        // resolverModoIdentificacao) — recalcula e grava os três juntos
+        // sempre que qualquer um deles aparecer no corpo da requisição, pra
+        // nunca persistir uma combinação inconsistente (ex.: modo_exibicao
+        // destaque_elemento com modo_identificacao antigo sistema_tela).
+        ...((req.body.modo_exibicao !== undefined || req.body.modo_identificacao !== undefined || data_cy !== undefined) && {
+          modo_exibicao: modoExibicaoAtualizado,
+          modo_identificacao: modoAtualizado,
+          data_cy: dataCyNormalizado || null,
+        }),
         ...(url_contem !== undefined && { url_contem: url_contem?.trim() || null }),
         ...(atraso_ms !== undefined && { atraso_ms: Number(atraso_ms) }),
         ...(mostrar_uma_vez !== undefined && { mostrar_uma_vez: Boolean(mostrar_uma_vez) }),

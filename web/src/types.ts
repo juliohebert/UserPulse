@@ -2,6 +2,8 @@ export interface Campanha {
   id: string
   slug: string
   titulo: string
+  // Eyebrow do modal por padrão; quando modo_exibicao === 'destaque_elemento'
+  // (ver campanhas2/Index.tsx) é reutilizado como texto do badge (ex. "Novo").
   subtitulo: string | null
   descricao: string
   tipo: string

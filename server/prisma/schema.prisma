@@ -360,6 +360,11 @@ model Campanha {
   tenant_id                 String
   slug                      String
   titulo                    String
+  // Eyebrow curto/negrito acima do título no modal. Quando
+  // modo_exibicao = "destaque_elemento", este mesmo campo é reutilizado como
+  // texto do badge (ex.: "Novo") — mesma natureza de conteúdo (rótulo curto
+  // e destacado), só renderizado diferente. Ver validarFormatoDestaqueElemento
+  // em server/src/controllers/campanhas.ts.
   subtitulo                 String?
   descricao                 String
   tipo                      String

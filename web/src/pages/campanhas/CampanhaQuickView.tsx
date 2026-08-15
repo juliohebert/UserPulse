@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import type { Campanha } from '../../types'
-import { getStatus, formatDate } from '../../utils/campanha'
+import { getStatus, formatDate, rotaEditarCampanha } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { useAuth } from '../../hooks/useAuth'
@@ -37,7 +37,7 @@ export function CampanhaQuickView({ campanha, onClose }: Props) {
           <div className="flex items-center gap-1 shrink-0">
             {podeEscrever && (
               <button
-                onClick={() => navigate(`/campanhas/${campanha.id}/editar`)}
+                onClick={() => navigate(rotaEditarCampanha(campanha))}
                 title="Editar"
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-high transition-colors"
               >

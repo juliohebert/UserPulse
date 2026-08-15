@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, getBlob } from '../../services/api'
 import type { DashboardData, EventoCampanha, Feedback } from '../../types'
-import { formatDateTime, getStatus } from '../../utils/campanha'
+import { formatDateTime, getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
@@ -491,7 +491,7 @@ export function CampanhaDashboard() {
             Preview
           </button>
           <button
-            onClick={() => navigate(`/campanhas/${id}/editar`)}
+            onClick={() => navigate(data ? rotaEditarCampanha(data.campanha) : `/campanhas/${id}/editar`)}
             className="flex items-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all"
           >
             <span className="material-symbols-outlined text-[18px]">edit</span>
