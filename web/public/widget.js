@@ -1244,6 +1244,9 @@
   }
 
   function wasShown(campanha, config, itemId) {
+    // Para usuário identificado, /candidatas já aplicou a política usando o
+    // histórico persistido. O estado deste navegador não participa da regra.
+    if (config.usuario_id) return false;
     if (!campanha.mostrar_uma_vez) return false;
     if (campanha.always_show_user) return false;
     if (!campanha.permitir_fechar_modal) return false;
@@ -1255,6 +1258,7 @@
   }
 
   function markShown(campanha, config, itemId) {
+    if (config.usuario_id) return;
     if (!campanha.mostrar_uma_vez) return;
     if (campanha.always_show_user) return;
     if (!campanha.permitir_fechar_modal) return;
