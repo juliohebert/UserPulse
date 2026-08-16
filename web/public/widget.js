@@ -1361,6 +1361,60 @@
   // desmontar/remontar (campanha/itens mudaram, ou nenhum mais elegível).
   var destaqueElementoSelecaoAtual = null;
 
+  function destaqueElementoDefinirAlvo(instancia, novoAlvo) {
+    if (instancia.alvo === novoAlvo) return false;
+    if (instancia.resizeObserver) {
+      instancia.resizeObserver.disconnect();
+      instancia.resizeObserver = null;
+    }
+    instancia.alvo = novoAlvo || null;
+    instancia.bindingGeracao++;
+    if (novoAlvo && typeof window.ResizeObserver === 'function') {
+      var geracao = instancia.bindingGeracao;
+      var observer = new window.ResizeObserver(function () {
+        if (instancia.desmontada || instancia.bindingGeracao !== geracao || instancia.alvo !== novoAlvo) return;
+        destaqueElementoReposicionar(instancia);
+      });
+      observer.observe(novoAlvo);
+      instancia.resizeObserver = observer;
+    }
+    return true;
+  }
+
+  function destaqueElementoSincronizarAlvo(instancia) {
+    if (!instancia || instancia.desmontada) return null;
+    // A API interna legada recebe um alvo direto; no runtime, data-cy define
+    // um binding transitório que precisa ser resolvido novamente a cada sinal.
+    if (!instancia.bindingDinamico) return instancia.alvo;
+    var alvo = destaqueElementoLocalizarAlvo(instancia.item);
+    destaqueElementoDefinirAlvo(instancia, alvo);
+    if (!alvo) {
+      instancia.oculto = true;
+      instancia.root.style.display = 'none';
+    }
+    return alvo;
+  }
+
+  function destaqueElementoRootConectado(instancia) {
+    if (!instancia || !instancia.root) return false;
+    if (typeof instancia.root.isConnected === 'boolean') return instancia.root.isConnected;
+    return document.body.contains(instancia.root);
+  }
+
+  function destaqueElementoAlvoOcultoNoHost(alvo) {
+    if (!alvo) return true;
+    var atual = alvo;
+    while (atual && atual !== document.body) {
+      if (atual.hidden || (atual.getAttribute && atual.getAttribute('aria-hidden') === 'true')) return true;
+      if (typeof window.getComputedStyle === 'function') {
+        var estilo = window.getComputedStyle(atual);
+        if (estilo && (estilo.display === 'none' || estilo.visibility === 'hidden' || estilo.visibility === 'collapse')) return true;
+      }
+      atual = atual.parentElement;
+    }
+    return false;
+  }
+
   function destaqueElementoDesmontarInstancia(instancia) {
     if (!instancia || instancia.desmontada) return;
     instancia.desmontada = true;
@@ -1527,7 +1581,9 @@
   // primeiro — nunca vira polling permanente. Depois disso só scroll/
   // resize/ResizeObserver continuam cobrindo reposições.
   function destaqueElementoEstabilizar(instancia) {
-    var alvo = instancia.alvo;
+    var alvo = destaqueElementoSincronizarAlvo(instancia);
+    if (!alvo) return;
+    var geracao = instancia.bindingGeracao;
     var framesEstaveis = 0;
     var inicio = Date.now();
     var rectAnterior = alvo.getBoundingClientRect();
@@ -1536,6 +1592,14 @@
       // Desmontado (fechado, elemento sumiu, campanha trocada) nesse
       // meio-tempo — encerra sem reagendar mais frames.
       if (instancia.desmontada) return;
+      var alvoAtual = destaqueElementoSincronizarAlvo(instancia);
+      if (instancia.bindingGeracao !== geracao || alvoAtual !== alvo) {
+        if (alvoAtual) {
+          destaqueElementoReposicionar(instancia, true);
+          destaqueElementoEstabilizar(instancia);
+        }
+        return;
+      }
       var rectAtual = alvo.getBoundingClientRect();
       if (!destaqueElementoRectsIguais(rectAnterior, rectAtual)) {
         framesEstaveis = 0;
@@ -1572,7 +1636,8 @@
     window.requestAnimationFrame(function () {
       instancia.reacaoAgendada = false;
       if (instancia.desmontada) return;
-      destaqueElementoReposicionar(instancia);
+      destaqueElementoSincronizarAlvo(instancia);
+      destaqueElementoReposicionar(instancia, true);
       destaqueElementoEstabilizar(instancia);
     });
   }
@@ -1605,6 +1670,10 @@
     if (typeof window.MutationObserver !== 'function') return null;
     var observer = new window.MutationObserver(function (mutationsList) {
       if (destaqueElementoMutacoesApenasNoRoot(instancia.root, mutationsList)) return;
+      if (!destaqueElementoRootConectado(instancia)) {
+        destaqueElementoSincronizarSelecao(instancia.campanha, instancia.config);
+        return;
+      }
       destaqueElementoAgendarReacao(instancia);
     });
     try {
@@ -1679,17 +1748,19 @@
     return Boolean(alvo && typeof alvo.contains === 'function' && alvo.contains(elementoNoPonto));
   }
 
-  function destaqueElementoReposicionar(instancia) {
-    if (!instancia || !instancia.root || !instancia.alvo) return;
-    // SPA pode remover o elemento do DOM depois de montado (navegação,
-    // re-render) — desmonta só ESTA instância sem quebrar a página, em vez
-    // de deixar o badge flutuando "no ar" sobre um alvo que não existe mais.
-    // Os outros destaques da mesma campanha continuam intactos.
-    if (!document.body.contains(instancia.alvo)) {
-      destaqueElementoDesmontarInstancia(instancia);
+  function destaqueElementoReposicionar(instancia, alvoJaSincronizado) {
+    if (!instancia || !instancia.root) return;
+    var alvo = alvoJaSincronizado ? instancia.alvo : destaqueElementoSincronizarAlvo(instancia);
+    // SPA pode remover/substituir o alvo durante a navegação. Isso só desfaz
+    // o binding e oculta o root; a instância lógica e seu MutationObserver
+    // continuam vivos para reconciliar o mesmo item quando o alvo retornar.
+    if (!alvo || !document.body.contains(alvo)) {
+      if (alvo) destaqueElementoDefinirAlvo(instancia, null);
+      instancia.oculto = true;
+      instancia.root.style.display = 'none';
       return;
     }
-    var rect = instancia.alvo.getBoundingClientRect();
+    var rect = alvo.getBoundingClientRect();
 
     // Alvo continua no DOM mas pode estar ENCOBERTO por uma drawer/modal/
     // overlay aberta por cima dele (ex.: clicar no próprio alvo abre um
@@ -1699,7 +1770,7 @@
     // MutationObserver/estabilização já existentes — abrir/fechar o overlay
     // já dispara destaqueElementoAgendarReacao, sem precisar de nenhum
     // polling novo.
-    var visivel = rect && rect.width > 0 && rect.height > 0;
+    var visivel = rect && rect.width > 0 && rect.height > 0 && !destaqueElementoAlvoOcultoNoHost(alvo);
     var pontos = destaqueElementoPontosInternos(rect);
     if (visivel && typeof document.elementsFromPoint === 'function') {
       visivel = false;
@@ -1716,7 +1787,7 @@
         for (var p = 0; p < pontos.length; p++) {
           var pilha = document.elementsFromPoint(pontos[p].x, pontos[p].y);
           var primeiro = destaqueElementoPrimeiroRelevante(instancia, pilha);
-          if (destaqueElementoAlvoRealmenteVisivel(instancia.alvo, rect, primeiro)) {
+          if (destaqueElementoAlvoRealmenteVisivel(alvo, rect, primeiro)) {
             visivel = true;
             break;
           }
@@ -1726,7 +1797,7 @@
       }
     } else if (visivel && typeof document.elementFromPoint === 'function') {
       var ponto = destaqueElementoPontoRepresentativo(rect);
-      visivel = destaqueElementoAlvoRealmenteVisivel(instancia.alvo, rect, document.elementFromPoint(ponto.x, ponto.y));
+      visivel = destaqueElementoAlvoRealmenteVisivel(alvo, rect, document.elementFromPoint(ponto.x, ponto.y));
     }
     if (!visivel) {
       instancia.oculto = true;
@@ -1736,6 +1807,10 @@
     if (instancia.oculto) {
       instancia.oculto = false;
       instancia.root.style.display = '';
+    }
+    if (instancia.prontoParaVisualizacao && !instancia.visualizacaoRegistrada) {
+      instancia.visualizacaoRegistrada = true;
+      registrarEvento('visualizacao', instancia.campanha, instancia.config, instancia.item.id);
     }
 
     var badgeEl = instancia.root.querySelector('.up-destaque-badge');
@@ -1962,7 +2037,9 @@
       campanha: campanha,
       config: config,
       item: item,
-      alvo: alvo,
+      alvo: null,
+      bindingDinamico: Boolean(destaqueElementoSeletorSeguro(item && item.data_cy)),
+      bindingGeracao: 0,
       aberto: false,
       reposicionar: null,
       resizeObserver: null,
@@ -1981,9 +2058,16 @@
       // Timer do fechamento automático do tooltip após um comentário de
       // utilidade enviado com sucesso — ver destaqueElementoUtilAgendarFechamento.
       utilAutoCloseTimer: null,
+      prontoParaVisualizacao: false,
+      visualizacaoRegistrada: false,
     };
     instancia.reposicionar = function () { destaqueElementoReposicionar(instancia); };
     destaqueElementoInstancias.push(instancia);
+    destaqueElementoDefinirAlvo(instancia, alvo || null);
+    if (!instancia.alvo) {
+      instancia.oculto = true;
+      root.style.display = 'none';
+    }
 
     window.addEventListener('scroll', instancia.reposicionar, true);
     window.addEventListener('resize', instancia.reposicionar);
@@ -1997,14 +2081,6 @@
     // NÃO cobre o alvo mudar só de POSIÇÃO com o mesmo tamanho (reflow de
     // algo acima dele) — é assim que a API funciona, por design. Esse caso é
     // coberto por destaqueElementoEstabilizar logo abaixo.
-    if (typeof window.ResizeObserver === 'function') {
-      var resizeObserver = new window.ResizeObserver(function () {
-        destaqueElementoReposicionar(instancia);
-      });
-      resizeObserver.observe(alvo);
-      instancia.resizeObserver = resizeObserver;
-    }
-
     // Cobre reflow tardio que só muda a POSIÇÃO do alvo, mesmo depois da
     // estabilização inicial já ter encerrado — ver destaqueElementoAgendarReacao.
     instancia.mutationObserver = destaqueElementoCriarObservadorMutacoes(instancia);
@@ -2121,11 +2197,15 @@
         // tempo — nunca opera sobre uma instância que não existe mais.
         if (instancia.desmontada) return;
         destaqueElementoRender(instancia);
+        instancia.prontoParaVisualizacao = true;
         // "visualizacao" só aqui — no primeiro render de verdade da
         // instância (badge já visível na tela), nunca nos re-renders
         // disparados por destaqueElementoRender dentro do toggle (abrir/
         // fechar o tooltip não é uma nova visualização do badge).
-        registrarEvento('visualizacao', campanha, config, item.id);
+        if (instancia.alvo && !instancia.oculto && !instancia.visualizacaoRegistrada) {
+          instancia.visualizacaoRegistrada = true;
+          registrarEvento('visualizacao', campanha, config, item.id);
+        }
         // Cobre reflow tardio que só muda a POSIÇÃO do alvo (não o
         // tamanho) — o ResizeObserver acima não pega esse caso. Curta,
         // se auto-encerra (ver destaqueElementoEstabilizar).
@@ -2205,10 +2285,10 @@
     return true;
   }
 
-  // Monta TODOS os destaques elegíveis da campanha — um alvo ausente ou já
-  // "visto" (Até interagir) nunca bloqueia os demais, cada item é resolvido
-  // de forma independente. Desmonta qualquer destaque de uma seleção de
-  // campanha anterior antes de montar os novos.
+  // Monta TODOS os destaques elegíveis da campanha. Um alvo ausente mantém
+  // uma instância lógica oculta para poder reagir ao DOM da SPA; um item já
+  // "visto" continua não sendo montado. Cada item é resolvido de forma
+  // independente, depois de desmontar a seleção anterior.
   function destaqueElementoMontarTodos(campanha, config) {
     destaqueElementoDesmontarTodos();
     var itens = destaqueElementoResolverItens(campanha);
@@ -2222,10 +2302,8 @@
       if (item.ativo === false) continue;
       if (wasShown(campanha, config, item.id)) continue;
       var alvo = destaqueElementoLocalizarAlvo(item);
-      // Elemento não encontrado — nunca quebra a página, nunca mostra
-      // destaque incorreto; simplesmente não monta ESTE item (os outros
-      // continuam sendo processados normalmente).
-      if (!alvo) continue;
+      // Sem match único, monta oculto; o observer fará o binding quando o
+      // alvo correto surgir. Nunca escolhe silenciosamente entre duplicados.
       destaqueElementoMontarItem(campanha, config, item, alvo);
     }
   }
@@ -2287,10 +2365,15 @@
   function agendarDestaqueElemento(campanha, config) {
     if ((campanha.gatilho || 'ao_abrir_tela') !== 'ao_abrir_tela') return;
     var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
-    state.timer = window.setTimeout(function () {
+    var timer = window.setTimeout(function () {
+      // Um callback cancelado/substituido nao interfere na selecao atual;
+      // ao disparar, o timer ativo deixa de bloquear novos agendamentos.
+      if (state.timer !== timer) return;
+      state.timer = null;
       if (tourState.ativo) return;
       destaqueElementoMontarTodos(campanha, config);
     }, delay);
+    state.timer = timer;
   }
 
   // Chamada a cada reavaliação de candidatas de updateContext()/evaluateCampaigns()
@@ -2320,22 +2403,21 @@
       for (var e = 0; e < itensResolvidos.length; e++) {
         var itemResolvido = itensResolvidos[e];
         if (itemResolvido.ativo === false) continue;
-        var alvoResolvido = destaqueElementoLocalizarAlvo(itemResolvido);
         var instanciaExistente = null;
         for (var n = 0; n < destaqueElementoInstancias.length; n++) {
           if (destaqueElementoInstancias[n].item.id === itemResolvido.id) instanciaExistente = destaqueElementoInstancias[n];
         }
         // Alvo ausente/ambíguo não é esperado nesta tela. Item já consumido
         // também não é, salvo enquanto sua instância atual ainda estiver viva.
-        if (alvoResolvido && (!wasShown(campanhaSelecionada, config, itemResolvido.id) || instanciaExistente)) {
-          itensEsperados.push({ item: itemResolvido, alvo: alvoResolvido, instancia: instanciaExistente });
+        if (!wasShown(campanhaSelecionada, config, itemResolvido.id) || instanciaExistente) {
+          itensEsperados.push({ item: itemResolvido, instancia: instanciaExistente });
         }
       }
       var instanciasValidas = destaqueElementoInstancias.length === itensEsperados.length;
       for (var i = 0; instanciasValidas && i < itensEsperados.length; i++) {
         var esperado = itensEsperados[i];
         var correspondente = esperado.instancia;
-        if (!correspondente || correspondente.desmontada || correspondente.alvo !== esperado.alvo || !document.body.contains(correspondente.alvo)) {
+        if (!correspondente || correspondente.desmontada || !destaqueElementoRootConectado(correspondente)) {
           instanciasValidas = false;
         }
       }
@@ -3424,9 +3506,9 @@
   // atualizada e retomava direto nele, pulando o passo intermediário).
   var TOUR_SPA_ASSENTAMENTO_MS = 500;
 
-  function handleUrlChange() {
+  function handleUrlChange(forcarReavaliacao) {
     var currentUrl = window.location.href;
-    if (currentUrl === lastUrl) return;
+    if (currentUrl === lastUrl && !forcarReavaliacao) return;
     var urlAnterior = lastUrl;
     lastUrl = currentUrl;
     if (urlChangeTimer) { window.clearTimeout(urlChangeTimer); urlChangeTimer = null; }
@@ -3492,6 +3574,10 @@
         }
       }
       evaluateUrlCampaigns();
+      // Candidatas por sistema/tela/contexto tambÃ©m precisam ser reavaliadas
+      // em toda navegaÃ§Ã£o do router. pushState/replaceState podem representar
+      // troca de tela mesmo quando o host conserva exatamente a mesma URL.
+      evaluateCampaigns();
       jornadaReavaliarAposNavegacao();
       // Reavalia tour automático (ex.: configurado por "Caminho da URL")
       // depois de uma navegação SPA — sem isso, um tour cuja condição só
@@ -3533,15 +3619,15 @@
 
     history.pushState = function () {
       origPushState.apply(this, arguments);
-      handleUrlChange();
+      handleUrlChange(true);
     };
     history.replaceState = function () {
       origReplaceState.apply(this, arguments);
-      handleUrlChange();
+      handleUrlChange(true);
     };
 
-    window.addEventListener('popstate', handleUrlChange);
-    window.addEventListener('hashchange', handleUrlChange);
+    window.addEventListener('popstate', function () { handleUrlChange(true); });
+    window.addEventListener('hashchange', function () { handleUrlChange(true); });
   }
 
   // ─── Tours guiados ────────────────────────────────────────────────────────
@@ -10751,6 +10837,7 @@
     destaqueElementoIdentidadesIguais: destaqueElementoIdentidadesIguais,
     destaqueElementoSincronizarSelecao: destaqueElementoSincronizarSelecao,
     evaluateCampaigns: evaluateCampaigns,
+    handleUrlChange: handleUrlChange,
     configSetTestState: configSetTestState,
     // wasShown/markShown já existiam (política de "mostrar_uma_vez"
     // compartilhada por qualquer formato de campanha, via localStorage) —

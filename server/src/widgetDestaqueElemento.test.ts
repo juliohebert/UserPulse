@@ -74,6 +74,7 @@ type DestaqueElementoIdentidadeSelecao = (campanha: Campanha | null | undefined)
 type DestaqueElementoIdentidadesIguais = (a: SelecaoIdentidade | null | undefined, b: SelecaoIdentidade | null | undefined) => boolean
 type DestaqueElementoSincronizarSelecao = (campanhaSelecionada: Campanha | null, config: ConfigWidget) => void
 type EvaluateCampaigns = () => void
+type HandleUrlChange = (forcarReavaliacao?: boolean) => void
 type ConfigSetTestState = (parcial: Partial<ConfigWidget> & { contexto?: Record<string, unknown> | null }) => void
 type ClickEvent = { target: { closest: (seletor: string) => { getAttribute: (chave: string) => string | null } | null } }
 type ClickListener = (event: ClickEvent) => void
@@ -110,6 +111,7 @@ let destaqueElementoIdentidadeSelecao: DestaqueElementoIdentidadeSelecao
 let destaqueElementoIdentidadesIguais: DestaqueElementoIdentidadesIguais
 let destaqueElementoSincronizarSelecao: DestaqueElementoSincronizarSelecao
 let evaluateCampaigns: EvaluateCampaigns
+let handleUrlChange: HandleUrlChange
 let configSetTestState: ConfigSetTestState
 let userPulseInit: UserPulseInit
 let userPulseUpdateContext: UserPulseUpdateContext
@@ -120,6 +122,7 @@ let markShown: MarkShown
 // destaqueElementoMontar/estabilização, sem expor destaqueElementoState.
 let ultimoRootDestaque: {
   style: Record<string, string>
+  isConnected: boolean
   contains: (node: unknown) => boolean
   querySelector?: (seletor: string) => unknown
 } | null = null
@@ -182,7 +185,7 @@ function elementoInput(atributo: string, valor: string) {
 }
 let presentes: Set<string>
 let duplicados: Set<string>
-let alvosPorDataCy: Map<string, { tagName: string; dataCy: string; getBoundingClientRect: () => Retangulo }>
+let alvosPorDataCy: Map<string, { tagName: string; dataCy: string; hidden?: boolean; getBoundingClientRect: () => Retangulo }>
 let localStorageStore: Map<string, string>
 
 function retangulo(top: number, left: number, width: number, height: number): Retangulo {
@@ -225,8 +228,9 @@ before(() => {
     recriarFilhos()
     const root = {
       className: '',
+      isConnected: true,
       style: {} as Record<string, string>,
-      parentNode: { removeChild() {} },
+      parentNode: { removeChild() { root.isConnected = false } },
       setAttribute() {},
       // Só reconhece a si mesma e seus 3 filhos fixos (badge/beacon/tooltip)
       // — suficiente pra destaqueElementoMutacoesApenasNoRoot filtrar
@@ -294,6 +298,7 @@ before(() => {
       // config vazia), usado pelos testes de ciclo de vida entre init()s.
       body: {
         contains: (node: unknown) => {
+          if (node && typeof (node as { isConnected?: unknown }).isConnected === 'boolean') return (node as { isConnected: boolean }).isConnected
           const dataCy = (node as { dataCy?: string } | null)?.dataCy
           return dataCy ? presentes.has(dataCy) : true
         },
@@ -378,6 +383,7 @@ before(() => {
         destaqueElementoIdentidadesIguais?: DestaqueElementoIdentidadesIguais
         destaqueElementoSincronizarSelecao?: DestaqueElementoSincronizarSelecao
         evaluateCampaigns?: EvaluateCampaigns
+        handleUrlChange?: HandleUrlChange
         configSetTestState?: ConfigSetTestState
         wasShown?: WasShown
         markShown?: MarkShown
@@ -406,6 +412,7 @@ before(() => {
   const identidadesIguaisFn = UserPulse?._internal?.destaqueElementoIdentidadesIguais
   const sincronizarSelecaoFn = UserPulse?._internal?.destaqueElementoSincronizarSelecao
   const evaluateCampaignsFn = UserPulse?._internal?.evaluateCampaigns
+  const handleUrlChangeFn = UserPulse?._internal?.handleUrlChange
   const configSetTestStateFn = UserPulse?._internal?.configSetTestState
   const initFn = UserPulse?.init
   const updateContextFn = UserPulse?.updateContext
@@ -433,6 +440,7 @@ before(() => {
   assert.equal(typeof identidadesIguaisFn, 'function', 'window.UserPulse._internal.destaqueElementoIdentidadesIguais não foi exposta por widget.js')
   assert.equal(typeof sincronizarSelecaoFn, 'function', 'window.UserPulse._internal.destaqueElementoSincronizarSelecao não foi exposta por widget.js')
   assert.equal(typeof evaluateCampaignsFn, 'function', 'window.UserPulse._internal.evaluateCampaigns não foi exposta por widget.js')
+  assert.equal(typeof handleUrlChangeFn, 'function', 'window.UserPulse._internal.handleUrlChange não foi exposta por widget.js')
   assert.equal(typeof configSetTestStateFn, 'function', 'window.UserPulse._internal.configSetTestState não foi exposta por widget.js')
   assert.equal(typeof initFn, 'function', 'window.UserPulse.init não foi exposta por widget.js')
   assert.equal(typeof updateContextFn, 'function', 'window.UserPulse.updateContext não foi exposta por widget.js')
@@ -460,6 +468,7 @@ before(() => {
   destaqueElementoIdentidadesIguais = identidadesIguaisFn as DestaqueElementoIdentidadesIguais
   destaqueElementoSincronizarSelecao = sincronizarSelecaoFn as DestaqueElementoSincronizarSelecao
   evaluateCampaigns = evaluateCampaignsFn as EvaluateCampaigns
+  handleUrlChange = handleUrlChangeFn as HandleUrlChange
   configSetTestState = configSetTestStateFn as ConfigSetTestState
   userPulseInit = initFn as UserPulseInit
   userPulseUpdateContext = updateContextFn as UserPulseUpdateContext
@@ -1354,7 +1363,9 @@ describe('destaqueElementoMontarTodos — mount/interação independentes por it
     const config: ConfigWidget = { sistema: 'sis', tela: 'tela-multi-2' }
     const antes = todasAsRaizesDestaque.length
     assert.doesNotThrow(() => destaqueElementoMontarTodos(campanha, config))
-    assert.equal(todasAsRaizesDestaque.length - antes, 1, 'só o item com alvo real no DOM deve montar')
+    assert.equal(todasAsRaizesDestaque.length - antes, 2, 'os dois itens mantêm instância lógica para reagir ao DOM da SPA')
+    assert.equal(destaqueElementoGetTestOculto(0), true, 'o item sem alvo fica oculto')
+    assert.equal(destaqueElementoGetTestOculto(1), false, 'o item com alvo fica visível')
   })
 
   test('interação no destaque A (fechar) marca só o item A como visto — B continua elegível', () => {
@@ -1776,6 +1787,10 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
   });
 
   test('falha de rede (fetch rejeita) no envio do comentário mostra erro recuperável — enviando volta a false, permite tentar de novo, e o tooltip continua aberto', async () => {
+    // Isola o relógio deste cenário de callbacks SPA deixados por testes
+    // anteriores; aqui a fila deve conter apenas timers criados pelo fluxo
+    // de utilidade exercitado abaixo.
+    timersPendentesDestaque = []
     presentes.add('filtro-util-falha-comentario');
     const campanha: Campanha = {
       id: 'destaque-util-falha-comentario', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
@@ -2292,6 +2307,17 @@ describe('destaqueElementoIdentidadeSelecao / destaqueElementoIdentidadesIguais 
 })
 
 describe('destaqueElementoSincronizarSelecao — updateContext preserva/substitui/remove sem flicker nem duplicação', () => {
+  test('sinal de navegação do router reavalia candidatas mesmo quando location.href não muda', () => {
+    timersPendentesDestaque = []
+    configSetTestState({ sistema: 'sis', tela: 'tela-mesma-url' })
+    const antes = chamadasRastreamento.length
+
+    handleUrlChange(true)
+    dispararTimersPendentesDestaque()
+
+    assert.ok(chamadasRastreamento.length >= antes + 2, 'reavalia candidatas por URL e por sistema/tela no sinal SPA de mesma URL')
+  })
+
   test('sai da rota e volta à mesma campanha/item repetidamente: desmonta e remonta sempre uma única instância, sem hard reload', () => {
     const dataCy = 'filtro-spa-volta'
     presentes.add(dataCy)
@@ -2301,20 +2327,24 @@ describe('destaqueElementoSincronizarSelecao — updateContext preserva/substitu
     }
     const config: ConfigWidget = { sistema: 'sis', tela: 'tela-spa-volta' }
     destaqueElementoMontarTodos(campanha, config)
-    assert.notEqual(destaqueElementoGetTestClickListener(0), null)
+    const listenerInicial = destaqueElementoGetTestClickListener(0)
+    const observerInicial = ultimoMutationObserverDestaque
+    const rootsIniciais = todasAsRaizesDestaque.length
+    assert.notEqual(listenerInicial, null)
     assert.equal(wasShown(campanha, config, 'item-spa-volta'), false, 'visualização sozinha mantém wasShown=false')
 
     for (let ciclo = 0; ciclo < 3; ciclo++) {
       presentes.delete(dataCy)
       ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'MAIN' } }])
-      assert.equal(destaqueElementoGetTestClickListener(0), null, 'alvo removido desmonta a instância')
+      assert.equal(destaqueElementoGetTestClickListener(0), listenerInicial, 'alvo removido preserva a instância lógica')
+      assert.equal(destaqueElementoGetTestOculto(0), true, 'na tela B o root fica oculto')
 
       presentes.add(dataCy)
-      const rootsAntes = todasAsRaizesDestaque.length
-      destaqueElementoSincronizarSelecao(campanha, config)
-      dispararTimersPendentesDestaque()
-      assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'mesma identidade lógica remonta quando a instância deixou de existir')
-      assert.equal(todasAsRaizesDestaque.length, rootsAntes + 1, 'cada retorno cria exatamente uma instância')
+      ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'MAIN' } }])
+      assert.equal(destaqueElementoGetTestClickListener(0), listenerInicial, 'ao voltar para A o binding é recuperado na mesma instância')
+      assert.equal(destaqueElementoGetTestOculto(0), false, 'o destaque reaparece sem hard reload')
+      assert.equal(ultimoMutationObserverDestaque, observerInicial, 'não duplica observer')
+      assert.equal(todasAsRaizesDestaque.length, rootsIniciais, 'continua existindo exatamente um root')
     }
     assert.equal(wasShown(campanha, config, 'item-spa-volta'), false)
   })
@@ -2362,6 +2392,75 @@ describe('destaqueElementoSincronizarSelecao — updateContext preserva/substitu
     destaqueElementoSincronizarSelecao(campanha, config)
 
     assert.notEqual(ultimoRootDestaque!.style.top, 'valor-sentinela-nao-recalculado', 'preservar a instância ainda precisa revalidar/recalcular a posição contra o layout atual (o contexto pode ter mudado mesmo sem trocar de campanha/item)')
+  })
+
+  test('target removido e recriado com o mesmo data-cy: troca o binding e reaparece sem reload', () => {
+    const dataCy = 'filtro-sync-recriado'
+    presentes.add(dataCy)
+    const campanha: Campanha = {
+      id: 'destaque-sync-recriado', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-sync-recriado', data_cy: dataCy, titulo: 'T' }],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-recriado' }
+    destaqueElementoMontarTodos(campanha, config)
+    const listener = destaqueElementoGetTestClickListener(0)
+
+    presentes.delete(dataCy)
+    ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'MAIN' } }])
+    assert.equal(destaqueElementoGetTestOculto(0), true)
+
+    alvosPorDataCy.set(dataCy, { tagName: 'BUTTON', dataCy, getBoundingClientRect: () => retangulo(420, 300, 140, 40) })
+    presentes.add(dataCy)
+    ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'MAIN' } }])
+
+    assert.equal(destaqueElementoGetTestOculto(0), false)
+    assert.equal(destaqueElementoGetTestClickListener(0), listener, 'rebind não duplica a instância')
+    assert.notEqual(ultimoRootDestaque!.style.top, '68px', 'posição passa a usar o nó recriado')
+  })
+
+  test('target mantido no DOM mas oculto na tela B: oculta e restaura na volta para A', () => {
+    const dataCy = 'filtro-sync-oculto'
+    presentes.add(dataCy)
+    const alvo = { tagName: 'BUTTON', dataCy, hidden: false, getBoundingClientRect: () => retangulo(100, 100, 140, 40) }
+    alvosPorDataCy.set(dataCy, alvo)
+    const campanha: Campanha = {
+      id: 'destaque-sync-oculto', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-sync-oculto', data_cy: dataCy, titulo: 'T' }],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-oculto' }
+    destaqueElementoMontarTodos(campanha, config)
+    const listener = destaqueElementoGetTestClickListener(0)
+
+    alvo.hidden = true
+    ultimoMutationObserverDestaque!.cb([{ target: alvo }])
+    assert.equal(destaqueElementoGetTestOculto(0), true, 'componente inativo não mantém badge visível em B')
+
+    alvo.hidden = false
+    ultimoMutationObserverDestaque!.cb([{ target: alvo }])
+    assert.equal(destaqueElementoGetTestOculto(0), false, 'reativar o componente restaura em A')
+    assert.equal(destaqueElementoGetTestClickListener(0), listener)
+  })
+
+  test('seleção igual com root desconectada: descarta a instância inválida e remonta uma única vez', () => {
+    const dataCy = 'filtro-sync-root-desconectada'
+    presentes.add(dataCy)
+    const campanha: Campanha = {
+      id: 'destaque-sync-root-desconectada', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-sync-root-desconectada', data_cy: dataCy, titulo: 'T' }],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-root-desconectada' }
+    destaqueElementoMontarTodos(campanha, config)
+    const rootAntiga = ultimoRootDestaque!
+    const rootsAntes = todasAsRaizesDestaque.length
+    rootAntiga.isConnected = false
+
+    destaqueElementoSincronizarSelecao(campanha, config)
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'instância inválida sai antes da remontagem')
+    dispararTimersPendentesDestaque()
+
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null)
+    assert.equal(todasAsRaizesDestaque.length, rootsAntes + 1)
+    assert.notEqual(ultimoRootDestaque, rootAntiga)
   })
 
   test('nenhuma candidata destaque_elemento elegível nesta rodada (null): desmonta os destaques existentes', () => {
@@ -2440,6 +2539,26 @@ describe('destaqueElementoSincronizarSelecao — updateContext preserva/substitu
     // remontando algo que a decisão mais recente já invalidou.
     dispararTimersPendentesDestaque()
     assert.equal(destaqueElementoGetTestClickListener(0), null, 'o timer de uma sincronização já superada nunca pode remontar um destaque invalidado')
+  })
+
+  test('timer cancelado é zerado, permite novo agendamento e callback antigo não interfere', () => {
+    const dataCy = 'filtro-sync-timer-reuso'
+    presentes.add(dataCy)
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-timer-reuso' }
+    const campanha: Campanha = {
+      id: 'destaque-sync-timer-reuso', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-timer-reuso', data_cy: dataCy, titulo: 'T' }],
+    }
+    destaqueElementoSincronizarSelecao(campanha, config)
+    const callbackAntigo = timersPendentesDestaque[timersPendentesDestaque.length - 1].cb
+    destaqueElementoSincronizarSelecao(null, config)
+    destaqueElementoSincronizarSelecao(campanha, config)
+    const rootsAntes = todasAsRaizesDestaque.length
+
+    callbackAntigo()
+    assert.equal(todasAsRaizesDestaque.length, rootsAntes, 'callback cancelado não monta nem desmonta')
+    dispararTimersPendentesDestaque()
+    assert.equal(todasAsRaizesDestaque.length, rootsAntes + 1, 'novo timer monta normalmente')
   })
 })
 
