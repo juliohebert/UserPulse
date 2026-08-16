@@ -177,6 +177,8 @@ function elementoInput(atributo: string, valor: string) {
   }
 }
 let presentes: Set<string>
+let duplicados: Set<string>
+let alvosPorDataCy: Map<string, { tagName: string; dataCy: string; getBoundingClientRect: () => Retangulo }>
 let localStorageStore: Map<string, string>
 
 function retangulo(top: number, left: number, width: number, height: number): Retangulo {
@@ -189,6 +191,14 @@ before(() => {
     'utf8'
   )
   presentes = new Set<string>()
+  duplicados = new Set<string>()
+  alvosPorDataCy = new Map()
+  function alvoDoDataCy(dataCy: string) {
+    if (!alvosPorDataCy.has(dataCy)) {
+      alvosPorDataCy.set(dataCy, { tagName: 'BUTTON', dataCy, getBoundingClientRect: () => retangulo(100, 100, 140, 40) })
+    }
+    return alvosPorDataCy.get(dataCy)!
+  }
   // Fake "elemento" pra document.createElement('div') — usado só pelo root
   // do destaque (destaqueElementoMontar). innerHTML/querySelector não fazem
   // parsing de HTML de verdade: badge/beacon são fixos, e o tooltip só
@@ -252,13 +262,16 @@ before(() => {
     },
     document: {
       currentScript: { src: 'http://localhost/widget.js' },
-      querySelectorAll: () => [],
+      querySelectorAll: (seletor: string) => {
+        const m = /^\[data-cy="([\s\S]*)"\]$/.exec(seletor)
+        if (!m || !presentes.has(m[1])) return []
+        const alvo = alvoDoDataCy(m[1])
+        return duplicados.has(m[1]) ? [alvo, { ...alvo }] : [alvo]
+      },
       querySelector: (seletor: string) => {
         const m = /^\[data-cy="([\s\S]*)"\]$/.exec(seletor)
         if (!m) return null
-        return presentes.has(m[1])
-          ? { tagName: 'BUTTON', getBoundingClientRect: () => ({ top: 100, left: 100, right: 240, bottom: 140, width: 140, height: 40 }) }
-          : null
+        return presentes.has(m[1]) ? alvoDoDataCy(m[1]) : null
       },
       getElementById: () => null,
       createElement: () => criarFakeRootDestaque(),
@@ -267,7 +280,13 @@ before(() => {
       // style: {} — necessário pra window.UserPulse.init() de verdade poder
       // rodar (ele sempre seta document.body.style.overflow, mesmo com
       // config vazia), usado pelos testes de ciclo de vida entre init()s.
-      body: { contains: () => true, appendChild() {}, style: {} as Record<string, string> },
+      body: {
+        contains: (node: unknown) => {
+          const dataCy = (node as { dataCy?: string } | null)?.dataCy
+          return dataCy ? presentes.has(dataCy) : true
+        },
+        appendChild() {}, style: {} as Record<string, string>
+      },
       // head.appendChild — ensureStyles() (chamada por evaluateCampaigns()
       // pra qualquer candidata selecionada, destaque_elemento incluso) usa
       // isso pra injetar a <style> global uma única vez. Só precisa existir
@@ -470,6 +489,16 @@ describe('destaqueElementoLocalizarAlvo — localiza o alvo de UM item (data_cy 
   test('elemento não existe no DOM -> não exibe (retorna null, sem lançar erro)', () => {
     const alvo = destaqueElementoLocalizarAlvo({ data_cy: 'nao-existe-na-pagina' })
     assert.equal(alvo, null)
+  })
+
+  test('múltiplos matches do mesmo data-cy -> retorna null, sem escolher/trocar alvo silenciosamente', () => {
+    presentes.add('data-cy-duplicado')
+    duplicados.add('data-cy-duplicado')
+    try {
+      assert.equal(destaqueElementoLocalizarAlvo({ data_cy: 'data-cy-duplicado' }), null)
+    } finally {
+      duplicados.delete('data-cy-duplicado')
+    }
   })
 
   test('item nulo/sem data_cy -> retorna null, sem lançar erro', () => {
@@ -1987,6 +2016,52 @@ describe('destaqueElementoAlvoRealmenteVisivel / destaqueElementoPontoRepresenta
 // ver before() acima) e sempre restaurado no finally, pro resto da suíte
 // continuar cobrindo o caso "navegador sem suporte" sem interferência.
 describe('destaqueElementoReposicionar oculta/restaura o destaque quando o alvo é encoberto por overlay (integrado ao MutationObserver existente)', () => {
+  test('elementsFromPoint testa centro e quatro cantos: drawer cobrindo todos oculta o root inteiro e não consome', () => {
+    const alvo = { tagName: 'BUTTON', getBoundingClientRect: () => retangulo(134, 500, 140, 40) }
+    const campanha: Campanha = { id: 'destaque-hit-stack-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-hit-stack-1' }
+    destaqueElementoMontar(campanha, config, alvo)
+    let pontosTestados = 0
+    const antes = chamadasRastreamento.length
+    sandboxCompartilhado!.document.elementsFromPoint = () => { pontosTestados++; return [{ tagName: 'DIV', className: 'drawer' }, alvo] }
+    try {
+      ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'DIV' } }])
+    } finally {
+      delete sandboxCompartilhado!.document.elementsFromPoint
+    }
+    assert.equal(pontosTestados, 5)
+    assert.equal(destaqueElementoGetTestOculto(0), true)
+    assert.equal(ultimoRootDestaque!.style.display, 'none')
+    assert.equal(wasShown(campanha, config), false)
+    assert.equal(chamadasRastreamento.length, antes)
+  })
+
+  test('elementsFromPoint ignora o próprio root UserPulse; uma área útil descoberta restaura e reposiciona', () => {
+    const alvo = { tagName: 'BUTTON', getBoundingClientRect: () => retangulo(134, 500, 140, 40) }
+    const campanha: Campanha = { id: 'destaque-hit-stack-2', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-hit-stack-2' }
+    destaqueElementoMontar(campanha, config, alvo)
+    const drawer = { tagName: 'DIV' }
+    sandboxCompartilhado!.document.elementsFromPoint = () => [drawer, alvo]
+    ultimoMutationObserverDestaque!.cb([{ target: drawer }])
+    assert.equal(destaqueElementoGetTestOculto(0), true)
+
+    let chamada = 0
+    sandboxCompartilhado!.document.elementsFromPoint = () => {
+      chamada++
+      return chamada < 3 ? [drawer, alvo] : [ultimoRootDestaque, alvo]
+    }
+    try {
+      ultimoMutationObserverDestaque!.cb([{ target: drawer }])
+    } finally {
+      delete sandboxCompartilhado!.document.elementsFromPoint
+    }
+    assert.equal(destaqueElementoGetTestOculto(0), false)
+    assert.equal(ultimoRootDestaque!.style.display, '')
+    assert.equal(ultimoRootDestaque!.style.top, '102px')
+    assert.equal(wasShown(campanha, config), false)
+  })
+
   test('alvo encoberto por overlay (drawer/modal) oculta badge+tooltip via display:none — sem desmontar, sem markShown, sem dispensa', () => {
     const alvo = { tagName: 'BUTTON', getBoundingClientRect: () => retangulo(134, 500, 140, 40) }
     const campanha: Campanha = { id: 'destaque-visibilidade-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
@@ -2135,6 +2210,33 @@ describe('destaqueElementoIdentidadeSelecao / destaqueElementoIdentidadesIguais 
 })
 
 describe('destaqueElementoSincronizarSelecao — updateContext preserva/substitui/remove sem flicker nem duplicação', () => {
+  test('sai da rota e volta à mesma campanha/item repetidamente: desmonta e remonta sempre uma única instância, sem hard reload', () => {
+    const dataCy = 'filtro-spa-volta'
+    presentes.add(dataCy)
+    const campanha: Campanha = {
+      id: 'destaque-spa-volta', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-spa-volta', data_cy: dataCy, titulo: 'T' }],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-spa-volta' }
+    destaqueElementoMontarTodos(campanha, config)
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null)
+    assert.equal(wasShown(campanha, config, 'item-spa-volta'), false, 'visualização sozinha mantém wasShown=false')
+
+    for (let ciclo = 0; ciclo < 3; ciclo++) {
+      presentes.delete(dataCy)
+      ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'MAIN' } }])
+      assert.equal(destaqueElementoGetTestClickListener(0), null, 'alvo removido desmonta a instância')
+
+      presentes.add(dataCy)
+      const rootsAntes = todasAsRaizesDestaque.length
+      destaqueElementoSincronizarSelecao(campanha, config)
+      dispararTimersPendentesDestaque()
+      assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'mesma identidade lógica remonta quando a instância deixou de existir')
+      assert.equal(todasAsRaizesDestaque.length, rootsAntes + 1, 'cada retorno cria exatamente uma instância')
+    }
+    assert.equal(wasShown(campanha, config, 'item-spa-volta'), false)
+  })
+
   test('mesma campanha + mesmos itens ativos: preserva a instância existente (nunca desmonta/remonta, nunca duplica root/observer)', () => {
     presentes.add('filtro-sync-preserva')
     const campanha: Campanha = {
