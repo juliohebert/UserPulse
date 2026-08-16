@@ -4323,7 +4323,7 @@
   // retomada, como reconstituir o mesmo tipo de sessão (ver
   // tourRetomarSeHouver). 'jornada' tem prioridade sobre só "preview" porque
   // uma prévia nunca tem jornadaContexto (mutuamente exclusivos por natureza:
-  // jornadaContexto só é setado por jornadaEtapaClicar/iniciarTourPublico,
+  // jornadaContexto só é setado por jornadaEtapaClicar/iniciarTour,
   // nunca por recorderIniciarPreview).
   function tourModoAtual() {
     if (tourState.jornadaContexto) return 'jornada';
@@ -5262,7 +5262,7 @@
   // (ver renderTourNaoEncontrado), a única peça de UI do gravador que
   // aparece dentro do próprio overlay do tour (bar/painel já ficam
   // escondidos em qualquer prévia). O disparo real do tour
-  // (iniciarTourPublico/avaliarTourAutomatico) nunca passa esses argumentos,
+    // (API pública/avaliarTourAutomatico) nunca passa esses argumentos,
   // então continua com introdução normal e preview/modoUsuarioFinal=false.
   // indiceInicial (opcional, default 0) — usado só por tourRetomarSeHouver()
   // pra retomar diretamente num passo específico depois de um reload
@@ -5301,55 +5301,10 @@
     renderTour();
   }
 
-  // Avalia automaticamente, no init() e a cada reavaliação de SPA (ver
-  // handleUrlChange), se há um tour guiado elegível para o contexto atual
-  // (mesmo princípio do checkMode usado para campanhas).
+  // Tours não autoabrem mais. Mantido como no-op porque init()/updateContext()
+  // ainda chamam esta função em instalações existentes do widget.
   function avaliarTourAutomatico(config) {
-    // Central de ajuda aberta não pode ser coberta por um tour automático —
-    // o usuário abriu ela de propósito, então não compete por cima.
-    if (tourState.ativo || jornadaState.aberto || !config.sistema) {
-      if (debugState.enabled) {
-        debugLog('Tour automático — avaliação pulada', {
-          motivo: tourState.ativo ? 'já há um tour ativo' : (jornadaState.aberto ? 'Central de Jornadas aberta' : 'config sem "sistema"'),
-        });
-      }
-      return;
-    }
-    fetchTourCandidatos(config.sistema, config.tela, config.usuario_id, config.contexto)
-      .then(function (candidatos) {
-        if (tourState.ativo || jornadaState.aberto) return;
-        var selecionado = null;
-        var linhas = [];
-        for (var i = 0; i < candidatos.length; i++) {
-          var c = candidatos[i];
-          var okModo = checkMode(c, config);
-          var seg = avaliarSegmentacaoTour(c, config);
-          // Com usuario_id, confia no backend (já fez dedupe/reexibição). Sem
-          // usuario_id, o servidor não tem como identificar o usuário — cai
-          // no fallback localStorage.
-          var jaVisto = !config.usuario_id && tourWasShown(c);
-          if (debugState.enabled) {
-            var motivo;
-            if (!okModo) motivo = 'bloqueado: modo_identificacao não corresponde';
-            else if (!seg.ok) motivo = 'bloqueado por segmentação';
-            else if (jaVisto) motivo = 'bloqueado: já visto (localStorage)';
-            else motivo = selecionado ? 'elegível, porém outro tour de maior prioridade já selecionado' : 'selecionado';
-            linhas.push({
-              id: c.id,
-              titulo: c.titulo || null,
-              modo_identificacao: c.modo_identificacao || 'sistema_tela',
-              segmentacao: seg.motivo,
-              regra_que_falhou: seg.regraFalhou,
-              motivo: motivo,
-            });
-          }
-          if (!okModo || !seg.ok || jaVisto) continue;
-          if (!selecionado) selecionado = c;
-        }
-        if (debugState.enabled) debugLog('Tour automático — candidatos (' + config.tela + ')', linhas);
-        if (selecionado) aguardarAparenciaEIniciarTour(selecionado);
-      })
-      .catch(function () { /* fail silently */ });
+    if (debugState.enabled) debugLog('Tour automático desativado', { sistema: config && config.sistema ? config.sistema : null });
   }
 
   // Adia iniciarTour() até a aparência (cor/logo) do sistema atual estar
@@ -9109,21 +9064,18 @@
     iniciarTour(tourPreview, false, true);
   }
 
-  // API pública para disparar um tour manualmente (ex.: botão "Ver tour" no host):
-  //   window.UserPulse.iniciarTour('slug-do-tour')
-  // jornadaContexto (opcional, uso interno) — ver jornadaEtapaClicar/tourConcluir.
-  function iniciarTourPublico(slug, jornadaContexto) {
-    if (!slug) return;
-    fetchTour(slug).then(function (tour) {
-      if (tour) iniciarTour(tour, false, false, false, jornadaContexto);
-    }).catch(function () { /* fail silently */ });
+  // API pública mantida por compatibilidade, mas tour não dispara mais sozinho.
+  // Tours agora só iniciam a partir de uma etapa de Jornada, usando o objeto de
+  // tour embutido em /api/widget/jornadas (ver jornadaEtapaClicar).
+  function iniciarTourPublico() {
+    if (debugState.enabled) debugLog('Tour público bloqueado', { motivo: 'tour_disponivel_apenas_em_jornada' });
   }
 
   // ─── Onboarding Guiado (Jornadas) — MVP ────────────────────────────────────
   // Central/checklist que o usuário abre manualmente — via
   // window.UserPulse.abrirJornadas() ou pelo botão flutuante "Ajuda" (Parte 3),
-  // que só aparece quando há jornada elegível. Nunca dispara sozinha, ao
-  // contrário de campanhas/tours automáticos (avaliarTourAutomatico/checkMode).
+  // que só aparece quando há jornada elegível. Tours não autoabrem mais; eles
+  // só iniciam quando o usuário clica em uma etapa de Jornada.
   //
   // Estrutura: Jornada -> BlocoJornada ("Pacote" na UI/widget) -> EtapaJornada.
   // Navegação em 2 níveis: painel inicial lista os Pacotes de cada jornada
@@ -9238,35 +9190,28 @@
   function renderJornadaEtapaHtml(jornada, bloco, etapa, index) {
     var status = etapa.status || 'pendente';
     var concluida = status === 'concluida';
-    // Tour apontado pela etapa foi inativado depois de criada a jornada — não
-    // dá pra iniciar nem rever, então bloqueia independente de status/permitir_refazer.
-    var tourInativo = etapa.tipo === 'tour' && Boolean(etapa.tour) && etapa.tour.ativo === false;
     // permitir_refazer é configurado na Jornada (não no pacote/etapa) — só
     // libera reexecutar uma etapa já concluída quando true; por padrão (false)
     // fica bloqueada. Exceção: etapa tipo tour concluída sempre pode ser
     // revista (reabre o tour de novo, sem contar como nova conclusão) mesmo
     // com permitir_refazer=false — etapas tipo link continuam bloqueadas
     // nesse caso.
-    var podeRefazer = concluida && Boolean(jornada.permitir_refazer) && !tourInativo;
-    var podeRever = concluida && !podeRefazer && etapa.tipo === 'tour' && !tourInativo;
+    var podeRefazer = concluida && Boolean(jornada.permitir_refazer);
+    var podeRever = concluida && !podeRefazer && etapa.tipo === 'tour';
     // disabled nativo bloqueia clique/reexecução no próprio DOM (o clique nem
     // chega ao listener delegado) — não depende só da checagem em
     // jornadaPainelClick, que fica como segunda camada de segurança.
-    var desabilitada = (concluida && !podeRefazer && !podeRever) || etapa.tipo === 'campanha' || tourInativo;
+    var desabilitada = (concluida && !podeRefazer && !podeRever) || etapa.tipo === 'campanha';
     var classe = 'up-jorn-etapa' + (concluida ? ' up-jorn-etapa-concluida' : '');
     var marcador = concluida
       ? '<span class="up-jorn-etapa-check">' + icon('check') + '</span>'
       : '<span class="up-jorn-etapa-num">' + (index + 1) + '</span>';
-    var tituloAttr = tourInativo
-      ? ' title="Este tour está indisponível no momento."'
-      : (concluida
+    var tituloAttr = concluida
         ? (podeRefazer ? ' title="Clique para refazer esta etapa."' : (podeRever ? ' title="Clique para rever o tour."' : ' title="Etapa já concluída."'))
-        : (etapa.tipo === 'campanha' ? ' title="Campanha será suportada em breve."' : ''));
-    var tipoTexto = tourInativo
-      ? (concluida ? 'Concluída · Tour indisponível' : jornadaTipoLabel(etapa) + ' · indisponível')
-      : (concluida
+        : (etapa.tipo === 'campanha' ? ' title="Campanha será suportada em breve."' : '');
+    var tipoTexto = concluida
         ? (podeRefazer ? 'Concluída · Refazer' : (podeRever ? 'Concluída · Rever tour' : 'Concluída'))
-        : jornadaTipoLabel(etapa) + (etapa.obrigatoria ? '' : ' · opcional'));
+        : jornadaTipoLabel(etapa) + (etapa.obrigatoria ? '' : ' · opcional');
     return (
       '<button type="button" class="' + classe + '"' +
         ' data-up-jorn-jornada="' + escapeHtml(jornada.id) + '"' +
@@ -9692,22 +9637,19 @@
     if (etapa.tipo === 'link' && etapa.url) {
       window.open(etapa.url, etapa.abrir_nova_aba ? '_blank' : '_self', 'noopener,noreferrer');
       jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
-    } else if (etapa.tipo === 'tour' && etapa.tour && etapa.tour.slug) {
-      // disabled nativo já impede isso (ver renderJornadaEtapaHtml) — segunda
-      // camada de segurança, mesmo padrão de sempre.
-      if (etapa.tour.ativo === false) return;
+    } else if (etapa.tipo === 'tour' && etapa.tour && etapa.tour.passos) {
       if (revendoTour) {
         // Já concluída — só reabre o tour pra revisão, sem re-registrar
         // etapa_concluida nem mexer no progresso da jornada.
         fecharJornadaPainel();
-        iniciarTourPublico(etapa.tour.slug);
+        iniciarTour(etapa.tour, false, false, false);
       } else {
         // A etapa só é marcada concluída quando o tour é de fato concluído
         // (tourConcluir(), via tourState.jornadaContexto) — nunca já ao
         // iniciar. Encerrar/pular/abandonar o tour no meio não conta como
         // conclusão da etapa.
         fecharJornadaPainel();
-        iniciarTourPublico(etapa.tour.slug, {
+        iniciarTour(etapa.tour, false, false, false, {
           jornadaId: jornada.id, blocoId: bloco.id, etapaId: etapa.id, contextoExtra: contextoExtra,
         });
       }

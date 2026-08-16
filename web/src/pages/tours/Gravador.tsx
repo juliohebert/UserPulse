@@ -66,7 +66,7 @@ export function TourGravador() {
       <div className="px-4 lg:px-margin-desktop py-5">
         <h2 className="text-title-lg font-bold text-on-surface">Gravador de Fluxo (MVP)</h2>
         <p className="text-body-md text-on-surface-variant mt-0.5">
-          Grave um fluxo navegando pelo sistema real e gere um rascunho de tour pra importar.
+          Grave um fluxo navegando pelo sistema real e gere um tour para usar em jornadas.
         </p>
       </div>
 
@@ -92,7 +92,7 @@ export function TourGravador() {
             <li>Na aba aberta, uma barra flutuante "Gravando Tour" aparece. Navegue e interaja normalmente com o sistema (clique em botões/links, preencha campos, selecione opções).</li>
             <li>Use "Pausar/Continuar" para ignorar temporariamente suas próprias interações, e "Desfazer último passo" se capturar algo por engano.</li>
             <li>Clique em "Finalizar" — o widget mostra o JSON gerado, com botões para copiar ou baixar.</li>
-            <li>Volte para <button onClick={() => navigate('/tours')} className="underline hover:text-primary">Tours Guiados</button> e use "Importar JSON" para criar o tour como rascunho — revise título, descrição e seletores antes de ativar.</li>
+            <li>Volte para <button onClick={() => navigate('/tours')} className="underline hover:text-primary">Tours Guiados</button> e use "Importar JSON" para criar o tour — revise título, descrição e seletores antes de usar em uma jornada.</li>
           </ol>
         </div>
 

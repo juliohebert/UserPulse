@@ -362,7 +362,7 @@ export function AdminPlanosIndex() {
               <p className="text-title-md font-bold text-primary mb-3">{formatarPreco(plano.preco_mensal)}<span className="text-[11px] text-on-surface-variant font-normal">/mês</span></p>
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[12px] text-on-surface-variant mb-3">
                 <span>Campanhas ativas: <strong className="text-on-surface">{formatarLimite(plano.limite_campanhas_ativas)}</strong></span>
-                <span>Tours ativos: <strong className="text-on-surface">{formatarLimite(plano.limite_tours_ativos)}</strong></span>
+                <span>Tours: <strong className="text-on-surface">{formatarLimite(plano.limite_tours_ativos)}</strong></span>
                 {/* Rótulo comercial "Volume mensal de uso" — campo técnico
                     continua limite_eventos_mes (payload/schema/backend
                     inalterados, só o texto exibido mudou). */}
@@ -484,7 +484,7 @@ export function AdminPlanosIndex() {
               <div className="grid grid-cols-2 gap-3">
                 {([
                   ['limite_campanhas_ativas', 'Limite campanhas ativas'],
-                  ['limite_tours_ativos', 'Limite tours ativos'],
+                  ['limite_tours_ativos', 'Limite tours'],
                   ['limite_eventos_mes', 'Limite de volume mensal de uso'],
                   ['limite_usuarios_admin', 'Limite usuários admin'],
                 ] as const).map(([campo, label]) => (

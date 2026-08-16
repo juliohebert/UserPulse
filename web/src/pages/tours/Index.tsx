@@ -13,21 +13,18 @@ import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils
 import { limiteTrial } from '../../utils/limiteTrial'
 
 const PAGE_SIZE = 10
-// Só a busca dispara a cada tecla (status/sistema são clique único, sem
+// Só a busca dispara a cada tecla (sistema/passos são clique único, sem
 // motivo pra atraso) — debounce simples evita 1 request por caractere digitado.
 const BUSCA_DEBOUNCE_MS = 300
 
-type StatusFiltro = 'todos' | 'ativos' | 'inativos'
-type SortKey = 'tour' | 'sistema' | 'status' | 'passos' | 'atualizado'
+type SortKey = 'tour' | 'sistema' | 'passos' | 'atualizado'
 type SortDirection = 'asc' | 'desc'
 type ColumnKey = SortKey | 'acoes'
 type FiltroPassos = 'todos' | 'com' | 'sem'
-const STATUS_FILTRO_PADRAO: StatusFiltro = 'ativos'
 
 const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
   { label: 'Tour', key: 'tour', sortKey: 'tour' },
   { label: 'Sistema', key: 'sistema', sortKey: 'sistema' },
-  { label: 'Status', key: 'status', sortKey: 'status' },
   { label: 'Passos', key: 'passos', sortKey: 'passos' },
   { label: 'Atualizado em', key: 'atualizado', sortKey: 'atualizado' },
   { label: 'Ações', key: 'acoes', sortKey: null },
@@ -36,17 +33,10 @@ const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | n
 const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
   tour: true,
   sistema: true,
-  status: true,
   passos: true,
   atualizado: true,
   acoes: true,
 }
-
-const STATUS_FILTRO: Array<{ value: StatusFiltro; label: string }> = [
-  { value: 'todos', label: 'Todos' },
-  { value: 'ativos', label: 'Ativos' },
-  { value: 'inativos', label: 'Inativos' },
-]
 
 function MetricCard({ label, value, icon }: { label: string; value: string | number; icon: string }) {
   return (
@@ -104,13 +94,12 @@ function FilterSelect({
 // — a listagem chama a mesma consulta de sempre, preservando o comportamento
 // atual quando nenhum filtro é aplicado (mesmo padrão de montarQuery em
 // web/src/pages/tours/Dashboard.tsx).
-function montarQueryTours(busca: string, sistema: string, status: StatusFiltro, passos: FiltroPassos, pagina: number, sort: { key: SortKey; direction: SortDirection } | null): string {
+function montarQueryTours(busca: string, sistema: string, passos: FiltroPassos, pagina: number, sort: { key: SortKey; direction: SortDirection } | null): string {
   const params = new URLSearchParams()
   params.set('page', String(pagina))
   params.set('pageSize', String(PAGE_SIZE))
   if (busca.trim()) params.set('busca', busca.trim())
   if (sistema) params.set('sistema', sistema)
-  if (status !== 'todos') params.set('status', status)
   if (passos !== 'todos') params.set('passos', passos)
   if (sort) {
     params.set('sortKey', sort.key)
@@ -138,7 +127,6 @@ export function ToursIndex() {
   const [colunasVisiveis, setColunasVisiveis] = useState(COLUNAS_INICIAIS)
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
   const [filterSistema, setFilterSistema] = useState('')
-  const [filterAtivo, setFilterAtivo] = useState<StatusFiltro>(STATUS_FILTRO_PADRAO)
   const [filterPassos, setFilterPassos] = useState<FiltroPassos>('todos')
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [exportandoId, setExportandoId] = useState<string | null>(null)
@@ -218,23 +206,23 @@ export function ToursIndex() {
   // page é sempre o pedido explicitamente por quem chama load() — nunca lido
   // de volta de `data` no meio do caminho, pra não haver corrida entre um
   // clique de página e um filtro mudando ao mesmo tempo.
-  const load = (buscaAtual: string, sistemaAtual: string, statusAtual: StatusFiltro, pagina: number, sortAtual = sort, passosAtual = filterPassos) => {
+  const load = (buscaAtual: string, sistemaAtual: string, pagina: number, sortAtual = sort, passosAtual = filterPassos) => {
     setLoading(true)
     setError(null)
-    get<TourGuiadoListaPaginada>(`/tours${montarQueryTours(buscaAtual, sistemaAtual, statusAtual, passosAtual, pagina, sortAtual)}`)
+    get<TourGuiadoListaPaginada>(`/tours${montarQueryTours(buscaAtual, sistemaAtual, passosAtual, pagina, sortAtual)}`)
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(busca, '', STATUS_FILTRO_PADRAO, 1, null, 'todos') }, [])
+  useEffect(() => { load(busca, '', 1, null, 'todos') }, [])
 
-  // Debounce só da busca — status/sistema mudam por clique único (sem
+  // Debounce só da busca — sistema/passos mudam por clique único (sem
   // motivo pra atrasar) e já chamam load() direto nos próprios handlers.
   useEffect(() => {
     if (primeiraRenderRef.current) { primeiraRenderRef.current = false; return }
-    const t = window.setTimeout(() => load(busca, filterSistema, filterAtivo, 1), BUSCA_DEBOUNCE_MS)
+    const t = window.setTimeout(() => load(busca, filterSistema, 1), BUSCA_DEBOUNCE_MS)
     return () => window.clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busca])
@@ -253,27 +241,25 @@ export function ToursIndex() {
   const clearFilters = () => {
     setBusca('')
     setFilterSistema('')
-    setFilterAtivo(STATUS_FILTRO_PADRAO)
     setFilterPassos('todos')
-    load('', '', STATUS_FILTRO_PADRAO, 1, sort, 'todos')
+    load('', '', 1, sort, 'todos')
   }
-  const totalFiltrosAtivos = [Boolean(filterSistema), filterAtivo !== STATUS_FILTRO_PADRAO, filterPassos !== 'todos'].filter(Boolean).length
+  const totalFiltrosAtivos = [Boolean(filterSistema), filterPassos !== 'todos'].filter(Boolean).length
   const hasFilters = Boolean(busca || totalFiltrosAtivos > 0)
   const totalColunasSelecionadas = TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).length
 
-  const mudarSistema = (v: string) => { setFilterSistema(v); load(busca, v, filterAtivo, 1) }
-  const mudarStatus = (v: StatusFiltro) => { setFilterAtivo(v); load(busca, filterSistema, v, 1) }
-  const mudarPagina = (p: number) => load(busca, filterSistema, filterAtivo, p)
-  const limparBusca = () => { setBusca(''); setBuscaAberta(false); load('', filterSistema, filterAtivo, 1) }
+  const mudarSistema = (v: string) => { setFilterSistema(v); load(busca, v, 1) }
+  const mudarPagina = (p: number) => load(busca, filterSistema, p)
+  const limparBusca = () => { setBusca(''); setBuscaAberta(false); load('', filterSistema, 1) }
   const alternarColuna = (key: ColumnKey) => {
     if (key === 'tour') return
     setColunasVisiveis(prev => ({ ...prev, [key]: !prev[key] }))
   }
-  const mudarPassos = (v: FiltroPassos) => { setFilterPassos(v); load(busca, filterSistema, filterAtivo, 1, sort, v) }
+  const mudarPassos = (v: FiltroPassos) => { setFilterPassos(v); load(busca, filterSistema, 1, sort, v) }
   const ordenarPor = (key: SortKey) => {
     const next = sort?.key === key ? { key, direction: sort.direction === 'asc' ? 'desc' as const : 'asc' as const } : { key, direction: 'asc' as const }
     setSort(next)
-    load(busca, filterSistema, filterAtivo, 1, next)
+    load(busca, filterSistema, 1, next)
   }
 
   const duplicarTour = async (tour: TourGuiado) => {
@@ -302,7 +288,7 @@ export function ToursIndex() {
       setTourRemover(null)
       // Recarrega a página atual — remover muda o total/paginação (não dá pra
       // só tirar o item da lista local sem também reconferir total/resumo).
-      load(busca, filterSistema, filterAtivo, paginaAtual)
+      load(busca, filterSistema, paginaAtual)
     } catch (e) {
       setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível remover o tour. Tente novamente.' })
     } finally {
@@ -326,7 +312,7 @@ export function ToursIndex() {
   const tourImportado = (tour: TourGuiado) => {
     setModalImportarAberto(false)
     setImportarViaGravador(false)
-    setMensagem({ tipo: 'sucesso', texto: 'Tour importado como rascunho.' })
+    setMensagem({ tipo: 'sucesso', texto: 'Tour importado com sucesso.' })
     // Mostra o feedback antes de sair da listagem, para não perdê-lo no redirecionamento.
     redirectTimer.current = window.setTimeout(() => navigate(`/tours/${tour.id}/editar`), 900)
   }
@@ -340,7 +326,7 @@ export function ToursIndex() {
   if (error && !data) {
     return (
       <div className="px-4 lg:px-margin-desktop py-5">
-        <ErrorState message={error} onRetry={() => load(busca, filterSistema, filterAtivo, 1)} />
+        <ErrorState message={error} onRetry={() => load(busca, filterSistema, 1)} />
       </div>
     )
   }
@@ -408,7 +394,7 @@ export function ToursIndex() {
                     onClick={() => {
                       // Fase 6E — trial no limite: nem navega pro formulário,
                       // só avisa (mesma mensagem do backend). Continua
-                      // permitido editar/desativar/excluir tours existentes.
+                      // permitido editar/excluir tours existentes.
                       if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
                       navigate('/tours/novo')
                     }}
@@ -424,10 +410,8 @@ export function ToursIndex() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 p-5 border-b border-outline-variant/30 bg-surface-container-low/30">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-5 border-b border-outline-variant/30 bg-surface-container-low/30">
             <MetricCard label="Total de tours" value={resumo.total.toLocaleString('pt-BR')} icon="map" />
-            <MetricCard label="Tours ativos" value={resumo.ativos.toLocaleString('pt-BR')} icon="play_circle" />
-            <MetricCard label="Tours inativos" value={resumo.inativos.toLocaleString('pt-BR')} icon="pause_circle" />
             <MetricCard label="Total de passos" value={resumo.total_passos.toLocaleString('pt-BR')} icon="format_list_numbered" />
           </div>
 
@@ -528,7 +512,6 @@ export function ToursIndex() {
                       {totalFiltrosAtivos > 0 && <button type="button" onClick={clearFilters} className="text-label-md font-bold text-primary hover:underline">Limpar</button>}
                     </div>
                     <div className="grid grid-cols-1 gap-3 p-4">
-                      <FilterSelect label="Status" value={filterAtivo} options={STATUS_FILTRO} onChange={value => mudarStatus(value as StatusFiltro)} />
                       <FilterSelect
                         label="Sistema"
                         value={filterSistema}
@@ -554,11 +537,8 @@ export function ToursIndex() {
 
           {hasFilters && (
             <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-low/30">
-              {busca && <FilterChip label={busca} onRemove={() => { setBusca(''); load('', filterSistema, filterAtivo, 1) }} />}
+              {busca && <FilterChip label={busca} onRemove={() => { setBusca(''); load('', filterSistema, 1) }} />}
               {filterSistema && <FilterChip label={filterSistema} onRemove={() => mudarSistema('')} />}
-              {filterAtivo !== STATUS_FILTRO_PADRAO && (
-                <FilterChip label={filterAtivo === 'ativos' ? 'Ativos' : 'Inativos'} onRemove={() => mudarStatus(STATUS_FILTRO_PADRAO)} />
-              )}
               {filterPassos !== 'todos' && (
                 <FilterChip label={filterPassos === 'com' ? 'Com passos' : 'Sem passos'} onRemove={() => mudarPassos('todos')} />
               )}
@@ -605,7 +585,7 @@ export function ToursIndex() {
                     <tr className="bg-surface-container-low/50 border-b border-outline-variant/40">
                       {TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).map(col => {
                         const active = sort?.key === col.sortKey
-                        const align = col.key === 'acoes' ? ' text-right' : col.key === 'status' || col.key === 'passos' ? ' text-center' : ''
+                        const align = col.key === 'acoes' ? ' text-right' : col.key === 'passos' ? ' text-center' : ''
                         return (
                           <th key={col.key} className={`px-4 py-3 text-[11px] text-on-surface-variant font-bold uppercase tracking-wide whitespace-nowrap${align}`}>
                             {col.sortKey ? (
@@ -623,7 +603,7 @@ export function ToursIndex() {
                   </thead>
                   <tbody className="divide-y divide-outline-variant/20">
                     {items.map(tour => (
-                      <tr key={tour.id} className={`group transition-colors ${!tour.ativo ? 'opacity-60' : ''} hover:bg-surface-container-low/60`}>
+                      <tr key={tour.id} className="group transition-colors hover:bg-surface-container-low/60">
                         {colunasVisiveis.tour && <td className="px-4 py-4 align-middle max-w-[360px]">
                           {podeEscrever ? (
                             <button
@@ -640,11 +620,6 @@ export function ToursIndex() {
                           )}
                         </td>}
                         {colunasVisiveis.sistema && <td className="px-4 py-4 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{tour.sistema}</td>}
-                        {colunasVisiveis.status && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-2.5">
-                            <StatusBadge ativo={tour.ativo} />
-                          </div>
-                        </td>}
                         {colunasVisiveis.passos && <td className="px-4 py-4 align-middle text-body-md font-bold text-center text-on-surface whitespace-nowrap">
                           {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
                         </td>}
@@ -674,7 +649,7 @@ export function ToursIndex() {
               {/* Abaixo de xl (mobile, tablet e telas menores com sidebar aberta): cards */}
               <div className="xl:hidden divide-y divide-outline-variant/20">
                 {items.map(tour => (
-                  <div key={tour.id} className={`p-4 ${!tour.ativo ? 'opacity-60' : ''}`}>
+                  <div key={tour.id} className="p-4">
                     <div className="flex items-start justify-between gap-3 mb-1.5">
                       {podeEscrever ? (
                         <button
@@ -691,9 +666,6 @@ export function ToursIndex() {
                       <p className="text-label-sm text-on-surface-variant truncate mb-2">{tour.descricao}</p>
                     )}
                     <div className="flex flex-wrap items-center gap-2 mb-3">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge ativo={tour.ativo} />
-                      </div>
                       <span className="text-label-sm text-on-surface-variant">{tour.sistema}</span>
                       <span className="text-label-sm text-on-surface-variant">
                         · {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
@@ -748,15 +720,6 @@ export function ToursIndex() {
         />
       )}
     </div>
-  )
-}
-
-function StatusBadge({ ativo }: { ativo: boolean }) {
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${ativo ? 'text-tertiary' : 'text-error'}`}>
-      <span className={`h-2 w-2 rounded-full ${ativo ? 'bg-tertiary' : 'bg-error'}`} />
-      {ativo ? 'Ativo' : 'Inativo'}
-    </span>
   )
 }
 
@@ -944,8 +907,7 @@ function ImportarTourModal({ onClose, onImported, avisoColar = false }: {
             </div>
           )}
           <p className="text-label-md text-on-surface-variant">
-            Cole o JSON exportado de outro tour. O tour será criado como rascunho — id, slug e status de ativação do
-            JSON são ignorados.
+            Cole o JSON exportado de outro tour. O tour será criado com novo id e slug; a disponibilidade é definida quando ele for usado em uma jornada.
           </p>
           <textarea
             ref={textareaRef}

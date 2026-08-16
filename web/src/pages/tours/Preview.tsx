@@ -4,7 +4,7 @@ import { get } from '../../services/api'
 import type { TourExportEnvelope, TourGuiado } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
-import { comandoIniciarTour, comandoTestarSeletor, downloadJson, testEmbedUrl } from '../../utils/tour'
+import { comandoTestarSeletor, downloadJson, testEmbedUrl } from '../../utils/tour'
 
 const card = 'w-full bg-surface rounded-3xl border border-outline-variant overflow-hidden mb-5'
 const codeChip = 'bg-surface-container px-1 py-0.5 rounded text-[12px] font-mono'
@@ -15,7 +15,6 @@ export function TourPreview() {
   const [tour, setTour] = useState<TourGuiado | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const [exportando, setExportando] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
@@ -40,14 +39,7 @@ export function TourPreview() {
     )
   }
 
-  const comando = comandoIniciarTour(tour)
   const embedUrl = testEmbedUrl(tour)
-
-  const copiarComando = () => {
-    navigator.clipboard.writeText(comando).catch(() => {})
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
 
   const exportarJson = async () => {
     setExportando(true)
@@ -101,44 +93,17 @@ export function TourPreview() {
         </div>
       )}
 
-      {!tour.ativo && (
-        <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">
-          <span className="material-symbols-outlined text-[18px]">warning</span>
-          Este tour está inativo — a autoabertura não dispara, mas <code className={codeChip}>iniciarTour</code> manual continua funcionando para teste.
-        </div>
-      )}
-
-      {/* Slug + comando de teste */}
+      {/* Slug + uso */}
       <div className={card}>
         <div className="px-5 py-4 border-b border-outline-variant/30">
           <h3 className="text-title-lg font-bold text-on-surface">Slug do tour</h3>
-          <p className="text-label-md text-outline mt-0.5">Identificador usado para iniciar o tour manualmente no widget.</p>
+          <p className="text-label-md text-outline mt-0.5">Identificador interno. O tour agora é iniciado somente por uma etapa de jornada.</p>
         </div>
         <div className="px-5 py-4">
           <code className="inline-block px-3 py-2 bg-surface-container rounded-lg text-body-md font-mono text-on-surface">{tour.slug}</code>
         </div>
-
-        <div className="flex items-center justify-between px-5 py-4 border-t border-outline-variant/30">
-          <div className="flex items-center gap-3">
-            <span className="material-symbols-outlined text-on-surface-variant">terminal</span>
-            <h3 className="text-title-lg font-bold text-on-surface">Comando de teste</h3>
-          </div>
-          <button
-            onClick={copiarComando}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-label-md font-bold transition-all ${
-              copied ? 'bg-tertiary/10 text-tertiary' : 'border border-outline-variant text-on-surface-variant hover:bg-surface-container-high'
-            }`}
-          >
-            <span className="material-symbols-outlined text-[18px]">{copied ? 'check' : 'content_copy'}</span>
-            {copied ? 'Copiado!' : 'Copiar comando'}
-          </button>
-        </div>
-        <div className="bg-inverse-surface p-5 overflow-x-auto">
-          <pre className="text-inverse-on-surface font-mono text-[13px] leading-relaxed whitespace-pre">{comando}</pre>
-        </div>
         <p className="px-5 py-3 text-label-md text-outline border-t border-outline-variant/30">
-          Cole no console do navegador (com o widget já carregado) ou chame a partir de um botão do sistema hospedeiro.
-          Funciona mesmo se o tour já tiver sido concluído ou pulado pelo usuário.
+          Para disponibilizar este tour, adicione uma etapa do tipo <strong>Tour guiado</strong> em uma jornada ativa.
         </p>
       </div>
 
@@ -157,11 +122,8 @@ export function TourPreview() {
             Abra <code className={codeChip}>test-embed.html</code> com <code className={codeChip}>?local=1</code> na URL para
             apontar para o widget local, ou clique em "Abrir test-embed" abaixo.
           </li>
-          <li>Rode o comando de teste acima no console do navegador para iniciar o tour manualmente.</li>
-          <li>
-            Se o modo de identificação do tour (Tela informada pelo sistema, data-cy ou URL contém) corresponder à página e o
-            tour estiver ativo, ele também pode autoabrir ao carregar.
-          </li>
+          <li>Use a jornada que contém este tour para validar a experiência do usuário final.</li>
+          <li>O tour não autoabre por tela nem pode ser disparado manualmente pelo host.</li>
         </ol>
         <div className="px-5 py-4 border-t border-outline-variant/30">
           <a

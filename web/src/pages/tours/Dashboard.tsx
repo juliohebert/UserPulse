@@ -189,10 +189,6 @@ export function TourDashboard() {
           <p className="text-body-md text-on-surface-variant mt-0.5">
             {tour.sistema}
             {tour.tela ? ` · ${tour.tela}` : ''}
-            {' — '}
-            <span className={tour.ativo ? 'text-tertiary font-semibold' : 'text-outline font-semibold'}>
-              {tour.ativo ? 'Ativo' : 'Inativo'}
-            </span>
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
