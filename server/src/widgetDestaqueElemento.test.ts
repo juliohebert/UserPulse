@@ -118,7 +118,11 @@ let markShown: MarkShown
 // Último root fake criado por document.createElement (ver criarFakeRootDestaque
 // abaixo) — só pra inspecionar root.style.top/left aplicados de verdade após
 // destaqueElementoMontar/estabilização, sem expor destaqueElementoState.
-let ultimoRootDestaque: { style: Record<string, string>; contains: (node: unknown) => boolean } | null = null
+let ultimoRootDestaque: {
+  style: Record<string, string>
+  contains: (node: unknown) => boolean
+  querySelector?: (seletor: string) => unknown
+} | null = null
 // Acumula TODOS os roots já criados (nunca é resetado sozinho) — testes de
 // múltiplos destaques usam .length (delta antes/depois da própria ação) pra
 // confirmar quantas instâncias foram montadas de verdade.
@@ -208,9 +212,17 @@ before(() => {
   function criarFakeRootDestaque() {
     const listeners: Record<string, Array<(event: unknown) => void>> = {}
     let html = ''
-    const badgeEl = { offsetWidth: 160, offsetHeight: 24, getBoundingClientRect: () => ({ top: 50, left: 200, right: 360, bottom: 74, width: 160, height: 24 }) }
-    const tooltipEl = { offsetWidth: 260, offsetHeight: 150, style: {} as Record<string, string>, getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom: 0, width: 260, height: 150 }) }
-    const beaconEl = { style: {} as Record<string, string> }
+    let geracao = 0
+    let badgeEl!: { geracao: number; offsetWidth: number; offsetHeight: number; getBoundingClientRect: () => Retangulo }
+    let tooltipEl!: { geracao: number; offsetWidth: number; offsetHeight: number; style: Record<string, string>; getBoundingClientRect: () => Retangulo }
+    let beaconEl!: { geracao: number; style: Record<string, string> }
+    function recriarFilhos() {
+      geracao++
+      badgeEl = { geracao, offsetWidth: 160, offsetHeight: 24, getBoundingClientRect: () => retangulo(50, 200, 160, 24) }
+      tooltipEl = { geracao, offsetWidth: 260, offsetHeight: 150, style: {}, getBoundingClientRect: () => retangulo(0, 0, 260, 150) }
+      beaconEl = { geracao, style: {} }
+    }
+    recriarFilhos()
     const root = {
       className: '',
       style: {} as Record<string, string>,
@@ -224,7 +236,7 @@ before(() => {
       removeEventListener() {},
       listeners,
       get innerHTML() { return html },
-      set innerHTML(v: string) { html = v },
+      set innerHTML(v: string) { html = v; recriarFilhos() },
       querySelector(seletor: string) {
         if (seletor === '.up-destaque-badge') return badgeEl
         if (seletor === '.up-destaque-beacon') return html.indexOf('up-destaque-beacon') !== -1 ? beaconEl : null
@@ -2016,6 +2028,76 @@ describe('destaqueElementoAlvoRealmenteVisivel / destaqueElementoPontoRepresenta
 // ver before() acima) e sempre restaurado no finally, pro resto da suíte
 // continuar cobrindo o caso "navegador sem suporte" sem interferência.
 describe('destaqueElementoReposicionar oculta/restaura o destaque quando o alvo é encoberto por overlay (integrado ao MutationObserver existente)', () => {
+  test('clique abre/fecha imediatamente: filhos recriados são excluídos do hit-test sem mutation externa nem ciclo de ocultação', () => {
+    const alvo = { tagName: 'BUTTON', getBoundingClientRect: () => retangulo(220, 460, 180, 48) }
+    const campanha: Campanha = { id: 'destaque-abertura-imediata', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-abertura-imediata' }
+    destaqueElementoMontar(campanha, config, alvo)
+    const root = ultimoRootDestaque!
+    const containsOriginal = root.contains.bind(root)
+    let filhoVistoNoHitTest: unknown = null
+    let geracaoAnterior = 0
+    let mutationsExternas = 0
+    const observer = ultimoMutationObserverDestaque!
+    const cbOriginal = observer.cb
+    observer.cb = (records) => { mutationsExternas++; cbOriginal(records) }
+
+    // Reproduz o estado intermediário observado no ambiente real: sem tirar
+    // a root da medição, a pilha pode devolver o tooltip recém-recriado antes
+    // de contains reconhecê-lo como filho atual. Com pointer-events:none a
+    // própria instância não participa da pilha e o alvo fica no topo.
+    root.contains = (node: unknown) => node === filhoVistoNoHitTest ? false : containsOriginal(node)
+    sandboxCompartilhado!.document.elementsFromPoint = () => {
+      if (root.style.pointerEvents === 'none') return [alvo]
+      filhoVistoNoHitTest = root.querySelector!('.up-destaque-tooltip')
+      return filhoVistoNoHitTest ? [filhoVistoNoHitTest, alvo] : [alvo]
+    }
+    const listener = destaqueElementoGetTestClickListener(0)!
+    const antesTracking = chamadasRastreamento.length
+    try {
+      for (let i = 0; i < 4; i++) {
+        listener({ target: elementoClique('data-up-destaque-toggle') })
+        const aberto = i % 2 === 0
+        assert.equal(destaqueElementoGetTestAberto(0), aberto, 'o estado abre/fecha no próprio clique')
+        assert.equal(destaqueElementoGetTestOculto(0), false, 'toggle nunca alterna oculto')
+        assert.notEqual(root.style.display, 'none', 'a root nunca some durante o toggle')
+        const filhoAtual = aberto ? root.querySelector!('.up-destaque-tooltip') as { geracao: number } : root.querySelector!('.up-destaque-badge') as { geracao: number }
+        assert.ok(filhoAtual.geracao > geracaoAnterior, 'innerHTML recriou os filhos e a nova geração continuou ignorada')
+        geracaoAnterior = filhoAtual.geracao
+      }
+    } finally {
+      root.contains = containsOriginal
+      observer.cb = cbOriginal
+      delete sandboxCompartilhado!.document.elementsFromPoint
+    }
+    assert.equal(mutationsExternas, 0, 'nenhuma mutation externa foi necessária para o tooltip aparecer')
+    const novosEventos = chamadasRastreamento.slice(antesTracking)
+    assert.equal(novosEventos.length, 4, 'cada clique registra somente sua interação prevista')
+    assert.ok(novosEventos.every(evento => evento.body.tipo_evento === 'interacao_badge'))
+  })
+
+  test('geometrias diferentes abrem imediatamente com a mesma regra de hit-test', () => {
+    const geometrias = [retangulo(12, 16, 72, 28), retangulo(640, 980, 260, 64)]
+    for (let i = 0; i < geometrias.length; i++) {
+      const alvo = { tagName: 'BUTTON', getBoundingClientRect: () => geometrias[i] }
+      const campanha: Campanha = { id: 'destaque-layout-' + i, modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+      const config: ConfigWidget = { sistema: 'sis', tela: 'tela-layout-' + i }
+      destaqueElementoMontar(campanha, config, alvo)
+      const root = ultimoRootDestaque!
+      sandboxCompartilhado!.document.elementsFromPoint = () => root.style.pointerEvents === 'none'
+        ? [alvo]
+        : [root.querySelector!('.up-destaque-tooltip'), alvo]
+      try {
+        destaqueElementoGetTestClickListener(0)!({ target: elementoClique('data-up-destaque-toggle') })
+      } finally {
+        delete sandboxCompartilhado!.document.elementsFromPoint
+      }
+      assert.equal(destaqueElementoGetTestAberto(0), true)
+      assert.equal(destaqueElementoGetTestOculto(0), false)
+      assert.notEqual(root.style.display, 'none')
+    }
+  })
+
   test('elementsFromPoint testa centro e quatro cantos: drawer cobrindo todos oculta o root inteiro e não consome', () => {
     const alvo = { tagName: 'BUTTON', getBoundingClientRect: () => retangulo(134, 500, 140, 40) }
     const campanha: Campanha = { id: 'destaque-hit-stack-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
