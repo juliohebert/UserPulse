@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, getBlob } from '../../services/api'
-import type { DashboardData, EventoCampanha, Feedback } from '../../types'
+import type { AvaliacaoDestaqueItem, DashboardData, EventoCampanha, Feedback } from '../../types'
 import { formatDateTime, getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
+import { blocosDashboardVisiveis, type IndicadorResumoDef } from './dashboardBlocos'
 
 // ─── filter types ─────────────────────────────────────────────────────────────
 
@@ -84,6 +85,16 @@ const TOOLTIP_DESEMPENHO_DESTAQUES = [
   'Interações: cliques no badge para abrir ou fechar os detalhes da novidade.',
   'Cliques CTA: cliques no botão de ação configurado no destaque.',
   'Dispensaram: usuários que fecharam o destaque explicitamente.',
+  'Avaliações: quantidade de respostas atuais de utilidade do destaque.',
+  'Sim e Não: quantas dessas respostas disseram que a melhoria foi útil.',
+  '% útil: percentual de respostas Sim em relação ao total de avaliações.',
+].join('\n')
+
+// ─── ajuda contextual — "Avaliações dos destaques" ──────────────────────────
+const TOOLTIP_AVALIACOES_DESTAQUES = [
+  'Lista as respostas de "Essa melhoria foi útil?" de cada destaque.',
+  'Sim ou Não é a avaliação do usuário; o comentário é opcional.',
+  'Independente do feedback geral da campanha (NPS ou CSAT).',
 ].join('\n')
 
 // ─── period filter ─────────────────────────────────────────────────────────────
@@ -205,7 +216,7 @@ export function CampanhaDashboard() {
   const [showFiltrosAvancados, setShowFiltrosAvancados] = useState(false)
   const [filtroEvento, setFiltroEvento] = useState<'Todos' | 'Visualização' | 'Clique' | 'Interação' | 'Dispensa'>('Todos')
   const [buscaEvento, setBuscaEvento] = useState('')
-  // Só usado/exibido pra campanhas destaque_elemento (ver ehDestaqueElemento
+  // Só usado/exibido pra campanhas destaque_elemento (ver blocos.filtroDestaque
   // abaixo) — '' significa "todos os destaques".
   const [filtroDestaque, setFiltroDestaque] = useState('')
   const [periodo, setPeriodo] = useState<Periodo>(PERIODO_INICIAL)
@@ -217,6 +228,14 @@ export function CampanhaDashboard() {
   // paginação interações
   const [pagInter, setPagInter] = useState(1)
   const [tamPagInter, setTamPagInter] = useState(10)
+  // Filtros/paginação da seção "Avaliações dos destaques" — independentes
+  // dos filtros de Interações acima (seções diferentes, cada uma com seu
+  // próprio estado), só usados/exibidos pra campanhas destaque_elemento.
+  const [filtroDestaqueAvaliacao, setFiltroDestaqueAvaliacao] = useState('')
+  const [filtroUtilAvaliacao, setFiltroUtilAvaliacao] = useState<'Todos' | 'Sim' | 'Não'>('Todos')
+  const [buscaAvaliacao, setBuscaAvaliacao] = useState('')
+  const [pagAvaliacao, setPagAvaliacao] = useState(1)
+  const [tamPagAvaliacao, setTamPagAvaliacao] = useState(10)
   const colMenuRef = useRef<HTMLDivElement>(null)
   const colMenuPopoverRef = useRef<HTMLDivElement>(null)
 
@@ -263,6 +282,9 @@ export function CampanhaDashboard() {
 
   // reset interações page when filters change
   useEffect(() => { setPagInter(1) }, [filtroEvento, filtroDestaque, buscaEvento, periodo])
+
+  // reset avaliações dos destaques page when filters change
+  useEffect(() => { setPagAvaliacao(1) }, [filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao, periodo])
 
   const toggleCol = (colId: string) => {
     setVisibleCols(prev => {
@@ -393,13 +415,59 @@ export function CampanhaDashboard() {
 
   const temFiltroEvento = filtroEvento !== 'Todos' || filtroDestaque !== '' || buscaEvento !== ''
 
-  const ehDestaqueElemento = data?.campanha.modo_exibicao === 'destaque_elemento'
+  const blocos = blocosDashboardVisiveis(data?.campanha.modo_exibicao ?? '')
   const desempenhoDestaques = data?.desempenho_destaques ?? []
   const destaqueTituloPorId = useMemo(() => {
     const mapa = new Map<string, string>()
     for (const item of desempenhoDestaques) mapa.set(item.destaque_item_id, item.titulo)
     return mapa
   }, [desempenhoDestaques])
+  // Só pra sinalizar "Removido" na seção "Avaliações dos destaques" — a
+  // tabela de Interações já resolve título pelo mesmo destaqueTituloPorId
+  // sem esse selo, comportamento dela preservado como estava.
+  const destaqueAtivoPorId = useMemo(() => {
+    const mapa = new Map<string, boolean>()
+    for (const item of desempenhoDestaques) mapa.set(item.destaque_item_id, item.ativo)
+    return mapa
+  }, [desempenhoDestaques])
+
+  // ── Avaliações dos destaques (utilidade_destaque) — só destaque_elemento ──
+  const avaliacoesDestaques = data?.avaliacoes_destaques ?? []
+
+  const avaliacoesPeriodo = useMemo(() => {
+    const { inicio, fim } = periodoRangeValue
+    if (!inicio && !fim) return avaliacoesDestaques
+    return avaliacoesDestaques.filter(a => inPeriodo(a.criado_em, inicio, fim))
+  }, [avaliacoesDestaques, periodoRangeValue])
+
+  const avaliacoesFiltradas = useMemo(() => {
+    let list = avaliacoesPeriodo
+    if (filtroDestaqueAvaliacao) {
+      list = list.filter(a => a.destaque_item_id === filtroDestaqueAvaliacao)
+    }
+    if (filtroUtilAvaliacao !== 'Todos') {
+      const alvo = filtroUtilAvaliacao === 'Sim'
+      list = list.filter(a => a.util === alvo)
+    }
+    if (buscaAvaliacao.trim()) {
+      const q = buscaAvaliacao.toLowerCase()
+      list = list.filter(a => {
+        const c = (a.contexto ?? {}) as Record<string, string>
+        return [
+          a.usuario_id, a.usuario_nome, a.usuario_email, c.usuario_nome, c.usuario_email, a.observacao,
+        ].filter(Boolean).join(' ').toLowerCase().includes(q)
+      })
+    }
+    return list
+  }, [avaliacoesPeriodo, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
+
+  const avaliacoesPaginadas = useMemo(() => {
+    const start = (pagAvaliacao - 1) * tamPagAvaliacao
+    return avaliacoesFiltradas.slice(start, start + tamPagAvaliacao)
+  }, [avaliacoesFiltradas, pagAvaliacao, tamPagAvaliacao])
+  const totalPagAvaliacao = Math.ceil(avaliacoesFiltradas.length / tamPagAvaliacao)
+
+  const temFiltroAvaliacao = filtroDestaqueAvaliacao !== '' || filtroUtilAvaliacao !== 'Todos' || buscaAvaliacao !== ''
 
   // ── KPI metrics — período-aware ──────────────────────────────────────────
   const kpiVisualizacoes = periodoAtivo
@@ -429,6 +497,42 @@ export function CampanhaDashboard() {
     : (data?.respondentes_unicos ?? 0)
   // total real de interações no período (visualizações + cliques, contagens completas do backend)
   const totalEventosPeriodo = kpiVisualizacoes + kpiCliques
+
+  // ── KPIs específicos de destaque_elemento — reaproveitam dados já
+  // implementados (eventosPeriodo, desempenhoDestaques, avaliacoesPeriodo),
+  // nenhum cálculo novo além de somar/filtrar o que já existe. Mesmo padrão
+  // período-ativo/total-do-backend das métricas acima: com período ativo,
+  // filtra a lista já carregada; sem período, usa os totais exatos que já
+  // vêm prontos em desempenho_destaques (nunca capados em 100 como
+  // eventos_recentes).
+  const kpiInteracoes = periodoAtivo
+    ? eventosPeriodo.filter(e => e.tipo_evento === 'interacao_badge').length
+    : desempenhoDestaques.reduce((s, i) => s + i.interacoes, 0)
+  const kpiTaxaInteracao = kpiVisualizacoes > 0 ? Math.round((kpiInteracoes / kpiVisualizacoes) * 1000) / 10 : 0
+  const kpiDispensas = periodoAtivo
+    ? eventosPeriodo.filter(e => e.tipo_evento === 'dispensa').length
+    : desempenhoDestaques.reduce((s, i) => s + i.dispensas, 0)
+  const kpiAvaliacoesTotal = periodoAtivo
+    ? avaliacoesPeriodo.length
+    : desempenhoDestaques.reduce((s, i) => s + i.avaliacoes, 0)
+  const kpiSimTotal = periodoAtivo
+    ? avaliacoesPeriodo.filter(a => a.util === true).length
+    : desempenhoDestaques.reduce((s, i) => s + i.sim, 0)
+  const kpiPercentualUtil = kpiAvaliacoesTotal > 0 ? Math.round((kpiSimTotal / kpiAvaliacoesTotal) * 1000) / 10 : null
+
+  // Valores dos chips-resumo da seção Interações — QUAIS chips aparecem
+  // (e com que rótulo) vem de blocos.indicadoresInteracoes (dashboardBlocos.ts);
+  // aqui só existe o mapeamento key -> valor já calculado acima, sem
+  // condicional de modo_exibicao nenhuma.
+  const valoresIndicadoresInteracoes: Record<IndicadorResumoDef['key'], string> = {
+    visualizacoes: kpiVisualizacoes.toLocaleString('pt-BR'),
+    usuariosUnicos: kpiVisualizacoesUnicas.toLocaleString('pt-BR'),
+    interacoes: kpiInteracoes.toLocaleString('pt-BR'),
+    cliquesCta: kpiCliques.toLocaleString('pt-BR'),
+    clicadoresUnicos: kpiCliquesUnicos.toLocaleString('pt-BR'),
+    dispensas: kpiDispensas.toLocaleString('pt-BR'),
+    taxaClique: `${kpiTaxaClique.toLocaleString('pt-BR')}%`,
+  }
 
   const activeCols = COLUNAS.filter(c => visibleCols.has(c.id))
   const maxDist = Math.max(1, ...Object.values(kpiDistribuicao))
@@ -605,67 +709,104 @@ export function CampanhaDashboard() {
           </div>
 
           {/* ── Cards de métricas principais ──────────────────────────────── */}
-          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
-            <KpiCard
-              icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
-              label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
-              sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
-              subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram a campanha no período selecionado."
-            />
-            <KpiCard
-              icon="forum" iconColor="text-secondary" iconBg="bg-secondary/10"
-              label="Respostas" value={kpiTotal.toLocaleString('pt-BR')}
-              sub={
-                temRespondentes && kpiVisualizacoesUnicas > 0
-                  ? `${kpiRespondentesUnicos.toLocaleString('pt-BR')} de ${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários responderam`
-                  : mediaRespostasPorUsuario !== null
-                  ? `Média: ${mediaRespostasPorUsuario.toLocaleString('pt-BR')} respostas/usuário`
-                  : 'sem dados de usuário'
-              }
-              subTooltip={
-                temRespondentes
-                  ? "Taxa de resposta = usuários que responderam ÷ usuários únicos que visualizaram a campanha. O cálculo respeita o período selecionado."
-                  : "Média de respostas por usuário único que visualizou a campanha (sem usuários respondentes identificados para calcular uma taxa). O cálculo respeita o período selecionado."
-              }
-            />
-            <KpiCard
-              icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
-              label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
-              sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
-              subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais da campanha (não por usuários únicos). O cálculo respeita o período selecionado."
-            />
-            {kpiTotal > 0 ? (() => {
-              const zona = npsZona(npsScore)
-              return (
+          {/* destaque_elemento é contextual: feedback geral (Respostas/Nota
+              Média/NPS) não existe pra esse formato — os 4 cards trocam pra
+              métricas que fazem sentido pra destaque em elemento, reaproveitando
+              os mesmos dados já calculados acima (kpiInteracoes/kpiAvaliacoesTotal/
+              kpiPercentualUtil). Os cards de NPS continuam no código, intocados,
+              pra qualquer outro tipo de campanha (ver bloco `: (` abaixo). */}
+          {blocos.kpiDestaque ? (
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
+              <KpiCard
+                icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
+                label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
+                sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
+                subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram os destaques no período selecionado."
+              />
+              <KpiCard
+                icon="touch_app" iconColor="text-secondary" iconBg="bg-secondary/10"
+                label="Interações" value={kpiInteracoes.toLocaleString('pt-BR')}
+                sub={`${kpiTaxaInteracao.toLocaleString('pt-BR')}% das visualizações`}
+                subTooltip="Interações = cliques no badge para abrir ou fechar os detalhes de um destaque. Taxa = interações ÷ visualizações totais. O cálculo respeita o período selecionado."
+              />
+              <KpiCard
+                icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
+                label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
+                sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
+                subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais dos destaques (não por usuários únicos). O cálculo respeita o período selecionado."
+              />
+              <KpiCard
+                icon="thumbs_up_down" iconColor="text-primary" iconBg="bg-primary/10"
+                label="Avaliações" value={kpiAvaliacoesTotal.toLocaleString('pt-BR')}
+                sub={kpiPercentualUtil === null ? 'sem avaliações ainda' : `${kpiPercentualUtil.toLocaleString('pt-BR')}% útil`}
+                subTooltip="Avaliações = respostas de utilidade ('Essa melhoria foi útil?') recebidas nos destaques. % útil = respostas Sim ÷ total de avaliações. O cálculo respeita o período selecionado."
+              />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
+              <KpiCard
+                icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
+                label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
+                sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
+                subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram a campanha no período selecionado."
+              />
+              <KpiCard
+                icon="forum" iconColor="text-secondary" iconBg="bg-secondary/10"
+                label="Respostas" value={kpiTotal.toLocaleString('pt-BR')}
+                sub={
+                  temRespondentes && kpiVisualizacoesUnicas > 0
+                    ? `${kpiRespondentesUnicos.toLocaleString('pt-BR')} de ${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários responderam`
+                    : mediaRespostasPorUsuario !== null
+                    ? `Média: ${mediaRespostasPorUsuario.toLocaleString('pt-BR')} respostas/usuário`
+                    : 'sem dados de usuário'
+                }
+                subTooltip={
+                  temRespondentes
+                    ? "Taxa de resposta = usuários que responderam ÷ usuários únicos que visualizaram a campanha. O cálculo respeita o período selecionado."
+                    : "Média de respostas por usuário único que visualizou a campanha (sem usuários respondentes identificados para calcular uma taxa). O cálculo respeita o período selecionado."
+                }
+              />
+              <KpiCard
+                icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
+                label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
+                sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
+                subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais da campanha (não por usuários únicos). O cálculo respeita o período selecionado."
+              />
+              {kpiTotal > 0 ? (() => {
+                const zona = npsZona(npsScore)
+                return (
+                  <KpiCard
+                    icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
+                    label="Nota Média" value={kpiMedia !== null ? kpiMedia.toFixed(1) : '—'}
+                    sub={`NPS: ${npsScore > 0 ? '+' : ''}${npsScore}`}
+                    tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
+                    subTooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
+                    subExtra={
+                      <div className="flex flex-col gap-1">
+                        <span className={`inline-flex w-fit text-[11px] font-semibold px-2 py-0.5 rounded-full border ${zona.bg} ${zona.text} ${zona.border}`}>
+                          {zona.nome}
+                        </span>
+                        <span className="text-[11px] text-outline">
+                          {pctProm}% promotores − {pctDetr}% detratores
+                        </span>
+                      </div>
+                    }
+                  />
+                )
+              })() : (
                 <KpiCard
                   icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
-                  label="Nota Média" value={kpiMedia !== null ? kpiMedia.toFixed(1) : '—'}
-                  sub={`NPS: ${npsScore > 0 ? '+' : ''}${npsScore}`}
+                  label="Nota Média" value="—"
+                  sub="sem respostas ainda"
                   tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
-                  subTooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
-                  subExtra={
-                    <div className="flex flex-col gap-1">
-                      <span className={`inline-flex w-fit text-[11px] font-semibold px-2 py-0.5 rounded-full border ${zona.bg} ${zona.text} ${zona.border}`}>
-                        {zona.nome}
-                      </span>
-                      <span className="text-[11px] text-outline">
-                        {pctProm}% promotores − {pctDetr}% detratores
-                      </span>
-                    </div>
-                  }
                 />
-              )
-            })() : (
-              <KpiCard
-                icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
-                label="Nota Média" value="—"
-                sub="sem respostas ainda"
-                tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
-              />
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
-          {/* ── Funil de engajamento ──────────────────────────────────────── */}
+          {/* ── Funil de engajamento (feedback geral — não se aplica a
+              destaque_elemento, que não tem "Respostas" pra funilar) ──────── */}
+          {blocos.funilEngajamento && (
           <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm mb-6 p-4 sm:p-5">
             <div className="flex items-center gap-2 mb-4">
               <span className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -701,11 +842,14 @@ export function CampanhaDashboard() {
               />
             </div>
           </div>
+          )}
 
           {/* ── Seção: Resumo ─────────────────────────────────────────────── */}
           <SectionTitle icon="summarize">Resumo</SectionTitle>
 
-          {kpiTotal > 0 && (
+          {/* Promotores/Neutros/Detratores/NPS — feedback geral, não existe
+              pra destaque_elemento (fica preservado no código, só não exibido). */}
+          {blocos.resumoNps && kpiTotal > 0 && (
             <div className="grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4">
               <KpiCard icon="sentiment_very_satisfied" iconColor="text-tertiary" iconBg="bg-tertiary/10"
                 label="Promotores" value={`${promotores}`} sub={`${pctProm}% do total`} />
@@ -742,7 +886,9 @@ export function CampanhaDashboard() {
             </div>
           )}
 
-          {kpiTotal > 0 && (
+          {/* Distribuição de notas — feedback geral (NPS), não existe pra
+              destaque_elemento (fica preservado no código, só não exibido). */}
+          {blocos.distribuicaoNotas && kpiTotal > 0 && (
             <div className="w-full max-w-full min-w-0 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm mb-6">
               <h4 className="text-title-md font-bold text-on-surface mb-4 sm:mb-5">Distribuição de notas</h4>
               <div className="overflow-x-auto">
@@ -766,7 +912,10 @@ export function CampanhaDashboard() {
             </div>
           )}
 
-          {/* ── Seção: Respostas ──────────────────────────────────────────── */}
+          {/* ── Seção: Respostas (feedback geral/NPS — não existe pra
+              destaque_elemento; bloco preservado no código, só não exibido) ── */}
+          {blocos.secaoRespostas && (
+          <>
           <SectionTitle icon="forum">Respostas</SectionTitle>
 
           <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden mb-6">
@@ -1090,9 +1239,11 @@ export function CampanhaDashboard() {
               </>
             )}
           </div>
+          </>
+          )}
 
           {/* ── Seção: Desempenho dos destaques (só destaque_elemento) ──────── */}
-          {ehDestaqueElemento && desempenhoDestaques.length > 0 && (
+          {blocos.desempenhoDestaques && desempenhoDestaques.length > 0 && (
             <>
               <SectionTitle icon="new_releases" tooltip={TOOLTIP_DESEMPENHO_DESTAQUES}>Desempenho dos destaques</SectionTitle>
               <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden mb-6">
@@ -1100,7 +1251,10 @@ export function CampanhaDashboard() {
                   <table className="w-full text-left">
                     <thead className="bg-surface-container-low border-b border-outline-variant">
                       <tr>
-                        {['Destaque', 'Visualizações', 'Únicos', 'Interações', 'Únicos', 'Cliques CTA', 'Únicos', 'Dispensaram', 'Únicos'].map((h, i) => (
+                        {[
+                          'Destaque', 'Visualizações', 'Únicos', 'Interações', 'Únicos', 'Cliques CTA', 'Únicos', 'Dispensaram', 'Únicos',
+                          'Avaliações', 'Sim', 'Não', '% útil',
+                        ].map((h, i) => (
                           <th key={`${h}-${i}`} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
@@ -1126,6 +1280,16 @@ export function CampanhaDashboard() {
                           <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.cliques_cta_unicos.toLocaleString('pt-BR')} /></td>
                           <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.dispensas.toLocaleString('pt-BR')} /></td>
                           <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.dispensas_unicas.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.avaliacoes.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.sim.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.nao.toLocaleString('pt-BR')} /></td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle">
+                            {item.percentual_util === null ? (
+                              <span className="text-[13px] text-outline italic">Sem avaliações</span>
+                            ) : (
+                              <CellText value={`${item.percentual_util.toLocaleString('pt-BR')}%`} />
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1135,10 +1299,203 @@ export function CampanhaDashboard() {
             </>
           )}
 
+          {/* ── Seção: Avaliações dos destaques (só destaque_elemento) ──────── */}
+          {/* Sempre exibida pra destaque_elemento, mesmo sem nenhuma avaliação
+              ainda — diferente de "Desempenho dos destaques" (que só aparece
+              com dados), esta seção não deve sumir por quantidade zero. */}
+          {blocos.avaliacoesDestaques && (
+            <>
+              <SectionTitle icon="thumbs_up_down" tooltip={TOOLTIP_AVALIACOES_DESTAQUES}>Avaliações dos destaques</SectionTitle>
+              <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden mb-6">
+
+                {/* Header */}
+                <div className="px-4 sm:px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-title-md font-bold text-on-surface">
+                      {avaliacoesPeriodo.length.toLocaleString('pt-BR')}
+                    </span>
+                    <span className="text-label-md text-outline">
+                      {avaliacoesPeriodo.length === 1 ? 'avaliação no período' : 'avaliações no período'}
+                    </span>
+                    {temFiltroAvaliacao && (
+                      <span className="text-label-md text-outline">
+                        · {avaliacoesFiltradas.length.toLocaleString('pt-BR')} {avaliacoesFiltradas.length === 1 ? 'filtrada' : 'filtradas'} de {avaliacoesPeriodo.length.toLocaleString('pt-BR')} carregadas
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {temFiltroAvaliacao && (
+                      <button
+                        onClick={() => { setFiltroDestaqueAvaliacao(''); setFiltroUtilAvaliacao('Todos'); setBuscaAvaliacao('') }}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-label-md text-on-surface-variant hover:text-error transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">filter_list_off</span>
+                        Limpar
+                      </button>
+                    )}
+                    <FiltroSelect
+                      label="Destaque"
+                      value={filtroDestaqueAvaliacao}
+                      options={[
+                        { value: '', label: 'Todos' },
+                        ...desempenhoDestaques.map(item => ({ value: item.destaque_item_id, label: item.titulo })),
+                      ]}
+                      onChange={setFiltroDestaqueAvaliacao}
+                    />
+                    <FiltroSelect
+                      label="Avaliação"
+                      value={filtroUtilAvaliacao}
+                      options={[
+                        { value: 'Todos', label: 'Todos' },
+                        { value: 'Sim', label: 'Sim' },
+                        { value: 'Não', label: 'Não' },
+                      ]}
+                      onChange={v => setFiltroUtilAvaliacao(v as typeof filtroUtilAvaliacao)}
+                    />
+                  </div>
+                </div>
+
+                {/* Busca */}
+                <div className="px-4 sm:px-5 py-3 border-b border-outline-variant/30">
+                  <div className="relative">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-outline pointer-events-none">search</span>
+                    <input
+                      type="text"
+                      value={buscaAvaliacao}
+                      onChange={e => setBuscaAvaliacao(e.target.value)}
+                      placeholder="Buscar por usuário, e-mail ou comentário…"
+                      className="w-full pl-9 pr-3 py-2 border border-outline-variant rounded-xl text-body-sm bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+
+                {/* Tabela ou estado vazio */}
+                {avaliacoesDestaques.length === 0 ? (
+                  <EmptySection
+                    icon="thumbs_up_down"
+                    title="Nenhuma avaliação recebida ainda."
+                    message="As respostas de utilidade dos destaques aparecerão aqui assim que os usuários avaliarem."
+                  />
+                ) : avaliacoesPeriodo.length === 0 ? (
+                  <EmptySection
+                    icon="event_busy"
+                    title="Nenhuma avaliação neste período"
+                    message="Não há avaliações de utilidade no intervalo selecionado. Tente ampliar o período ou escolher 'Todo período'."
+                  />
+                ) : avaliacoesFiltradas.length === 0 ? (
+                  <EmptySection
+                    icon="search_off"
+                    title="Nenhuma avaliação encontrada"
+                    message="Nenhuma avaliação corresponde aos filtros selecionados. Tente ajustar o destaque, a avaliação ou a busca."
+                  />
+                ) : (
+                  <>
+                    {/* Desktop/tablet largo (>= md): tabela */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead className="bg-surface-container-low border-b border-outline-variant">
+                          <tr>
+                            {['Data/Hora', 'Destaque', 'Avaliação', 'Comentário', 'Usuário', 'Cliente', 'Unidade'].map(h => (
+                              <th key={h} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-outline-variant/30">
+                          {avaliacoesPaginadas.map(a => {
+                            const c = (a.contexto ?? {}) as Record<string, string>
+                            const titulo = a.destaque_item_id ? destaqueTituloPorId.get(a.destaque_item_id) : undefined
+                            const removido = a.destaque_item_id ? destaqueAtivoPorId.get(a.destaque_item_id) === false : false
+                            const nome = a.usuario_nome || c.usuario_nome || a.usuario_id
+                            const email = a.usuario_email || c.usuario_email
+                            const unidade = c.unidade_nome || c.clinica_nome
+                            const comentario = a.observacao?.trim() || NI
+                            return (
+                              <tr key={a.id} className="hover:bg-surface-container-low/50 transition-colors">
+                                <td className="px-4 py-3 whitespace-nowrap align-middle">
+                                  <CellText value={formatDateTime(a.criado_em)} />
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[180px]">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`text-[13px] truncate ${titulo ? 'text-on-surface' : 'text-outline italic'}`} title={titulo}>
+                                      {titulo ?? NI}
+                                    </span>
+                                    {removido && (
+                                      <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-outline-variant/30 text-outline">
+                                        Removido
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap align-middle">
+                                  <UtilBadge util={a.util} />
+                                </td>
+                                <td className="px-4 py-3 align-middle max-w-[260px]">
+                                  <ObservacaoCell value={comentario} />
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[180px]">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className={`text-[13px] truncate ${nome ? 'text-on-surface' : 'text-outline italic'}`} title={nome ?? undefined}>
+                                      {nome ?? NI}
+                                    </span>
+                                    {email && (
+                                      <span className="text-[11px] text-outline truncate" title={email}>{email}</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[160px]">
+                                  <span className={`text-[13px] truncate block ${c.cliente_nome ? 'text-on-surface' : 'text-outline italic'}`} title={c.cliente_nome ?? undefined}>
+                                    {c.cliente_nome ?? NI}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[160px]">
+                                  <span className={`text-[13px] truncate block ${unidade ? 'text-on-surface' : 'text-outline italic'}`} title={unidade ?? undefined}>
+                                    {unidade ?? NI}
+                                  </span>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile (< md): cards */}
+                    <div className="md:hidden divide-y divide-outline-variant/20">
+                      {avaliacoesPaginadas.map(a => (
+                        <AvaliacaoDestaqueCard
+                          key={a.id}
+                          a={a}
+                          destaqueTitulo={a.destaque_item_id ? destaqueTituloPorId.get(a.destaque_item_id) : undefined}
+                          destaqueRemovido={a.destaque_item_id ? destaqueAtivoPorId.get(a.destaque_item_id) === false : false}
+                        />
+                      ))}
+                    </div>
+
+                    {totalPagAvaliacao > 1 && (
+                      <Paginacao
+                        total={avaliacoesFiltradas.length}
+                        pagina={pagAvaliacao}
+                        tamPagina={tamPagAvaliacao}
+                        onChange={setPagAvaliacao}
+                        onChangeTam={t => { setTamPagAvaliacao(t); setPagAvaliacao(1) }}
+                        unidade={temFiltroAvaliacao ? 'avaliação filtrada' : 'avaliação carregada'}
+                        unidadePlural={temFiltroAvaliacao ? 'avaliações filtradas' : 'avaliações carregadas'}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
           {/* ── Seção: Interações ─────────────────────────────────────────── */}
           <SectionTitle icon="touch_app">Interações</SectionTitle>
 
-          <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden">
+          {/* mb-6 alinhado ao mesmo wrapper usado por Respostas/Desempenho
+              dos destaques/Avaliações dos destaques — única divergência
+              encontrada na auditoria de padronização (era a única tabela
+              sem a margem inferior consistente com as demais). */}
+          <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden mb-6">
 
             {/* Header */}
             <div className="px-4 sm:px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
@@ -1176,16 +1533,10 @@ export function CampanhaDashboard() {
                 <FiltroSelect
                   label="Tipo"
                   value={filtroEvento}
-                  options={[
-                    { value: 'Todos', label: 'Todos' },
-                    { value: 'Visualização', label: 'Visualização' },
-                    { value: 'Clique', label: 'Clique CTA' },
-                    { value: 'Interação', label: 'Interação badge' },
-                    { value: 'Dispensa', label: 'Dispensa' },
-                  ]}
+                  options={blocos.opcoesTipoEvento}
                   onChange={v => setFiltroEvento(v as typeof filtroEvento)}
                 />
-                {ehDestaqueElemento && desempenhoDestaques.length > 0 && (
+                {blocos.filtroDestaque && desempenhoDestaques.length > 0 && (
                   <FiltroSelect
                     label="Destaque"
                     value={filtroDestaque}
@@ -1212,11 +1563,9 @@ export function CampanhaDashboard() {
                 />
               </div>
               <div className="flex flex-wrap gap-2">
-                <IndicadorFiltro label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')} />
-                <IndicadorFiltro label="Únicos" value={kpiVisualizacoesUnicas.toLocaleString('pt-BR')} />
-                <IndicadorFiltro label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')} />
-                <IndicadorFiltro label="Clicadores únicos" value={kpiCliquesUnicos.toLocaleString('pt-BR')} />
-                <IndicadorFiltro label="Taxa de clique" value={`${kpiTaxaClique.toLocaleString('pt-BR')}%`} />
+                {blocos.indicadoresInteracoes.map(ind => (
+                  <IndicadorFiltro key={ind.key} label={ind.label} value={valoresIndicadoresInteracoes[ind.key]} />
+                ))}
               </div>
             </div>
 
@@ -1248,7 +1597,7 @@ export function CampanhaDashboard() {
                       <tr>
                         {[
                           'Tipo', 'Data/Hora',
-                          ...(ehDestaqueElemento ? ['Destaque'] : []),
+                          ...(blocos.filtroDestaque ? ['Destaque'] : []),
                           'Usuário', 'Perfil', 'Cliente', 'Unidade', 'Estado',
                         ].map(h => (
                           <th key={h} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
@@ -1270,7 +1619,7 @@ export function CampanhaDashboard() {
                             <td className="px-4 py-3 whitespace-nowrap align-middle">
                               <CellText value={formatDateTime(e.criado_em)} />
                             </td>
-                            {ehDestaqueElemento && (
+                            {blocos.filtroDestaque && (
                               <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[160px]">
                                 <span className={`text-[13px] truncate block ${destaqueTitulo ? 'text-on-surface' : 'text-outline italic'}`} title={destaqueTitulo}>
                                   {destaqueTitulo ?? NI}
@@ -1705,6 +2054,69 @@ function InteracaoCard({ e, destaqueTitulo }: { e: EventoCampanha; destaqueTitul
   )
 }
 
+// Card de avaliação de utilidade pra telas mobile (< md) — mesma lógica de
+// substituição da tabela que InteracaoCard já usa acima.
+function AvaliacaoDestaqueCard({ a, destaqueTitulo, destaqueRemovido }: {
+  a: AvaliacaoDestaqueItem
+  destaqueTitulo?: string
+  destaqueRemovido?: boolean
+}) {
+  const c = (a.contexto ?? {}) as Record<string, string>
+  const nome = a.usuario_nome || c.usuario_nome || a.usuario_id
+  const email = a.usuario_email || c.usuario_email
+  const unidade = c.unidade_nome || c.clinica_nome
+  const comentario = a.observacao?.trim() || NI
+  return (
+    <div className="p-4">
+      <div className="flex items-center justify-between gap-3">
+        <UtilBadge util={a.util} />
+        <span className="text-[11px] text-outline shrink-0">{formatDateTime(a.criado_em)}</span>
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-outline-variant/20 grid grid-cols-2 gap-x-3 gap-y-2.5">
+        <div className="min-w-0 col-span-2">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Destaque</p>
+          <div className="flex items-center gap-2">
+            <span className={`text-[13px] truncate ${destaqueTitulo ? 'text-on-surface' : 'text-outline italic'}`} title={destaqueTitulo}>
+              {destaqueTitulo ?? NI}
+            </span>
+            {destaqueRemovido && (
+              <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-outline-variant/30 text-outline">
+                Removido
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="min-w-0 col-span-2">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Comentário</p>
+          <ObservacaoCell value={comentario} />
+        </div>
+        <div className="min-w-0 col-span-2">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Usuário</p>
+          <span className={`text-[13px] block truncate ${nome ? 'text-on-surface' : 'text-outline italic'}`} title={nome ?? undefined}>
+            {nome ?? NI}
+          </span>
+          {email && (
+            <span className="text-[11px] text-outline block truncate" title={email}>{email}</span>
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Cliente</p>
+          <span className={`text-[13px] block truncate ${c.cliente_nome ? 'text-on-surface' : 'text-outline italic'}`} title={c.cliente_nome ?? undefined}>
+            {c.cliente_nome ?? NI}
+          </span>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Unidade</p>
+          <span className={`text-[13px] block truncate ${unidade ? 'text-on-surface' : 'text-outline italic'}`} title={unidade ?? undefined}>
+            {unidade ?? NI}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ObservacaoCell({ value }: { value: string }) {
   const empty = value === NI
   return (
@@ -1732,6 +2144,30 @@ function NpsBadge({ nota }: { nota: number }) {
   )
 }
 
+// Avaliação de utilidade do destaque — util nulo só existiria por dado
+// inconsistente (validarAvaliacaoFeedback no backend sempre exige boolean
+// pra tipo_avaliacao='utilidade_destaque'), mas o tipo aceita null por
+// segurança; trata como "Não informado" em vez de quebrar.
+function UtilBadge({ util }: { util: boolean | null }) {
+  if (util === true) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-tertiary/10 text-tertiary">
+        <span className="material-symbols-outlined text-[12px]">thumb_up</span>
+        Sim
+      </span>
+    )
+  }
+  if (util === false) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-error/10 text-error">
+        <span className="material-symbols-outlined text-[12px]">thumb_down</span>
+        Não
+      </span>
+    )
+  }
+  return <CellText value={NI} />
+}
+
 function EventoBadge({ tipo }: { tipo: string }) {
   if (tipo === 'visualizacao') {
     return (
@@ -1753,7 +2189,7 @@ function EventoBadge({ tipo }: { tipo: string }) {
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-tertiary/10 text-tertiary">
         <span className="material-symbols-outlined text-[12px]">touch_app</span>
-        Interação badge
+        Interação
       </span>
     )
   }

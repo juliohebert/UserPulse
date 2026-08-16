@@ -398,6 +398,14 @@ model Campanha {
   encerrar_apos_evento      Boolean   @default(false)
   evento_conclusao          String?
   categoria                 String?
+  // Fundação NPS/CSAT/utilidade_destaque — fonte da verdade de que tipo de
+  // avaliação o feedback "geral" desta campanha usa (ver
+  // registrarFeedback/validarAvaliacaoFeedback em widget.ts; nunca confia
+  // num tipo enviado pelo widget). @default("nps") preserva 100% o
+  // comportamento atual pra toda campanha já existente e pra criação nova
+  // até a fase de UI de seleção existir (nenhum controller escreve este
+  // campo ainda).
+  tipo_avaliacao_feedback   String    @default("nps")
   segmentar_cliente_ids     String[]  @default([])
   segmentar_unidade_ids     String[]  @default([])
   segmentar_perfis          String[]  @default([])
@@ -447,8 +455,9 @@ model CampanhaDestaqueItem {
   criado_em     DateTime @default(now())
   atualizado_em DateTime @updatedAt
 
-  campanha Campanha         @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
-  eventos  EventoCampanha[]
+  campanha  Campanha         @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
+  eventos   EventoCampanha[]
+  feedbacks Feedback[]
 
   @@index([campanha_id, ordem])
   @@index([tenant_id])
@@ -469,10 +478,33 @@ model ConfirmacaoLeitura {
   @@map("confirmacoes_leitura")
 }
 
+// Fundação NPS/CSAT/utilidade_destaque — um único model continua cobrindo os
+// 3 tipos (em vez de tabelas separadas) porque o essencial (campanha_id,
+// usuario_id, observacao, contexto/telefone) é idêntico nos 3; só o formato
+// do "valor" muda. tipo_avaliacao é obrigatório e SEM @default de propósito
+// — a aplicação sempre resolve e envia o valor explicitamente a partir de
+// Campanha.tipo_avaliacao_feedback (feedback geral, só nps/csat — nunca
+// utilidade_destaque) ou do tipo fixo 'utilidade_destaque'
+// (registrarUtilidadeDestaque, widget.ts), nunca confia num tipo vindo do
+// widget. nota virou opcional (Int?) porque utilidade_destaque nunca a usa
+// (usa `util` no lugar); regra de qual combinação de nota/util/
+// destaque_item_id é válida por tipo fica centralizada em
+// validarAvaliacaoFeedback (widget.ts), não aqui no schema. Feedback geral e
+// utilidade_destaque são independentes por design: um nunca conta como
+// resposta do outro no gating de reexibição (ver verificarHistorico,
+// widget.ts).
 model Feedback {
   id               String   @id @default(uuid())
   campanha_id      String
-  nota             Int
+  // 'nps' | 'csat' | 'utilidade_destaque' — ver TIPOS_AVALIACAO_FEEDBACK em
+  // widget.ts. String simples (não enum do Postgres), mesmo padrão já usado
+  // em Campanha.tipo/modo_exibicao neste schema.
+  tipo_avaliacao   String
+  // NPS: 0..10. CSAT: 1..5. utilidade_destaque: sempre null (usa `util`).
+  nota             Int?
+  // Só preenchido em utilidade_destaque ("Essa melhoria foi útil?" Sim/Não);
+  // null pra nps/csat.
+  util             Boolean?
   observacao       String?
   usuario_id       String?
   usuario_nome     String?
@@ -484,9 +516,33 @@ model Feedback {
   contexto         Json?
   telefone_contato String?
   criado_em        DateTime @default(now())
+  // Só preenchido em utilidade_destaque — null pra nps/csat (feedback da
+  // campanha inteira, sem item específico). onDelete: SetNull segue o mesmo
+  // raciocínio de EventoCampanha.destaque_item_id: o item nunca é
+  // hard-deletado de verdade (vira ativo:false, ver campanhas.ts), então
+  // SetNull só protege o caso extremo de o item em si sumir por outro
+  // caminho — o histórico do feedback nunca se perde.
+  destaque_item_id String?
 
-  campanha Campanha @relation(fields: [campanha_id], references: [id])
+  campanha     Campanha              @relation(fields: [campanha_id], references: [id])
+  destaqueItem CampanhaDestaqueItem? @relation(fields: [destaque_item_id], references: [id], onDelete: SetNull)
 
+  // Toda leitura de NPS do dashboard filtra por campanha_id + tipo_avaliacao
+  // (ver whereFeedbackNps em dashboard.ts) — índice cobre exatamente esse
+  // padrão de acesso.
+  @@index([campanha_id, tipo_avaliacao])
+  // "Uma resposta atual" por usuário+item+tipo — um novo envio ATUALIZA em
+  // vez de duplicar (registrarUtilidadeDestaque usa upsert com esta chave
+  // composta, que o Postgres compila num INSERT ... ON CONFLICT DO UPDATE
+  // atômico, seguro contra race entre 2 envios concorrentes do mesmo
+  // usuário). Só afeta utilidade_destaque na prática: nps/csat sempre tem
+  // destaque_item_id NULL, e Postgres nunca considera dois NULLs iguais num
+  // índice único — a constraint não colide entre linhas de nps/csat, nem
+  // entre elas e as de utilidade_destaque. map curto de propósito: o nome
+  // default do Prisma pra este índice passaria dos 63 caracteres do limite
+  // de identificador do Postgres (mesmo cuidado já documentado nos índices
+  // de EventoCampanha).
+  @@unique([campanha_id, destaque_item_id, usuario_id, tipo_avaliacao], map: "feedbacks_avaliacao_unica_key")
   @@map("feedbacks")
 }
 

@@ -22,6 +22,20 @@ export interface DesempenhoDestaqueItem {
   cliques_cta_unicos: number
   dispensas: number
   dispensas_unicas: number
+  // Avaliações de utilidade ("Essa melhoria foi útil?", Feedback com
+  // tipo_avaliacao='utilidade_destaque') — nunca misturadas com
+  // visualizacoes/interacoes/etc acima (que vêm de EventoCampanha, não de
+  // Feedback). avaliacoes = sim + nao sempre (cada Feedback de utilidade
+  // tem util true OU false, nunca null — ver validarAvaliacaoFeedback em
+  // widget.ts), então não precisa de uma contagem "únicos" separada: o
+  // índice único campanha_id+destaque_item_id+usuario_id+tipo_avaliacao já
+  // garante no máximo 1 linha atual por usuário.
+  avaliacoes: number
+  sim: number
+  nao: number
+  // null (não 0) quando avaliacoes === 0 — estado neutro explícito, nunca
+  // um "0%" enganoso nem NaN.
+  percentual_util: number | null
 }
 
 type CampoContagem = 'visualizacoes' | 'interacoes' | 'cliques_cta' | 'dispensas'
@@ -37,7 +51,13 @@ const CAMPO_POR_TIPO: Record<string, { total: CampoContagem; unico: CampoUnico }
 export function montarDesempenhoDestaques(
   itens: Array<{ id: string; titulo: string; ativo: boolean }>,
   totaisPorItemTipo: Array<{ destaque_item_id: string | null; tipo_evento: string; _count: { id: number } }>,
-  unicosPorItemTipo: Array<{ destaque_item_id: string | null; tipo_evento: string; usuario_id: string | null }>
+  unicosPorItemTipo: Array<{ destaque_item_id: string | null; tipo_evento: string; usuario_id: string | null }>,
+  // Opcional (default []) pra não quebrar quem já chamava com 3 argumentos —
+  // groupBy(['destaque_item_id', 'util']) de Feedback com
+  // tipo_avaliacao='utilidade_destaque'. util nunca é null nessas linhas na
+  // prática (validarAvaliacaoFeedback exige boolean), mas o tipo aceita null
+  // por segurança (defesa contra dado inconsistente, ver loop abaixo).
+  utilidadePorItem: Array<{ destaque_item_id: string | null; util: boolean | null; _count: { id: number } }> = []
 ): DesempenhoDestaqueItem[] {
   const porItem = new Map<string, DesempenhoDestaqueItem>()
   for (const item of itens) {
@@ -53,6 +73,10 @@ export function montarDesempenhoDestaques(
       cliques_cta_unicos: 0,
       dispensas: 0,
       dispensas_unicas: 0,
+      avaliacoes: 0,
+      sim: 0,
+      nao: 0,
+      percentual_util: null,
     })
   }
 
@@ -80,7 +104,40 @@ export function montarDesempenhoDestaques(
     alvo[campo.unico] = contagem
   }
 
+  for (const u of utilidadePorItem) {
+    if (!u.destaque_item_id) continue
+    const alvo = porItem.get(u.destaque_item_id)
+    if (!alvo) continue
+    if (u.util === true) alvo.sim = u._count.id
+    else if (u.util === false) alvo.nao = u._count.id
+  }
+  for (const alvo of porItem.values()) {
+    alvo.avaliacoes = alvo.sim + alvo.nao
+    alvo.percentual_util = alvo.avaliacoes > 0
+      ? Math.round((alvo.sim / alvo.avaliacoes) * 1000) / 10
+      : null
+  }
+
   return Array.from(porItem.values())
+}
+
+// Toda leitura de "Nota Média"/distribuição/respostas recentes/respondentes
+// únicos deste dashboard só faz sentido pro cálculo de NPS — centraliza o
+// filtro aqui pra nunca esquecer tipo_avaliacao numa query nova e pra nunca
+// misturar CSAT/utilidade_destaque no cálculo atual (fundação NPS/CSAT/
+// utilidade_destaque, ver Feedback.tipo_avaliacao em schema.prisma). Função
+// pura, testável sem Prisma real.
+export function whereFeedbackNps(campanhaId: string): { campanha_id: string; tipo_avaliacao: string } {
+  return { campanha_id: campanhaId, tipo_avaliacao: 'nps' }
+}
+
+// Mesmo raciocínio de whereFeedbackNps, pra seção "Avaliações dos
+// destaques" — usada nas 2 queries de utilidade (groupBy Sim/Não e a lista
+// bruta). Garante que essa seção nunca mistura NPS/CSAT (Feedback com
+// tipo_avaliacao diferente) mesmo que outra query do dashboard mude no
+// futuro. Função pura, testável sem Prisma real.
+export function whereUtilidadeDestaque(campanhaId: string): { campanha_id: string; tipo_avaliacao: string } {
+  return { campanha_id: campanhaId, tipo_avaliacao: 'utilidade_destaque' }
 }
 
 export async function buscarDashboard(req: Request, res: Response) {
@@ -102,22 +159,23 @@ export async function buscarDashboard(req: Request, res: Response) {
       visualizacoes, cliques_cta, total_confirmacoes,
       eventos_recentes, visualizacoesUnicasArr, cliquesUnicosArr,
       respondentesUnicosArr,
-      itensDestaque, totaisPorItem, unicosPorItem,
+      itensDestaque, totaisPorItem, unicosPorItem, utilidadePorItem,
+      avaliacoes_destaques,
     ] = await Promise.all([
       prisma.feedback.aggregate({
-        where: { campanha_id: id },
+        where: whereFeedbackNps(id),
         _avg: { nota: true },
         _count: { id: true },
       }),
 
       prisma.feedback.groupBy({
         by: ['nota'],
-        where: { campanha_id: id },
+        where: whereFeedbackNps(id),
         _count: { nota: true },
       }),
 
       prisma.feedback.findMany({
-        where: { campanha_id: id },
+        where: whereFeedbackNps(id),
         orderBy: { criado_em: 'desc' },
         take: 20,
       }),
@@ -146,7 +204,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       }),
       prisma.feedback.groupBy({
         by: ['usuario_id'],
-        where: { campanha_id: id, usuario_id: { not: null } },
+        where: { ...whereFeedbackNps(id), usuario_id: { not: null } },
       }),
 
       // Sem filtro de ativo, de propósito — "Desempenho dos destaques"
@@ -175,6 +233,30 @@ export async function buscarDashboard(req: Request, res: Response) {
             where: { campanha_id: id, destaque_item_id: { not: null }, usuario_id: { not: null } },
           })
         : Promise.resolve([]),
+      // Avaliações de utilidade ("Essa melhoria foi útil?") por item — só
+      // Feedback com tipo_avaliacao='utilidade_destaque' (nunca nps/csat,
+      // mesmo raciocínio de whereFeedbackNps: cada seção do dashboard filtra
+      // explicitamente o tipo que lhe interessa, nunca assume "todo feedback
+      // desta campanha é do meu tipo").
+      ehDestaqueElemento
+        ? prisma.feedback.groupBy({
+            by: ['destaque_item_id', 'util'],
+            where: whereUtilidadeDestaque(id),
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
+      // Lista bruta pra seção "Avaliações dos destaques" — filtros/busca são
+      // aplicados no frontend (mesmo padrão de eventos_recentes/Interações).
+      // Sem filtro de ativo no destaque (join é só por destaque_item_id, nem
+      // JOIN de verdade) — um item removido continua tendo suas avaliações
+      // aqui, o frontend resolve "Removido" via desempenho_destaques.
+      ehDestaqueElemento
+        ? prisma.feedback.findMany({
+            where: whereUtilidadeDestaque(id),
+            orderBy: { criado_em: 'desc' },
+            take: 100,
+          })
+        : Promise.resolve([]),
     ])
 
     const distribuicao: Record<string, number> = {}
@@ -196,7 +278,7 @@ export async function buscarDashboard(req: Request, res: Response) {
     const respondentes_unicos = respondentesUnicosArr.length
 
     const desempenho_destaques = ehDestaqueElemento
-      ? montarDesempenhoDestaques(itensDestaque, totaisPorItem, unicosPorItem)
+      ? montarDesempenhoDestaques(itensDestaque, totaisPorItem, unicosPorItem, utilidadePorItem)
       : []
 
     res.json({
@@ -215,6 +297,8 @@ export async function buscarDashboard(req: Request, res: Response) {
       cliques_unicos,
       respondentes_unicos,
       desempenho_destaques,
+      // Só não-vazio pra campanhas destaque_elemento — ver ehDestaqueElemento.
+      avaliacoes_destaques: ehDestaqueElemento ? avaliacoes_destaques : [],
     })
   } catch (err) {
     console.error(err)

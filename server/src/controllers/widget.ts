@@ -110,6 +110,22 @@ type HistoricoResult =
   | { bloqueado: false }
   | { bloqueado: true; motivo: string }
 
+// Fonte única do filtro usado pelo gating de "campanha respondida"
+// (reexibição) — só o feedback GERAL (nps/csat, resolvido por
+// Campanha.tipo_avaliacao_feedback) conta; utilidade_destaque nunca
+// participa aqui, nem bloqueia nem é bloqueado por nps/csat (regra de
+// produto: são independentes). Reaproveitada por verificarHistorico
+// (widget.ts, gating real do widget público) e pelo diagnóstico/simulação
+// de elegibilidade em campanhas.ts, pra nunca divergir entre os dois.
+// Função pura, testável sem Prisma real.
+export function filtroFeedbackGeralReexibicao(
+  campanhaId: string,
+  usuarioId: string,
+  tipoAvaliacaoFeedback: string
+): { campanha_id: string; usuario_id: string; tipo_avaliacao: string } {
+  return { campanha_id: campanhaId, usuario_id: usuarioId, tipo_avaliacao: tipoAvaliacaoFeedback }
+}
+
 // Qual evento serve de referência para a contagem de "reexibir após X dias".
 // A contagem deve reiniciar apenas com uma resposta (feedback/NPS ou confirmação de leitura) —
 // visualizar, fechar sem responder, clicar no CTA ou disparar um evento genérico não contam.
@@ -159,11 +175,18 @@ async function verificarHistorico(
     reexibir_apos_dias: number | null
     exige_confirmacao_leitura: boolean
     feedback_habilitado: boolean
+    tipo_avaliacao_feedback: string
   },
   uidStr: string,
   agora: Date
 ): Promise<HistoricoResult> {
   const policy = campanha.politica_reexibicao || 'uma_vez_apos_visualizacao'
+  // Gating de reexibição é só sobre o feedback GERAL da campanha (nps/csat,
+  // resolvido por Campanha.tipo_avaliacao_feedback) — utilidade_destaque é
+  // independente por definição (avaliar "essa melhoria foi útil?" num
+  // destaque nunca conta como "respondeu a campanha", e nunca é bloqueado
+  // por já ter respondido NPS/CSAT nem vice-versa). Ver validarAvaliacaoFeedback.
+  const filtroFeedbackGeral = filtroFeedbackGeralReexibicao(campanha.id, uidStr, campanha.tipo_avaliacao_feedback)
 
   if (policy === 'uma_vez_apos_visualizacao') {
     const jaViu = await prisma.eventoCampanha.findFirst({
@@ -178,7 +201,7 @@ async function verificarHistorico(
       if (jaConf) return { bloqueado: true, motivo: 'Campanha já confirmada por este usuário.' }
     } else {
       const uf = await prisma.feedback.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        where: filtroFeedbackGeral,
         orderBy: { criado_em: 'desc' },
       })
       if (uf) return { bloqueado: true, motivo: 'Campanha já respondida por este usuário.' }
@@ -193,7 +216,7 @@ async function verificarHistorico(
       if (jaConf) return { bloqueado: true, motivo: 'Campanha já confirmada por este usuário.' }
     } else {
       const uf = await prisma.feedback.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        where: filtroFeedbackGeral,
         orderBy: { criado_em: 'desc' },
       })
       if (uf) return { bloqueado: true, motivo: 'Campanha já respondida por este usuário.' }
@@ -215,7 +238,7 @@ async function verificarHistorico(
       referencia = ultimaConf?.criado_em ?? null
     } else if (fonte === 'feedback') {
       const ultimoFb = await prisma.feedback.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
+        where: filtroFeedbackGeral,
         orderBy: { criado_em: 'desc' },
       })
       referencia = ultimoFb?.criado_em ?? null
@@ -564,6 +587,73 @@ export async function registrarConfirmacao(req: Request, res: Response) {
   }
 }
 
+// Tipos de avaliação suportados por Feedback.tipo_avaliacao. nps/csat são o
+// feedback GERAL da campanha (POST /api/widget/feedback, registrarFeedback,
+// tipo sempre resolvido por Campanha.tipo_avaliacao_feedback).
+// utilidade_destaque é a avaliação por CampanhaDestaqueItem ("Essa melhoria
+// foi útil?", POST /api/widget/feedback/utilidade-destaque,
+// registrarUtilidadeDestaque) — independente do feedback geral por design,
+// nunca participa do gating de reexibição dele (ver
+// filtroFeedbackGeralReexibicao).
+export const TIPOS_AVALIACAO_FEEDBACK = ['nps', 'csat', 'utilidade_destaque'] as const
+
+export interface AvaliacaoValidada {
+  erro: string | null
+  nota: number | null
+  util: boolean | null
+  destaqueItemId: string | null
+}
+
+// Regra pura e centralizada por tipo de avaliação — quem chama SEMPRE
+// resolve `tipoAvaliacao` a partir de Campanha.tipo_avaliacao_feedback
+// (feedback geral) ou de um tipo fixo (utilidade_destaque), nunca de um
+// campo enviado pelo cliente; esta função só decide se o valor recebido é
+// válido PRO tipo já resolvido, nunca decide o tipo em si. Cada tipo produz
+// só os campos que faz sentido (nota XOR util, nunca os dois), garantindo
+// que nps/csat nunca gravam util/destaque_item_id e que utilidade_destaque
+// nunca grava nota — sem precisar de validação extra pra rejeitar campos
+// "emprestados" do outro formato, porque eles simplesmente nunca são lidos
+// fora do branch certo.
+// destaqueItemEncontrado só é relevante (e obrigatório) em
+// utilidade_destaque — mesmo padrão de ownership/isolamento de tenant que
+// validarDestaqueItemEvento já usa pra eventos: busca por id sozinho, e a
+// comparação campanha_id aqui é que garante que um item de outra campanha
+// (ou de outro tenant) nunca é aceito.
+export function validarAvaliacaoFeedback(
+  tipoAvaliacao: string,
+  dados: { nota?: unknown; util?: unknown; destaque_item_id?: unknown },
+  destaqueItemEncontrado: { id: string; campanha_id: string } | null,
+  campanhaId: string
+): AvaliacaoValidada {
+  if (tipoAvaliacao === 'nps' || tipoAvaliacao === 'csat') {
+    const faixa = tipoAvaliacao === 'csat' ? { min: 1, max: 5 } : { min: 0, max: 10 }
+    if (dados.nota === undefined || dados.nota === null) {
+      return { erro: 'nota é obrigatória.', nota: null, util: null, destaqueItemId: null }
+    }
+    const notaNum = Number(dados.nota)
+    if (!Number.isInteger(notaNum) || notaNum < faixa.min || notaNum > faixa.max) {
+      return { erro: `nota deve ser um inteiro entre ${faixa.min} e ${faixa.max}.`, nota: null, util: null, destaqueItemId: null }
+    }
+    return { erro: null, nota: notaNum, util: null, destaqueItemId: null }
+  }
+
+  if (tipoAvaliacao === 'utilidade_destaque') {
+    if (typeof dados.util !== 'boolean') {
+      return { erro: 'util é obrigatório e deve ser um boolean.', nota: null, util: null, destaqueItemId: null }
+    }
+    const destaqueItemIdBruto = dados.destaque_item_id
+    if (typeof destaqueItemIdBruto !== 'string' || !destaqueItemIdBruto) {
+      return { erro: 'destaque_item_id é obrigatório.', nota: null, util: null, destaqueItemId: null }
+    }
+    if (!destaqueItemEncontrado || destaqueItemEncontrado.id !== destaqueItemIdBruto || destaqueItemEncontrado.campanha_id !== campanhaId) {
+      return { erro: 'destaque_item_id não pertence a esta campanha.', nota: null, util: null, destaqueItemId: null }
+    }
+    return { erro: null, nota: null, util: dados.util, destaqueItemId: destaqueItemIdBruto }
+  }
+
+  return { erro: `tipo_avaliacao inválido: ${tipoAvaliacao}.`, nota: null, util: null, destaqueItemId: null }
+}
+
 export async function registrarFeedback(req: Request, res: Response) {
   try {
     const {
@@ -580,15 +670,6 @@ export async function registrarFeedback(req: Request, res: Response) {
       return res.status(400).json({ erro: 'usuario_id é obrigatório.' })
     }
 
-    if (nota === undefined || nota === null) {
-      return res.status(400).json({ erro: 'nota é obrigatória.' })
-    }
-
-    const notaNum = Number(nota)
-    if (!Number.isInteger(notaNum) || notaNum < 0 || notaNum > 10) {
-      return res.status(400).json({ erro: 'nota deve ser um inteiro entre 0 e 10.' })
-    }
-
     const resolucao = await resolverTenantPublico(public_key)
     if (!resolucao.ok) {
       return res.status(400).json({ erro: 'Campanha não encontrada.' })
@@ -599,6 +680,24 @@ export async function registrarFeedback(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Campanha não encontrada.' })
     }
 
+    // Fonte da verdade do tipo de avaliação é sempre a campanha — nunca um
+    // campo vindo do widget. Toda campanha existente (e toda nova, até a
+    // fase de UI de seleção existir) resolve 'nps' pelo @default do schema +
+    // backfill da migration, preservando 100% o comportamento atual.
+    const tipoAvaliacao = campanha.tipo_avaliacao_feedback
+
+    // Esta rota (POST /api/widget/feedback, feedback "geral" da campanha)
+    // só cobre nps/csat por enquanto — utilidade_destaque ainda não tem
+    // endpoint/UI própria, por isso destaqueItemEncontrado é sempre null
+    // aqui (nunca chega no branch que precisaria dele).
+    const { erro: erroAvaliacao, nota: notaValidada, util, destaqueItemId } = validarAvaliacaoFeedback(
+      tipoAvaliacao,
+      { nota },
+      null,
+      campanha_id
+    )
+    if (erroAvaliacao) return res.status(400).json({ erro: erroAvaliacao })
+
     if (campanha.observacao_obrigatoria && !observacao?.toString().trim()) {
       return res.status(400).json({ erro: 'Observação é obrigatória para esta campanha.' })
     }
@@ -606,7 +705,10 @@ export async function registrarFeedback(req: Request, res: Response) {
     const feedback = await prisma.feedback.create({
       data: {
         campanha_id,
-        nota: notaNum,
+        tipo_avaliacao: tipoAvaliacao,
+        nota: notaValidada,
+        util,
+        destaque_item_id: destaqueItemId,
         observacao: observacao?.toString().trim() || null,
         usuario_id: String(usuario_id),
         usuario_nome: usuario_nome || null,
@@ -623,6 +725,110 @@ export async function registrarFeedback(req: Request, res: Response) {
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao registrar feedback.' })
+  }
+}
+
+// Fluxo dedicado de utilidade_destaque — separado de registrarFeedback de
+// propósito (regra de produto: feedback geral da campanha e utilidade do
+// destaque são independentes; Campanha.tipo_avaliacao_feedback só
+// representa nps/csat, nunca utilidade_destaque). Backend fixa o tipo
+// sempre como 'utilidade_destaque' aqui, nunca aceita um tipo vindo do
+// cliente.
+export async function registrarUtilidadeDestaque(req: Request, res: Response) {
+  try {
+    const {
+      public_key, campanha_id, destaque_item_id, util, observacao,
+      usuario_id, usuario_nome, usuario_email,
+      sistema, tela, navegador, dispositivo, contexto,
+    } = req.body
+
+    if (!campanha_id) {
+      return res.status(400).json({ erro: 'campanha_id é obrigatório.' })
+    }
+
+    if (!usuario_id) {
+      return res.status(400).json({ erro: 'usuario_id é obrigatório.' })
+    }
+
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) {
+      return res.status(400).json({ erro: 'Campanha não encontrada.' })
+    }
+
+    const campanha = await prisma.campanha.findUnique({ where: { id: campanha_id } })
+    if (!campanha || campanha.tenant_id !== resolucao.tenantId) {
+      return res.status(400).json({ erro: 'Campanha não encontrada.' })
+    }
+
+    // Busca só por id (sem where campanha_id) — ownership/isolamento de
+    // tenant são decididos por validarAvaliacaoFeedback, mesmo padrão de
+    // validarDestaqueItemEvento (registrarEvento acima).
+    const itemDestaque = destaque_item_id
+      ? await prisma.campanhaDestaqueItem.findUnique({ where: { id: String(destaque_item_id) } })
+      : null
+
+    const { erro: erroAvaliacao, util: utilValidado, destaqueItemId } = validarAvaliacaoFeedback(
+      'utilidade_destaque',
+      { util, destaque_item_id },
+      itemDestaque,
+      campanha_id
+    )
+    if (erroAvaliacao) return res.status(400).json({ erro: erroAvaliacao })
+
+    const usuarioIdStr = String(usuario_id)
+    const observacaoNormalizada = observacao?.toString().trim() || null
+
+    // "Uma resposta atual" por campanha_id + destaque_item_id + usuario_id +
+    // tipo_avaliacao (índice único, ver Feedback em schema.prisma) — um novo
+    // envio do mesmo usuário pro mesmo item ATUALIZA a resposta existente em
+    // vez de duplicar. upsert() compila pra um único INSERT ... ON CONFLICT
+    // DO UPDATE atômico no Postgres — não é um findFirst + create/update
+    // vulnerável a race entre dois envios concorrentes do mesmo usuário
+    // (ex.: duplo clique, ou trocar Sim -> Não rapidamente).
+    const feedback = await prisma.feedback.upsert({
+      where: {
+        campanha_id_destaque_item_id_usuario_id_tipo_avaliacao: {
+          campanha_id,
+          // Não-nulos aqui sempre: validarAvaliacaoFeedback já garantiu os
+          // dois acima (erroAvaliacao teria retornado antes, se não).
+          destaque_item_id: destaqueItemId as string,
+          usuario_id: usuarioIdStr,
+          tipo_avaliacao: 'utilidade_destaque',
+        },
+      },
+      create: {
+        campanha_id,
+        tipo_avaliacao: 'utilidade_destaque',
+        nota: null,
+        util: utilValidado,
+        destaque_item_id: destaqueItemId,
+        observacao: observacaoNormalizada,
+        usuario_id: usuarioIdStr,
+        usuario_nome: usuario_nome || null,
+        usuario_email: usuario_email || null,
+        sistema: sistema || null,
+        tela: tela || null,
+        navegador: navegador || null,
+        dispositivo: dispositivo || null,
+        contexto: contexto ?? null,
+      },
+      update: {
+        util: utilValidado,
+        observacao: observacaoNormalizada,
+        usuario_nome: usuario_nome || null,
+        usuario_email: usuario_email || null,
+        sistema: sistema || null,
+        tela: tela || null,
+        navegador: navegador || null,
+        dispositivo: dispositivo || null,
+        contexto: contexto ?? null,
+      },
+    })
+
+    res.status(201).json(feedback)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao registrar utilidade do destaque.' })
   }
 }
 
