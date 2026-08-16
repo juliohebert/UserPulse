@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import { checarLimiteCampanhasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, planoEfetivoParaLimite } from '../lib/tenantGuards'
+import { filtroFeedbackGeralReexibicao } from './widget'
 
 // ─── Respostas helpers ────────────────────────────────────────────────────────
 
@@ -94,6 +95,12 @@ async function buscarRespostasRows(campanhaId: string, f: RespostaFiltros): Prom
     prisma.feedback.findMany({
       where: {
         campanha_id: campanhaId,
+        // Fundação NPS/CSAT/utilidade_destaque — este export (CSV de
+        // "Respostas") só faz sentido pro NPS hoje (filtros de nota/faixa
+        // Promotor-Neutro-Detrator abaixo assumem 0..10); nunca mistura
+        // csat/utilidade_destaque aqui, mesmo raciocínio de whereFeedbackNps
+        // em dashboard.ts.
+        tipo_avaliacao: 'nps',
         ...(hasDates ? { criado_em: dateFilter } : {}),
         ...(f.nota !== '' && !isNaN(Number(f.nota)) ? { nota: Number(f.nota) } : {}),
       },
@@ -134,6 +141,10 @@ async function buscarRespostasRows(campanhaId: string, f: RespostaFiltros): Prom
     if (f.usuario_tipo && usr_tipo !== f.usuario_tipo) continue
     if (f.estado && est !== f.estado) continue
     if (f.nps) {
+      // fb.nota nunca é null aqui na prática (query já filtra
+      // tipo_avaliacao: 'nps' acima) — guarda só pra satisfazer o tipo
+      // (nota é opcional no schema desde a fundação csat/utilidade_destaque).
+      if (fb.nota === null) continue
       if (f.nps === 'Promotor' && fb.nota < 9) continue
       if (f.nps === 'Neutro' && (fb.nota < 7 || fb.nota > 8)) continue
       if (f.nps === 'Detrator' && fb.nota > 6) continue
@@ -1219,6 +1230,13 @@ export async function testarElegibilidade(req: Request, res: Response) {
       reexibir_apos_dias: `Reexibir após ${campanha.reexibir_apos_dias ?? '?'} dias`,
     }[policy] ?? policy
 
+    // Espelha verificarHistorico (widget.ts) — só o feedback GERAL da
+    // campanha (nps/csat, fonte da verdade é Campanha.tipo_avaliacao_feedback)
+    // conta pra "já respondida"; utilidade_destaque é independente e nunca
+    // deve aparecer aqui, senão este diagnóstico mentiria sobre o
+    // comportamento real do widget.
+    const filtroFeedbackGeral = filtroFeedbackGeralReexibicao(id, uid, campanha.tipo_avaliacao_feedback)
+
     if (!uid) {
       ok('Política de reexibição', `Política: ${labelPolitica}. Nenhum usuário informado — verificação de histórico ignorada.`)
     } else if (alwaysShow) {
@@ -1238,7 +1256,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
             ok('Política de reexibição', `Usuário "${uid}" ainda não visualizou nem confirmou. Política: ${labelPolitica}.`)
           }
         } else {
-          const uf = await prisma.feedback.findFirst({ where: { campanha_id: id, usuario_id: uid }, orderBy: { criado_em: 'desc' } })
+          const uf = await prisma.feedback.findFirst({ where: filtroFeedbackGeral, orderBy: { criado_em: 'desc' } })
           if (uf) {
             block('Política de reexibição', `Usuário "${uid}" já respondeu esta campanha.`, `Política: ${labelPolitica}`)
           } else {
@@ -1256,7 +1274,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
             ok('Política de reexibição', `Usuário "${uid}" ainda não confirmou leitura. A campanha pode reaparecer. Política: ${labelPolitica}.`)
           }
         } else {
-          const uf = await prisma.feedback.findFirst({ where: { campanha_id: id, usuario_id: uid }, orderBy: { criado_em: 'desc' } })
+          const uf = await prisma.feedback.findFirst({ where: filtroFeedbackGeral, orderBy: { criado_em: 'desc' } })
           if (uf) {
             block('Política de reexibição', `Usuário "${uid}" já respondeu esta campanha.`, `Política: ${labelPolitica}`)
           } else {
@@ -1272,7 +1290,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
         } else {
           const [ultimaViz, ultimoFb, ultimaConf] = await Promise.all([
             prisma.eventoCampanha.findFirst({ where: { campanha_id: id, usuario_id: uid, tipo_evento: 'visualizacao' }, orderBy: { criado_em: 'desc' } }),
-            prisma.feedback.findFirst({ where: { campanha_id: id, usuario_id: uid }, orderBy: { criado_em: 'desc' } }),
+            prisma.feedback.findFirst({ where: filtroFeedbackGeral, orderBy: { criado_em: 'desc' } }),
             prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: id, usuario_id: uid }, orderBy: { criado_em: 'desc' } }),
           ])
           const datas = [ultimaViz?.criado_em, ultimoFb?.criado_em, ultimaConf?.criado_em].filter((d): d is Date => !!d)
@@ -1395,6 +1413,9 @@ export async function testarElegibilidade(req: Request, res: Response) {
 
         if (uid && !alwaysShow && !competitorBlocked) {
           const cPolicy = c.politica_reexibicao || 'uma_vez_apos_visualizacao'
+          // Mesmo raciocínio de filtroFeedbackGeral acima — só o feedback
+          // GERAL da campanha concorrente conta pro gating dela.
+          const filtroFeedbackGeralC = filtroFeedbackGeralReexibicao(c.id, uid, c.tipo_avaliacao_feedback)
           if (cPolicy === 'uma_vez_apos_visualizacao') {
             const jaViu = await prisma.eventoCampanha.findFirst({ where: { campanha_id: c.id, usuario_id: uid, tipo_evento: 'visualizacao' } })
             if (jaViu) competitorBlocked = true
@@ -1403,7 +1424,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
                 const jaConf = await prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: c.id, usuario_id: uid } })
                 if (jaConf) competitorBlocked = true
               } else {
-                const uf = await prisma.feedback.findFirst({ where: { campanha_id: c.id, usuario_id: uid }, orderBy: { criado_em: 'desc' } })
+                const uf = await prisma.feedback.findFirst({ where: filtroFeedbackGeralC, orderBy: { criado_em: 'desc' } })
                 if (uf) competitorBlocked = true
               }
             }
@@ -1412,7 +1433,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
               const jaConf = await prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: c.id, usuario_id: uid } })
               if (jaConf) competitorBlocked = true
             } else {
-              const uf = await prisma.feedback.findFirst({ where: { campanha_id: c.id, usuario_id: uid }, orderBy: { criado_em: 'desc' } })
+              const uf = await prisma.feedback.findFirst({ where: filtroFeedbackGeralC, orderBy: { criado_em: 'desc' } })
               if (uf) competitorBlocked = true
             }
           } else if (cPolicy === 'reexibir_apos_dias') {
@@ -1420,7 +1441,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
             if (dias && dias > 0) {
               const [v, f, cf] = await Promise.all([
                 prisma.eventoCampanha.findFirst({ where: { campanha_id: c.id, usuario_id: uid, tipo_evento: 'visualizacao' }, orderBy: { criado_em: 'desc' } }),
-                prisma.feedback.findFirst({ where: { campanha_id: c.id, usuario_id: uid }, orderBy: { criado_em: 'desc' } }),
+                prisma.feedback.findFirst({ where: filtroFeedbackGeralC, orderBy: { criado_em: 'desc' } }),
                 prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: c.id, usuario_id: uid }, orderBy: { criado_em: 'desc' } }),
               ])
               const datas = [v?.criado_em, f?.criado_em, cf?.criado_em].filter((d): d is Date => !!d)

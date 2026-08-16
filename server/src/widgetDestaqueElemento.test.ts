@@ -69,6 +69,12 @@ type DestaqueElementoMontarTodos = (campanha: Campanha, config: ConfigWidget) =>
 type ClickEvent = { target: { closest: (seletor: string) => { getAttribute: (chave: string) => string | null } | null } }
 type ClickListener = (event: ClickEvent) => void
 type DestaqueElementoGetTestClickListener = (indice?: number) => ClickListener | null
+type InputEvent = { target: { matches: (seletor: string) => boolean; value: string } }
+type InputListener = (event: InputEvent) => void
+type DestaqueElementoGetTestInputListener = (indice?: number) => InputListener | null
+type UtilidadeState = { escolha: boolean | null; comentario: string; enviando: boolean; erro: string | null; comentarioEnviado: boolean }
+type DestaqueElementoGetTestUtilidadeState = (indice?: number) => UtilidadeState | null
+type DestaqueElementoGetTestAberto = (indice?: number) => boolean | null
 
 let destaqueElementoSeletorSeguro: DestaqueElementoSeletorSeguro
 let destaqueElementoLocalizarAlvo: DestaqueElementoLocalizarAlvo
@@ -82,6 +88,9 @@ let destaqueElementoMontar: DestaqueElementoMontar
 let destaqueElementoResolverItens: DestaqueElementoResolverItens
 let destaqueElementoMontarTodos: DestaqueElementoMontarTodos
 let destaqueElementoGetTestClickListener: DestaqueElementoGetTestClickListener
+let destaqueElementoGetTestInputListener: DestaqueElementoGetTestInputListener
+let destaqueElementoGetTestUtilidadeState: DestaqueElementoGetTestUtilidadeState
+let destaqueElementoGetTestAberto: DestaqueElementoGetTestAberto
 let wasShown: WasShown
 let markShown: MarkShown
 // Último root fake criado por document.createElement (ver criarFakeRootDestaque
@@ -110,6 +119,20 @@ let sandboxCompartilhado: {
 // notificação real de mutação sem precisar de um DOM/MutationObserver de
 // verdade (indisponível fora de um navegador).
 let ultimoMutationObserverDestaque: { cb: (records: Array<{ target: unknown }>) => void; disconnected: boolean; observeChamadoCom: unknown } | null = null
+// Fila fake de window.setTimeout/clearTimeout — nunca dispara sozinha (nem
+// por tempo real, nem por microtask); só o teste decide quando "o tempo
+// passou" chamando dispararTimersPendentesDestaque(), mesmo espírito do
+// FakeMutationObserver acima. Necessário pro fechamento automático do
+// tooltip de utilidade_destaque (destaqueElementoUtilAgendarFechamento, ver
+// widget.js), que é a primeira coisa no widget destaque_elemento a
+// realmente chamar window.setTimeout.
+let timersPendentesDestaque: Array<{ id: number; cb: () => void }> = []
+let proximoTimerIdDestaque = 1
+function dispararTimersPendentesDestaque() {
+  const pendentes = timersPendentesDestaque.slice()
+  timersPendentesDestaque = []
+  for (const t of pendentes) t.cb()
+}
 
 // Elemento "clicável" mínimo pro harness: só precisa resolver `.closest(seletor)`
 // pro atributo que o clique real teria alcançado (data-up-destaque-toggle/
@@ -119,6 +142,16 @@ function elementoClique(atributo: string, atributosExtra: Record<string, string>
     closest(seletor: string) {
       return seletor === '[' + atributo + ']' ? { getAttribute: (chave: string) => atributosExtra[chave] ?? null } : null
     },
+  }
+}
+
+// Elemento "digitável" mínimo pro harness: só precisa resolver `.matches(seletor)`
+// pro atributo que o input real teria (data-up-util-comentario) e expor `.value`
+// — mesmo raciocínio de elementoClique, mas pro listener 'input'.
+function elementoInput(atributo: string, valor: string) {
+  return {
+    matches(seletor: string) { return seletor === '[' + atributo + ']' },
+    value: valor,
   }
 }
 let presentes: Set<string>
@@ -238,6 +271,16 @@ before(() => {
     // verdade, só quer que destaqueElementoRender já tenha rodado quando
     // destaqueElementoMontar retorna.
     requestAnimationFrame: (cb: () => void) => { cb(); return 0 },
+    // Fake, nunca dispara sozinho — ver timersPendentesDestaque/
+    // dispararTimersPendentesDestaque acima.
+    setTimeout: (cb: () => void) => {
+      const id = proximoTimerIdDestaque++
+      timersPendentesDestaque.push({ id, cb })
+      return id
+    },
+    clearTimeout: (id: number) => {
+      timersPendentesDestaque = timersPendentesDestaque.filter(t => t.id !== id)
+    },
     open() {},
     history: { pushState() {}, replaceState() {} },
     CSS: { escape: (valor: string) => valor.replace(/["\\]/g, '\\$&') },
@@ -262,6 +305,9 @@ before(() => {
         destaqueElementoResolverItens?: DestaqueElementoResolverItens
         destaqueElementoMontarTodos?: DestaqueElementoMontarTodos
         destaqueElementoGetTestClickListener?: DestaqueElementoGetTestClickListener
+        destaqueElementoGetTestInputListener?: DestaqueElementoGetTestInputListener
+        destaqueElementoGetTestUtilidadeState?: DestaqueElementoGetTestUtilidadeState
+        destaqueElementoGetTestAberto?: DestaqueElementoGetTestAberto
         wasShown?: WasShown
         markShown?: MarkShown
       }
@@ -279,6 +325,9 @@ before(() => {
   const resolverItensFn = UserPulse?._internal?.destaqueElementoResolverItens
   const montarTodosFn = UserPulse?._internal?.destaqueElementoMontarTodos
   const getTestClickListenerFn = UserPulse?._internal?.destaqueElementoGetTestClickListener
+  const getTestInputListenerFn = UserPulse?._internal?.destaqueElementoGetTestInputListener
+  const getTestUtilidadeStateFn = UserPulse?._internal?.destaqueElementoGetTestUtilidadeState
+  const getTestAbertoFn = UserPulse?._internal?.destaqueElementoGetTestAberto
   const wasShownFn = UserPulse?._internal?.wasShown
   const markShownFn = UserPulse?._internal?.markShown
   assert.equal(typeof seletorFn, 'function', 'window.UserPulse._internal.destaqueElementoSeletorSeguro não foi exposta por widget.js')
@@ -293,6 +342,9 @@ before(() => {
   assert.equal(typeof resolverItensFn, 'function', 'window.UserPulse._internal.destaqueElementoResolverItens não foi exposta por widget.js')
   assert.equal(typeof montarTodosFn, 'function', 'window.UserPulse._internal.destaqueElementoMontarTodos não foi exposta por widget.js')
   assert.equal(typeof getTestClickListenerFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestClickListener não foi exposta por widget.js')
+  assert.equal(typeof getTestInputListenerFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestInputListener não foi exposta por widget.js')
+  assert.equal(typeof getTestUtilidadeStateFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestUtilidadeState não foi exposta por widget.js')
+  assert.equal(typeof getTestAbertoFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestAberto não foi exposta por widget.js')
   assert.equal(typeof wasShownFn, 'function', 'window.UserPulse._internal.wasShown não foi exposta por widget.js')
   assert.equal(typeof markShownFn, 'function', 'window.UserPulse._internal.markShown não foi exposta por widget.js')
   destaqueElementoSeletorSeguro = seletorFn as DestaqueElementoSeletorSeguro
@@ -307,6 +359,9 @@ before(() => {
   destaqueElementoResolverItens = resolverItensFn as DestaqueElementoResolverItens
   destaqueElementoMontarTodos = montarTodosFn as DestaqueElementoMontarTodos
   destaqueElementoGetTestClickListener = getTestClickListenerFn as DestaqueElementoGetTestClickListener
+  destaqueElementoGetTestInputListener = getTestInputListenerFn as DestaqueElementoGetTestInputListener
+  destaqueElementoGetTestUtilidadeState = getTestUtilidadeStateFn as DestaqueElementoGetTestUtilidadeState
+  destaqueElementoGetTestAberto = getTestAbertoFn as DestaqueElementoGetTestAberto
   wasShown = wasShownFn as WasShown
   markShown = markShownFn as MarkShown
 })
@@ -1379,5 +1434,345 @@ describe('registrarEvento (destaque_elemento) — visualizacao/interacao_badge/c
       sandboxCompartilhado.fetch = fetchOriginal;
       sandboxCompartilhado.window.open = openOriginal;
     }
+  });
+})
+
+// Avaliação de utilidade do destaque ("Essa melhoria foi útil?" Sim/Não +
+// comentário opcional) — cobre só o que acontece no WIDGET: payload
+// enviado, independência entre itens, e que falha de rede nunca quebra o
+// resto da interação. Ownership/isolamento de tenant do destaque_item_id
+// são validados do lado do servidor por validarAvaliacaoFeedback — ver
+// server/src/controllers/widget.test.ts (mesma função usada por
+// registrarUtilidadeDestaque). "Uma resposta atual" (upsert por
+// campanha_id+destaque_item_id+usuario_id+tipo_avaliacao) é garantida pelo
+// índice único no banco (ver schema.prisma) — o widget só é responsável por
+// reenviar a escolha atual a cada clique, nunca por deduplicar localmente.
+describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
+  function abrirTooltip(campanha: Campanha, config: ConfigWidget) {
+    destaqueElementoMontarTodos(campanha, config);
+    const listener = destaqueElementoGetTestClickListener(0);
+    listener!({ target: elementoClique('data-up-destaque-toggle') });
+    return listener!;
+  }
+
+  test('Sim -> POST utilidade-destaque com util:true, campanha/item/usuário corretos, sem observacao', () => {
+    presentes.add('filtro-util-sim');
+    const campanha: Campanha = {
+      id: 'destaque-util-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-sim', data_cy: 'filtro-util-sim', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-1', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    const antes = chamadasRastreamento.length;
+    listener({ target: elementoClique('data-up-util-sim') });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].url, 'http://localhost/api/widget/feedback/utilidade-destaque');
+    assert.equal(novas[0].body.campanha_id, 'destaque-util-1');
+    assert.equal(novas[0].body.destaque_item_id, 'item-util-sim');
+    assert.equal(novas[0].body.usuario_id, 'user-1');
+    assert.equal(novas[0].body.util, true);
+    assert.equal('observacao' in novas[0].body, false, 'sem comentário ainda, observacao não deve ir no payload');
+  });
+
+  test('Não -> POST utilidade-destaque com util:false', () => {
+    presentes.add('filtro-util-nao');
+    const campanha: Campanha = {
+      id: 'destaque-util-2', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-nao', data_cy: 'filtro-util-nao', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-2', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    const antes = chamadasRastreamento.length;
+    listener({ target: elementoClique('data-up-util-nao') });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].body.util, false);
+  });
+
+  test('comentário opcional -> digitar e clicar Enviar envia observacao no mesmo item/campanha/usuário, com a escolha atual', () => {
+    presentes.add('filtro-util-comentario');
+    const campanha: Campanha = {
+      id: 'destaque-util-3', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-comentario', data_cy: 'filtro-util-comentario', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-3', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    listener({ target: elementoClique('data-up-util-sim') });
+
+    const inputListener = destaqueElementoGetTestInputListener(0);
+    inputListener!({ target: elementoInput('data-up-util-comentario', 'Adorei a novidade!') });
+    assert.equal(destaqueElementoGetTestUtilidadeState(0)!.comentario, 'Adorei a novidade!')
+
+    const antes = chamadasRastreamento.length;
+    listener({ target: elementoClique('data-up-util-enviar-comentario') });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].body.destaque_item_id, 'item-util-comentario');
+    assert.equal(novas[0].body.usuario_id, 'user-1');
+    assert.equal(novas[0].body.util, true, 'reenvia a escolha atual (Sim) junto com o comentário');
+    assert.equal(novas[0].body.observacao, 'Adorei a novidade!');
+  });
+
+  test('não deixa enviar comentário antes de escolher Sim/Não (nenhuma requisição extra)', () => {
+    presentes.add('filtro-util-sem-escolha');
+    const campanha: Campanha = {
+      id: 'destaque-util-sem-escolha', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-sem-escolha', data_cy: 'filtro-util-sem-escolha', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-sem-escolha', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    const antes = chamadasRastreamento.length;
+    listener({ target: elementoClique('data-up-util-enviar-comentario') });
+    assert.equal(chamadasRastreamento.length, antes, 'sem escolha de Sim/Não ainda, clicar Enviar não deve disparar nada')
+  });
+
+  test('alteração Sim -> Não envia um segundo POST com util:false (o widget sempre reenvia a escolha atual — "1 resposta" é garantido pelo índice único do banco, ver schema.prisma)', () => {
+    presentes.add('filtro-util-troca-1');
+    const campanha: Campanha = {
+      id: 'destaque-util-troca-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-troca-1', data_cy: 'filtro-util-troca-1', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-troca-1', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    listener({ target: elementoClique('data-up-util-sim') });
+    assert.equal(destaqueElementoGetTestUtilidadeState(0)!.escolha, true);
+
+    const antes = chamadasRastreamento.length;
+    listener({ target: elementoClique('data-up-util-nao') });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].body.util, false);
+    assert.equal(novas[0].body.destaque_item_id, 'item-util-troca-1');
+    assert.equal(destaqueElementoGetTestUtilidadeState(0)!.escolha, false, 'estado local reflete a última escolha');
+  });
+
+  test('alteração Não -> Sim envia um segundo POST com util:true', () => {
+    presentes.add('filtro-util-troca-2');
+    const campanha: Campanha = {
+      id: 'destaque-util-troca-2', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-troca-2', data_cy: 'filtro-util-troca-2', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-troca-2', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    listener({ target: elementoClique('data-up-util-nao') });
+
+    const antes = chamadasRastreamento.length;
+    listener({ target: elementoClique('data-up-util-sim') });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].body.util, true);
+  });
+
+  test('itens A/B independentes: escolher no item A nunca envia nada pro item B, nem afeta o estado local de B', () => {
+    presentes.add('filtro-util-a');
+    presentes.add('filtro-util-b');
+    const campanha: Campanha = {
+      id: 'destaque-util-ab', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [
+        { id: 'item-util-a', data_cy: 'filtro-util-a', titulo: 'A' },
+        { id: 'item-util-b', data_cy: 'filtro-util-b', titulo: 'B' },
+      ],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-ab', usuario_id: 'user-1' };
+    destaqueElementoMontarTodos(campanha, config);
+    const listenerA = destaqueElementoGetTestClickListener(0);
+    const listenerB = destaqueElementoGetTestClickListener(1);
+    listenerA!({ target: elementoClique('data-up-destaque-toggle') });
+    listenerB!({ target: elementoClique('data-up-destaque-toggle') });
+
+    const antes = chamadasRastreamento.length;
+    listenerA!({ target: elementoClique('data-up-util-sim') });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1, 'só o item A deve gerar requisição');
+    assert.equal(novas[0].body.destaque_item_id, 'item-util-a');
+    assert.equal(destaqueElementoGetTestUtilidadeState(0)!.escolha, true);
+    assert.equal(destaqueElementoGetTestUtilidadeState(1)!.escolha, null, 'item B nunca é afetado pela escolha do item A');
+  });
+
+  test('usuário diferente -> mesmo item, cada instância manda o próprio usuario_id (dedupe por usuário é responsabilidade do índice único no banco)', () => {
+    presentes.add('filtro-util-user-1');
+    presentes.add('filtro-util-user-2');
+    const campanhaBase = {
+      modo_exibicao: 'destaque_elemento' as const, mostrar_uma_vez: true, permitir_fechar_modal: true,
+    };
+    const item1 = { id: 'item-util-mesmo', data_cy: 'filtro-util-user-1', titulo: 'T' };
+    destaqueElementoMontarTodos({ ...campanhaBase, id: 'destaque-util-user-a', destaques: [item1] }, { sistema: 'sis', tela: 'tela-util-user-a', usuario_id: 'usuario-a' });
+    const listenerUsuarioA = destaqueElementoGetTestClickListener(0);
+    listenerUsuarioA!({ target: elementoClique('data-up-destaque-toggle') });
+    const antesA = chamadasRastreamento.length;
+    listenerUsuarioA!({ target: elementoClique('data-up-util-sim') });
+    assert.equal(chamadasRastreamento[antesA].body.usuario_id, 'usuario-a');
+
+    const item2 = { id: 'item-util-mesmo-2', data_cy: 'filtro-util-user-2', titulo: 'T' };
+    destaqueElementoMontarTodos({ ...campanhaBase, id: 'destaque-util-user-b', destaques: [item2] }, { sistema: 'sis', tela: 'tela-util-user-b', usuario_id: 'usuario-b' });
+    const listenerUsuarioB = destaqueElementoGetTestClickListener(0);
+    listenerUsuarioB!({ target: elementoClique('data-up-destaque-toggle') });
+    const antesB = chamadasRastreamento.length;
+    listenerUsuarioB!({ target: elementoClique('data-up-util-sim') });
+    assert.equal(chamadasRastreamento[antesB].body.usuario_id, 'usuario-b');
+  });
+
+  test('pseudo-item legado (sem destaques[], id:null) nunca gera avaliação de utilidade — clicar Sim/Não não existe pra este item', () => {
+    presentes.add('filtro-util-legado');
+    const campanha: Campanha = {
+      id: 'destaque-util-legado', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      data_cy: 'filtro-util-legado', titulo: 'Legado', descricao: 'D',
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-legado', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    const antes = chamadasRastreamento.length;
+    // Sem item.id, a seção nunca é renderizada — mas mesmo que o listener
+    // seja acionado diretamente (harness não valida presença real no DOM),
+    // enviarUtilidadeDestaque recusa por falta de item.id.
+    listener({ target: elementoClique('data-up-util-sim') });
+    assert.equal(chamadasRastreamento.length, antes, 'pseudo-item legado (id:null) nunca deve gerar POST de utilidade')
+  });
+
+  test('sem usuario_id no config -> escolha local continua otimista, mas nenhuma requisição é enviada (mesma exigência de registrarFeedback)', () => {
+    presentes.add('filtro-util-sem-usuario');
+    const campanha: Campanha = {
+      id: 'destaque-util-sem-usuario', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-sem-usuario', data_cy: 'filtro-util-sem-usuario', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-sem-usuario' };
+    const listener = abrirTooltip(campanha, config);
+    const antes = chamadasRastreamento.length;
+    listener({ target: elementoClique('data-up-util-sim') });
+    assert.equal(chamadasRastreamento.length, antes, 'sem usuario_id, não deve chamar o backend')
+    assert.equal(destaqueElementoGetTestUtilidadeState(0)!.escolha, true, 'a escolha local continua otimista mesmo sem poder persistir')
+  });
+
+  test('falha de rede síncrona (fetch lança) no clique Sim/Não nunca quebra o widget — clique seguinte (trocar pra Não) continua funcionando', () => {
+    presentes.add('filtro-util-falha-sync');
+    const campanha: Campanha = {
+      id: 'destaque-util-falha-sync', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-falha-sync', data_cy: 'filtro-util-falha-sync', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-falha-sync', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    const fetchOriginal = sandboxCompartilhado.fetch;
+    sandboxCompartilhado.fetch = () => { throw new Error('falha de rede simulada'); };
+    try {
+      assert.doesNotThrow(() => listener({ target: elementoClique('data-up-util-sim') }), 'clicar Sim não pode lançar mesmo com fetch quebrado');
+      assert.equal(destaqueElementoGetTestUtilidadeState(0)!.escolha, true, 'escolha local se aplica mesmo com o envio falhando');
+    } finally {
+      sandboxCompartilhado.fetch = fetchOriginal;
+    }
+    // Widget continua utilizável depois da falha — trocar a escolha funciona.
+    assert.doesNotThrow(() => listener({ target: elementoClique('data-up-util-nao') }));
+    assert.equal(destaqueElementoGetTestUtilidadeState(0)!.escolha, false);
+  });
+
+  test('falha de rede (fetch rejeita) no envio do comentário mostra erro recuperável — enviando volta a false, permite tentar de novo, e o tooltip continua aberto', async () => {
+    presentes.add('filtro-util-falha-comentario');
+    const campanha: Campanha = {
+      id: 'destaque-util-falha-comentario', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-falha-comentario', data_cy: 'filtro-util-falha-comentario', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-falha-comentario', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    listener({ target: elementoClique('data-up-util-sim') });
+
+    const fetchOriginal = sandboxCompartilhado.fetch;
+    sandboxCompartilhado.fetch = () => Promise.reject(new Error('falha de rede simulada'));
+    try {
+      assert.doesNotThrow(() => listener({ target: elementoClique('data-up-util-enviar-comentario') }));
+      // Deixa a microtask da Promise rejeitada resolver antes de checar o estado.
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const estado = destaqueElementoGetTestUtilidadeState(0)!;
+      assert.equal(estado.enviando, false, 'enviando deve voltar a false depois da falha, permitindo tentar de novo');
+      assert.notEqual(estado.erro, null, 'erro deve ficar visível pro usuário tentar de novo');
+      assert.equal(destaqueElementoGetTestAberto(0), true, 'em erro, o tooltip permanece aberto (nunca fecha sozinho)');
+      // Nenhum fechamento automático foi agendado — disparar a fila de
+      // timers não deve fechar nada, já que erro não agenda nada.
+      dispararTimersPendentesDestaque();
+      assert.equal(destaqueElementoGetTestAberto(0), true, 'continua aberto mesmo depois de "passar o tempo"');
+    } finally {
+      sandboxCompartilhado.fetch = fetchOriginal;
+    }
+  });
+
+  test('sucesso no envio do comentário: mostra "Obrigado" brevemente (tooltip ainda aberto) e só fecha depois do tempo passar — nunca desmonta, nunca dispara dispensa', async () => {
+    presentes.add('filtro-util-fecha-sucesso');
+    const campanha: Campanha = {
+      id: 'destaque-util-fecha-sucesso', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-fecha-sucesso', data_cy: 'filtro-util-fecha-sucesso', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-fecha-sucesso', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    listener({ target: elementoClique('data-up-util-sim') });
+
+    const antesDispensa = chamadasRastreamento.length;
+    listener({ target: elementoClique('data-up-util-enviar-comentario') });
+    // Antes da Promise resolver, nada mudou ainda.
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    // Passo 1: sucesso mostra "Obrigado" e o tooltip CONTINUA aberto — o
+    // fechamento é automático, mas não instantâneo.
+    assert.equal(destaqueElementoGetTestAberto(0), true, 'logo após o sucesso, o tooltip ainda deve estar aberto (mostra "Obrigado" brevemente)')
+    assert.equal(destaqueElementoGetTestUtilidadeState(0)!.comentarioEnviado, true)
+    assert.equal(destaqueElementoGetTestUtilidadeState(0)!.erro, null)
+
+    // Nenhuma chamada de dispensa foi disparada em momento algum deste fluxo
+    // — fechamento automático por sucesso é uma ação diferente de fechar
+    // explicitamente pelo X.
+    const chamadasAteAqui = chamadasRastreamento.slice(antesDispensa);
+    assert.equal(chamadasAteAqui.some(c => c.body.tipo_evento === 'dispensa'), false, 'sucesso nunca deve registrar o evento dispensa')
+
+    // Passo 2: só depois do timer (tempo) passar, o tooltip realmente fecha.
+    dispararTimersPendentesDestaque();
+    assert.equal(destaqueElementoGetTestAberto(0), false, 'depois do tempo passar, o tooltip deve fechar sozinho')
+
+    // Fechar automaticamente NUNCA é dispensa, mesmo depois de fechar de
+    // verdade.
+    const chamadasFinal = chamadasRastreamento.slice(antesDispensa);
+    assert.equal(chamadasFinal.some(c => c.body.tipo_evento === 'dispensa'), false, 'fechamento automático continua nunca sendo dispensa')
+    // A instância continua montada (badge ainda existe, só o tooltip fechou)
+    // — desmontar só acontece no fechamento explícito (botão X). Um listener
+    // ainda existente pro índice 0 prova que a instância não foi removida de
+    // destaqueElementoInstancias.
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a instância continua montada — só o tooltip fechou, o destaque não foi desmontado')
+  });
+
+  test('duplo clique em "Enviar" durante o loading não gera envio duplicado', async () => {
+    presentes.add('filtro-util-duplo-clique');
+    const campanha: Campanha = {
+      id: 'destaque-util-duplo-clique', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-duplo-clique', data_cy: 'filtro-util-duplo-clique', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-duplo-clique', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    listener({ target: elementoClique('data-up-util-sim') });
+
+    const antes = chamadasRastreamento.length;
+    // 2 cliques em sequência, ANTES da Promise do 1º envio resolver —
+    // `enviando` já foi setado true de forma síncrona no 1º clique, então o
+    // 2º clique deve ser ignorado pelo guard no listener.
+    listener({ target: elementoClique('data-up-util-enviar-comentario') });
+    listener({ target: elementoClique('data-up-util-enviar-comentario') });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1, 'só o 1º clique deve gerar requisição — o 2º é ignorado enquanto enviando=true');
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(destaqueElementoGetTestUtilidadeState(0)!.enviando, false, 'depois de resolver, enviando volta a false')
+  });
+
+  test('badge/CTA/dispensa/tracking/"até interagir" continuam com o comportamento de sempre quando a campanha também tem avaliação de utilidade', () => {
+    presentes.add('filtro-util-nao-interfere');
+    const campanha: Campanha = {
+      id: 'destaque-util-nao-interfere', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-nao-interfere', data_cy: 'filtro-util-nao-interfere', titulo: 'T', texto_botao: 'Ver', url_botao: 'https://x.com' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-nao-interfere', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    // CTA continua abrindo normalmente e sendo rastreado, mesmo com a seção
+    // de utilidade presente no mesmo tooltip.
+    const antes = chamadasRastreamento.length;
+    listener({ target: elementoClique('data-up-destaque-cta', { 'data-up-url': 'https://x.com' }) });
+    const novas = chamadasRastreamento.slice(antes);
+    assert.equal(novas.length, 1);
+    assert.equal(novas[0].body.tipo_evento, 'clique_cta');
+    assert.equal(wasShown(campanha, config, 'item-util-nao-interfere'), true, '"até interagir" continua marcando o item como visto no clique do CTA, de sempre');
   });
 })

@@ -37,6 +37,9 @@ export interface Campanha {
   encerrar_apos_evento: boolean
   evento_conclusao: string | null
   categoria: string | null
+  // Fundação NPS/CSAT/utilidade_destaque (ver Feedback abaixo) — sempre
+  // 'nps' por enquanto, nenhuma UI ainda escreve outro valor.
+  tipo_avaliacao_feedback: string
   segmentar_cliente_ids: string[]
   segmentar_unidade_ids: string[]
   segmentar_perfis: string[]
@@ -68,10 +71,20 @@ export interface CampanhaDestaqueItem {
   atualizado_em: string
 }
 
+// Fundação NPS/CSAT/utilidade_destaque (ver server/prisma/schema.prisma).
+// nota continua tipada como `number` (não `number | null`, embora a coluna
+// no banco já seja opcional) porque este tipo hoje só reflete
+// DashboardData.feedbacks_recentes, que o backend filtra por
+// tipo_avaliacao === 'nps' (whereFeedbackNps em dashboard.ts) — nota nunca é
+// null nesse conjunto. Isso muda no dia em que outro endpoint expuser
+// Feedback de tipo csat/utilidade_destaque pro frontend.
 export interface Feedback {
   id: string
   campanha_id: string
+  tipo_avaliacao: string
   nota: number
+  util: boolean | null
+  destaque_item_id: string | null
   observacao: string | null
   usuario_id: string | null
   usuario_nome: string | null
@@ -117,6 +130,29 @@ export interface DesempenhoDestaqueItem {
   cliques_cta_unicos: number
   dispensas: number
   dispensas_unicas: number
+  // Avaliações de utilidade ("Essa melhoria foi útil?") — avaliacoes sempre
+  // = sim + nao. percentual_util é null (não 0) quando avaliacoes === 0.
+  avaliacoes: number
+  sim: number
+  nao: number
+  percentual_util: number | null
+}
+
+// Uma avaliação de utilidade de destaque ("Essa melhoria foi útil?") —
+// sempre Feedback com tipo_avaliacao='utilidade_destaque' no backend, nunca
+// misturado com NPS/CSAT (ver Feedback abaixo, que continua exclusivo de
+// nps/csat neste frontend). nota nunca se aplica aqui (por isso nem entra
+// no tipo); util é sempre true/false pra uma avaliação de verdade.
+export interface AvaliacaoDestaqueItem {
+  id: string
+  destaque_item_id: string | null
+  util: boolean | null
+  observacao: string | null
+  usuario_id: string | null
+  usuario_nome: string | null
+  usuario_email: string | null
+  contexto: Record<string, string> | null
+  criado_em: string
 }
 
 export interface DashboardData {
@@ -136,6 +172,8 @@ export interface DashboardData {
   respondentes_unicos: number
   // Só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   desempenho_destaques: DesempenhoDestaqueItem[]
+  // Idem — só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
+  avaliacoes_destaques: AvaliacaoDestaqueItem[]
 }
 
 export interface TelaCatalogo {

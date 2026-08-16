@@ -762,6 +762,9 @@ async function seedInteracoesCampanhas(campanhas: Map<string, { id: string }>) {
       create: {
         id: item.id,
         campanha_id: campanha.id,
+        // Todo feedback seed é demo de NPS (0-10) — fundação
+        // csat/utilidade_destaque ainda não tem dado de exemplo próprio.
+        tipo_avaliacao: 'nps',
         nota: item.nota,
         observacao: item.observacao,
         usuario_id: item.usuario_id,
@@ -777,6 +780,7 @@ async function seedInteracoesCampanhas(campanhas: Map<string, { id: string }>) {
       },
       update: {
         campanha_id: campanha.id,
+        tipo_avaliacao: 'nps',
         nota: item.nota,
         observacao: item.observacao,
         usuario_id: item.usuario_id,

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import {
   avaliarReexibicaoPorDias, construirFiltroCandidatas, fonteReferenciaReexibicao, ocultarTenantId,
   validarDestaqueItemEvento, TIPOS_EVENTO_CAMPANHA,
+  validarAvaliacaoFeedback, TIPOS_AVALIACAO_FEEDBACK,
+  filtroFeedbackGeralReexibicao,
 } from './widget'
 
 const DIA_MS = 86_400_000
@@ -282,5 +284,145 @@ describe('validarDestaqueItemEvento', () => {
     const item = { id: 'item-diferente', campanha_id: 'camp-1' }
     const r = validarDestaqueItemEvento('item-1', item, 'camp-1')
     assert.notEqual(r.erro, null)
+  })
+})
+
+// Fundação NPS/CSAT/utilidade_destaque (Feedback.tipo_avaliacao,
+// Campanha.tipo_avaliacao_feedback). validarAvaliacaoFeedback é a regra pura
+// central por tipo — quem chama (registrarFeedback) já resolveu
+// tipoAvaliacao a partir de Campanha.tipo_avaliacao_feedback antes de
+// chegar aqui, nunca de um campo enviado pelo cliente; estes testes cobrem
+// só a validação do VALOR pro tipo já resolvido.
+describe('TIPOS_AVALIACAO_FEEDBACK', () => {
+  test('cobre nps, csat e utilidade_destaque', () => {
+    assert.deepEqual(TIPOS_AVALIACAO_FEEDBACK, ['nps', 'csat', 'utilidade_destaque'])
+  })
+})
+
+describe('validarAvaliacaoFeedback — nps (feedback legado e novo, 0..10)', () => {
+  test('feedback legado (tipo resolvido "nps" pelo backfill/@default) é validado igual a antes — 0..10', () => {
+    const r = validarAvaliacaoFeedback('nps', { nota: 7 }, null, 'camp-1')
+    assert.equal(r.erro, null)
+    assert.equal(r.nota, 7)
+    assert.equal(r.util, null)
+    assert.equal(r.destaqueItemId, null)
+  })
+
+  test('aceita os extremos 0 e 10', () => {
+    assert.equal(validarAvaliacaoFeedback('nps', { nota: 0 }, null, 'camp-1').erro, null)
+    assert.equal(validarAvaliacaoFeedback('nps', { nota: 10 }, null, 'camp-1').erro, null)
+  })
+
+  test('rejeita fora de 0..10', () => {
+    assert.notEqual(validarAvaliacaoFeedback('nps', { nota: -1 }, null, 'camp-1').erro, null)
+    assert.notEqual(validarAvaliacaoFeedback('nps', { nota: 11 }, null, 'camp-1').erro, null)
+  })
+
+  test('rejeita não-inteiro e nota ausente', () => {
+    assert.notEqual(validarAvaliacaoFeedback('nps', { nota: 5.5 }, null, 'camp-1').erro, null)
+    assert.notEqual(validarAvaliacaoFeedback('nps', {}, null, 'camp-1').erro, null)
+  })
+})
+
+describe('validarAvaliacaoFeedback — csat (1..5, nunca confundido com nps)', () => {
+  test('aceita os extremos 1 e 5', () => {
+    const r1 = validarAvaliacaoFeedback('csat', { nota: 1 }, null, 'camp-1')
+    const r5 = validarAvaliacaoFeedback('csat', { nota: 5 }, null, 'camp-1')
+    assert.equal(r1.erro, null)
+    assert.equal(r1.nota, 1)
+    assert.equal(r5.erro, null)
+    assert.equal(r5.nota, 5)
+  })
+
+  test('rejeita 0 e 6 — faixa de csat é 1..5, nunca a de nps (0..10)', () => {
+    assert.notEqual(validarAvaliacaoFeedback('csat', { nota: 0 }, null, 'camp-1').erro, null)
+    assert.notEqual(validarAvaliacaoFeedback('csat', { nota: 6 }, null, 'camp-1').erro, null)
+  })
+
+  test('csat nunca grava util/destaque_item_id, mesmo que só nota seja enviada', () => {
+    const r = validarAvaliacaoFeedback('csat', { nota: 4 }, null, 'camp-1')
+    assert.equal(r.util, null)
+    assert.equal(r.destaqueItemId, null)
+  })
+})
+
+describe('validarAvaliacaoFeedback — utilidade_destaque (Sim/Não por CampanhaDestaqueItem)', () => {
+  test('boolean + destaque_item_id da própria campanha -> aceito, nota sempre null', () => {
+    const item = { id: 'item-1', campanha_id: 'camp-1' }
+    const r = validarAvaliacaoFeedback('utilidade_destaque', { util: true, destaque_item_id: 'item-1' }, item, 'camp-1')
+    assert.equal(r.erro, null)
+    assert.equal(r.util, true)
+    assert.equal(r.destaqueItemId, 'item-1')
+    assert.equal(r.nota, null)
+  })
+
+  test('util=false também é válido (não é "ausente", é uma resposta negativa de verdade)', () => {
+    const item = { id: 'item-1', campanha_id: 'camp-1' }
+    const r = validarAvaliacaoFeedback('utilidade_destaque', { util: false, destaque_item_id: 'item-1' }, item, 'camp-1')
+    assert.equal(r.erro, null)
+    assert.equal(r.util, false)
+  })
+
+  test('exige util boolean — ausente ou tipo errado é rejeitado', () => {
+    const item = { id: 'item-1', campanha_id: 'camp-1' }
+    assert.notEqual(validarAvaliacaoFeedback('utilidade_destaque', { destaque_item_id: 'item-1' }, item, 'camp-1').erro, null)
+    assert.notEqual(validarAvaliacaoFeedback('utilidade_destaque', { util: 'sim', destaque_item_id: 'item-1' }, item, 'camp-1').erro, null)
+  })
+
+  test('exige destaque_item_id — ausente é rejeitado', () => {
+    const r = validarAvaliacaoFeedback('utilidade_destaque', { util: true }, null, 'camp-1')
+    assert.notEqual(r.erro, null)
+  })
+
+  test('rejeita item de OUTRA campanha (mesmo tenant) — ownership', () => {
+    const itemDeOutraCampanha = { id: 'item-1', campanha_id: 'camp-outra' }
+    const r = validarAvaliacaoFeedback('utilidade_destaque', { util: true, destaque_item_id: 'item-1' }, itemDeOutraCampanha, 'camp-1')
+    assert.notEqual(r.erro, null)
+    assert.equal(r.destaqueItemId, null)
+  })
+
+  test('rejeita item vazado de OUTRO TENANT — mesmo caminho de rejeição, nunca existe item "solto" sem passar pela campanha dele', () => {
+    const itemDeOutroTenant = { id: 'item-vazado', campanha_id: 'camp-de-outro-tenant' }
+    const r = validarAvaliacaoFeedback('utilidade_destaque', { util: true, destaque_item_id: 'item-vazado' }, itemDeOutroTenant, 'camp-do-tenant-atual')
+    assert.notEqual(r.erro, null)
+    assert.equal(r.destaqueItemId, null)
+  })
+
+  test('utilidade_destaque nunca grava nota, mesmo que nota venha no payload (campo simplesmente nunca é lido)', () => {
+    const item = { id: 'item-1', campanha_id: 'camp-1' }
+    const r = validarAvaliacaoFeedback('utilidade_destaque', { util: true, destaque_item_id: 'item-1', nota: 9 }, item, 'camp-1')
+    assert.equal(r.nota, null)
+  })
+})
+
+describe('validarAvaliacaoFeedback — tipo desconhecido', () => {
+  test('tipo fora de TIPOS_AVALIACAO_FEEDBACK é rejeitado (defesa contra dado inconsistente no banco)', () => {
+    const r = validarAvaliacaoFeedback('formato_que_nao_existe', { nota: 5 }, null, 'camp-1')
+    assert.notEqual(r.erro, null)
+  })
+})
+
+// Gating de reexibição — utilidade_destaque é independente do feedback
+// geral da campanha (regra de produto: Campanha.tipo_avaliacao_feedback só
+// representa nps/csat). Cobre "utilidade não interfere no gating NPS/CSAT"
+// e "NPS/CSAT não interferem na utilidade": como o filtro SEMPRE usa
+// tipo_avaliacao_feedback da campanha (nunca 'utilidade_destaque', porque
+// esse campo nunca assume esse valor), uma resposta de utilidade_destaque
+// nunca é contada como "campanha respondida", e o inverso também nunca
+// acontece — são universos de tipo_avaliacao disjuntos por construção.
+describe('filtroFeedbackGeralReexibicao', () => {
+  test('usa tipo_avaliacao_feedback da campanha (nps) — nunca utilidade_destaque', () => {
+    const r = filtroFeedbackGeralReexibicao('camp-1', 'user-1', 'nps')
+    assert.deepEqual(r, { campanha_id: 'camp-1', usuario_id: 'user-1', tipo_avaliacao: 'nps' })
+  })
+
+  test('usa tipo_avaliacao_feedback da campanha (csat) — mesmo raciocínio, futuro-compatível', () => {
+    const r = filtroFeedbackGeralReexibicao('camp-1', 'user-1', 'csat')
+    assert.deepEqual(r, { campanha_id: 'camp-1', usuario_id: 'user-1', tipo_avaliacao: 'csat' })
+  })
+
+  test('nunca produz filtro com tipo_avaliacao "utilidade_destaque" — só ecoa o que a campanha resolve, e esse campo nunca assume esse valor', () => {
+    const r = filtroFeedbackGeralReexibicao('camp-1', 'user-1', 'nps')
+    assert.notEqual(r.tipo_avaliacao, 'utilidade_destaque')
   })
 })

@@ -1000,6 +1000,20 @@
       '.up-destaque-titulo{margin:0 22px 4px 0;font-size:13.5px;font-weight:800;line-height:1.35;color:#0b1c30}',
       '.up-destaque-descricao{margin:0;font-size:12.5px;line-height:1.45;color:#4a5164}',
       '.up-destaque-cta{display:inline-flex;align-items:center;justify-content:center;height:34px;margin-top:12px;padding:0 16px;border:0;border-radius:999px;background:var(--up-primary, #0058be);color:#fff;font-size:12px;font-weight:800;cursor:pointer}',
+      // Avaliação de utilidade do destaque ("Essa melhoria foi útil?") —
+      // separador sutil (mesma cor de borda do card) pra distinguir da
+      // descrição/CTA acima sem pesar visualmente.
+      '.up-destaque-util{margin-top:12px;padding-top:12px;border-top:1px solid rgba(194,198,214,.4)}',
+      '.up-destaque-util-label{margin:0 0 8px;font-size:12px;font-weight:700;line-height:1.4;color:#0b1c30}',
+      '.up-destaque-util-botoes{display:flex;gap:8px}',
+      '.up-destaque-util-btn{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border:1px solid rgba(194,198,214,.5);border-radius:999px;background:#f8f9ff;color:#4a5164;font-size:12px;font-weight:700;cursor:pointer;transition:transform .15s ease,background .15s ease,border-color .15s ease}',
+      '.up-destaque-util-btn:hover{border-color:var(--up-primary, #0058be)}',
+      '.up-destaque-util-btn:active{transform:scale(.96)}',
+      '.up-destaque-util-btn-ativo{background:var(--up-primary-soft, #eff4ff);border-color:var(--up-primary, #0058be);color:var(--up-primary, #0058be)}',
+      '.up-destaque-util-comentario{margin-top:10px}',
+      '.up-destaque-util-comentario .up-textarea{min-height:56px;font-size:12.5px}',
+      '.up-destaque-util-ok{margin:6px 0 0;color:#1e8e5a;font-size:11.5px;line-height:15px}',
+      '.up-destaque-util-comentario .up-submit{height:34px;margin-top:8px;font-size:11.5px}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -1332,6 +1346,7 @@
   function destaqueElementoDesmontarInstancia(instancia) {
     if (!instancia || instancia.desmontada) return;
     instancia.desmontada = true;
+    destaqueElementoUtilCancelarAutoClose(instancia);
     if (instancia.reposicionar) {
       window.removeEventListener('scroll', instancia.reposicionar, true);
       window.removeEventListener('resize', instancia.reposicionar);
@@ -1634,9 +1649,151 @@
     }
   }
 
+  // Avaliação "Essa melhoria foi útil?" (utilidade_destaque) — só faz
+  // sentido pra um item real (item.id truthy). O pseudo-item legado
+  // (id:null, campanha destaque_elemento ainda sem `destaques[]`, ver
+  // destaqueElementoResolverItens) nunca tem destaque_item_id válido pro
+  // backend validar, então nunca mostra esta seção. UX em 2 passos: clicar
+  // Sim/Não já registra a escolha (otimista, silencioso — mesmo padrão de
+  // registrarEvento/tourFeedback), depois revela um comentário opcional com
+  // envio próprio (com loading/erro visíveis, mesmo padrão do feedback geral).
+  function destaqueElementoUtilConteudo(utilidade) {
+    if (!utilidade) return '';
+    // comentarioEnviado === true só depois do envio VISÍVEL do comentário ter
+    // sucesso (nunca do clique silencioso em Sim/Não) — substitui a seção
+    // inteira por um agradecimento breve; destaqueElementoUtilAgendarFechamento
+    // já fechou (ou vai fechar) o tooltip sozinho pouco depois, então não faz
+    // sentido continuar mostrando os botões Sim/Não/comentário aqui.
+    if (utilidade.comentarioEnviado) {
+      return '<div class="up-destaque-util"><p class="up-destaque-util-ok">Obrigado pelo feedback!</p></div>';
+    }
+    var escolha = utilidade.escolha;
+    var partes = ['<div class="up-destaque-util">'];
+    if (escolha === null) {
+      partes.push('<p class="up-destaque-util-label">Essa melhoria foi útil?</p>');
+    }
+    partes.push(
+      '<div class="up-destaque-util-botoes">',
+      '<button type="button" class="up-destaque-util-btn' + (escolha === true ? ' up-destaque-util-btn-ativo' : '') + '" data-up-util-sim="true" aria-pressed="' + (escolha === true ? 'true' : 'false') + '">👍 Sim</button>',
+      '<button type="button" class="up-destaque-util-btn' + (escolha === false ? ' up-destaque-util-btn-ativo' : '') + '" data-up-util-nao="true" aria-pressed="' + (escolha === false ? 'true' : 'false') + '">👎 Não</button>',
+      '</div>'
+    );
+    if (escolha !== null) {
+      partes.push(
+        '<div class="up-destaque-util-comentario">',
+        '<p class="up-destaque-util-label">Quer contar mais? (opcional)</p>',
+        '<textarea class="up-textarea" data-up-util-comentario="true" placeholder="Comentário opcional">' + escapeHtml(utilidade.comentario || '') + '</textarea>',
+        utilidade.erro ? '<p class="up-error">' + escapeHtml(utilidade.erro) + '</p>' : '',
+        '<button type="button" class="up-submit" data-up-util-enviar-comentario="true"' + (utilidade.enviando ? ' disabled' : '') + '>' + (utilidade.enviando ? 'Enviando...' : 'Enviar') + '</button>',
+        '</div>'
+      );
+    }
+    partes.push('</div>');
+    return partes.join('');
+  }
+
+  // Envia a avaliação de utilidade do destaque (Sim/Não + comentário
+  // opcional). `comFeedbackVisivel` diferencia os 2 pontos de chamada:
+  // - false: clique inicial em Sim/Não — otimista/silencioso, mesmo
+  //   princípio de registrarEvento (falha de rede nunca aparece pro usuário,
+  //   nunca quebra o resto do widget).
+  // - true: clique em "Enviar" do comentário — mostra loading/erro visíveis
+  //   (mesmo padrão de submitFeedback/up-error), porque foi uma ação
+  //   explícita de formulário.
+  // Tudo dentro de try/catch, igual registrarEvento: erro síncrono ou de
+  // rede nunca pode quebrar o site do cliente onde o widget está embarcado.
+  function enviarUtilidadeDestaque(instancia, util, comentario, comFeedbackVisivel) {
+    try {
+      var campanha = instancia.campanha;
+      var config = instancia.config;
+      var item = instancia.item;
+      if (!campanha || !config || !item || !item.id) return;
+      // Sem usuario_id o backend rejeita (mesma exigência de
+      // registrarFeedback) — nunca manda a requisição à toa. A escolha local
+      // (otimista) já foi aplicada por quem chamou, então a UI não trava.
+      if (!config.usuario_id) return;
+
+      if (comFeedbackVisivel) {
+        instancia.utilidade.enviando = true;
+        instancia.utilidade.erro = null;
+        destaqueElementoRender(instancia);
+      }
+
+      fetch(apiUrl('/api/widget/feedback/utilidade-destaque'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          public_key: config.public_key || undefined,
+          campanha_id: campanha.id,
+          destaque_item_id: item.id,
+          util: util,
+          observacao: comentario || undefined,
+          usuario_id: config.usuario_id,
+          usuario_nome: config.usuario_nome || undefined,
+          usuario_email: config.usuario_email || undefined,
+          sistema: config.sistema || undefined,
+          tela: config.tela || undefined,
+          navegador: window.navigator.userAgent,
+          dispositivo: getDevice(),
+          contexto: config.contexto || undefined,
+        }),
+      }).then(function (resp) {
+        if (instancia.desmontada || !comFeedbackVisivel) return;
+        instancia.utilidade.enviando = false;
+        if (resp && resp.ok) {
+          instancia.utilidade.comentarioEnviado = true;
+          instancia.utilidade.erro = null;
+          destaqueElementoRender(instancia);
+          // Sucesso do comentário: mostra "Obrigado pelo feedback!" por um
+          // instante e fecha só o tooltip sozinho (nunca a instância inteira,
+          // nunca dispensa — ver destaqueElementoUtilAgendarFechamento).
+          destaqueElementoUtilAgendarFechamento(instancia);
+        } else {
+          instancia.utilidade.erro = 'Não foi possível enviar. Tente novamente.';
+          destaqueElementoRender(instancia);
+        }
+      }).catch(function () {
+        if (instancia.desmontada || !comFeedbackVisivel) return;
+        instancia.utilidade.enviando = false;
+        instancia.utilidade.erro = 'Não foi possível enviar. Tente novamente.';
+        destaqueElementoRender(instancia);
+      });
+    } catch (_e) {
+      if (comFeedbackVisivel && instancia && instancia.utilidade) {
+        instancia.utilidade.enviando = false;
+        instancia.utilidade.erro = 'Não foi possível enviar. Tente novamente.';
+      }
+    }
+  }
+
+  var UTIL_AUTO_CLOSE_MS = 2000;
+
+  function destaqueElementoUtilCancelarAutoClose(instancia) {
+    if (instancia && instancia.utilAutoCloseTimer) {
+      window.clearTimeout(instancia.utilAutoCloseTimer);
+      instancia.utilAutoCloseTimer = null;
+    }
+  }
+
+  // Fecha só o TOOLTIP (aberto:false) depois de um comentário de utilidade
+  // enviado com sucesso — nunca desmonta a instância (badge continua na
+  // página, reabrível) e nunca chama markShown/registrarEvento('dispensa',
+  // ...): esse evento é exclusivo do fechamento explícito pelo usuário (botão
+  // X, ver o listener de clique). "Até interagir" não é afetado — avaliar
+  // utilidade nunca marcou o item como visto, e continua não marcando aqui.
+  function destaqueElementoUtilAgendarFechamento(instancia) {
+    destaqueElementoUtilCancelarAutoClose(instancia);
+    instancia.utilAutoCloseTimer = window.setTimeout(function () {
+      instancia.utilAutoCloseTimer = null;
+      if (instancia.desmontada) return;
+      instancia.aberto = false;
+      destaqueElementoRender(instancia);
+    }, UTIL_AUTO_CLOSE_MS);
+  }
+
   // `item` é um CampanhaDestaqueItem (ou o pseudo-item legado) — cada
   // instância renderiza o SEU próprio item, independente dos outros.
-  function destaqueElementoConteudo(item, aberto) {
+  function destaqueElementoConteudo(item, aberto, utilidade) {
     var badgeTexto = (item.texto_badge && String(item.texto_badge).trim()) || 'Novo';
     var temCta = Boolean(item.texto_botao && item.url_botao);
     var partes = [
@@ -1652,6 +1809,7 @@
         '<p class="up-destaque-titulo">' + escapeHtml(item.titulo || '') + '</p>',
         item.descricao ? '<p class="up-destaque-descricao">' + escapeHtml(item.descricao) + '</p>' : '',
         temCta ? '<button type="button" class="up-destaque-cta" data-up-destaque-cta="true" data-up-url="' + escapeHtml(item.url_botao) + '">' + escapeHtml(item.texto_botao) + '</button>' : '',
+        item.id ? destaqueElementoUtilConteudo(utilidade) : '',
         '</div>'
       );
     }
@@ -1660,7 +1818,7 @@
 
   function destaqueElementoRender(instancia) {
     if (!instancia.root) return;
-    instancia.root.innerHTML = destaqueElementoConteudo(instancia.item, instancia.aberto);
+    instancia.root.innerHTML = destaqueElementoConteudo(instancia.item, instancia.aberto, instancia.utilidade);
     destaqueElementoReposicionar(instancia);
   }
 
@@ -1685,6 +1843,13 @@
       layoutShiftObserver: null,
       reacaoAgendada: false,
       desmontada: false,
+      // Avaliação de utilidade deste item ("Essa melhoria foi útil?") —
+      // independente de state.nota (feedback geral) e de qualquer outra
+      // instância (cada destaque tem a sua própria escolha/comentário).
+      utilidade: { escolha: null, comentario: '', enviando: false, erro: null, comentarioEnviado: false },
+      // Timer do fechamento automático do tooltip após um comentário de
+      // utilidade enviado com sucesso — ver destaqueElementoUtilAgendarFechamento.
+      utilAutoCloseTimer: null,
     };
     instancia.reposicionar = function () { destaqueElementoReposicionar(instancia); };
     destaqueElementoInstancias.push(instancia);
@@ -1771,6 +1936,42 @@
         registrarEvento('interacao_badge', campanha, config, item.id);
         instancia.aberto = !instancia.aberto;
         destaqueElementoRender(instancia);
+        return;
+      }
+
+      var utilSimEl = target.closest && target.closest('[data-up-util-sim]');
+      var utilNaoEl = target.closest && target.closest('[data-up-util-nao]');
+      var utilEnviarEl = target.closest && target.closest('[data-up-util-enviar-comentario]');
+
+      // Avaliação de utilidade do destaque — independente de
+      // badge/CTA/dispensa acima (não chama markShown nem registrarEvento;
+      // é um fluxo de persistência próprio, ver enviarUtilidadeDestaque).
+      if (utilSimEl || utilNaoEl) {
+        if (instancia.utilidade.enviando) return;
+        destaqueElementoUtilCancelarAutoClose(instancia);
+        var novaEscolha = !!utilSimEl;
+        instancia.utilidade.escolha = novaEscolha;
+        instancia.utilidade.erro = null;
+        instancia.utilidade.comentarioEnviado = false;
+        destaqueElementoRender(instancia);
+        enviarUtilidadeDestaque(instancia, novaEscolha, null, false);
+        return;
+      }
+      if (utilEnviarEl) {
+        if (instancia.utilidade.escolha === null || instancia.utilidade.enviando) return;
+        enviarUtilidadeDestaque(instancia, instancia.utilidade.escolha, instancia.utilidade.comentario, true);
+      }
+    });
+
+    // Delegado (não re-renderiza a cada tecla, mesmo padrão de
+    // data-up-observacao no modal principal) — re-render destruiria o
+    // innerHTML e quebraria o foco/cursor do textarea a cada caractere
+    // digitado.
+    root.addEventListener('input', function (event) {
+      var target = event.target;
+      if (target && target.matches && target.matches('[data-up-util-comentario]')) {
+        instancia.utilidade.comentario = target.value;
+        instancia.utilidade.comentarioEnviado = false;
       }
     });
 
@@ -1883,6 +2084,36 @@
     var instancia = destaqueElementoInstancias[indice || 0];
     var root = instancia && instancia.root;
     return (root && root.listeners && root.listeners.click && root.listeners.click[0]) || null;
+  }
+
+  // Mesmo padrão de destaqueElementoGetTestClickListener, pro listener
+  // 'input' (comentário opcional de utilidade_destaque) — usado por
+  // server/src/widgetDestaqueElemento.test.ts pra simular digitação no
+  // textarea sem tocar em instancia.utilidade diretamente como estado solto.
+  function destaqueElementoGetTestInputListener(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    var root = instancia && instancia.root;
+    return (root && root.listeners && root.listeners.input && root.listeners.input[0]) || null;
+  }
+
+  // Mesmo padrão dos 2 acima — expõe só instancia.utilidade (escolha/
+  // comentario/enviando/erro/comentarioEnviado) pra inspeção em teste, sem
+  // expor destaqueElementoInstancias inteiro. Usado por
+  // server/src/widgetDestaqueElemento.test.ts pra confirmar que uma falha de
+  // envio reseta `enviando` (permite tentar de novo) sem depender de
+  // inspecionar o HTML renderizado.
+  function destaqueElementoGetTestUtilidadeState(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    return (instancia && instancia.utilidade) || null;
+  }
+
+  // Mesmo padrão — expõe só instancia.aberto, pra confirmar em teste que o
+  // fechamento automático após um comentário de utilidade enviado com
+  // sucesso (ver destaqueElementoUtilAgendarFechamento) realmente fecha o
+  // tooltip, sem depender de inspecionar o HTML renderizado.
+  function destaqueElementoGetTestAberto(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    return instancia ? instancia.aberto : null;
   }
 
   function agendarDestaqueElemento(campanha, config) {
@@ -10201,6 +10432,9 @@
     destaqueElementoMontar: destaqueElementoMontar,
     destaqueElementoMontarTodos: destaqueElementoMontarTodos,
     destaqueElementoGetTestClickListener: destaqueElementoGetTestClickListener,
+    destaqueElementoGetTestInputListener: destaqueElementoGetTestInputListener,
+    destaqueElementoGetTestUtilidadeState: destaqueElementoGetTestUtilidadeState,
+    destaqueElementoGetTestAberto: destaqueElementoGetTestAberto,
     // wasShown/markShown já existiam (política de "mostrar_uma_vez"
     // compartilhada por qualquer formato de campanha, via localStorage) —
     // expostas aqui pra confirmar que Destaque em elemento reaproveita a

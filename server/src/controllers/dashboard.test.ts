@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { montarDesempenhoDestaques } from './dashboard'
+import { montarDesempenhoDestaques, whereFeedbackNps, whereUtilidadeDestaque } from './dashboard'
 
 // buscarDashboard() em si é integration-only (várias queries Prisma
 // combinadas com Promise.all) — testado manualmente contra um servidor
@@ -113,5 +113,130 @@ describe('montarDesempenhoDestaques', () => {
     const totais = [{ destaque_item_id: 'i1', tipo_evento: 'visualizacao', _count: { id: 5 } }]
     const r = montarDesempenhoDestaques([], totais, [])
     assert.deepEqual(r, [])
+  })
+
+  test('sem 4º argumento (chamada antiga, 3 argumentos) -> avaliações/sim/não zerados, percentual_util null — nunca quebra quem já chamava assim', () => {
+    const r = montarDesempenhoDestaques([item('i1', 'Filtro Status')], [], [])
+    assert.equal(r[0].avaliacoes, 0)
+    assert.equal(r[0].sim, 0)
+    assert.equal(r[0].nao, 0)
+    assert.equal(r[0].percentual_util, null)
+  })
+})
+
+// Avaliações de utilidade ("Essa melhoria foi útil?") por item — 4º
+// argumento de montarDesempenhoDestaques, groupBy(['destaque_item_id',
+// 'util']) de Feedback com tipo_avaliacao='utilidade_destaque'. Nunca se
+// mistura com visualizacoes/interacoes/cliques_cta/dispensas acima (que vêm
+// de EventoCampanha, uma tabela completamente diferente).
+describe('montarDesempenhoDestaques — avaliações de utilidade (Sim/Não/% útil)', () => {
+  function utilidade(destaqueItemId: string | null, util: boolean | null, count: number) {
+    return { destaque_item_id: destaqueItemId, util, _count: { id: count } }
+  }
+
+  test('agregação Sim/Não por item — cada contagem cai no campo certo', () => {
+    const itens = [item('i1', 'Filtro Status')]
+    const util = [utilidade('i1', true, 7), utilidade('i1', false, 3)]
+    const r = montarDesempenhoDestaques(itens, [], [], util)
+    assert.equal(r[0].sim, 7)
+    assert.equal(r[0].nao, 3)
+    assert.equal(r[0].avaliacoes, 10, 'avaliacoes = sim + nao')
+  })
+
+  test('% útil = sim / avaliacoes * 100, arredondado a 1 casa decimal', () => {
+    const itens = [item('i1', 'Filtro Status')]
+    const util = [utilidade('i1', true, 1), utilidade('i1', false, 2)]
+    const r = montarDesempenhoDestaques(itens, [], [], util)
+    // 1 / 3 * 100 = 33.333... -> 33.3
+    assert.equal(r[0].percentual_util, 33.3)
+  })
+
+  test('% útil = 100 quando só há Sim, e 0 quando só há Não (0 é um resultado real aqui, não "sem dado")', () => {
+    const itens = [item('i1', 'Só sim'), item('i2', 'Só não')]
+    const util = [utilidade('i1', true, 5), utilidade('i2', false, 4)]
+    const r = montarDesempenhoDestaques(itens, [], [], util)
+    const porId = new Map(r.map(l => [l.destaque_item_id, l]))
+    assert.equal(porId.get('i1')!.percentual_util, 100)
+    assert.equal(porId.get('i2')!.percentual_util, 0)
+  })
+
+  test('item sem avaliação -> avaliacoes=0, sim=0, nao=0, percentual_util=null (nunca NaN nem 0% enganoso)', () => {
+    const itens = [item('i1', 'Sem avaliações')]
+    const r = montarDesempenhoDestaques(itens, [], [], [])
+    assert.equal(r[0].avaliacoes, 0)
+    assert.equal(r[0].sim, 0)
+    assert.equal(r[0].nao, 0)
+    assert.equal(r[0].percentual_util, null)
+    assert.equal(Number.isNaN(r[0].percentual_util), false)
+  })
+
+  test('item removido (ativo:false) preserva o histórico de avaliações, igual às outras métricas', () => {
+    const itens = [item('i1', 'Filtro Antigo', false)]
+    const util = [utilidade('i1', true, 2), utilidade('i1', false, 1)]
+    const r = montarDesempenhoDestaques(itens, [], [], util)
+    assert.equal(r[0].ativo, false)
+    assert.equal(r[0].sim, 2)
+    assert.equal(r[0].nao, 1)
+    assert.equal(r[0].avaliacoes, 3)
+  })
+
+  test('isolamento entre itens — avaliação do item A nunca soma no item B', () => {
+    const itens = [item('i1', 'A'), item('i2', 'B')]
+    const util = [utilidade('i1', true, 10), utilidade('i2', false, 1)]
+    const r = montarDesempenhoDestaques(itens, [], [], util)
+    const porId = new Map(r.map(l => [l.destaque_item_id, l]))
+    assert.equal(porId.get('i1')!.sim, 10)
+    assert.equal(porId.get('i1')!.nao, 0)
+    assert.equal(porId.get('i2')!.sim, 0)
+    assert.equal(porId.get('i2')!.nao, 1)
+  })
+
+  test('destaque_item_id null (defesa contra dado inconsistente) -> ignorado, nunca quebra nem cria linha fantasma', () => {
+    const itens = [item('i1', 'Filtro Status')]
+    const util = [utilidade(null, true, 99), utilidade('i1', true, 2)]
+    assert.doesNotThrow(() => montarDesempenhoDestaques(itens, [], [], util))
+    const r = montarDesempenhoDestaques(itens, [], [], util)
+    assert.equal(r.length, 1)
+    assert.equal(r[0].sim, 2, 'só a linha com item real entra; a de destaque_item_id null é ignorada')
+  })
+
+  test('não interfere nas métricas de EventoCampanha (visualizacoes/interacoes/cliques_cta/dispensas) — são universos completamente separados', () => {
+    const itens = [item('i1', 'Filtro Status')]
+    const totais = [{ destaque_item_id: 'i1', tipo_evento: 'visualizacao', _count: { id: 50 } }]
+    const util = [utilidade('i1', true, 3), utilidade('i1', false, 2)]
+    const r = montarDesempenhoDestaques(itens, totais, [], util)
+    assert.equal(r[0].visualizacoes, 50)
+    assert.equal(r[0].sim, 3)
+    assert.equal(r[0].nao, 2)
+  })
+})
+
+// Fundação NPS/CSAT/utilidade_destaque — whereFeedbackNps é o filtro único
+// usado pelas 4 queries de feedback deste dashboard (aggregate/groupBy nota/
+// findMany recentes/groupBy usuario_id). Cobre "queries atuais de NPS
+// ignoram outros tipos": qualquer feedback CSAT ou utilidade_destaque que
+// vier a existir nunca entra nesses cálculos, porque toda query sempre
+// inclui tipo_avaliacao: 'nps' explicitamente — nunca confia em "todo
+// feedback desta campanha é NPS".
+describe('whereFeedbackNps', () => {
+  test('sempre inclui tipo_avaliacao: "nps" junto com o campanha_id — nunca mistura csat/utilidade_destaque no cálculo atual', () => {
+    assert.deepEqual(whereFeedbackNps('camp-1'), { campanha_id: 'camp-1', tipo_avaliacao: 'nps' })
+  })
+})
+
+// Mesmo raciocínio, pra seção "Avaliações dos destaques" — cobre "somente
+// utilidade_destaque entra nessa seção" e "NPS continua intacto": os dois
+// filtros produzem tipo_avaliacao diferentes (nunca o mesmo valor), então
+// nenhuma query que use um dos dois pode acidentalmente enxergar dado do
+// outro tipo.
+describe('whereUtilidadeDestaque', () => {
+  test('sempre inclui tipo_avaliacao: "utilidade_destaque" junto com o campanha_id', () => {
+    assert.deepEqual(whereUtilidadeDestaque('camp-1'), { campanha_id: 'camp-1', tipo_avaliacao: 'utilidade_destaque' })
+  })
+
+  test('nunca produz o mesmo filtro de whereFeedbackNps pra mesma campanha — NPS e utilidade_destaque são universos disjuntos', () => {
+    const filtroNps = whereFeedbackNps('camp-1')
+    const filtroUtil = whereUtilidadeDestaque('camp-1')
+    assert.notEqual(filtroNps.tipo_avaliacao, filtroUtil.tipo_avaliacao)
   })
 })
