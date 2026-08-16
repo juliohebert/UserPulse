@@ -61,6 +61,9 @@ type DestaqueElementoCalcularPosicaoTooltip = (
 type PosicaoBeacon = { left: number }
 type DestaqueElementoCalcularBeacon = (alvoRect: Retangulo, badgeRect: Retangulo) => PosicaoBeacon
 type DestaqueElementoRectsIguais = (a: Retangulo | null | undefined, b: Retangulo | null | undefined) => boolean
+type PontoRepresentativo = { x: number; y: number }
+type DestaqueElementoPontoRepresentativo = (rect: Retangulo) => PontoRepresentativo
+type DestaqueElementoAlvoRealmenteVisivel = (alvo: unknown, rect: Retangulo | null | undefined, elementoNoPonto?: unknown) => boolean
 type DestaqueElementoMutacoesApenasNoRoot = (root: { contains: (node: unknown) => boolean }, mutationsList: Array<{ target: unknown }>) => boolean
 type DestaqueElementoObterViewport = () => Viewport
 type DestaqueElementoMontar = (campanha: Campanha, config: ConfigWidget, alvo: unknown) => void
@@ -75,6 +78,7 @@ type DestaqueElementoGetTestInputListener = (indice?: number) => InputListener |
 type UtilidadeState = { escolha: boolean | null; comentario: string; enviando: boolean; erro: string | null; comentarioEnviado: boolean }
 type DestaqueElementoGetTestUtilidadeState = (indice?: number) => UtilidadeState | null
 type DestaqueElementoGetTestAberto = (indice?: number) => boolean | null
+type DestaqueElementoGetTestOculto = (indice?: number) => boolean | null
 
 let destaqueElementoSeletorSeguro: DestaqueElementoSeletorSeguro
 let destaqueElementoLocalizarAlvo: DestaqueElementoLocalizarAlvo
@@ -82,6 +86,8 @@ let destaqueElementoCalcularPosicao: DestaqueElementoCalcularPosicao
 let destaqueElementoCalcularPosicaoTooltip: DestaqueElementoCalcularPosicaoTooltip
 let destaqueElementoCalcularBeacon: DestaqueElementoCalcularBeacon
 let destaqueElementoRectsIguais: DestaqueElementoRectsIguais
+let destaqueElementoPontoRepresentativo: DestaqueElementoPontoRepresentativo
+let destaqueElementoAlvoRealmenteVisivel: DestaqueElementoAlvoRealmenteVisivel
 let destaqueElementoMutacoesApenasNoRoot: DestaqueElementoMutacoesApenasNoRoot
 let destaqueElementoObterViewport: DestaqueElementoObterViewport
 let destaqueElementoMontar: DestaqueElementoMontar
@@ -91,6 +97,7 @@ let destaqueElementoGetTestClickListener: DestaqueElementoGetTestClickListener
 let destaqueElementoGetTestInputListener: DestaqueElementoGetTestInputListener
 let destaqueElementoGetTestUtilidadeState: DestaqueElementoGetTestUtilidadeState
 let destaqueElementoGetTestAberto: DestaqueElementoGetTestAberto
+let destaqueElementoGetTestOculto: DestaqueElementoGetTestOculto
 let wasShown: WasShown
 let markShown: MarkShown
 // Último root fake criado por document.createElement (ver criarFakeRootDestaque
@@ -299,6 +306,8 @@ before(() => {
         destaqueElementoCalcularPosicaoTooltip?: DestaqueElementoCalcularPosicaoTooltip
         destaqueElementoCalcularBeacon?: DestaqueElementoCalcularBeacon
         destaqueElementoRectsIguais?: DestaqueElementoRectsIguais
+        destaqueElementoPontoRepresentativo?: DestaqueElementoPontoRepresentativo
+        destaqueElementoAlvoRealmenteVisivel?: DestaqueElementoAlvoRealmenteVisivel
         destaqueElementoMutacoesApenasNoRoot?: DestaqueElementoMutacoesApenasNoRoot
         destaqueElementoObterViewport?: DestaqueElementoObterViewport
         destaqueElementoMontar?: DestaqueElementoMontar
@@ -308,6 +317,7 @@ before(() => {
         destaqueElementoGetTestInputListener?: DestaqueElementoGetTestInputListener
         destaqueElementoGetTestUtilidadeState?: DestaqueElementoGetTestUtilidadeState
         destaqueElementoGetTestAberto?: DestaqueElementoGetTestAberto
+        destaqueElementoGetTestOculto?: DestaqueElementoGetTestOculto
         wasShown?: WasShown
         markShown?: MarkShown
       }
@@ -319,6 +329,8 @@ before(() => {
   const calcularPosicaoTooltipFn = UserPulse?._internal?.destaqueElementoCalcularPosicaoTooltip
   const calcularBeaconFn = UserPulse?._internal?.destaqueElementoCalcularBeacon
   const rectsIguaisFn = UserPulse?._internal?.destaqueElementoRectsIguais
+  const pontoRepresentativoFn = UserPulse?._internal?.destaqueElementoPontoRepresentativo
+  const alvoRealmenteVisivelFn = UserPulse?._internal?.destaqueElementoAlvoRealmenteVisivel
   const mutacoesApenasNoRootFn = UserPulse?._internal?.destaqueElementoMutacoesApenasNoRoot
   const obterViewportFn = UserPulse?._internal?.destaqueElementoObterViewport
   const montarFn = UserPulse?._internal?.destaqueElementoMontar
@@ -328,6 +340,7 @@ before(() => {
   const getTestInputListenerFn = UserPulse?._internal?.destaqueElementoGetTestInputListener
   const getTestUtilidadeStateFn = UserPulse?._internal?.destaqueElementoGetTestUtilidadeState
   const getTestAbertoFn = UserPulse?._internal?.destaqueElementoGetTestAberto
+  const getTestOcultoFn = UserPulse?._internal?.destaqueElementoGetTestOculto
   const wasShownFn = UserPulse?._internal?.wasShown
   const markShownFn = UserPulse?._internal?.markShown
   assert.equal(typeof seletorFn, 'function', 'window.UserPulse._internal.destaqueElementoSeletorSeguro não foi exposta por widget.js')
@@ -336,6 +349,8 @@ before(() => {
   assert.equal(typeof calcularPosicaoTooltipFn, 'function', 'window.UserPulse._internal.destaqueElementoCalcularPosicaoTooltip não foi exposta por widget.js')
   assert.equal(typeof calcularBeaconFn, 'function', 'window.UserPulse._internal.destaqueElementoCalcularBeacon não foi exposta por widget.js')
   assert.equal(typeof rectsIguaisFn, 'function', 'window.UserPulse._internal.destaqueElementoRectsIguais não foi exposta por widget.js')
+  assert.equal(typeof pontoRepresentativoFn, 'function', 'window.UserPulse._internal.destaqueElementoPontoRepresentativo não foi exposta por widget.js')
+  assert.equal(typeof alvoRealmenteVisivelFn, 'function', 'window.UserPulse._internal.destaqueElementoAlvoRealmenteVisivel não foi exposta por widget.js')
   assert.equal(typeof mutacoesApenasNoRootFn, 'function', 'window.UserPulse._internal.destaqueElementoMutacoesApenasNoRoot não foi exposta por widget.js')
   assert.equal(typeof obterViewportFn, 'function', 'window.UserPulse._internal.destaqueElementoObterViewport não foi exposta por widget.js')
   assert.equal(typeof montarFn, 'function', 'window.UserPulse._internal.destaqueElementoMontar não foi exposta por widget.js')
@@ -345,6 +360,7 @@ before(() => {
   assert.equal(typeof getTestInputListenerFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestInputListener não foi exposta por widget.js')
   assert.equal(typeof getTestUtilidadeStateFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestUtilidadeState não foi exposta por widget.js')
   assert.equal(typeof getTestAbertoFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestAberto não foi exposta por widget.js')
+  assert.equal(typeof getTestOcultoFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestOculto não foi exposta por widget.js')
   assert.equal(typeof wasShownFn, 'function', 'window.UserPulse._internal.wasShown não foi exposta por widget.js')
   assert.equal(typeof markShownFn, 'function', 'window.UserPulse._internal.markShown não foi exposta por widget.js')
   destaqueElementoSeletorSeguro = seletorFn as DestaqueElementoSeletorSeguro
@@ -353,6 +369,8 @@ before(() => {
   destaqueElementoCalcularPosicaoTooltip = calcularPosicaoTooltipFn as DestaqueElementoCalcularPosicaoTooltip
   destaqueElementoCalcularBeacon = calcularBeaconFn as DestaqueElementoCalcularBeacon
   destaqueElementoRectsIguais = rectsIguaisFn as DestaqueElementoRectsIguais
+  destaqueElementoPontoRepresentativo = pontoRepresentativoFn as DestaqueElementoPontoRepresentativo
+  destaqueElementoAlvoRealmenteVisivel = alvoRealmenteVisivelFn as DestaqueElementoAlvoRealmenteVisivel
   destaqueElementoMutacoesApenasNoRoot = mutacoesApenasNoRootFn as DestaqueElementoMutacoesApenasNoRoot
   destaqueElementoObterViewport = obterViewportFn as DestaqueElementoObterViewport
   destaqueElementoMontar = montarFn as DestaqueElementoMontar
@@ -362,6 +380,7 @@ before(() => {
   destaqueElementoGetTestInputListener = getTestInputListenerFn as DestaqueElementoGetTestInputListener
   destaqueElementoGetTestUtilidadeState = getTestUtilidadeStateFn as DestaqueElementoGetTestUtilidadeState
   destaqueElementoGetTestAberto = getTestAbertoFn as DestaqueElementoGetTestAberto
+  destaqueElementoGetTestOculto = getTestOcultoFn as DestaqueElementoGetTestOculto
   wasShown = wasShownFn as WasShown
   markShown = markShownFn as MarkShown
 })
@@ -1688,12 +1707,64 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
       // timers não deve fechar nada, já que erro não agenda nada.
       dispararTimersPendentesDestaque();
       assert.equal(destaqueElementoGetTestAberto(0), true, 'continua aberto mesmo depois de "passar o tempo"');
+      // Erro no comentário nunca agenda nenhum fechamento automático — a
+      // instância inteira (badge incluso) continua montada pra tentar de novo.
+      assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a instância continua montada pra permitir retry');
     } finally {
       sandboxCompartilhado.fetch = fetchOriginal;
     }
   });
 
-  test('sucesso no envio do comentário: mostra "Obrigado" brevemente (tooltip ainda aberto) e só fecha depois do tempo passar — nunca desmonta, nunca dispara dispensa', async () => {
+  test('Sim salvo com sucesso marca o item como consumido (markShown) — isolado do "até interagir" do próprio toggle, que já marca ao abrir o tooltip', async () => {
+    presentes.add('filtro-util-consome');
+    const campanha: Campanha = {
+      id: 'destaque-util-consome', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-consome', data_cy: 'filtro-util-consome', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-consome', usuario_id: 'user-1' };
+    // Não usa abrirTooltip aqui de propósito: clicar no toggle pra abrir o
+    // tooltip JÁ chama markShown (interação explícita "até interagir", ver
+    // o listener de clique) — usar abrirTooltip tornaria este teste incapaz
+    // de provar que o SUCESSO do Sim/Não, por si só, também consome o item.
+    // O listener não valida instancia.aberto antes de aceitar Sim/Não, então
+    // dá pra clicar direto sem passar pelo toggle.
+    destaqueElementoMontarTodos(campanha, config);
+    const listener = destaqueElementoGetTestClickListener(0);
+    assert.notEqual(listener, null);
+    assert.equal(wasShown(campanha, config, 'item-util-consome'), false, 'antes de qualquer interação, o item ainda não deve estar marcado como visto');
+
+    listener!({ target: elementoClique('data-up-util-sim') });
+    // markShown só roda depois da Promise do fetch resolver (microtask).
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.equal(wasShown(campanha, config, 'item-util-consome'), true, 'Sim salvo com sucesso deve consumir o item usando a infra existente de markShown');
+    // A instância ATUAL continua montada — markShown só afeta futuras
+    // exibições (ver teste de "reload" abaixo), nunca fecha nada sozinho; o
+    // comentário opcional continua disponível.
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a instância continua montada depois do markShown');
+  });
+
+  test('reload (nova chamada de destaqueElementoMontarTodos) depois de Sim/Não já salvo não exibe mais o destaque', async () => {
+    presentes.add('filtro-util-reload');
+    const campanha: Campanha = {
+      id: 'destaque-util-reload', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-reload', data_cy: 'filtro-util-reload', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-reload', usuario_id: 'user-1' };
+    const listener = abrirTooltip(campanha, config);
+    listener({ target: elementoClique('data-up-util-nao') });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(wasShown(campanha, config, 'item-util-reload'), true);
+
+    // Simula um reload da página: destaqueElementoMontarTodos é exatamente o
+    // que o runtime chama de novo do zero (desmonta tudo e reavalia
+    // elegibilidade via wasShown) — nenhum estado de instância sobrevive a um
+    // reload de verdade, só o localStorage (onde markShown persistiu).
+    destaqueElementoMontarTodos(campanha, config);
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'depois do reload, o item já consumido não deve ser remontado');
+  });
+
+  test('sucesso no envio do comentário: mostra "Obrigado" brevemente e só desmonta a instância inteira (badge incluso) depois do tempo passar — nunca dispensa', async () => {
     presentes.add('filtro-util-fecha-sucesso');
     const campanha: Campanha = {
       id: 'destaque-util-fecha-sucesso', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
@@ -1702,37 +1773,40 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
     const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-fecha-sucesso', usuario_id: 'user-1' };
     const listener = abrirTooltip(campanha, config);
     listener({ target: elementoClique('data-up-util-sim') });
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     const antesDispensa = chamadasRastreamento.length;
     listener({ target: elementoClique('data-up-util-enviar-comentario') });
     // Antes da Promise resolver, nada mudou ainda.
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Passo 1: sucesso mostra "Obrigado" e o tooltip CONTINUA aberto — o
-    // fechamento é automático, mas não instantâneo.
+    // Passo 1: sucesso mostra "Obrigado" e a instância CONTINUA montada — o
+    // encerramento é automático, mas não instantâneo.
     assert.equal(destaqueElementoGetTestAberto(0), true, 'logo após o sucesso, o tooltip ainda deve estar aberto (mostra "Obrigado" brevemente)')
     assert.equal(destaqueElementoGetTestUtilidadeState(0)!.comentarioEnviado, true)
     assert.equal(destaqueElementoGetTestUtilidadeState(0)!.erro, null)
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'ainda não desmontou — só passou o "Obrigado", o timer não disparou ainda')
 
     // Nenhuma chamada de dispensa foi disparada em momento algum deste fluxo
-    // — fechamento automático por sucesso é uma ação diferente de fechar
+    // — encerramento automático por sucesso é uma ação diferente de fechar
     // explicitamente pelo X.
     const chamadasAteAqui = chamadasRastreamento.slice(antesDispensa);
     assert.equal(chamadasAteAqui.some(c => c.body.tipo_evento === 'dispensa'), false, 'sucesso nunca deve registrar o evento dispensa')
 
-    // Passo 2: só depois do timer (tempo) passar, o tooltip realmente fecha.
+    // Passo 2: só depois do timer (tempo) passar, a instância inteira some.
     dispararTimersPendentesDestaque();
-    assert.equal(destaqueElementoGetTestAberto(0), false, 'depois do tempo passar, o tooltip deve fechar sozinho')
+    assert.equal(destaqueElementoGetTestAberto(0), null, 'depois do tempo passar, a instância (e com ela o tooltip) não existe mais')
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'a instância inteira foi desmontada — badge incluso, não só o tooltip')
 
-    // Fechar automaticamente NUNCA é dispensa, mesmo depois de fechar de
-    // verdade.
+    // Desmontar automaticamente NUNCA é dispensa, mesmo depois de desmontar
+    // de verdade.
     const chamadasFinal = chamadasRastreamento.slice(antesDispensa);
-    assert.equal(chamadasFinal.some(c => c.body.tipo_evento === 'dispensa'), false, 'fechamento automático continua nunca sendo dispensa')
-    // A instância continua montada (badge ainda existe, só o tooltip fechou)
-    // — desmontar só acontece no fechamento explícito (botão X). Um listener
-    // ainda existente pro índice 0 prova que a instância não foi removida de
-    // destaqueElementoInstancias.
-    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a instância continua montada — só o tooltip fechou, o destaque não foi desmontado')
+    assert.equal(chamadasFinal.some(c => c.body.tipo_evento === 'dispensa'), false, 'encerramento automático continua nunca sendo dispensa')
+
+    // O item já tinha sido consumido no sucesso do Sim (markShown) — um
+    // reload depois desse fluxo completo também não deve remontar nada.
+    destaqueElementoMontarTodos(campanha, config);
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'depois do fluxo completo + reload, o item consumido não volta a aparecer');
   });
 
   test('duplo clique em "Enviar" durante o loading não gera envio duplicado', async () => {
@@ -1758,6 +1832,31 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
     assert.equal(destaqueElementoGetTestUtilidadeState(0)!.enviando, false, 'depois de resolver, enviando volta a false')
   });
 
+  test('clique no elemento alvo original nunca conta como interação/consumo do destaque — o listener é anexado só ao root (badge/tooltip), nunca ao alvo', () => {
+    presentes.add('filtro-util-alvo-original');
+    const campanha: Campanha = {
+      id: 'destaque-util-alvo-original', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-util-alvo-original', data_cy: 'filtro-util-alvo-original', titulo: 'T' }],
+    };
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-alvo-original', usuario_id: 'user-1' };
+    destaqueElementoMontarTodos(campanha, config);
+    const listener = destaqueElementoGetTestClickListener(0);
+    assert.notEqual(listener, null);
+
+    const antes = chamadasRastreamento.length;
+    // Simula um clique cujo target não é nenhum elemento interativo do
+    // destaque (badge/CTA/close/util) — é exatamente o que aconteceria se,
+    // por algum motivo, um clique no alvo alcançasse este listener: nenhuma
+    // das branches (closeEl/toggleEl/ctaEl/utilSimEl/...) reconhece o alvo,
+    // então nada acontece. Na prática isso nem chega a ser possível: o
+    // listener é anexado só ao ROOT do destaque (ver destaqueElementoMontarItem),
+    // nunca ao elemento alvo em si.
+    listener!({ target: { closest: () => null } });
+    assert.equal(chamadasRastreamento.length, antes, 'clicar no alvo original nunca deve gerar nenhuma requisição de tracking/utilidade');
+    assert.equal(wasShown(campanha, config, 'item-util-alvo-original'), false, 'clicar no alvo original nunca deve consumir (markShown) o destaque');
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a instância continua montada — clicar no alvo original nunca desmonta nada');
+  });
+
   test('badge/CTA/dispensa/tracking/"até interagir" continuam com o comportamento de sempre quando a campanha também tem avaliação de utilidade', () => {
     presentes.add('filtro-util-nao-interfere');
     const campanha: Campanha = {
@@ -1775,4 +1874,144 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
     assert.equal(novas[0].body.tipo_evento, 'clique_cta');
     assert.equal(wasShown(campanha, config, 'item-util-nao-interfere'), true, '"até interagir" continua marcando o item como visto no clique do CTA, de sempre');
   });
+})
+
+// Visibilidade real do alvo (destaque_elemento) — cobre o caso de clicar no
+// alvo abrir uma drawer/modal/overlay por cima dele: o elemento continua no
+// DOM (document.body.contains continua true), mas deixa de estar
+// REALMENTE visível. destaqueElementoAlvoRealmenteVisivel/
+// destaqueElementoPontoRepresentativo são funções puras (sem tocar em
+// DOM/rede) — testadas primeiro isoladas com objetos sintéticos (o alvo
+// fake do harness compartilhado, criado por document.querySelector no
+// before() acima, não tem .contains(), então o caso "elementFromPoint
+// retorna um DESCENDENTE do alvo" só é testável com um objeto próprio que
+// implementa .contains()).
+describe('destaqueElementoAlvoRealmenteVisivel / destaqueElementoPontoRepresentativo (funções puras)', () => {
+  test('destaqueElementoPontoRepresentativo é o centro do retângulo do alvo', () => {
+    // Objeto criado DENTRO do vm (protótipo diferente do Object deste
+    // arquivo) — assert.deepEqual/deepStrictEqual exigiria mesmo protótipo,
+    // por isso compara os campos individualmente.
+    const ponto = destaqueElementoPontoRepresentativo(retangulo(100, 200, 40, 20))
+    assert.equal(ponto.x, 220)
+    assert.equal(ponto.y, 110)
+  })
+
+  test('elementFromPoint ausente (undefined) -> navegador sem suporte, alvo sempre considerado visível (preserva o comportamento de sempre)', () => {
+    assert.equal(destaqueElementoAlvoRealmenteVisivel({}, retangulo(0, 0, 100, 40), undefined), true)
+  })
+
+  test('dimensões inválidas (largura ou altura <= 0) -> nunca visível, mesmo sem checar oclusão', () => {
+    assert.equal(destaqueElementoAlvoRealmenteVisivel({}, retangulo(0, 0, 0, 40), undefined), false)
+    assert.equal(destaqueElementoAlvoRealmenteVisivel({}, retangulo(0, 0, 100, 0), undefined), false)
+  })
+
+  test('elementFromPoint retorna null (ponto fora da viewport) -> não visível', () => {
+    assert.equal(destaqueElementoAlvoRealmenteVisivel({}, retangulo(0, 0, 100, 40), null), false)
+  })
+
+  test('elementFromPoint retorna o próprio alvo -> nada por cima, visível', () => {
+    const alvo = { tagName: 'BUTTON' }
+    assert.equal(destaqueElementoAlvoRealmenteVisivel(alvo, retangulo(0, 0, 100, 40), alvo), true)
+  })
+
+  test('elementFromPoint retorna um DESCENDENTE do alvo (ex.: o texto/ícone dentro do botão) -> ainda é o próprio alvo, visível', () => {
+    const descendente = { tagName: 'SPAN' }
+    const alvo = { tagName: 'BUTTON', contains: (node: unknown) => node === descendente }
+    assert.equal(destaqueElementoAlvoRealmenteVisivel(alvo, retangulo(0, 0, 100, 40), descendente), true)
+  })
+
+  test('elementFromPoint retorna um elemento QUALQUER, não relacionado ao alvo (overlay/drawer/modal) -> encoberto, não visível', () => {
+    const overlay = { tagName: 'DIV', className: 'up-drawer-overlay' }
+    const alvo = { tagName: 'BUTTON', contains: () => false }
+    assert.equal(destaqueElementoAlvoRealmenteVisivel(alvo, retangulo(0, 0, 100, 40), overlay), false)
+  })
+})
+
+// Integração com o mecanismo de reposicionamento/MutationObserver já
+// existente (destaqueElementoReposicionar/destaqueElementoAgendarReacao) —
+// nenhum observer/listener/polling novo é criado; a MESMA notificação de
+// mutation que já reposiciona o badge é o que também reavalia se o alvo
+// continua realmente visível. document.elementFromPoint é setado só
+// pontualmente em cada teste (ausente por padrão no harness compartilhado,
+// ver before() acima) e sempre restaurado no finally, pro resto da suíte
+// continuar cobrindo o caso "navegador sem suporte" sem interferência.
+describe('destaqueElementoReposicionar oculta/restaura o destaque quando o alvo é encoberto por overlay (integrado ao MutationObserver existente)', () => {
+  test('alvo encoberto por overlay (drawer/modal) oculta badge+tooltip via display:none — sem desmontar, sem markShown, sem dispensa', () => {
+    const alvo = { tagName: 'BUTTON', getBoundingClientRect: () => retangulo(134, 500, 140, 40) }
+    const campanha: Campanha = { id: 'destaque-visibilidade-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-visibilidade-1' }
+    destaqueElementoMontar(campanha, config, alvo)
+    assert.equal(destaqueElementoGetTestOculto(0), false, 'recém-montado, sem overlay, deve começar visível')
+
+    const antes = chamadasRastreamento.length
+    const overlay = { tagName: 'DIV' }
+    sandboxCompartilhado!.document.elementFromPoint = () => overlay
+    try {
+      // Abrir a drawer/modal insere/altera algo em algum lugar da página —
+      // uma mutation qualquer FORA do root do destaque já é o suficiente
+      // pra disparar destaqueElementoAgendarReacao -> destaqueElementoReposicionar,
+      // exatamente como já acontecia antes desta mudança.
+      ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'DIV' } }])
+    } finally {
+      delete sandboxCompartilhado!.document.elementFromPoint
+    }
+
+    assert.equal(destaqueElementoGetTestOculto(0), true, 'alvo encoberto pelo overlay deve ficar marcado como oculto')
+    assert.equal(ultimoRootDestaque!.style.display, 'none', 'oculta via display:none — badge e tooltip somem juntos')
+    assert.equal(chamadasRastreamento.length, antes, 'ficar coberto nunca dispara nenhuma requisição de tracking')
+    assert.equal(wasShown(campanha, config), false, 'alvo coberto nunca consome (markShown) o destaque')
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a instância continua montada — só ficou oculta, nunca desmontada')
+  })
+
+  test('alvo volta a ficar realmente visível (overlay fechado) restaura o destaque — sem markShown, sem nova requisição', () => {
+    const alvo = { tagName: 'BUTTON', getBoundingClientRect: () => retangulo(134, 500, 140, 40) }
+    const campanha: Campanha = { id: 'destaque-visibilidade-2', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-visibilidade-2' }
+    destaqueElementoMontar(campanha, config, alvo)
+
+    const overlay = { tagName: 'DIV' }
+    sandboxCompartilhado!.document.elementFromPoint = () => overlay
+    ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'DIV' } }])
+    assert.equal(destaqueElementoGetTestOculto(0), true, 'pré-condição: overlay cobrindo o alvo')
+
+    const antes = chamadasRastreamento.length
+    // Overlay fechado -> o ponto representativo do alvo resolve pro próprio
+    // alvo de novo.
+    sandboxCompartilhado!.document.elementFromPoint = () => alvo
+    try {
+      ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'DIV' } }])
+    } finally {
+      delete sandboxCompartilhado!.document.elementFromPoint
+    }
+
+    assert.equal(destaqueElementoGetTestOculto(0), false, 'alvo descoberto deve restaurar o destaque')
+    assert.equal(ultimoRootDestaque!.style.display, '', 'display volta ao normal (nada de "none")')
+    assert.equal(ultimoRootDestaque!.style.top, (134 - 32) + 'px', 'reposicionamento normal (badge acima do alvo) volta a acontecer depois de restaurado')
+    assert.equal(chamadasRastreamento.length, antes, 'restaurar a visibilidade nunca dispara tracking sozinho')
+    assert.equal(wasShown(campanha, config), false, 'restaurar a visibilidade nunca marca o destaque como visto')
+  })
+
+  test('sem elementFromPoint (navegador sem suporte), abrir/fechar overlay nunca oculta o destaque — mesmo comportamento de sempre', () => {
+    const alvo = { tagName: 'BUTTON', getBoundingClientRect: () => retangulo(134, 500, 140, 40) }
+    const campanha: Campanha = { id: 'destaque-visibilidade-3', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-visibilidade-3' }
+    destaqueElementoMontar(campanha, config, alvo)
+    // document.elementFromPoint continua ausente aqui de propósito (default
+    // do harness compartilhado) — qualquer mutation continua só reposicionando
+    // normalmente, nunca ocultando.
+    ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'DIV' } }])
+    assert.equal(destaqueElementoGetTestOculto(0), false)
+    assert.equal(ultimoRootDestaque!.style.display, undefined, 'nunca setou display:none — a checagem de oclusão não roda sem elementFromPoint')
+  })
+
+  test('elemento alvo nunca recebe nenhum listener/handler novo — a checagem de visibilidade só lê getBoundingClientRect/elementFromPoint', () => {
+    const alvo: { tagName: string; getBoundingClientRect: () => Retangulo; addEventListener?: unknown } = {
+      tagName: 'BUTTON', getBoundingClientRect: () => retangulo(134, 500, 140, 40),
+    }
+    const campanha: Campanha = { id: 'destaque-visibilidade-4', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-visibilidade-4' }
+    destaqueElementoMontar(campanha, config, alvo)
+    ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'DIV' } }])
+    assert.equal(alvo.addEventListener, undefined, 'a checagem de visibilidade nunca anexa nenhum listener ao alvo — clicar nele continua fora do alcance do widget')
+  })
 })
