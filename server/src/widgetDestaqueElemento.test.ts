@@ -69,6 +69,12 @@ type DestaqueElementoObterViewport = () => Viewport
 type DestaqueElementoMontar = (campanha: Campanha, config: ConfigWidget, alvo: unknown) => void
 type DestaqueElementoResolverItens = (campanha: Campanha | null | undefined) => DestaqueItem[]
 type DestaqueElementoMontarTodos = (campanha: Campanha, config: ConfigWidget) => void
+type SelecaoIdentidade = { campanhaId: string | null; itemIds: Array<string | null> }
+type DestaqueElementoIdentidadeSelecao = (campanha: Campanha | null | undefined) => SelecaoIdentidade
+type DestaqueElementoIdentidadesIguais = (a: SelecaoIdentidade | null | undefined, b: SelecaoIdentidade | null | undefined) => boolean
+type DestaqueElementoSincronizarSelecao = (campanhaSelecionada: Campanha | null, config: ConfigWidget) => void
+type EvaluateCampaigns = () => void
+type ConfigSetTestState = (parcial: Partial<ConfigWidget> & { contexto?: Record<string, unknown> | null }) => void
 type ClickEvent = { target: { closest: (seletor: string) => { getAttribute: (chave: string) => string | null } | null } }
 type ClickListener = (event: ClickEvent) => void
 type DestaqueElementoGetTestClickListener = (indice?: number) => ClickListener | null
@@ -79,6 +85,8 @@ type UtilidadeState = { escolha: boolean | null; comentario: string; enviando: b
 type DestaqueElementoGetTestUtilidadeState = (indice?: number) => UtilidadeState | null
 type DestaqueElementoGetTestAberto = (indice?: number) => boolean | null
 type DestaqueElementoGetTestOculto = (indice?: number) => boolean | null
+type UserPulseInit = (config: Record<string, unknown>) => void
+type UserPulseUpdateContext = (contexto: Record<string, unknown>) => void
 
 let destaqueElementoSeletorSeguro: DestaqueElementoSeletorSeguro
 let destaqueElementoLocalizarAlvo: DestaqueElementoLocalizarAlvo
@@ -98,6 +106,13 @@ let destaqueElementoGetTestInputListener: DestaqueElementoGetTestInputListener
 let destaqueElementoGetTestUtilidadeState: DestaqueElementoGetTestUtilidadeState
 let destaqueElementoGetTestAberto: DestaqueElementoGetTestAberto
 let destaqueElementoGetTestOculto: DestaqueElementoGetTestOculto
+let destaqueElementoIdentidadeSelecao: DestaqueElementoIdentidadeSelecao
+let destaqueElementoIdentidadesIguais: DestaqueElementoIdentidadesIguais
+let destaqueElementoSincronizarSelecao: DestaqueElementoSincronizarSelecao
+let evaluateCampaigns: EvaluateCampaigns
+let configSetTestState: ConfigSetTestState
+let userPulseInit: UserPulseInit
+let userPulseUpdateContext: UserPulseUpdateContext
 let wasShown: WasShown
 let markShown: MarkShown
 // Último root fake criado por document.createElement (ver criarFakeRootDestaque
@@ -249,7 +264,15 @@ before(() => {
       createElement: () => criarFakeRootDestaque(),
       addEventListener() {},
       removeEventListener() {},
-      body: { contains: () => true, appendChild() {} },
+      // style: {} — necessário pra window.UserPulse.init() de verdade poder
+      // rodar (ele sempre seta document.body.style.overflow, mesmo com
+      // config vazia), usado pelos testes de ciclo de vida entre init()s.
+      body: { contains: () => true, appendChild() {}, style: {} as Record<string, string> },
+      // head.appendChild — ensureStyles() (chamada por evaluateCampaigns()
+      // pra qualquer candidata selecionada, destaque_elemento incluso) usa
+      // isso pra injetar a <style> global uma única vez. Só precisa existir
+      // e não lançar; nenhum teste inspeciona o conteúdo real do CSS.
+      head: { appendChild() {} },
       // Ausente por padrão (undefined) — só setado pontualmente pelos testes
       // de fallback de viewport (document.documentElement.clientWidth/Height).
       documentElement: undefined as { clientWidth: number; clientHeight: number } | undefined,
@@ -299,6 +322,8 @@ before(() => {
   vm.runInContext(codigo, sandbox, { filename: 'widget.js' })
   const UserPulse = (sandbox.window as {
     UserPulse?: {
+      init?: UserPulseInit
+      updateContext?: UserPulseUpdateContext
       _internal?: {
         destaqueElementoSeletorSeguro?: DestaqueElementoSeletorSeguro
         destaqueElementoLocalizarAlvo?: DestaqueElementoLocalizarAlvo
@@ -318,6 +343,11 @@ before(() => {
         destaqueElementoGetTestUtilidadeState?: DestaqueElementoGetTestUtilidadeState
         destaqueElementoGetTestAberto?: DestaqueElementoGetTestAberto
         destaqueElementoGetTestOculto?: DestaqueElementoGetTestOculto
+        destaqueElementoIdentidadeSelecao?: DestaqueElementoIdentidadeSelecao
+        destaqueElementoIdentidadesIguais?: DestaqueElementoIdentidadesIguais
+        destaqueElementoSincronizarSelecao?: DestaqueElementoSincronizarSelecao
+        evaluateCampaigns?: EvaluateCampaigns
+        configSetTestState?: ConfigSetTestState
         wasShown?: WasShown
         markShown?: MarkShown
       }
@@ -341,6 +371,13 @@ before(() => {
   const getTestUtilidadeStateFn = UserPulse?._internal?.destaqueElementoGetTestUtilidadeState
   const getTestAbertoFn = UserPulse?._internal?.destaqueElementoGetTestAberto
   const getTestOcultoFn = UserPulse?._internal?.destaqueElementoGetTestOculto
+  const identidadeSelecaoFn = UserPulse?._internal?.destaqueElementoIdentidadeSelecao
+  const identidadesIguaisFn = UserPulse?._internal?.destaqueElementoIdentidadesIguais
+  const sincronizarSelecaoFn = UserPulse?._internal?.destaqueElementoSincronizarSelecao
+  const evaluateCampaignsFn = UserPulse?._internal?.evaluateCampaigns
+  const configSetTestStateFn = UserPulse?._internal?.configSetTestState
+  const initFn = UserPulse?.init
+  const updateContextFn = UserPulse?.updateContext
   const wasShownFn = UserPulse?._internal?.wasShown
   const markShownFn = UserPulse?._internal?.markShown
   assert.equal(typeof seletorFn, 'function', 'window.UserPulse._internal.destaqueElementoSeletorSeguro não foi exposta por widget.js')
@@ -361,6 +398,13 @@ before(() => {
   assert.equal(typeof getTestUtilidadeStateFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestUtilidadeState não foi exposta por widget.js')
   assert.equal(typeof getTestAbertoFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestAberto não foi exposta por widget.js')
   assert.equal(typeof getTestOcultoFn, 'function', 'window.UserPulse._internal.destaqueElementoGetTestOculto não foi exposta por widget.js')
+  assert.equal(typeof identidadeSelecaoFn, 'function', 'window.UserPulse._internal.destaqueElementoIdentidadeSelecao não foi exposta por widget.js')
+  assert.equal(typeof identidadesIguaisFn, 'function', 'window.UserPulse._internal.destaqueElementoIdentidadesIguais não foi exposta por widget.js')
+  assert.equal(typeof sincronizarSelecaoFn, 'function', 'window.UserPulse._internal.destaqueElementoSincronizarSelecao não foi exposta por widget.js')
+  assert.equal(typeof evaluateCampaignsFn, 'function', 'window.UserPulse._internal.evaluateCampaigns não foi exposta por widget.js')
+  assert.equal(typeof configSetTestStateFn, 'function', 'window.UserPulse._internal.configSetTestState não foi exposta por widget.js')
+  assert.equal(typeof initFn, 'function', 'window.UserPulse.init não foi exposta por widget.js')
+  assert.equal(typeof updateContextFn, 'function', 'window.UserPulse.updateContext não foi exposta por widget.js')
   assert.equal(typeof wasShownFn, 'function', 'window.UserPulse._internal.wasShown não foi exposta por widget.js')
   assert.equal(typeof markShownFn, 'function', 'window.UserPulse._internal.markShown não foi exposta por widget.js')
   destaqueElementoSeletorSeguro = seletorFn as DestaqueElementoSeletorSeguro
@@ -381,6 +425,13 @@ before(() => {
   destaqueElementoGetTestUtilidadeState = getTestUtilidadeStateFn as DestaqueElementoGetTestUtilidadeState
   destaqueElementoGetTestAberto = getTestAbertoFn as DestaqueElementoGetTestAberto
   destaqueElementoGetTestOculto = getTestOcultoFn as DestaqueElementoGetTestOculto
+  destaqueElementoIdentidadeSelecao = identidadeSelecaoFn as DestaqueElementoIdentidadeSelecao
+  destaqueElementoIdentidadesIguais = identidadesIguaisFn as DestaqueElementoIdentidadesIguais
+  destaqueElementoSincronizarSelecao = sincronizarSelecaoFn as DestaqueElementoSincronizarSelecao
+  evaluateCampaigns = evaluateCampaignsFn as EvaluateCampaigns
+  configSetTestState = configSetTestStateFn as ConfigSetTestState
+  userPulseInit = initFn as UserPulseInit
+  userPulseUpdateContext = updateContextFn as UserPulseUpdateContext
   wasShown = wasShownFn as WasShown
   markShown = markShownFn as MarkShown
 })
@@ -2013,5 +2064,330 @@ describe('destaqueElementoReposicionar oculta/restaura o destaque quando o alvo 
     destaqueElementoMontar(campanha, config, alvo)
     ultimoMutationObserverDestaque!.cb([{ target: { tagName: 'DIV' } }])
     assert.equal(alvo.addEventListener, undefined, 'a checagem de visibilidade nunca anexa nenhum listener ao alvo — clicar nele continua fora do alcance do widget')
+  })
+})
+
+// Ciclo de vida da instância entre reavaliações (init()/updateContext() numa
+// SPA que troca de usuário/contexto sem reload completo) — cobre a causa
+// raiz investigada: destaqueElementoInstancias nunca era limpo quando
+// init()/updateContext() rodavam de novo, a menos que uma nova avaliação
+// selecionasse um destaque_elemento novo. Um destaque de um usuário/contexto
+// anterior (root, listeners, MutationObserver/ResizeObserver, e o
+// config/usuario_id fechado na instância) ficava vivo indefinidamente.
+describe('destaqueElementoIdentidadeSelecao / destaqueElementoIdentidadesIguais (funções puras)', () => {
+  test('campanha com destaques[]: campanhaId + ids ordenados dos itens ativos (ativo:false fica de fora)', () => {
+    const campanha: Campanha = {
+      id: 'campanha-x',
+      destaques: [
+        { id: 'item-c', data_cy: 'x' },
+        { id: 'item-a', data_cy: 'x' },
+        { id: 'item-b', data_cy: 'x', ativo: false },
+      ],
+    }
+    const identidade = destaqueElementoIdentidadeSelecao(campanha)
+    assert.equal(identidade.campanhaId, 'campanha-x')
+    // itemIds pode ter sido criado DENTRO do vm (protótipo de Array
+    // diferente do deste arquivo) — deepEqual/deepStrictEqual exigiria o
+    // mesmo protótipo, por isso compara por tamanho + elementos.
+    assert.equal(identidade.itemIds.length, 2)
+    assert.equal(identidade.itemIds[0], 'item-a')
+    assert.equal(identidade.itemIds[1], 'item-c')
+  })
+
+  test('campanha legada (sem destaques[], modo_exibicao destaque_elemento + data_cy): identidade do pseudo-item (id:null)', () => {
+    const campanha: Campanha = { id: 'campanha-legada', modo_exibicao: 'destaque_elemento', data_cy: 'alvo-legado' }
+    const identidade = destaqueElementoIdentidadeSelecao(campanha)
+    assert.equal(identidade.campanhaId, 'campanha-legada')
+    assert.equal(identidade.itemIds.length, 1)
+    assert.equal(identidade.itemIds[0], null)
+  })
+
+  test('campanha null/undefined: identidade vazia (campanhaId null, sem itens)', () => {
+    assert.equal(destaqueElementoIdentidadeSelecao(null).campanhaId, null)
+    assert.equal(destaqueElementoIdentidadeSelecao(null).itemIds.length, 0)
+    assert.equal(destaqueElementoIdentidadeSelecao(undefined).campanhaId, null)
+  })
+
+  test('identidadesIguais: mesma campanha + mesmos itens, em ORDEM diferente na entrada -> iguais (nunca usa posição/ordem do array como identidade)', () => {
+    const a = destaqueElementoIdentidadeSelecao({ id: 'c1', destaques: [{ id: 'i1', data_cy: 'x' }, { id: 'i2', data_cy: 'x' }] })
+    const b = destaqueElementoIdentidadeSelecao({ id: 'c1', destaques: [{ id: 'i2', data_cy: 'x' }, { id: 'i1', data_cy: 'x' }] })
+    assert.equal(destaqueElementoIdentidadesIguais(a, b), true)
+  })
+
+  test('identidadesIguais: campanhaId diferente -> desiguais, mesmo com os mesmos itens', () => {
+    const a = destaqueElementoIdentidadeSelecao({ id: 'c1', destaques: [{ id: 'i1', data_cy: 'x' }] })
+    const b = destaqueElementoIdentidadeSelecao({ id: 'c2', destaques: [{ id: 'i1', data_cy: 'x' }] })
+    assert.equal(destaqueElementoIdentidadesIguais(a, b), false)
+  })
+
+  test('identidadesIguais: mesma campanha, itens diferentes (quantidade ou conteúdo) -> desiguais', () => {
+    const base = { id: 'c1', destaques: [{ id: 'i1', data_cy: 'x' }] }
+    const maisItens = { id: 'c1', destaques: [{ id: 'i1', data_cy: 'x' }, { id: 'i2', data_cy: 'x' }] }
+    const outroItem = { id: 'c1', destaques: [{ id: 'i3', data_cy: 'x' }] }
+    assert.equal(destaqueElementoIdentidadesIguais(destaqueElementoIdentidadeSelecao(base), destaqueElementoIdentidadeSelecao(maisItens)), false)
+    assert.equal(destaqueElementoIdentidadesIguais(destaqueElementoIdentidadeSelecao(base), destaqueElementoIdentidadeSelecao(outroItem)), false)
+  })
+
+  test('identidadesIguais: null/undefined tratados por igualdade estrita (nunca lança)', () => {
+    assert.equal(destaqueElementoIdentidadesIguais(null, null), true)
+    assert.equal(destaqueElementoIdentidadesIguais(null, destaqueElementoIdentidadeSelecao({ id: 'c1' })), false)
+  })
+})
+
+describe('destaqueElementoSincronizarSelecao — updateContext preserva/substitui/remove sem flicker nem duplicação', () => {
+  test('mesma campanha + mesmos itens ativos: preserva a instância existente (nunca desmonta/remonta, nunca duplica root/observer)', () => {
+    presentes.add('filtro-sync-preserva')
+    const campanha: Campanha = {
+      id: 'destaque-sync-preserva', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-sync-preserva', data_cy: 'filtro-sync-preserva', titulo: 'T' }],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-preserva' }
+    destaqueElementoMontarTodos(campanha, config)
+    const listenerAntes = destaqueElementoGetTestClickListener(0)
+    const observerAntes = ultimoMutationObserverDestaque
+    const raizesAntes = todasAsRaizesDestaque.length
+    assert.notEqual(listenerAntes, null)
+
+    // Mesmo objeto de campanha (poderia até ser uma cópia com o mesmo id e
+    // os mesmos itens — a comparação é por identidade estrutural, não por
+    // referência de objeto).
+    destaqueElementoSincronizarSelecao(campanha, config)
+
+    assert.equal(destaqueElementoGetTestClickListener(0), listenerAntes, 'mesma instância — o listener de clique religado é exatamente o mesmo, nunca remonta')
+    assert.equal(ultimoMutationObserverDestaque, observerAntes, 'nenhum MutationObserver novo criado — nunca duplica observers')
+    assert.equal(todasAsRaizesDestaque.length, raizesAntes, 'nenhum root novo criado — sem flicker/duplicação')
+  })
+
+  test('mesma campanha + mesmos itens: revalida/recalcula a posição contra o layout atual (mesmo preservando a instância)', () => {
+    presentes.add('filtro-sync-reposiciona')
+    const campanha: Campanha = {
+      id: 'destaque-sync-reposiciona', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-sync-reposiciona', data_cy: 'filtro-sync-reposiciona', titulo: 'T' }],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-reposiciona' }
+    // destaqueElementoMontarTodos (não a API legada destaqueElementoMontar)
+    // é o que de fato marca destaqueElementoSelecaoAtual — necessário pra
+    // destaqueElementoSincronizarSelecao reconhecer "mesma seleção" abaixo.
+    destaqueElementoMontarTodos(campanha, config)
+    // "Corrompe" a posição já aplicada com um valor-sentinela — se
+    // destaqueElementoSincronizarSelecao realmente revalidar a posição
+    // (mesmo preservando a instância), esse valor tem que ser sobrescrito
+    // por um pixel de verdade calculado a partir do layout atual do alvo.
+    ultimoRootDestaque!.style.top = 'valor-sentinela-nao-recalculado'
+
+    destaqueElementoSincronizarSelecao(campanha, config)
+
+    assert.notEqual(ultimoRootDestaque!.style.top, 'valor-sentinela-nao-recalculado', 'preservar a instância ainda precisa revalidar/recalcular a posição contra o layout atual (o contexto pode ter mudado mesmo sem trocar de campanha/item)')
+  })
+
+  test('nenhuma candidata destaque_elemento elegível nesta rodada (null): desmonta os destaques existentes', () => {
+    presentes.add('filtro-sync-remove')
+    const campanha: Campanha = {
+      id: 'destaque-sync-remove', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-sync-remove', data_cy: 'filtro-sync-remove', titulo: 'T' }],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-remove' }
+    destaqueElementoMontarTodos(campanha, config)
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'pré-condição: instância montada')
+
+    destaqueElementoSincronizarSelecao(null, config)
+
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'sem nenhuma candidata elegível, a instância existente deve ser desmontada')
+  })
+
+  test('campanha mudou (id diferente): desmonta a antiga IMEDIATAMENTE e agenda a montagem da nova (respeita atraso_ms/gatilho normalmente)', () => {
+    presentes.add('filtro-sync-antiga')
+    presentes.add('filtro-sync-nova')
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-troca' }
+    const campanhaAntiga: Campanha = {
+      id: 'destaque-sync-antiga', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-sync-antiga', data_cy: 'filtro-sync-antiga', titulo: 'T' }],
+    }
+    const campanhaNova: Campanha = {
+      id: 'destaque-sync-nova', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-sync-nova', data_cy: 'filtro-sync-nova', titulo: 'T' }],
+    }
+    destaqueElementoMontarTodos(campanhaAntiga, config)
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null)
+
+    destaqueElementoSincronizarSelecao(campanhaNova, config)
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'a campanha antiga já não deve mais existir, mesmo ANTES do timer da nova campanha disparar')
+
+    dispararTimersPendentesDestaque()
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a nova campanha deve estar montada depois do timer (atraso_ms padrão)')
+  })
+
+  test('mesma campanha.id mas itens ativos diferentes: tratado como mudança (nunca "sem mudança" só por bater o id da campanha)', () => {
+    presentes.add('filtro-sync-item-velho')
+    presentes.add('filtro-sync-item-novo')
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-itens' }
+    const campanhaV1: Campanha = {
+      id: 'destaque-sync-itens', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-velho', data_cy: 'filtro-sync-item-velho', titulo: 'T' }],
+    }
+    destaqueElementoMontarTodos(campanhaV1, config)
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null)
+
+    const campanhaV2: Campanha = {
+      id: 'destaque-sync-itens', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-novo', data_cy: 'filtro-sync-item-novo', titulo: 'T' }],
+    }
+    destaqueElementoSincronizarSelecao(campanhaV2, config)
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'itens diferentes (mesmo campanha.id) precisa ser tratado como mudança, nunca como "mesma seleção"')
+
+    dispararTimersPendentesDestaque()
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a nova seleção (novos itens) deve estar montada depois do timer')
+  })
+
+  test('uma nova sincronização cancela o timer de montagem pendente de uma sincronização anterior — timer antigo nunca remonta algo já invalidado', () => {
+    presentes.add('filtro-sync-timer-a')
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-sync-timer' }
+    const campanhaA: Campanha = {
+      id: 'destaque-sync-timer-a', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-timer-a', data_cy: 'filtro-sync-timer-a', titulo: 'T' }],
+    }
+    // Nada montado ainda -> primeira sincronização agenda a montagem de A.
+    destaqueElementoSincronizarSelecao(campanhaA, config)
+    // Antes do timer de A disparar, a avaliação seguinte já decide que não
+    // há mais nenhuma candidata elegível.
+    destaqueElementoSincronizarSelecao(null, config)
+
+    // Se o timer de A não tivesse sido cancelado, ele montaria A aqui —
+    // remontando algo que a decisão mais recente já invalidou.
+    dispararTimersPendentesDestaque()
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'o timer de uma sincronização já superada nunca pode remontar um destaque invalidado')
+  })
+})
+
+describe('window.UserPulse.init() nunca deixa destaque de um usuário/config anterior sobreviver', () => {
+  test('init A monta um destaque -> init B (sem nenhuma candidata elegível) desmonta a instância de A incondicionalmente', () => {
+    presentes.add('filtro-init-troca-usuario')
+    const campanhaA: Campanha = {
+      id: 'destaque-init-usuario-a', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-init-usuario-a', data_cy: 'filtro-init-troca-usuario', titulo: 'T' }],
+    }
+    const configA: ConfigWidget = { sistema: 'sis', tela: 'tela-init-usuario', usuario_id: 'usuario-a' }
+    destaqueElementoMontarTodos(campanhaA, configA)
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'pré-condição: instância de A está montada')
+
+    // init() com config vazia (sem slug/sistema) é suficiente pra provar o
+    // teardown incondicional: ele é a PRIMEIRA coisa que init() faz, antes
+    // até do early-return de config vazia — mesmo padrão já usado por
+    // widgetTourFeedback.test.ts pra exercitar efeitos colaterais de init()
+    // sem precisar simular o fetch de candidatas/aparência completo.
+    userPulseInit({})
+
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'a instância de A nunca pode sobreviver a um novo init(), mesmo sem nenhuma candidata nova elegível')
+  })
+
+  test('depois de init B, a instância de A não existe mais em lugar nenhum — nenhum evento pode continuar usando o usuario_id dela', () => {
+    presentes.add('filtro-init-sem-vazamento')
+    const campanhaA: Campanha = {
+      id: 'destaque-init-sem-vazamento', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-init-sem-vazamento', data_cy: 'filtro-init-sem-vazamento', titulo: 'T' }],
+    }
+    const configA: ConfigWidget = { sistema: 'sis', tela: 'tela-init-vazamento', usuario_id: 'usuario-a' }
+    destaqueElementoMontarTodos(campanhaA, configA)
+    const antes = chamadasRastreamento.length
+
+    userPulseInit({})
+
+    // A única forma de qualquer clique gerar tracking/utilidade pra essa
+    // instância é através do listener religado ao SEU root — se ela não
+    // existe mais em destaqueElementoInstancias (índice 0 devolve null),
+    // não sobra NENHUM jeito, dentro do próprio widget, de alcançá-la e
+    // gerar um evento com o usuario_id antigo (um clique real, num browser
+    // de verdade, também nunca alcançaria um nó já removido do DOM).
+    assert.equal(destaqueElementoGetTestClickListener(0), null)
+    assert.equal(chamadasRastreamento.length, antes, 'o próprio init() não deve gerar nenhuma chamada de tracking sozinho')
+  })
+
+  test('init A monta -> novo init() (mesmo sem trocar campanha) sempre desmonta antes — nunca preserva a instância antiga por engano (diferente de updateContext())', () => {
+    presentes.add('filtro-init-mesma-campanha')
+    const campanha: Campanha = {
+      id: 'destaque-init-mesma-campanha', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      destaques: [{ id: 'item-init-mesma-campanha', data_cy: 'filtro-init-mesma-campanha', titulo: 'T' }],
+    }
+    const config: ConfigWidget = { sistema: 'sis', tela: 'tela-init-mesma-campanha', usuario_id: 'usuario-a' }
+    destaqueElementoMontarTodos(campanha, config)
+    const instanciaA = destaqueElementoGetTestClickListener(0)
+    assert.notEqual(instanciaA, null)
+
+    userPulseInit({})
+    assert.equal(destaqueElementoGetTestClickListener(0), null, 'init() nunca preserva — diferente de updateContext()/evaluateCampaigns(), não compara identidade com o que já estava montado')
+
+    // "B" monta de novo, com a MESMA campanha/config — o resultado precisa
+    // ser uma instância NOVA, nunca a de A sobrevivendo por baixo.
+    destaqueElementoMontarTodos(campanha, config)
+    const instanciaB = destaqueElementoGetTestClickListener(0)
+    assert.notEqual(instanciaB, null)
+    assert.notEqual(instanciaB, instanciaA, 'a instância montada depois do init() é sempre NOVA — nunca a referência antiga preservada')
+  })
+})
+
+describe('evaluateCampaigns — corrida entre avaliações assíncronas (token) nunca restaura contexto já substituído', () => {
+  test('resposta desatualizada (fetch mais antiga) resolvendo DEPOIS de uma avaliação mais nova nunca monta/restaura destaque', async () => {
+    presentes.add('filtro-race-alvo')
+    // Sessão limpa (state.open/state.timer/instâncias) sem precisar simular
+    // o fetch de candidatas/aparência completo de um init() de verdade —
+    // mesmo raciocínio de init({}) usado acima, e configSetTestState
+    // (mesmo padrão de tourSetTestState) seta só state.config.
+    userPulseInit({})
+    configSetTestState({ sistema: 'sis-race', tela: 'tela-race' })
+
+    const campanhaVelha = {
+      id: 'destaque-race-velha', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      tela: 'tela-race', data_cy: 'filtro-race-alvo', titulo: 'Velha',
+    }
+
+    let resolverPrimeira: (value: unknown) => void = () => {}
+    let resolverSegunda: (value: unknown) => void = () => {}
+    const respostas = [
+      new Promise((resolve) => { resolverPrimeira = resolve }),
+      new Promise((resolve) => { resolverSegunda = resolve }),
+    ]
+    let chamada = 0
+    const fetchOriginal = sandboxCompartilhado!.fetch
+    sandboxCompartilhado!.fetch = () => respostas[chamada++]
+    try {
+      evaluateCampaigns() // dispara a fetch #1 (token N) — avaliação mais ANTIGA
+      evaluateCampaigns() // dispara a fetch #2 (token N+1) — avaliação mais NOVA
+
+      // A resposta mais NOVA chega primeiro: nenhuma candidata elegível.
+      resolverSegunda({ ok: true, json: () => Promise.resolve([]) })
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      // A resposta mais ANTIGA chega DEPOIS, atrasada — trazendo a campanha
+      // velha como candidata elegível. Sem o token, isso remontaria um
+      // destaque de um contexto já substituído pela avaliação mais nova.
+      resolverPrimeira({ ok: true, json: () => Promise.resolve([campanhaVelha]) })
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      dispararTimersPendentesDestaque()
+      assert.equal(destaqueElementoGetTestClickListener(0), null, 'resposta atrasada de uma avaliação já superada nunca pode montar/restaurar destaque')
+    } finally {
+      sandboxCompartilhado!.fetch = fetchOriginal
+    }
+  })
+
+  test('avaliação mais recente ainda funciona normalmente (token não bloqueia a resposta atual, só as desatualizadas)', async () => {
+    presentes.add('filtro-race-atual')
+    userPulseInit({})
+    configSetTestState({ sistema: 'sis-race-2', tela: 'tela-race-2' })
+
+    const campanhaAtual = {
+      id: 'destaque-race-atual', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      tela: 'tela-race-2', data_cy: 'filtro-race-atual', titulo: 'Atual',
+    }
+    const fetchOriginal = sandboxCompartilhado!.fetch
+    sandboxCompartilhado!.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve([campanhaAtual]) })
+    try {
+      evaluateCampaigns()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      dispararTimersPendentesDestaque()
+      assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a avaliação mais recente (a única disparada aqui) deve montar o destaque normalmente')
+    } finally {
+      sandboxCompartilhado!.fetch = fetchOriginal
+    }
   })
 })

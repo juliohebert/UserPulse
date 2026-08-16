@@ -1343,6 +1343,16 @@
   // por campanha).
   var destaqueElementoInstancias = [];
 
+  // Identidade (campanha.id + ids dos itens ativos) da seleção destaque_elemento
+  // REALMENTE montada agora — null quando nada está montado. Mantida em
+  // sincronia só por destaqueElementoMontarTodos (seta) e
+  // destaqueElementoDesmontarTodos (limpa). Usada por
+  // destaqueElementoSincronizarSelecao (ver updateContext/evaluateCampaigns)
+  // pra decidir se uma nova avaliação deve preservar as instâncias
+  // existentes (mesma campanha/itens — nunca desmonta/remonta à toa) ou
+  // desmontar/remontar (campanha/itens mudaram, ou nenhum mais elegível).
+  var destaqueElementoSelecaoAtual = null;
+
   function destaqueElementoDesmontarInstancia(instancia) {
     if (!instancia || instancia.desmontada) return;
     instancia.desmontada = true;
@@ -1361,10 +1371,14 @@
 
   // Desmonta TODOS os destaques montados no momento — chamado antes de
   // montar uma nova seleção de campanha (nunca deixa destaques de uma
-  // campanha anterior sobrepostos aos da campanha recém-selecionada).
+  // campanha anterior sobrepostos aos da campanha recém-selecionada), no
+  // início de init() (nunca deixa destaque de um usuário/config anterior
+  // sobreviver a uma nova sessão) e por destaqueElementoSincronizarSelecao
+  // quando a seleção elegível muda ou deixa de existir.
   function destaqueElementoDesmontarTodos() {
     var todas = destaqueElementoInstancias.slice();
     for (var i = 0; i < todas.length; i++) destaqueElementoDesmontarInstancia(todas[i]);
+    destaqueElementoSelecaoAtual = null;
   }
 
   // Função pura: calcula onde o badge deve ficar em relação ao alvo, sempre
@@ -2113,6 +2127,29 @@
     }];
   }
 
+  // Função pura: identidade ESTRUTURAL de uma seleção destaque_elemento —
+  // campanha.id + ids (ordenados) dos itens ativos (`ativo !== false`),
+  // independente de wasShown/alvo-encontrado (essas são preocupações de
+  // MONTAGEM, não de "qual campanha/itens deveriam estar ativos agora").
+  // Nunca usa posição/ordem do array como identidade — por isso o sort.
+  function destaqueElementoIdentidadeSelecao(campanha) {
+    var itens = destaqueElementoResolverItens(campanha).filter(function (item) { return item.ativo !== false; });
+    var ids = itens.map(function (item) { return item.id; });
+    ids.sort();
+    return { campanhaId: campanha ? campanha.id : null, itemIds: ids };
+  }
+
+  // Função pura: compara duas identidades (ver destaqueElementoIdentidadeSelecao).
+  function destaqueElementoIdentidadesIguais(a, b) {
+    if (!a || !b) return a === b;
+    if (a.campanhaId !== b.campanhaId) return false;
+    if (a.itemIds.length !== b.itemIds.length) return false;
+    for (var i = 0; i < a.itemIds.length; i++) {
+      if (a.itemIds[i] !== b.itemIds[i]) return false;
+    }
+    return true;
+  }
+
   // Monta TODOS os destaques elegíveis da campanha — um alvo ausente ou já
   // "visto" (Até interagir) nunca bloqueia os demais, cada item é resolvido
   // de forma independente. Desmonta qualquer destaque de uma seleção de
@@ -2120,6 +2157,11 @@
   function destaqueElementoMontarTodos(campanha, config) {
     destaqueElementoDesmontarTodos();
     var itens = destaqueElementoResolverItens(campanha);
+    // Reflete a seleção ESTRUTURAL (campanha + itens ativos), não só os que
+    // acabaram sendo montados de fato (wasShown/alvo podem pular alguns) —
+    // ver destaqueElementoSincronizarSelecao, que compara contra isto pra
+    // decidir se uma nova avaliação é "a mesma seleção" ou não.
+    destaqueElementoSelecaoAtual = destaqueElementoIdentidadeSelecao(campanha);
     for (var i = 0; i < itens.length; i++) {
       var item = itens[i];
       if (item.ativo === false) continue;
@@ -2194,6 +2236,43 @@
       if (tourState.ativo) return;
       destaqueElementoMontarTodos(campanha, config);
     }, delay);
+  }
+
+  // Chamada a cada reavaliação de candidatas de updateContext()/evaluateCampaigns()
+  // (SPA trocando contexto sem reload) — decide o que fazer com o destaque_elemento
+  // ATUALMENTE montado (se houver) comparado com `campanhaSelecionada` desta
+  // rodada (null quando nenhuma candidata destaque_elemento passou nos
+  // filtros de elegibilidade/modo/wasShown desta vez):
+  //   - mesma campanha + mesmos itens ativos (comparado por id, nunca por
+  //     posição/ordem — ver destaqueElementoIdentidadeSelecao): PRESERVA as
+  //     instâncias existentes (nunca desmonta/remonta, nunca duplica
+  //     observers/listeners, zero flicker) — só revalida a posição contra o
+  //     layout atual, já que o contexto pode ter mudado mesmo sem trocar de
+  //     campanha/item.
+  //   - qualquer outra coisa (campanha diferente, itens diferentes, ou
+  //     nenhuma candidata elegível agora): desmonta IMEDIATAMENTE qualquer
+  //     destaque existente (nunca deixa um destaque de um contexto/usuário
+  //     anterior sobrevivendo) e, se houver uma seleção nova, agenda a
+  //     montagem dela normalmente (respeita atraso_ms/gatilho, mesmo
+  //     caminho de sempre). Cancela também um timer de destaque pendente de
+  //     uma avaliação anterior — sem isso, esse timer antigo podia disparar
+  //     DEPOIS desta decisão e remontar um destaque já invalidado.
+  function destaqueElementoSincronizarSelecao(campanhaSelecionada, config) {
+    var novaIdentidade = campanhaSelecionada ? destaqueElementoIdentidadeSelecao(campanhaSelecionada) : null;
+    if (novaIdentidade && destaqueElementoIdentidadesIguais(destaqueElementoSelecaoAtual, novaIdentidade)) {
+      for (var i = 0; i < destaqueElementoInstancias.length; i++) {
+        destaqueElementoReposicionar(destaqueElementoInstancias[i]);
+      }
+      return;
+    }
+    if (state.timer) {
+      window.clearTimeout(state.timer);
+      state.timer = null;
+    }
+    destaqueElementoDesmontarTodos();
+    if (campanhaSelecionada) {
+      agendarDestaqueElemento(campanhaSelecionada, config);
+    }
   }
 
   var AUTO_CLOSE_MS = 2500;
@@ -2749,6 +2828,22 @@
   }
 
   function init(config) {
+    // Trata init() como sessão/config nova, incondicionalmente — nenhuma
+    // instância de destaque_elemento (root, listeners, MutationObserver/
+    // ResizeObserver/PerformanceObserver, e o `config`/usuario_id fechado
+    // nela) do usuário/config ANTERIOR pode sobreviver a um novo init(),
+    // mesmo que a próxima avaliação de candidatas não selecione nenhum
+    // destaque_elemento novo. Igual ao root da modal (removido mais abaixo)
+    // já era, mas destaqueElementoInstancias nunca tinha um ponto de reset
+    // aqui antes — numa SPA que troca de usuário sem reload completo, a
+    // instância antiga ficava viva pra sempre, com o usuario_id de quem
+    // usou antes. Tem que ser a primeira coisa, antes até de state.config
+    // ser substituído. evaluateCampaignsToken++ invalida qualquer
+    // evaluateCampaigns() (de um updateContext() anterior) ainda em voo —
+    // a resposta dela nunca pode agir sobre o contexto deste init() novo.
+    destaqueElementoDesmontarTodos();
+    evaluateCampaignsToken++;
+
     // Restaurar overflow do body caso a modal estivesse aberta ao re-inicializar
     document.body.style.overflow = state.bodyOverflow || '';
 
@@ -3105,6 +3200,33 @@
       .catch(function () {});
   }
 
+  // Incrementado em init() e a cada chamada de evaluateCampaigns() — guarda
+  // simples contra corrida: se updateContext() disparar 2 avaliações em
+  // sequência rápida (ou um init() acontecer no meio de uma já em voo), a
+  // resposta da fetch mais ANTIGA não pode restaurar/remontar destaque de um
+  // contexto já substituído por uma avaliação mais nova. Sem isso, a ordem
+  // de chegada das respostas (não a ordem de disparo) decidiria o estado
+  // final — exatamente o tipo de corrida que pode variar por usuário/rede.
+  var evaluateCampaignsToken = 0;
+
+  // Mesmo padrão de tourSetTestState: lista fechada de campos permitidos —
+  // nunca deixa um teste (ou script no domínio do cliente, já que _internal
+  // é exposto em produção) injetar campo arbitrário em state.config por essa
+  // via. Existe só pra exercitar evaluateCampaigns()/updateContext() em
+  // teste sem precisar simular o fetch de aparência/tour/candidata inicial
+  // que um init() de verdade dispara — substitui state.config por um objeto
+  // NOVO (nunca muta um já existente), mesmo comportamento de init().
+  var CONFIG_TEST_STATE_CAMPOS_PERMITIDOS = ['sistema', 'tela', 'usuario_id', 'contexto', 'slug', 'public_key'];
+  function configSetTestState(parcial) {
+    if (!parcial) return;
+    var novoConfig = {};
+    for (var i = 0; i < CONFIG_TEST_STATE_CAMPOS_PERMITIDOS.length; i++) {
+      var campo = CONFIG_TEST_STATE_CAMPOS_PERMITIDOS[i];
+      if (Object.prototype.hasOwnProperty.call(parcial, campo)) novoConfig[campo] = parcial[campo];
+    }
+    state.config = novoConfig;
+  }
+
   // Reavalia candidatas com o config/contexto atual (todos os modos).
   // Usado por updateContext e pode ser chamado quando o contexto muda sem reload.
   function evaluateCampaigns() {
@@ -3112,10 +3234,21 @@
     if (!config || !config.sistema) return;
     if (state.open) return;
     var contexto = resolveContexto();
+    var meuToken = ++evaluateCampaignsToken;
     fetchCandidatas(config.sistema, config.tela, 'ao_abrir_tela', null, config.usuario_id, contexto)
       .then(function (candidatos) {
+        // Resposta atrasada de uma avaliação já superada por outra mais
+        // recente (novo updateContext() ou init()) — nunca pode agir sobre
+        // um contexto que não existe mais. Ver evaluateCampaignsToken.
+        if (meuToken !== evaluateCampaignsToken) return;
         if (state.open) return;
         var linhasDebug = [];
+        // null quando nenhuma candidata destaque_elemento passa nos filtros
+        // desta rodada — destaqueElementoSincronizarSelecao (chamado sempre,
+        // abaixo) usa isso pra desmontar um destaque que deixou de ser
+        // elegível, exatamente como usaria uma candidata nova pra substituir
+        // o que já estava montado.
+        var destaqueSelecionado = null;
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
           var okModo = checkMode(c, config);
@@ -3147,9 +3280,21 @@
           state.phoneError = '';
           ensureStyles();
           resetRoot();
-          scheduleAutoOpen(c, config);
+          // destaque_elemento nunca passa por scheduleAutoOpen aqui — vai
+          // por destaqueElementoSincronizarSelecao (abaixo, fora do loop),
+          // que decide preservar/substituir comparando com o que já está
+          // montado, em vez de sempre desmontar+remontar (flicker).
+          if ((c.modo_exibicao || 'modal_automatica') === FORMATO_DESTAQUE_ELEMENTO) {
+            destaqueSelecionado = c;
+          } else {
+            scheduleAutoOpen(c, config);
+          }
           break;
         }
+        // Sempre chamado, mesmo sem nenhuma candidata elegível desta vez —
+        // é o único jeito de garantir que um destaque_elemento de um
+        // contexto anterior seja desmontado quando deixa de ser elegível.
+        destaqueElementoSincronizarSelecao(destaqueSelecionado, config);
         if (debugState.enabled) debugLog('Campanhas candidatas (updateContext/evaluateCampaigns, tela: ' + config.tela + ')', linhasDebug);
       })
       .catch(function () {});
@@ -10511,6 +10656,21 @@
     destaqueElementoGetTestUtilidadeState: destaqueElementoGetTestUtilidadeState,
     destaqueElementoGetTestAberto: destaqueElementoGetTestAberto,
     destaqueElementoGetTestOculto: destaqueElementoGetTestOculto,
+    // Ciclo de vida da instância entre reavaliações (init()/updateContext(),
+    // nunca deixar destaque de um usuário/contexto anterior sobreviver) —
+    // destaqueElementoIdentidadeSelecao/Iguais são funções puras;
+    // destaqueElementoSincronizarSelecao é o ponto único de decisão
+    // preservar/substituir/remover chamado por evaluateCampaigns();
+    // evaluateCampaigns + configSetTestState (mesmo padrão de
+    // tourSetTestState, lista fechada de campos) existem só pra poder
+    // exercitar esse fluxo assíncrono de teste sem precisar simular o
+    // fetch de aparência/tour que um init() completo dispararia. Ver
+    // server/src/widgetDestaqueElemento.test.ts.
+    destaqueElementoIdentidadeSelecao: destaqueElementoIdentidadeSelecao,
+    destaqueElementoIdentidadesIguais: destaqueElementoIdentidadesIguais,
+    destaqueElementoSincronizarSelecao: destaqueElementoSincronizarSelecao,
+    evaluateCampaigns: evaluateCampaigns,
+    configSetTestState: configSetTestState,
     // wasShown/markShown já existiam (política de "mostrar_uma_vez"
     // compartilhada por qualquer formato de campanha, via localStorage) —
     // expostas aqui pra confirmar que Destaque em elemento reaproveita a
