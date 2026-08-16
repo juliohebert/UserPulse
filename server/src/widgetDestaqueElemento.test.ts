@@ -529,6 +529,14 @@ describe('destaqueElementoLocalizarAlvo — localiza o alvo de UM item (data_cy 
 })
 
 describe('campanha dispensada não reaparece (wasShown/markShown reaproveitados do modal)', () => {
+  test('identificado ignora localStorage; anônimo mantém o fallback local', () => {
+    const campanha: Campanha = { id: 'camp-autoritativa', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
+    const anonimo: ConfigWidget = { sistema: 'sis', tela: 'tela-auth' }
+    markShown(campanha, anonimo)
+    assert.equal(wasShown(campanha, anonimo), true)
+    assert.equal(wasShown(campanha, { ...anonimo, usuario_id: 'user-1' }), false)
+  })
+
   test('antes de markShown, wasShown é false — o destaque pode aparecer', () => {
     const campanha: Campanha = { id: 'camp-1', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true }
     const config: ConfigWidget = { sistema: 'sis', tela: 'tela-x' }
@@ -1822,7 +1830,7 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
     }
   });
 
-  test('Sim salvo com sucesso marca o item como consumido (markShown) — isolado do "até interagir" do próprio toggle, que já marca ao abrir o tooltip', async () => {
+  test('Sim salvo com sucesso não cria bloqueio local para usuário identificado', async () => {
     presentes.add('filtro-util-consome');
     const campanha: Campanha = {
       id: 'destaque-util-consome', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
@@ -1844,14 +1852,14 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
     // markShown só roda depois da Promise do fetch resolver (microtask).
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    assert.equal(wasShown(campanha, config, 'item-util-consome'), true, 'Sim salvo com sucesso deve consumir o item usando a infra existente de markShown');
+    assert.equal(wasShown(campanha, config, 'item-util-consome'), false, 'identificado continua dependendo da resposta autoritativa do servidor');
     // A instância ATUAL continua montada — markShown só afeta futuras
     // exibições (ver teste de "reload" abaixo), nunca fecha nada sozinho; o
     // comentário opcional continua disponível.
     assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'a instância continua montada depois do markShown');
   });
 
-  test('reload (nova chamada de destaqueElementoMontarTodos) depois de Sim/Não já salvo não exibe mais o destaque', async () => {
+  test('reload local não decide elegibilidade de destaque identificado', async () => {
     presentes.add('filtro-util-reload');
     const campanha: Campanha = {
       id: 'destaque-util-reload', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
@@ -1861,14 +1869,14 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
     const listener = abrirTooltip(campanha, config);
     listener({ target: elementoClique('data-up-util-nao') });
     await new Promise(resolve => setTimeout(resolve, 0));
-    assert.equal(wasShown(campanha, config, 'item-util-reload'), true);
+    assert.equal(wasShown(campanha, config, 'item-util-reload'), false);
 
     // Simula um reload da página: destaqueElementoMontarTodos é exatamente o
     // que o runtime chama de novo do zero (desmonta tudo e reavalia
     // elegibilidade via wasShown) — nenhum estado de instância sobrevive a um
     // reload de verdade, só o localStorage (onde markShown persistiu).
     destaqueElementoMontarTodos(campanha, config);
-    assert.equal(destaqueElementoGetTestClickListener(0), null, 'depois do reload, o item já consumido não deve ser remontado');
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'o mock ainda forneceu a candidata; só o servidor pode removê-la para identificado');
   });
 
   test('sucesso no envio do comentário: mostra "Obrigado" brevemente e só desmonta a instância inteira (badge incluso) depois do tempo passar — nunca dispensa', async () => {
@@ -1910,10 +1918,10 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
     const chamadasFinal = chamadasRastreamento.slice(antesDispensa);
     assert.equal(chamadasFinal.some(c => c.body.tipo_evento === 'dispensa'), false, 'encerramento automático continua nunca sendo dispensa')
 
-    // O item já tinha sido consumido no sucesso do Sim (markShown) — um
-    // reload depois desse fluxo completo também não deve remontar nada.
+    // Este harness chama a montagem diretamente, sem uma nova resposta de
+    // /candidatas. Para identificado, portanto, o cache local não a bloqueia.
     destaqueElementoMontarTodos(campanha, config);
-    assert.equal(destaqueElementoGetTestClickListener(0), null, 'depois do fluxo completo + reload, o item consumido não volta a aparecer');
+    assert.notEqual(destaqueElementoGetTestClickListener(0), null, 'sem consultar candidatas novamente, localStorage não decide a elegibilidade');
   });
 
   test('duplo clique em "Enviar" durante o loading não gera envio duplicado', async () => {
@@ -1979,7 +1987,7 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
     const novas = chamadasRastreamento.slice(antes);
     assert.equal(novas.length, 1);
     assert.equal(novas[0].body.tipo_evento, 'clique_cta');
-    assert.equal(wasShown(campanha, config, 'item-util-nao-interfere'), true, '"até interagir" continua marcando o item como visto no clique do CTA, de sempre');
+    assert.equal(wasShown(campanha, config, 'item-util-nao-interfere'), false, 'CTA continua rastreado, mas identificado não ganha bloqueio local');
   });
 })
 

@@ -110,6 +110,20 @@ type HistoricoResult =
   | { bloqueado: false }
   | { bloqueado: true; motivo: string }
 
+interface CampanhaReexibicao {
+  politica_reexibicao: string
+  reexibir_apos_dias: number | null
+  intervalo_reexibicao_dias: number | null
+  exige_confirmacao_leitura: boolean
+  feedback_habilitado: boolean
+}
+
+interface HistoricoReexibicao {
+  ultimaVisualizacao: Date | null
+  ultimoFeedback: Date | null
+  ultimaConfirmacao: Date | null
+}
+
 // Fonte única do filtro usado pelo gating de "campanha respondida"
 // (reexibição) — só o feedback GERAL (nps/csat, resolvido por
 // Campanha.tipo_avaliacao_feedback) conta; utilidade_destaque nunca
@@ -168,19 +182,63 @@ export function avaliarReexibicaoPorDias(
   return { bloqueado: false }
 }
 
+// Decisão autoritativa e pura das três políticas existentes. O campo
+// intervalo_reexibicao_dias antecede reexibir_apos_dias; continua valendo
+// como fallback para campanhas legadas que já o tinham preenchido.
+export function avaliarPoliticaReexibicao(
+  campanha: CampanhaReexibicao,
+  historico: HistoricoReexibicao,
+  agora: Date
+): HistoricoResult {
+  const policy = campanha.politica_reexibicao || 'uma_vez_apos_visualizacao'
+
+  if (policy === 'uma_vez_apos_visualizacao') {
+    if (historico.ultimaVisualizacao) return { bloqueado: true, motivo: 'Campanha já exibida para este usuário.' }
+    if (campanha.exige_confirmacao_leitura && historico.ultimaConfirmacao) {
+      return { bloqueado: true, motivo: 'Campanha já confirmada por este usuário.' }
+    }
+    if (!campanha.exige_confirmacao_leitura && historico.ultimoFeedback) {
+      return { bloqueado: true, motivo: 'Campanha já respondida por este usuário.' }
+    }
+  }
+
+  if (policy === 'ate_responder_ou_confirmar') {
+    if (campanha.exige_confirmacao_leitura && historico.ultimaConfirmacao) {
+      return { bloqueado: true, motivo: 'Campanha já confirmada por este usuário.' }
+    }
+    if (!campanha.exige_confirmacao_leitura && historico.ultimoFeedback) {
+      return { bloqueado: true, motivo: 'Campanha já respondida por este usuário.' }
+    }
+  }
+
+  if (policy === 'reexibir_apos_dias') {
+    const dias = campanha.reexibir_apos_dias ?? campanha.intervalo_reexibicao_dias
+    const fonte = fonteReferenciaReexibicao(campanha)
+    const referencia = fonte === 'confirmacao'
+      ? historico.ultimaConfirmacao
+      : fonte === 'feedback'
+        ? historico.ultimoFeedback
+        : historico.ultimaVisualizacao
+    return avaliarReexibicaoPorDias(dias, referencia, agora, fonte)
+  }
+
+  return { bloqueado: false }
+}
+
 async function verificarHistorico(
   campanha: {
     id: string
     politica_reexibicao: string
     reexibir_apos_dias: number | null
+    intervalo_reexibicao_dias: number | null
     exige_confirmacao_leitura: boolean
     feedback_habilitado: boolean
     tipo_avaliacao_feedback: string
   },
   uidStr: string,
-  agora: Date
+  agora: Date,
+  opcoes: { ignorarVisualizacao?: boolean } = {}
 ): Promise<HistoricoResult> {
-  const policy = campanha.politica_reexibicao || 'uma_vez_apos_visualizacao'
   // Gating de reexibição é só sobre o feedback GERAL da campanha (nps/csat,
   // resolvido por Campanha.tipo_avaliacao_feedback) — utilidade_destaque é
   // independente por definição (avaliar "essa melhoria foi útil?" num
@@ -188,72 +246,23 @@ async function verificarHistorico(
   // por já ter respondido NPS/CSAT nem vice-versa). Ver validarAvaliacaoFeedback.
   const filtroFeedbackGeral = filtroFeedbackGeralReexibicao(campanha.id, uidStr, campanha.tipo_avaliacao_feedback)
 
-  if (policy === 'uma_vez_apos_visualizacao') {
-    const jaViu = await prisma.eventoCampanha.findFirst({
+  const [ultimaViz, ultimoFb, ultimaConf] = await Promise.all([
+    prisma.eventoCampanha.findFirst({
       where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
-    })
-    if (jaViu) return { bloqueado: true, motivo: 'Campanha já exibida para este usuário.' }
+      orderBy: { criado_em: 'desc' },
+    }),
+    prisma.feedback.findFirst({ where: filtroFeedbackGeral, orderBy: { criado_em: 'desc' } }),
+    prisma.confirmacaoLeitura.findFirst({
+      where: { campanha_id: campanha.id, usuario_id: uidStr },
+      orderBy: { criado_em: 'desc' },
+    }),
+  ])
 
-    if (campanha.exige_confirmacao_leitura) {
-      const jaConf = await prisma.confirmacaoLeitura.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
-      })
-      if (jaConf) return { bloqueado: true, motivo: 'Campanha já confirmada por este usuário.' }
-    } else {
-      const uf = await prisma.feedback.findFirst({
-        where: filtroFeedbackGeral,
-        orderBy: { criado_em: 'desc' },
-      })
-      if (uf) return { bloqueado: true, motivo: 'Campanha já respondida por este usuário.' }
-    }
-  }
-
-  if (policy === 'ate_responder_ou_confirmar') {
-    if (campanha.exige_confirmacao_leitura) {
-      const jaConf = await prisma.confirmacaoLeitura.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
-      })
-      if (jaConf) return { bloqueado: true, motivo: 'Campanha já confirmada por este usuário.' }
-    } else {
-      const uf = await prisma.feedback.findFirst({
-        where: filtroFeedbackGeral,
-        orderBy: { criado_em: 'desc' },
-      })
-      if (uf) return { bloqueado: true, motivo: 'Campanha já respondida por este usuário.' }
-    }
-  }
-
-  if (policy === 'reexibir_apos_dias') {
-    const dias = campanha.reexibir_apos_dias
-    if (!dias || dias <= 0) return { bloqueado: false }
-
-    const fonte = fonteReferenciaReexibicao(campanha)
-    let referencia: Date | null = null
-
-    if (fonte === 'confirmacao') {
-      const ultimaConf = await prisma.confirmacaoLeitura.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr },
-        orderBy: { criado_em: 'desc' },
-      })
-      referencia = ultimaConf?.criado_em ?? null
-    } else if (fonte === 'feedback') {
-      const ultimoFb = await prisma.feedback.findFirst({
-        where: filtroFeedbackGeral,
-        orderBy: { criado_em: 'desc' },
-      })
-      referencia = ultimoFb?.criado_em ?? null
-    } else {
-      const ultimaViz = await prisma.eventoCampanha.findFirst({
-        where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
-        orderBy: { criado_em: 'desc' },
-      })
-      referencia = ultimaViz?.criado_em ?? null
-    }
-
-    return avaliarReexibicaoPorDias(dias, referencia, agora, fonte)
-  }
-
-  return { bloqueado: false }
+  return avaliarPoliticaReexibicao(campanha, {
+    ultimaVisualizacao: opcoes.ignorarVisualizacao ? null : (ultimaViz?.criado_em ?? null),
+    ultimoFeedback: ultimoFb?.criado_em ?? null,
+    ultimaConfirmacao: ultimaConf?.criado_em ?? null,
+  }, agora)
 }
 
 type ConclusaoResult = { bloqueado: false } | { bloqueado: true; eventoEm: Date }
@@ -678,6 +687,16 @@ export async function registrarFeedback(req: Request, res: Response) {
     const campanha = await prisma.campanha.findUnique({ where: { id: campanha_id } })
     if (!campanha || campanha.tenant_id !== resolucao.tenantId) {
       return res.status(400).json({ erro: 'Campanha não encontrada.' })
+    }
+
+    // A escrita aplica a mesma regra autoritativa das candidatas: conhecer
+    // campanha_id e usuario_id não permite antecipar uma nova resposta.
+    if (!isAlwaysShowUser(String(usuario_id))) {
+      // A visualização da exibição atual já foi registrada antes do submit e
+      // não pode bloquear a primeira resposta legítima. Feedback/confirmação
+      // persistidos continuam sendo considerados normalmente.
+      const reexibicao = await verificarHistorico(campanha, String(usuario_id), new Date(), { ignorarVisualizacao: true })
+      if (reexibicao.bloqueado) return res.status(409).json({ erro: reexibicao.motivo })
     }
 
     // Fonte da verdade do tipo de avaliação é sempre a campanha — nunca um

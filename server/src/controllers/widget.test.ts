@@ -1,7 +1,8 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
-  avaliarReexibicaoPorDias, construirFiltroCandidatas, fonteReferenciaReexibicao, ocultarTenantId,
+  avaliarPoliticaReexibicao, avaliarReexibicaoPorDias, construirFiltroCandidatas, fonteReferenciaReexibicao, ocultarTenantId,
   validarDestaqueItemEvento, TIPOS_EVENTO_CAMPANHA,
   validarAvaliacaoFeedback, TIPOS_AVALIACAO_FEEDBACK,
   filtroFeedbackGeralReexibicao,
@@ -9,10 +10,86 @@ import {
 
 const DIA_MS = 86_400_000
 const AGORA = new Date('2026-07-10T12:00:00Z')
+const FONTE_WIDGET = readFileSync(new URL('./widget.ts', import.meta.url), 'utf8')
 
 function diasAtras(dias: number): Date {
   return new Date(AGORA.getTime() - dias * DIA_MS)
 }
+
+const CAMPANHA_REEXIBICAO = {
+  politica_reexibicao: 'uma_vez_apos_visualizacao',
+  reexibir_apos_dias: null,
+  intervalo_reexibicao_dias: null,
+  exige_confirmacao_leitura: false,
+  feedback_habilitado: true,
+}
+
+const SEM_HISTORICO = {
+  ultimaVisualizacao: null,
+  ultimoFeedback: null,
+  ultimaConfirmacao: null,
+}
+
+describe('avaliarPoliticaReexibicao — decisão autoritativa compartilhada', () => {
+  test('identificado sem histórico é elegível', () => {
+    assert.equal(avaliarPoliticaReexibicao(CAMPANHA_REEXIBICAO, SEM_HISTORICO, AGORA).bloqueado, false)
+  })
+
+  test('resposta encerra uma_vez_apos_visualizacao e ate_responder_ou_confirmar', () => {
+    const historico = { ...SEM_HISTORICO, ultimoFeedback: diasAtras(1) }
+    assert.equal(avaliarPoliticaReexibicao(CAMPANHA_REEXIBICAO, historico, AGORA).bloqueado, true)
+    assert.equal(avaliarPoliticaReexibicao({ ...CAMPANHA_REEXIBICAO, politica_reexibicao: 'ate_responder_ou_confirmar' }, historico, AGORA).bloqueado, true)
+  })
+
+  test('POST pode ignorar a visualização atual sem ignorar resposta anterior', () => {
+    assert.equal(avaliarPoliticaReexibicao(CAMPANHA_REEXIBICAO, { ...SEM_HISTORICO, ultimaVisualizacao: AGORA }, AGORA).bloqueado, true)
+    assert.equal(avaliarPoliticaReexibicao(CAMPANHA_REEXIBICAO, SEM_HISTORICO, AGORA).bloqueado, false)
+    assert.equal(avaliarPoliticaReexibicao(CAMPANHA_REEXIBICAO, { ...SEM_HISTORICO, ultimoFeedback: AGORA }, AGORA).bloqueado, true)
+  })
+
+  test('cenários completos do POST: primeira resposta, duplicada, visualização posterior e intervalo vencido', () => {
+    const politicaBloqueante = CAMPANHA_REEXIBICAO
+    const somenteVisualizacaoAtual = { ...SEM_HISTORICO, ultimaVisualizacao: AGORA }
+    const respostaAnteriorComNovaVisualizacao = {
+      ...SEM_HISTORICO,
+      ultimaVisualizacao: AGORA,
+      ultimoFeedback: diasAtras(5),
+    }
+
+    assert.equal(avaliarPoliticaReexibicao(politicaBloqueante, { ...somenteVisualizacaoAtual, ultimaVisualizacao: null }, AGORA).bloqueado, false)
+    assert.equal(avaliarPoliticaReexibicao(politicaBloqueante, respostaAnteriorComNovaVisualizacao, AGORA).bloqueado, true)
+
+    const porIntervalo = { ...politicaBloqueante, politica_reexibicao: 'reexibir_apos_dias', reexibir_apos_dias: 30 }
+    assert.equal(avaliarPoliticaReexibicao(porIntervalo, { ...respostaAnteriorComNovaVisualizacao, ultimoFeedback: diasAtras(29) }, AGORA).bloqueado, true)
+    assert.equal(avaliarPoliticaReexibicao(porIntervalo, { ...respostaAnteriorComNovaVisualizacao, ultimoFeedback: diasAtras(30) }, AGORA).bloqueado, false)
+  })
+
+  test('registrarFeedback liga a decisão ao 409 e ignora somente a visualização atual', () => {
+    const inicio = FONTE_WIDGET.indexOf('export async function registrarFeedback')
+    const fim = FONTE_WIDGET.indexOf('export async function registrarUtilidadeDestaque')
+    const controller = FONTE_WIDGET.slice(inicio, fim)
+    assert.match(controller, /verificarHistorico\(campanha, String\(usuario_id\), new Date\(\), \{ ignorarVisualizacao: true \}\)/)
+    assert.match(controller, /if \(reexibicao\.bloqueado\) return res\.status\(409\)/)
+  })
+
+  test('reexibir_apos_dias bloqueia antes e permite nova resposta após o prazo', () => {
+    const campanha = { ...CAMPANHA_REEXIBICAO, politica_reexibicao: 'reexibir_apos_dias', reexibir_apos_dias: 30 }
+    assert.equal(avaliarPoliticaReexibicao(campanha, { ...SEM_HISTORICO, ultimoFeedback: diasAtras(29) }, AGORA).bloqueado, true)
+    assert.equal(avaliarPoliticaReexibicao(campanha, { ...SEM_HISTORICO, ultimoFeedback: diasAtras(30) }, AGORA).bloqueado, false)
+  })
+
+  test('intervalo_reexibicao_dias legado participa quando reexibir_apos_dias não existe', () => {
+    const campanha = { ...CAMPANHA_REEXIBICAO, politica_reexibicao: 'reexibir_apos_dias', intervalo_reexibicao_dias: 15 }
+    assert.equal(avaliarPoliticaReexibicao(campanha, { ...SEM_HISTORICO, ultimoFeedback: diasAtras(14) }, AGORA).bloqueado, true)
+    assert.equal(avaliarPoliticaReexibicao(campanha, { ...SEM_HISTORICO, ultimoFeedback: diasAtras(15) }, AGORA).bloqueado, false)
+  })
+
+  test('NPS usa feedback geral e campanha informativa/destaque sem feedback usa visualização', () => {
+    assert.equal(avaliarPoliticaReexibicao(CAMPANHA_REEXIBICAO, { ...SEM_HISTORICO, ultimoFeedback: AGORA }, AGORA).bloqueado, true)
+    const informativa = { ...CAMPANHA_REEXIBICAO, politica_reexibicao: 'reexibir_apos_dias', reexibir_apos_dias: 10, feedback_habilitado: false }
+    assert.equal(avaliarPoliticaReexibicao(informativa, { ...SEM_HISTORICO, ultimaVisualizacao: diasAtras(1) }, AGORA).bloqueado, true)
+  })
+})
 
 describe('fonteReferenciaReexibicao', () => {
   test('campanha com feedback habilitado usa feedback como referência', () => {
@@ -424,5 +501,22 @@ describe('filtroFeedbackGeralReexibicao', () => {
   test('nunca produz filtro com tipo_avaliacao "utilidade_destaque" — só ecoa o que a campanha resolve, e esse campo nunca assume esse valor', () => {
     const r = filtroFeedbackGeralReexibicao('camp-1', 'user-1', 'nps')
     assert.notEqual(r.tipo_avaliacao, 'utilidade_destaque')
+  })
+
+  test('mesmo usuario_id em outra campanha não entra na consulta de histórico', () => {
+    const atual = filtroFeedbackGeralReexibicao('camp-tenant-a', 'user-igual', 'nps')
+    const outroTenant = filtroFeedbackGeralReexibicao('camp-tenant-b', 'user-igual', 'nps')
+    assert.notDeepEqual(atual, outroTenant)
+    assert.deepEqual(atual, { campanha_id: 'camp-tenant-a', usuario_id: 'user-igual', tipo_avaliacao: 'nps' })
+  })
+
+  test('registrarFeedback valida ownership do tenant antes de consultar histórico', () => {
+    const inicio = FONTE_WIDGET.indexOf('export async function registrarFeedback')
+    const fim = FONTE_WIDGET.indexOf('export async function registrarUtilidadeDestaque')
+    const controller = FONTE_WIDGET.slice(inicio, fim)
+    const ownership = controller.indexOf('campanha.tenant_id !== resolucao.tenantId')
+    const historico = controller.indexOf('verificarHistorico(campanha')
+    assert.ok(ownership >= 0)
+    assert.ok(historico > ownership)
   })
 })
