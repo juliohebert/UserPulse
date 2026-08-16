@@ -100,16 +100,6 @@ function InsightCard({
   )
 }
 
-function TourStatusChip({ ativo }: { ativo: boolean }) {
-  return (
-    <span className={`shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-      ativo ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'
-    }`}>
-      {ativo ? 'Ativo' : 'Inativo'}
-    </span>
-  )
-}
-
 function OnboardingState({ navigate, podeEscrever }: { navigate: (path: string) => void; podeEscrever: boolean }) {
   return (
     <div className="bg-surface rounded-3xl border border-outline-variant p-8 sm:p-12 text-center">
@@ -342,8 +332,6 @@ export function Dashboard() {
   const maxFeedbacks = Math.max(1, ...recentes.map(c => c._count?.feedbacks ?? 0))
 
   const totalTours = tours.length
-  const toursAtivos = tours.filter(t => t.ativo).length
-  const toursInativos = totalTours - toursAtivos
   const toursRecentes = tours.slice(0, 3)
   const toursDataReady = !toursLoading && !toursError
 
@@ -360,7 +348,7 @@ export function Dashboard() {
       id: t.id,
       titulo: t.titulo,
       criado_em: t.criado_em,
-      meta: t.ativo ? 'Tour ativo' : 'Tour em rascunho',
+      meta: `${t._count?.passos ?? 0} passo${(t._count?.passos ?? 0) === 1 ? '' : 's'}`,
     })),
   ]
     .sort((a, b) => new Date(b.criado_em).getTime() - new Date(a.criado_em).getTime())
@@ -406,17 +394,6 @@ export function Dashboard() {
       ctaLabel: 'Criar tour guiado',
       onCta: () => navigate('/tours/novo'),
     })
-  } else if (toursDataReady && toursInativos > 0) {
-    insights.push({
-      id: 'tours-inativos',
-      icon: 'visibility_off',
-      iconBg: 'bg-outline-variant/40',
-      iconColor: 'text-on-surface-variant',
-      title: `${toursInativos} tour${toursInativos === 1 ? '' : 's'} inativo${toursInativos === 1 ? '' : 's'}`,
-      description: 'Publicados como rascunho — ative quando estiverem prontos.',
-      ctaLabel: 'Ver tours',
-      onCta: () => navigate('/tours'),
-    })
   }
   if (total > 0 && totalFeedbacks === 0 && campanhasSemFeedback.length === 0) {
     insights.push({
@@ -438,7 +415,7 @@ export function Dashboard() {
     ? 'Acompanhe campanhas, tours guiados e o engajamento dos seus usuários em um só lugar.'
     : total === 0 && totalTours === 0
     ? 'Comece criando sua primeira campanha ou tour guiado para engajar os usuários.'
-    : `${ativas} campanha${ativas === 1 ? '' : 's'} ativa${ativas === 1 ? '' : 's'} e ${toursAtivos} tour${toursAtivos === 1 ? '' : 's'} guiado${toursAtivos === 1 ? '' : 's'} ajudando seus usuários agora.`
+    : `${ativas} campanha${ativas === 1 ? '' : 's'} ativa${ativas === 1 ? '' : 's'} e ${totalTours} tour${totalTours === 1 ? '' : 's'} guiado${totalTours === 1 ? '' : 's'} configurado${totalTours === 1 ? '' : 's'} para suas jornadas.`
 
   const confirmarInativacao = async () => {
     if (!campanhaInativar) return
@@ -515,7 +492,7 @@ export function Dashboard() {
               iconBg="bg-primary/10"
               iconColor="text-primary"
               value={toursLoading ? '—' : totalTours}
-              hint={toursLoading ? undefined : `${toursAtivos} ativo${toursAtivos === 1 ? '' : 's'}`}
+              hint={toursLoading ? undefined : `${totalTours} criado${totalTours === 1 ? '' : 's'}`}
               hintColor="text-tertiary"
             />
             <KpiCard label="Média Geral" icon="star" iconBg="bg-yellow-500/10" iconColor="text-yellow-600" value="—" hint="Ver por campanha" />
@@ -686,10 +663,6 @@ export function Dashboard() {
                       <p className="text-body-md text-on-surface-variant py-2">Nenhum tour guiado criado ainda.</p>
                     ) : (
                       <>
-                        <div className="flex items-center gap-4 mb-4">
-                          <span className="text-label-md font-bold text-tertiary">{toursAtivos} ativo{toursAtivos === 1 ? '' : 's'}</span>
-                          <span className="text-label-md font-bold text-outline">{toursInativos} inativo{toursInativos === 1 ? '' : 's'}</span>
-                        </div>
                         <div className="space-y-1 mb-2">
                           {toursRecentes.map(t => (
                             <button
@@ -703,7 +676,7 @@ export function Dashboard() {
                                   {t._count?.passos ?? 0} passo{(t._count?.passos ?? 0) === 1 ? '' : 's'}
                                 </p>
                               </div>
-                              <TourStatusChip ativo={t.ativo} />
+                              <span className="material-symbols-outlined text-[18px] text-outline">chevron_right</span>
                             </button>
                           ))}
                         </div>

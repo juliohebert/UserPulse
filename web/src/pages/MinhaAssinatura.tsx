@@ -956,7 +956,7 @@ export function MinhaAssinatura() {
                               </li>
                               <li className="flex items-center gap-1.5">
                                 <span className="material-symbols-outlined text-[16px] text-tertiary">check</span>
-                                {p.limite_tours_ativos != null ? `${p.limite_tours_ativos} tours ativos` : 'Tours ilimitados'}
+                                {p.limite_tours_ativos != null ? `${p.limite_tours_ativos} tours` : 'Tours ilimitados'}
                               </li>
                               {p.permite_jornadas && (
                                 <li className="flex items-center gap-1.5">

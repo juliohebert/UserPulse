@@ -1,38 +1,7 @@
-import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 
 const card = 'w-full bg-surface p-6 rounded-3xl border border-outline-variant'
-
-function CodeBlock({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const copy = () => {
-    navigator.clipboard.writeText(code).catch(() => {})
-    setCopied(true)
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => setCopied(false), 2000)
-  }
-
-  return (
-    <div className="w-full max-w-4xl rounded-xl overflow-hidden border border-[#313244]">
-      <div className="flex items-center justify-between bg-[#1e1e2e] px-4 py-2 border-b border-[#313244]">
-        <span className="text-[11px] text-[#6c7086] font-mono uppercase tracking-wider select-none">javascript</span>
-        <button
-          onClick={copy}
-          className="flex items-center gap-1.5 text-[11px] text-[#6c7086] hover:text-[#cdd6f4] transition-colors"
-        >
-          <span className="material-symbols-outlined text-[14px]">{copied ? 'check_circle' : 'content_copy'}</span>
-          <span>{copied ? 'Copiado!' : 'Copiar'}</span>
-        </button>
-      </div>
-      <pre className="bg-[#1e1e2e] px-4 py-4 overflow-x-auto">
-        <code className="text-[13px] text-[#cdd6f4] font-mono leading-relaxed whitespace-pre">{code}</code>
-      </pre>
-    </div>
-  )
-}
 
 function SectionCard({
   icon, iconBg, iconColor, title, subtitle, children,
@@ -69,15 +38,13 @@ function Tip({ children }: { children: React.ReactNode }) {
   )
 }
 
-const CODE_INICIAR_TOUR = `window.UserPulse.iniciarTour("slug-do-tour");`
-
 const BOAS_PRATICAS = [
   { icon: 'timer', text: 'Crie tours curtos — poucos passos, direto ao ponto. Tours longos cansam e fazem o usuário abandonar no meio.' },
   { icon: 'code', text: 'Use data-cy sempre que possível. É o seletor mais estável — sobrevive a mudanças de estilo que quebrariam um seletor CSS.' },
   { icon: 'warning', text: 'Evite CSS frágil (classes geradas automaticamente, seletores muito específicos). Se mudar o layout, o passo para de encontrar o elemento.' },
-  { icon: 'play_circle', text: 'Teste antes de ativar. Use o botão "Testar tour" para percorrer o fluxo real antes de publicar para os usuários.' },
-  { icon: 'edit_note', text: 'Mantenha o tour inativo enquanto estiver configurando. Ele só é bloqueado de ativar se algum passo ainda não tiver seletor — mas vale manter como rascunho até estar pronto.' },
-  { icon: 'monitoring', text: 'Revise o dashboard depois de publicar. "Elementos não encontrados" alto é sinal de seletor frágil ou tela que mudou.' },
+  { icon: 'play_circle', text: 'Teste antes de usar em uma jornada. Use o botão "Testar tour" para percorrer o fluxo real.' },
+  { icon: 'route', text: 'O tour só aparece para o usuário final quando estiver em uma jornada. A jornada decide onde ele entra na experiência.' },
+  { icon: 'monitoring', text: 'Revise o dashboard depois que a jornada estiver em uso. "Elementos não encontrados" alto é sinal de seletor frágil ou tela que mudou.' },
 ]
 
 const COMO_CRIAR = [
@@ -85,7 +52,7 @@ const COMO_CRIAR = [
   { titulo: 'Preencha o destino', desc: 'Defina sistema e como o tour deve ser identificado: tela informada pelo sistema, data-cy ou caminho da URL.' },
   { titulo: 'Cadastre os passos', desc: 'Cada passo aponta para um elemento (seletor) com título e descrição do que destacar.' },
   { titulo: 'Teste', desc: 'Use "Testar tour" para percorrer o fluxo real e confirmar que cada passo encontra seu elemento.' },
-  { titulo: 'Ative', desc: 'Só é possível ativar quando todos os passos têm seletor preenchido — é a garantia de que o tour não vai quebrar em produção.' },
+  { titulo: 'Adicione a uma jornada', desc: 'Depois de revisar, use este tour como uma etapa dentro de uma jornada. Tours não aparecem sozinhos no widget.' },
 ]
 
 const GRAVADOR_PASSO_A_PASSO = [
@@ -97,7 +64,7 @@ const GRAVADOR_PASSO_A_PASSO = [
   { titulo: 'Trocar elemento, se necessário', desc: 'Se um seletor veio errado ou frágil, clique em "Trocar elemento" no passo e clique de novo no elemento certo na tela real — ou escolha entre os seletores candidatos sugeridos, sem precisar clicar em nada.' },
   { titulo: 'Gerar JSON', desc: 'Com os passos revisados, clique em "Gerar JSON" — o gravador monta o tour completo no formato userpulse.tour.v1 e encerra a gravação.' },
   { titulo: 'Copiar e abrir importação', desc: 'Use "Copiar e abrir importação" pra copiar o JSON e já abrir a tela de Tours Guiados com o modal de importação pronto — nada é enviado automaticamente.' },
-  { titulo: 'Importar como rascunho', desc: 'Cole o JSON (ou use "Colar JSON" no próprio modal) e clique em "Importar" — o tour é criado como rascunho, inativo. Revise título, descrição e seletores antes de ativar.' },
+  { titulo: 'Importar e revisar', desc: 'Cole o JSON (ou use "Colar JSON" no próprio modal) e clique em "Importar". Revise título, descrição e seletores antes de usar em uma jornada.' },
 ]
 
 const GRAVADOR_BOAS_PRATICAS = [
@@ -107,13 +74,13 @@ const GRAVADOR_BOAS_PRATICAS = [
   { icon: 'text_fields', text: 'Use "Ao alterar valor" para campos e autocomplete. Passos em inputs/selects avançam melhor quando o usuário preenche, não quando clica.' },
   { icon: 'ads_click', text: 'Use "Ao clicar" para botões. É o comportamento natural pra ações — o tour avança assim que o usuário confirma a ação.' },
   { icon: 'warning', text: 'Confira seletores frágeis. "Analisar passos" e o próprio chip do seletor já sinalizam quando ele pode quebrar com uma mudança de layout.' },
-  { icon: 'play_circle', text: 'Teste o tour antes de ativar. Depois de importar, use "Testar tour" pra percorrer o fluxo real e confirmar que cada passo encontra seu elemento.' },
+  { icon: 'play_circle', text: 'Teste o tour antes de adicioná-lo a uma jornada. Depois de importar, use "Testar tour" pra confirmar que cada passo encontra seu elemento.' },
 ]
 
 const COMO_TESTAR = [
   { icon: 'play_circle', titulo: 'Botão "Testar tour"', desc: 'Disponível na listagem, no formulário e na tela de preview — abre o tour em modo teste, sem depender do sistema hospedeiro.' },
   { icon: 'science', titulo: 'test-embed.html', desc: 'Página de simulação do widget para desenvolvimento local. Aponte para o servidor local com ?local=1 na URL.' },
-  { icon: 'terminal', titulo: 'Comando manual', desc: 'Chame window.UserPulse.iniciarTour("slug") no console do navegador — funciona mesmo com o tour inativo ou já concluído pelo usuário.' },
+  { icon: 'route', titulo: 'Preview pela jornada', desc: 'Para validar a experiência final, adicione o tour a uma jornada e use o preview real da criação de jornada.' },
 ]
 
 const DASHBOARD_METRICAS = [
@@ -260,7 +227,7 @@ export function TourGuide() {
           iconBg="bg-tertiary-fixed"
           iconColor="text-tertiary"
           title="Como testar"
-          subtitle="Três formas de disparar um tour manualmente, do mais simples ao mais técnico."
+          subtitle="Valide o conteúdo do tour e depois confira a experiência final pela jornada."
         >
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {COMO_TESTAR.map((m, i) => (
@@ -271,8 +238,6 @@ export function TourGuide() {
               </div>
             ))}
           </div>
-          <CodeBlock code={CODE_INICIAR_TOUR} />
-          <Tip>Troque "slug-do-tour" pelo slug do tour, visível na tela de preview de cada tour.</Tip>
         </SectionCard>
 
         {/* E — Como interpretar o dashboard */}

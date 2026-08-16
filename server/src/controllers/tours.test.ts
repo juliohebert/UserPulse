@@ -237,17 +237,10 @@ describe('montarWhereListaTours — filtros da listagem de Tours (GET /tours)', 
     assert.deepEqual(montarWhereListaTours({}), {})
   })
 
-  test('status=ativos => where.ativo=true', () => {
-    assert.deepEqual(montarWhereListaTours({ status: 'ativos' }), { ativo: true })
-  })
-
-  test('status=inativos => where.ativo=false', () => {
-    assert.deepEqual(montarWhereListaTours({ status: 'inativos' }), { ativo: false })
-  })
-
-  test('status=todos (ou qualquer outro valor) => sem where.ativo, igual a "sem filtro"', () => {
-    assert.deepEqual(montarWhereListaTours({ status: 'todos' }), {})
-    assert.deepEqual(montarWhereListaTours({ status: 'qualquer-coisa' }), {})
+  test('status legado é ignorado => sem where.ativo, igual a "sem filtro"', () => {
+    assert.deepEqual(montarWhereListaTours({ status: 'ativos' } as unknown as Parameters<typeof montarWhereListaTours>[0]), {})
+    assert.deepEqual(montarWhereListaTours({ status: 'inativos' } as unknown as Parameters<typeof montarWhereListaTours>[0]), {})
+    assert.deepEqual(montarWhereListaTours({ status: 'todos' } as unknown as Parameters<typeof montarWhereListaTours>[0]), {})
   })
 
   test('sistema preenchido => match exato, trimado', () => {
@@ -279,9 +272,8 @@ describe('montarWhereListaTours — filtros da listagem de Tours (GET /tours)', 
     assert.deepEqual(montarWhereListaTours({ busca: '   ' }), {})
   })
 
-  test('busca + sistema + status combinados => todos os filtros presentes juntos (AND implícito)', () => {
-    const where = montarWhereListaTours({ busca: 'agenda', sistema: 'crm', status: 'ativos' })
-    assert.equal(where.ativo, true)
+  test('busca + sistema combinados => filtros presentes juntos (AND implícito)', () => {
+    const where = montarWhereListaTours({ busca: 'agenda', sistema: 'crm' })
     assert.equal(where.sistema, 'crm')
     assert.ok(Array.isArray(where.OR))
   })

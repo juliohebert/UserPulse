@@ -147,7 +147,7 @@ function montarDadosBloco(b: BlocoValidado, ordem: number) {
   }
 }
 
-// Inclui só campos básicos do Tour/Campanha referenciado (id/titulo/slug/ativo)
+// Inclui só campos básicos do Tour/Campanha referenciado.
 // — o suficiente pro admin mostrar "aponta para: X" sem trazer o cadastro inteiro.
 const INCLUDE_BLOCOS = {
   blocos: {
@@ -156,7 +156,7 @@ const INCLUDE_BLOCOS = {
       etapas: {
         orderBy: { ordem: 'asc' as const },
         include: {
-          tour: { select: { id: true, titulo: true, slug: true, ativo: true } },
+          tour: { select: { id: true, titulo: true, slug: true } },
           campanha: { select: { id: true, titulo: true, slug: true, ativo: true } },
         },
       },

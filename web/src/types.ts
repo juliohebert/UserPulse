@@ -419,7 +419,7 @@ export interface EtapaJornada {
   obrigatoria: boolean
   criado_em: string
   atualizado_em: string
-  tour?: { id: string; titulo: string; slug: string; ativo: boolean } | null
+  tour?: { id: string; titulo: string; slug: string; ativo?: boolean; passos?: TourPasso[] } | null
   campanha?: { id: string; titulo: string; slug: string; ativo: boolean } | null
   status?: 'pendente' | 'concluida' | 'pulada'
 }
