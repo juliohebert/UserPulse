@@ -1703,13 +1703,26 @@
     var pontos = destaqueElementoPontosInternos(rect);
     if (visivel && typeof document.elementsFromPoint === 'function') {
       visivel = false;
-      for (var p = 0; p < pontos.length; p++) {
-        var pilha = document.elementsFromPoint(pontos[p].x, pontos[p].y);
-        var primeiro = destaqueElementoPrimeiroRelevante(instancia, pilha);
-        if (destaqueElementoAlvoRealmenteVisivel(instancia.alvo, rect, primeiro)) {
-          visivel = true;
-          break;
+      // O render troca root.innerHTML antes de chegar aqui. Em alguns
+      // layouts/navegadores, a pilha de hit-test desse mesmo ciclo ainda pode
+      // devolver um filho recém-substituído da própria instância. Retirar a
+      // root do hit-test durante a leitura torna a medição independente desse
+      // estado intermediário; pointer-events não altera geometria/layout. O
+      // filtro dinâmico root.contains abaixo continua necessário como defesa
+      // para implementações que ainda incluam a root na pilha.
+      var pointerEventsAnterior = instancia.root.style.pointerEvents;
+      instancia.root.style.pointerEvents = 'none';
+      try {
+        for (var p = 0; p < pontos.length; p++) {
+          var pilha = document.elementsFromPoint(pontos[p].x, pontos[p].y);
+          var primeiro = destaqueElementoPrimeiroRelevante(instancia, pilha);
+          if (destaqueElementoAlvoRealmenteVisivel(instancia.alvo, rect, primeiro)) {
+            visivel = true;
+            break;
+          }
         }
+      } finally {
+        instancia.root.style.pointerEvents = pointerEventsAnterior;
       }
     } else if (visivel && typeof document.elementFromPoint === 'function') {
       var ponto = destaqueElementoPontoRepresentativo(rect);
