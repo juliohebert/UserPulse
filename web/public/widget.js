@@ -1331,6 +1331,14 @@
     var seletor = destaqueElementoSeletorSeguro(item.data_cy);
     if (!seletor) return null;
     try {
+      // data-cy precisa identificar inequivocamente o alvo. Com dois matches,
+      // querySelector escolheria o primeiro conforme a ordem atual do DOM e
+      // uma mutation poderia fazer a mesma campanha reaparecer presa a outro
+      // elemento sem qualquer mudança de identidade.
+      if (typeof document.querySelectorAll === 'function') {
+        var matches = document.querySelectorAll(seletor);
+        return matches.length === 1 ? matches[0] : null;
+      }
       return document.querySelector(seletor);
     } catch (_e) {
       return null;
@@ -1623,12 +1631,34 @@
     return { width: window.innerWidth, height: window.innerHeight };
   }
 
-  // Função pura: ponto representativo do retângulo do alvo (seu centro) —
-  // usado pra confirmar, via document.elementFromPoint, que nada foi
-  // desenhado por cima do alvo (drawer/modal/overlay). Sem acesso a DOM/
-  // window, só aritmética — testável isolada.
+  // Pontos úteis internos: centro + quatro cantos com margem. Um drawer pode
+  // cobrir apenas parte do alvo; basta uma área útil continuar alcançável.
   function destaqueElementoPontoRepresentativo(rect) {
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
+  function destaqueElementoPontosInternos(rect) {
+    if (!rect || rect.width <= 0 || rect.height <= 0) return [];
+    var margemX = Math.min(8, rect.width / 4);
+    var margemY = Math.min(8, rect.height / 4);
+    return [
+      destaqueElementoPontoRepresentativo(rect),
+      { x: rect.left + margemX, y: rect.top + margemY },
+      { x: rect.right - margemX, y: rect.top + margemY },
+      { x: rect.left + margemX, y: rect.bottom - margemY },
+      { x: rect.right - margemX, y: rect.bottom - margemY },
+    ];
+  }
+
+  function destaqueElementoPrimeiroRelevante(instancia, elementos) {
+    if (!elementos) return null;
+    for (var i = 0; i < elementos.length; i++) {
+      var elemento = elementos[i];
+      if (!elemento) continue;
+      if (instancia.root && (elemento === instancia.root || instancia.root.contains(elemento))) continue;
+      return elemento;
+    }
+    return null;
   }
 
   // Função pura: decide se o alvo está REALMENTE visível — dimensões
@@ -1669,11 +1699,23 @@
     // MutationObserver/estabilização já existentes — abrir/fechar o overlay
     // já dispara destaqueElementoAgendarReacao, sem precisar de nenhum
     // polling novo.
-    var ponto = destaqueElementoPontoRepresentativo(rect);
-    var elementoNoPonto = typeof document.elementFromPoint === 'function'
-      ? document.elementFromPoint(ponto.x, ponto.y)
-      : undefined;
-    if (!destaqueElementoAlvoRealmenteVisivel(instancia.alvo, rect, elementoNoPonto)) {
+    var visivel = rect && rect.width > 0 && rect.height > 0;
+    var pontos = destaqueElementoPontosInternos(rect);
+    if (visivel && typeof document.elementsFromPoint === 'function') {
+      visivel = false;
+      for (var p = 0; p < pontos.length; p++) {
+        var pilha = document.elementsFromPoint(pontos[p].x, pontos[p].y);
+        var primeiro = destaqueElementoPrimeiroRelevante(instancia, pilha);
+        if (destaqueElementoAlvoRealmenteVisivel(instancia.alvo, rect, primeiro)) {
+          visivel = true;
+          break;
+        }
+      }
+    } else if (visivel && typeof document.elementFromPoint === 'function') {
+      var ponto = destaqueElementoPontoRepresentativo(rect);
+      visivel = destaqueElementoAlvoRealmenteVisivel(instancia.alvo, rect, document.elementFromPoint(ponto.x, ponto.y));
+    }
+    if (!visivel) {
       instancia.oculto = true;
       instancia.root.style.display = 'none';
       return;
@@ -2260,10 +2302,36 @@
   function destaqueElementoSincronizarSelecao(campanhaSelecionada, config) {
     var novaIdentidade = campanhaSelecionada ? destaqueElementoIdentidadeSelecao(campanhaSelecionada) : null;
     if (novaIdentidade && destaqueElementoIdentidadesIguais(destaqueElementoSelecaoAtual, novaIdentidade)) {
-      for (var i = 0; i < destaqueElementoInstancias.length; i++) {
-        destaqueElementoReposicionar(destaqueElementoInstancias[i]);
+      var itensResolvidos = destaqueElementoResolverItens(campanhaSelecionada);
+      var itensEsperados = [];
+      for (var e = 0; e < itensResolvidos.length; e++) {
+        var itemResolvido = itensResolvidos[e];
+        if (itemResolvido.ativo === false) continue;
+        var alvoResolvido = destaqueElementoLocalizarAlvo(itemResolvido);
+        var instanciaExistente = null;
+        for (var n = 0; n < destaqueElementoInstancias.length; n++) {
+          if (destaqueElementoInstancias[n].item.id === itemResolvido.id) instanciaExistente = destaqueElementoInstancias[n];
+        }
+        // Alvo ausente/ambíguo não é esperado nesta tela. Item já consumido
+        // também não é, salvo enquanto sua instância atual ainda estiver viva.
+        if (alvoResolvido && (!wasShown(campanhaSelecionada, config, itemResolvido.id) || instanciaExistente)) {
+          itensEsperados.push({ item: itemResolvido, alvo: alvoResolvido, instancia: instanciaExistente });
+        }
       }
-      return;
+      var instanciasValidas = destaqueElementoInstancias.length === itensEsperados.length;
+      for (var i = 0; instanciasValidas && i < itensEsperados.length; i++) {
+        var esperado = itensEsperados[i];
+        var correspondente = esperado.instancia;
+        if (!correspondente || correspondente.desmontada || correspondente.alvo !== esperado.alvo || !document.body.contains(correspondente.alvo)) {
+          instanciasValidas = false;
+        }
+      }
+      if (instanciasValidas) {
+        for (var k = 0; k < destaqueElementoInstancias.length; k++) {
+          destaqueElementoReposicionar(destaqueElementoInstancias[k]);
+        }
+        return;
+      }
     }
     if (state.timer) {
       window.clearTimeout(state.timer);
