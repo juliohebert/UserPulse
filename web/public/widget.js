@@ -1609,6 +1609,32 @@
     return { width: window.innerWidth, height: window.innerHeight };
   }
 
+  // Função pura: ponto representativo do retângulo do alvo (seu centro) —
+  // usado pra confirmar, via document.elementFromPoint, que nada foi
+  // desenhado por cima do alvo (drawer/modal/overlay). Sem acesso a DOM/
+  // window, só aritmética — testável isolada.
+  function destaqueElementoPontoRepresentativo(rect) {
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
+  // Função pura: decide se o alvo está REALMENTE visível — dimensões
+  // válidas e (quando o navegador suporta a checagem) nada cobrindo o ponto
+  // representativo do alvo. Recebe `elementoNoPonto` já resolvido por quem
+  // chama (document.elementFromPoint) em vez de acessar o DOM aqui, pra
+  // continuar testável com objetos sintéticos, sem harness. "Conectado ao
+  // DOM" já é responsabilidade de quem chama (document.body.contains, ver
+  // destaqueElementoReposicionar) — aqui só cobre dimensões + oclusão.
+  // `elementoNoPonto === undefined` significa que a checagem não pôde ser
+  // feita (navegador sem elementFromPoint) — trata como visível, preservando
+  // o comportamento de sempre pra quem não suporta a API.
+  function destaqueElementoAlvoRealmenteVisivel(alvo, rect, elementoNoPonto) {
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+    if (typeof elementoNoPonto === 'undefined') return true;
+    if (!elementoNoPonto) return false;
+    if (elementoNoPonto === alvo) return true;
+    return Boolean(alvo && typeof alvo.contains === 'function' && alvo.contains(elementoNoPonto));
+  }
+
   function destaqueElementoReposicionar(instancia) {
     if (!instancia || !instancia.root || !instancia.alvo) return;
     // SPA pode remover o elemento do DOM depois de montado (navegação,
@@ -1619,9 +1645,32 @@
       destaqueElementoDesmontarInstancia(instancia);
       return;
     }
+    var rect = instancia.alvo.getBoundingClientRect();
+
+    // Alvo continua no DOM mas pode estar ENCOBERTO por uma drawer/modal/
+    // overlay aberta por cima dele (ex.: clicar no próprio alvo abre um
+    // painel) — diferente de ter sumido do DOM (caso acima, que desmonta de
+    // vez): aqui só oculta badge/tooltip (sem desmontar, sem markShown, sem
+    // dispensa) até o alvo voltar a ficar realmente visível. Reaproveita o
+    // MutationObserver/estabilização já existentes — abrir/fechar o overlay
+    // já dispara destaqueElementoAgendarReacao, sem precisar de nenhum
+    // polling novo.
+    var ponto = destaqueElementoPontoRepresentativo(rect);
+    var elementoNoPonto = typeof document.elementFromPoint === 'function'
+      ? document.elementFromPoint(ponto.x, ponto.y)
+      : undefined;
+    if (!destaqueElementoAlvoRealmenteVisivel(instancia.alvo, rect, elementoNoPonto)) {
+      instancia.oculto = true;
+      instancia.root.style.display = 'none';
+      return;
+    }
+    if (instancia.oculto) {
+      instancia.oculto = false;
+      instancia.root.style.display = '';
+    }
+
     var badgeEl = instancia.root.querySelector('.up-destaque-badge');
     if (!badgeEl) return;
-    var rect = instancia.alvo.getBoundingClientRect();
     var badgeSize = { width: badgeEl.offsetWidth, height: badgeEl.offsetHeight };
     var viewport = destaqueElementoObterViewport();
     var pos = destaqueElementoCalcularPosicao(rect, badgeSize, viewport);
@@ -1738,15 +1787,23 @@
           contexto: config.contexto || undefined,
         }),
       }).then(function (resp) {
-        if (instancia.desmontada || !comFeedbackVisivel) return;
+        if (instancia.desmontada) return;
+        // Sim/Não (ou o comentário, que reenvia a mesma escolha) persistiu —
+        // item consumido pra futuras exibições, reaproveitando a MESMA
+        // infra de "até interagir" (mostrar_uma_vez). A instância ATUAL
+        // continua montada mesmo assim, só pra permitir o comentário
+        // opcional — quem decide fechar/desmontar é o botão X (dispensa) ou
+        // o fechamento automático após o comentário, nunca este markShown.
+        if (resp && resp.ok) markShown(campanha, config, item.id);
+        if (!comFeedbackVisivel) return;
         instancia.utilidade.enviando = false;
         if (resp && resp.ok) {
           instancia.utilidade.comentarioEnviado = true;
           instancia.utilidade.erro = null;
           destaqueElementoRender(instancia);
           // Sucesso do comentário: mostra "Obrigado pelo feedback!" por um
-          // instante e fecha só o tooltip sozinho (nunca a instância inteira,
-          // nunca dispensa — ver destaqueElementoUtilAgendarFechamento).
+          // instante e só então desmonta a instância inteira (badge incluso)
+          // — ver destaqueElementoUtilAgendarFechamento. Nunca dispensa.
           destaqueElementoUtilAgendarFechamento(instancia);
         } else {
           instancia.utilidade.erro = 'Não foi possível enviar. Tente novamente.';
@@ -1775,19 +1832,20 @@
     }
   }
 
-  // Fecha só o TOOLTIP (aberto:false) depois de um comentário de utilidade
-  // enviado com sucesso — nunca desmonta a instância (badge continua na
-  // página, reabrível) e nunca chama markShown/registrarEvento('dispensa',
-  // ...): esse evento é exclusivo do fechamento explícito pelo usuário (botão
-  // X, ver o listener de clique). "Até interagir" não é afetado — avaliar
-  // utilidade nunca marcou o item como visto, e continua não marcando aqui.
+  // Desmonta a instância INTEIRA (badge incluso) depois de um comentário de
+  // utilidade enviado com sucesso — o item já foi marcado como consumido
+  // (markShown) no sucesso do Sim/Não, ver enviarUtilidadeDestaque; este
+  // timer só dá tempo do usuário ver "Obrigado pelo feedback!" antes de
+  // sumir. Nunca chama registrarEvento('dispensa', ...): esse evento é
+  // exclusivo do fechamento explícito pelo usuário (botão X, ver o listener
+  // de clique) — destaqueElementoDesmontarInstancia por si só nunca dispara
+  // nenhum evento.
   function destaqueElementoUtilAgendarFechamento(instancia) {
     destaqueElementoUtilCancelarAutoClose(instancia);
     instancia.utilAutoCloseTimer = window.setTimeout(function () {
       instancia.utilAutoCloseTimer = null;
       if (instancia.desmontada) return;
-      instancia.aberto = false;
-      destaqueElementoRender(instancia);
+      destaqueElementoDesmontarInstancia(instancia);
     }, UTIL_AUTO_CLOSE_MS);
   }
 
@@ -1843,6 +1901,10 @@
       layoutShiftObserver: null,
       reacaoAgendada: false,
       desmontada: false,
+      // Alvo encoberto por drawer/modal/overlay no momento (ver
+      // destaqueElementoReposicionar) — badge/tooltip ficam com display:none
+      // sem desmontar a instância nem consumir o item.
+      oculto: false,
       // Avaliação de utilidade deste item ("Essa melhoria foi útil?") —
       // independente de state.nota (feedback geral) e de qualquer outra
       // instância (cada destaque tem a sua própria escolha/comentário).
@@ -2114,6 +2176,15 @@
   function destaqueElementoGetTestAberto(indice) {
     var instancia = destaqueElementoInstancias[indice || 0];
     return instancia ? instancia.aberto : null;
+  }
+
+  // Mesmo padrão — expõe só instancia.oculto, pra confirmar em teste que um
+  // alvo encoberto por drawer/modal/overlay (ver destaqueElementoReposicionar)
+  // fica oculto sem ser desmontado, e volta a ficar visível quando o alvo
+  // deixa de estar coberto.
+  function destaqueElementoGetTestOculto(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    return instancia ? Boolean(instancia.oculto) : null;
   }
 
   function agendarDestaqueElemento(campanha, config) {
@@ -10422,6 +10493,10 @@
     destaqueElementoRectsIguais: destaqueElementoRectsIguais,
     destaqueElementoMutacoesApenasNoRoot: destaqueElementoMutacoesApenasNoRoot,
     destaqueElementoObterViewport: destaqueElementoObterViewport,
+    // Visibilidade real do alvo (encoberto por drawer/modal/overlay) —
+    // funções puras, sem efeito colateral. Ver server/src/widgetDestaqueElemento.test.ts.
+    destaqueElementoPontoRepresentativo: destaqueElementoPontoRepresentativo,
+    destaqueElementoAlvoRealmenteVisivel: destaqueElementoAlvoRealmenteVisivel,
     // destaqueElementoResolverItens: função pura (fallback destaques[] vs
     // pseudo-item legado). destaqueElementoMontar/MontarTodos +
     // destaqueElementoGetTestClickListener: mesmo padrão de renderTour/
@@ -10435,6 +10510,7 @@
     destaqueElementoGetTestInputListener: destaqueElementoGetTestInputListener,
     destaqueElementoGetTestUtilidadeState: destaqueElementoGetTestUtilidadeState,
     destaqueElementoGetTestAberto: destaqueElementoGetTestAberto,
+    destaqueElementoGetTestOculto: destaqueElementoGetTestOculto,
     // wasShown/markShown já existiam (política de "mostrar_uma_vez"
     // compartilhada por qualquer formato de campanha, via localStorage) —
     // expostas aqui pra confirmar que Destaque em elemento reaproveita a
