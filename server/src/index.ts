@@ -7,13 +7,22 @@ import path from 'path'
 import campanhasRouter from './routes/campanhas'
 import widgetRouter from './routes/widget'
 import dashboardRouter from './routes/dashboard'
+import sistemasRouter from './routes/sistemas'
 import catalogoTelasRouter from './routes/catalogoTelas'
 import toursRouter from './routes/tours'
 import jornadasRouter from './routes/jornadas'
 import aparenciaWidgetRouter from './routes/aparenciaWidget'
 import authRouter from './routes/auth'
+import adminTenantsRouter from './routes/adminTenants'
+import adminPlanosRouter from './routes/adminPlanos'
+import webhooksAsaasRouter from './routes/webhooksAsaas'
+import billingRouter from './routes/billing'
 import { requireAdminAuth } from './middleware/requireAdminAuth'
+import { requireSuperAdmin } from './middleware/requireSuperAdmin'
+import { requireAcessoOperacional } from './middleware/requireAcessoOperacional'
 import { getSessionSecret } from './lib/auth'
+import { iniciarSchedulerAlertasTrial } from './services/trialAlertasScheduler'
+import { iniciarSchedulerDowngrade } from './services/downgradeScheduler'
 
 dotenv.config()
 
@@ -105,13 +114,33 @@ app.get('/test-embed.html', (_req, res) => {
 // sem sessão (é o próprio jeito de criar uma); /me e /logout se protegem
 // sozinhas dentro do router (ver routes/auth.ts).
 app.use('/api/auth', corsAdmin, authRouter)
-app.use('/api/campanhas', corsAdmin, requireAdminAuth, campanhasRouter)
-app.use('/api/catalogo-telas', corsAdmin, requireAdminAuth, catalogoTelasRouter)
-app.use('/api/tours', corsAdmin, requireAdminAuth, toursRouter)
-app.use('/api/jornadas', corsAdmin, requireAdminAuth, jornadasRouter)
-app.use('/api/aparencia-widget', corsAdmin, requireAdminAuth, aparenciaWidgetRouter)
+// requireAcessoOperacional (Fase 6C) bloqueia estes 6 routers inteiros
+// (leitura incluída) quando o trial do tenant já venceu — ver comentário no
+// próprio middleware. Nunca aplicado a /api/auth, /api/billing, /api/admin/*
+// nem /api/webhooks/asaas (regra explícita da tarefa: login, Minha Conta,
+// Minha Assinatura, planos/cobrança/pagamento, Gestão SaaS e o webhook do
+// Asaas continuam acessíveis mesmo com o trial vencido).
+app.use('/api/campanhas', corsAdmin, requireAdminAuth, requireAcessoOperacional, campanhasRouter)
+app.use('/api/sistemas', corsAdmin, requireAdminAuth, requireAcessoOperacional, sistemasRouter)
+app.use('/api/catalogo-telas', corsAdmin, requireAdminAuth, requireAcessoOperacional, catalogoTelasRouter)
+app.use('/api/tours', corsAdmin, requireAdminAuth, requireAcessoOperacional, toursRouter)
+app.use('/api/jornadas', corsAdmin, requireAdminAuth, requireAcessoOperacional, jornadasRouter)
+app.use('/api/aparencia-widget', corsAdmin, requireAdminAuth, requireAcessoOperacional, aparenciaWidgetRouter)
 app.use('/api/widget', corsWidget, widgetRouter)
-app.use('/api/dashboard', corsAdmin, requireAdminAuth, dashboardRouter)
+app.use('/api/dashboard', corsAdmin, requireAdminAuth, requireAcessoOperacional, dashboardRouter)
+// Fase 5 — "Minha assinatura" self-service. Guard de papel (ADMIN-only)
+// fica dentro do router, em cada rota (ver routes/billing.ts) — igual ao
+// padrão de /api/aparencia-widget acima.
+app.use('/api/billing', corsAdmin, requireAdminAuth, billingRouter)
+// Painel Super Admin (gerenciar Tenants/Planos/teste grátis) — cross-tenant
+// de propósito, por isso vem depois de requireSuperAdmin, nunca só
+// requireAdminAuth como as demais rotas admin acima.
+app.use('/api/admin/tenants', corsAdmin, requireAdminAuth, requireSuperAdmin, adminTenantsRouter)
+app.use('/api/admin/planos', corsAdmin, requireAdminAuth, requireSuperAdmin, adminPlanosRouter)
+// Webhook do Asaas — chamado server-to-server pelo próprio Asaas (nunca por
+// um navegador), então sem CORS/sessão admin: a única proteção é o token no
+// header (ver requireAsaasWebhookToken).
+app.use('/api/webhooks/asaas', webhooksAsaasRouter)
 
 // Assets estáticos do frontend (CSS, JS bundles, favicons…)
 app.use(express.static(WEB_DIST))
@@ -120,6 +149,17 @@ app.use(express.static(WEB_DIST))
 app.get('*', (_req, res) => {
   res.sendFile(path.join(WEB_DIST, 'index.html'))
 })
+
+// Fase 6D — alertas automáticos de trial por e-mail (7/3/1 dias restantes e
+// vencido). Scheduler interno (setInterval, sem serviço externo pago) — ver
+// services/trialAlertasScheduler.ts pra idempotência/retry.
+iniciarSchedulerAlertasTrial()
+
+// Fase 8B — efetivação de downgrade agendado (POST /billing/downgrade já
+// sincronizou o Asaas; este scheduler só espelha localmente na data
+// certa). Mesmo padrão de scheduler interno (setInterval, sem serviço
+// externo) — ver services/downgradeScheduler.ts.
+iniciarSchedulerDowngrade()
 
 app.listen(PORT, () => {
   console.log(`Server rodando em http://localhost:${PORT}`)

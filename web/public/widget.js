@@ -10,6 +10,7 @@
     open: false,
     nota: null,
     observacao: '',
+    confirmacaoMarcada: false,
     submitting: false,
     submitted: false,
     error: '',
@@ -121,24 +122,37 @@
     return scriptOrigin + path;
   }
 
-  function registrarEvento(tipoEvento) {
-    var campanha = state.campanha;
-    var config = state.config;
-    if (!campanha || !config) return;
-    fetch(apiUrl('/api/widget/evento'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        campanha_id: campanha.id,
-        tipo_evento: tipoEvento,
-        usuario_id: config.usuario_id || undefined,
-        sistema: config.sistema || undefined,
-        tela: config.tela || undefined,
-        navegador: window.navigator.userAgent,
-        dispositivo: getDevice(),
-        contexto: config.contexto || undefined,
-      }),
-    }).catch(function () { /* fail silently */ });
+  // campanhaParam/configParam (opcionais) — os 4 call sites de
+  // modal_automatica (scheduleAutoOpen, toggle, CTA, formulário de
+  // telefone) continuam chamando só com tipoEvento, usando o singleton
+  // state.campanha/state.config de sempre. destaque_elemento passa os 4
+  // parâmetros explícitos (campanha/config/destaqueItemId vêm do fechamento
+  // de destaqueElementoMontarItem, nunca do state singleton — cada
+  // instância tem seu próprio item). Tudo dentro de try/catch: falha de
+  // rastreamento (erro síncrono ou de rede via .catch) nunca pode quebrar o
+  // site do cliente onde o widget está embarcado.
+  function registrarEvento(tipoEvento, campanhaParam, configParam, destaqueItemId) {
+    try {
+      var campanha = campanhaParam || state.campanha;
+      var config = configParam || state.config;
+      if (!campanha || !config) return;
+      fetch(apiUrl('/api/widget/evento'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          public_key: config.public_key || undefined,
+          campanha_id: campanha.id,
+          tipo_evento: tipoEvento,
+          destaque_item_id: destaqueItemId || undefined,
+          usuario_id: config.usuario_id || undefined,
+          sistema: config.sistema || undefined,
+          tela: config.tela || undefined,
+          navegador: window.navigator.userAgent,
+          dispositivo: getDevice(),
+          contexto: config.contexto || undefined,
+        }),
+      }).catch(function () { /* fail silently */ });
+    } catch (_e) { /* rastreamento nunca pode quebrar o site do cliente */ }
   }
 
   function getDevice() {
@@ -154,7 +168,7 @@
     var style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = [
-      '.up-widget-root{position:fixed;z-index:2147483000;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
+      '.up-widget-root{position:fixed;z-index:2147483000;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#0b1c30}',
       '.up-widget-overlay{inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(11,28,48,.45)}',
       '.up-widget-root *{box-sizing:border-box}',
       '.up-fab{width:56px;height:56px;border:0;border-radius:999px;background:#0058be;color:#fff;box-shadow:0 18px 40px rgba(0,88,190,.28);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,opacity .18s ease}',
@@ -164,10 +178,42 @@
       '.up-fab-close{background:#0b1c30;color:#f8f9ff}',
       '.up-modal{position:static;width:100%;max-width:560px;background:#fff;border:1px solid #c2c6d6;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.22);overflow:hidden;display:flex;flex-direction:column;max-height:calc(100vh - 32px)}',
       '.up-modal-enter{animation:up-fade-in .2s ease-out}',
-      '.up-modal-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid rgba(194,198,214,.45);flex-shrink:0}',
-      '.up-brand{display:flex;align-items:center;gap:10px;min-width:0}',
-      '.up-brand-icon{width:32px;height:32px;border-radius:999px;background:#d8e2ff;color:#0058be;display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
-      '.up-title{font-size:15px;line-height:21px;font-weight:800;color:#0b1c30;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      // align-items:flex-start (era center) nas duas regras abaixo — com
+      // .up-title agora permitindo quebra de linha (ver comentário logo
+      // abaixo), um título de 2+ linhas deve alinhar o ícone ao topo da
+      // primeira linha e manter o botão fechar encostado no topo direito,
+      // em vez de tudo recentralizar verticalmente conforme o header cresce.
+      '.up-modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid rgba(194,198,214,.45);flex-shrink:0}',
+      '.up-brand{display:flex;align-items:flex-start;gap:10px;min-width:0}',
+      // Fundo azul-claro + ícone azul (mesmo par de tokens já usado por
+      // .up-tour-progress logo abaixo: --up-primary-soft pro fundo,
+      // --up-primary pro texto/ícone) — mesmo estilo do círculo no preview
+      // do Campanhas 2 (ícone campaign/rocket_launch/quiz sobre fundo suave
+      // da cor do sistema, ver campanhas2/Index.tsx), não mais fundo sólido
+      // + ícone branco.
+      '.up-brand-icon{width:32px;height:32px;border-radius:999px;background:var(--up-primary-soft, rgba(0,88,190,.1));color:var(--up-primary, #0058be);display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
+      // Sem esta regra, o <svg> de campaignIconName() (sem width/height nem
+      // fill próprios, mesmo padrão de .up-fab svg/.up-close svg logo abaixo)
+      // cai no tamanho padrão do navegador pra um <svg> só com viewBox (bem
+      // maior que os 32px do círculo) e no fill preto padrão do SVG — o
+      // ícone real do widget fica estourado, bem diferente do ícone de
+      // 18px que o preview do Campanhas 2 mostra pro mesmo tipo
+      // (iconeTipoCampanha, campanhas2/Index.tsx) — mesma regra de ícone
+      // por tipo nos dois lados, só a exibição no widget que faltava.
+      // `color` repetido aqui (já existe em .up-brand-icon, o pai) de
+      // propósito: currentColor em `fill` resolve o `color` computado do
+      // PRÓPRIO elemento — declarar os dois juntos na mesma regra evita
+      // depender da herança de color atravessar corretamente do container
+      // pro svg (qualquer regra/estilo do site hospedeiro que reset color
+      // no meio do caminho não quebra o ícone).
+      '.up-brand-icon svg{width:18px;height:18px;color:var(--up-primary, #0058be);fill:currentColor;flex-shrink:0}',
+      // Sem white-space:nowrap/overflow:hidden/text-overflow:ellipsis — título
+      // grande agora quebra linha em vez de truncar com "...", igual ao
+      // preview do Campanhas 2 (CardEditavel/PreviewCampanhaModal, ver
+      // campanhas2/Index.tsx). overflow-wrap:break-word só protege o caso de
+      // uma palavra única maior que a largura disponível (ex.: sem espaços);
+      // não afeta a quebra normal entre palavras.
+      '.up-title{font-size:15px;line-height:21px;font-weight:800;color:#0b1c30;margin:0;overflow-wrap:break-word}',
       '.up-close{border:0;background:transparent;color:#727785;padding:4px;border-radius:8px;cursor:pointer;line-height:0;flex-shrink:0;display:flex;align-items:center;justify-content:center}',
       '.up-close:hover{background:#eff4ff;color:#0b1c30}',
       '.up-close svg{width:20px;height:20px;fill:currentColor;display:block;flex-shrink:0}',
@@ -192,6 +238,8 @@
       '.up-textarea:focus{border-color:#0058be;box-shadow:0 0 0 3px rgba(0,88,190,.16)}',
       '.up-required{margin:-8px 0 0;color:#ba1a1a;font-size:11px;line-height:16px}',
       '.up-error{margin:0;color:#ba1a1a;font-size:12px;line-height:16px}',
+      '.up-confirm-check{display:flex;align-items:center;gap:10px;border:1px solid #c2c6d6;border-radius:12px;background:#f8f9ff;padding:10px 12px;color:#424754;font-size:13px;line-height:18px;font-weight:700}',
+      '.up-confirm-check input{width:16px;height:16px;accent-color:var(--up-primary, #0058be);flex:0 0 auto}',
       '.up-submit{width:100%;height:42px;border:0;border-radius:12px;background:var(--up-primary, #0058be);color:#fff;font-size:12px;line-height:16px;font-weight:800;cursor:pointer;transition:opacity .15s ease,transform .15s ease}',
       '.up-submit:hover{opacity:.92}',
       '.up-submit:active{transform:scale(.98)}',
@@ -224,7 +272,7 @@
       // passos) — só o transition de posição/tamanho abaixo continua
       // responsável por qualquer movimento, no reposicionamento normal.
       '.up-tour-spotlight{position:fixed;border-radius:12px;box-shadow:0 0 0 9999px rgba(11,28,48,.55),0 0 0 2px #fff,0 0 0 5px var(--up-primary, #0058be),0 0 16px 3px var(--up-primary-ring, rgba(0,88,190,.28));pointer-events:none;transition:top .2s ease,left .2s ease,width .2s ease,height .2s ease}',
-      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:20px;box-shadow:0 1px 2px rgba(11,28,48,.04),0 16px 36px -12px rgba(11,28,48,.22);padding:20px;pointer-events:auto;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;animation:up-fade-in .18s ease-out}',
+      '.up-tour-tooltip{position:fixed;z-index:2147483601;width:300px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:20px;box-shadow:0 1px 2px rgba(11,28,48,.04),0 16px 36px -12px rgba(11,28,48,.22);padding:20px;pointer-events:auto;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#0b1c30;animation:up-fade-in .18s ease-out}',
       // As telas centralizadas (intro/conclusão/aguardando/não encontrado/erro)
       // usam position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)
       // inline pra centralizar — mas a animação padrão acima (up-fade-in) anima
@@ -355,7 +403,7 @@
       // Barra flutuante — fundo sempre escuro de propósito (independente do
       // tema claro/escuro da página host), pra garantir contraste e leitura
       // em qualquer sistema onde o widget for embedado.
-      '.up-rec-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483640;display:flex;align-items:center;gap:8px;background:#0b1c30;color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 18px 40px rgba(11,28,48,.35);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}',
+      '.up-rec-bar{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483640;display:flex;align-items:center;gap:8px;background:#0b1c30;color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 18px 40px rgba(11,28,48,.35);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;font-size:13px;max-width:calc(100vw - 24px);flex-wrap:wrap;justify-content:center}',
       '.up-rec-dot{width:8px;height:8px;border-radius:50%;background:#ff5252;flex-shrink:0;animation:up-rec-blink 1.2s ease-in-out infinite}',
       '@keyframes up-rec-blink{0%,100%{opacity:1}50%{opacity:.25}}',
       '.up-rec-label{font-weight:800;white-space:nowrap;letter-spacing:.01em}',
@@ -447,7 +495,7 @@
       '.up-rec-btn-danger{background:rgba(255,82,82,.22);color:#fff}',
       '.up-rec-btn-danger:hover{background:rgba(255,82,82,.36)}',
       '.up-rec-overlay{position:fixed;inset:0;z-index:2147483650;display:flex;align-items:center;justify-content:center;background:rgba(11,28,48,.55);padding:16px}',
-      '.up-rec-modal{width:100%;max-width:720px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30}',
+      '.up-rec-modal{width:100%;max-width:720px;max-height:calc(100vh - 32px);background:#fff;border-radius:16px;box-shadow:0 24px 70px rgba(11,28,48,.3);padding:20px;display:flex;flex-direction:column;gap:10px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#0b1c30}',
       // Mini revisão pós-clique — mais estreito e compacto que o modal de
       // revisão final (só título/descrição/2 selects), pra ler como uma
       // interrupção rápida, não uma segunda tela cheia.
@@ -462,7 +510,7 @@
       // passos + detalhe) excede isso, as regras de overflow-y:auto próprias
       // de .up-rec-lateral-lista/.up-rec-lateral-detalhe assumem o scroll
       // interno, mantendo cabeçalho e rodapé sempre visíveis.
-      '.up-rec-lateral{position:fixed;top:16px;right:16px;max-height:calc(100vh - 32px);width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 20px 55px rgba(11,28,48,.25);display:flex;flex-direction:column;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#0b1c30;overflow:hidden}',
+      '.up-rec-lateral{position:fixed;top:16px;right:16px;max-height:calc(100vh - 32px);width:296px;max-width:calc(100vw - 32px);z-index:2147483620;background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 20px 55px rgba(11,28,48,.25);display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#0b1c30;overflow:hidden}',
       // Sem isso, itens do painel lateral usam o content-box padrão do
       // navegador — adicionar border-top ao item sob o cursor durante um
       // drag (.up-rec-lateral-item-dragover, mais abaixo) crescia a altura
@@ -579,7 +627,7 @@
       // touch-action:none evita o navegador competir com o arrasto em telas
       // touch (scroll da página no lugar de mover o pill); user-select:none
       // evita selecionar o texto "Passos capturados" ao arrastar rápido.
-      '.up-rec-lateral-pill{position:fixed;top:16px;right:16px;z-index:2147483620;display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#132844,#0b1c30);color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 16px 36px rgba(11,28,48,.4),0 0 0 1px rgba(255,255,255,.06) inset;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px;font-weight:700;cursor:grab;border:0;touch-action:none;user-select:none;transition:box-shadow .15s ease}',
+      '.up-rec-lateral-pill{position:fixed;top:16px;right:16px;z-index:2147483620;display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#132844,#0b1c30);color:#f8f9ff;padding:9px 14px;border-radius:999px;box-shadow:0 16px 36px rgba(11,28,48,.4),0 0 0 1px rgba(255,255,255,.06) inset;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;font-size:12px;font-weight:700;cursor:grab;border:0;touch-action:none;user-select:none;transition:box-shadow .15s ease}',
       '.up-rec-lateral-pill-dot{width:6px;height:6px;border-radius:50%;background:#4dabff;flex-shrink:0;box-shadow:0 0 0 3px rgba(77,171,255,.2)}',
       // Pill durante uma troca (ver recorderRenderPainelLateral) — âmbar em
       // vez de azul, mesmo padrão de cor de "ação pendente" já usado em
@@ -918,6 +966,54 @@
       '.up-jorn-fab svg{width:18px;height:18px;fill:currentColor}',
       '.up-jorn-aviso{position:fixed;bottom:24px;right:24px;max-width:260px;padding:10px 14px;border-radius:10px;background:#0b1c30;color:#fff;font-family:inherit;font-size:12.5px;font-weight:600;line-height:1.4;box-shadow:0 14px 32px rgba(11,28,48,.28);z-index:2147483620}',
       '@media (max-width:480px){.up-jorn-painel{width:100vw;max-width:100vw}}',
+      // Destaque em elemento — badge/beacon ancorado num elemento da página
+      // (via data-cy) + tooltip contextual. Mesma linguagem visual do
+      // tooltip de Tour (.up-tour-tooltip: cartão branco, rounded, sombra),
+      // mas z-index abaixo do Tour (2147483600+) — nunca compete com um tour
+      // ativo (agendarDestaqueElemento já nem monta se tourState.ativo).
+      // Posição (top/left) é calculada em JS por destaqueElementoCalcularPosicao
+      // (fora/acima ou fora/abaixo do alvo, nunca sobre ele) — sem transform de
+      // centralização aqui: root já nasce com o canto exato do badge.
+      '.up-destaque-root{position:fixed;z-index:2147483200;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif}',
+      '.up-destaque-badge{position:relative;display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;background:var(--up-primary, #0058be);color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;cursor:pointer;border:2px solid #fff;box-shadow:0 6px 16px rgba(11,28,48,.28)}',
+      // Beacon fica FORA do badge (irmão, position:absolute) no gap entre
+      // badge e alvo — acima do badge quando o badge está abaixo do alvo,
+      // abaixo do badge quando o badge está acima (data-up-pos no root).
+      // `left` NÃO é fixo em 50% aqui — é calculado em JS por
+      // destaqueElementoCalcularBeacon a cada reposição, pra sempre apontar
+      // pro alvo mesmo quando o clamp de viewport desloca o badge pro lado
+      // (comum em telas estreitas).
+      '.up-destaque-beacon{position:absolute;transform:translateX(-50%);display:inline-flex;width:8px;height:8px;flex-shrink:0;pointer-events:none}',
+      '.up-destaque-root[data-up-pos="acima"] .up-destaque-beacon{top:100%;margin-top:2px}',
+      '.up-destaque-root[data-up-pos="abaixo"] .up-destaque-beacon{bottom:100%;margin-bottom:2px}',
+      '.up-destaque-beacon::before{content:"";position:absolute;inset:0;border-radius:999px;background:var(--up-primary, #0058be);opacity:.6;animation:up-destaque-ping 1.6s cubic-bezier(0,0,.2,1) infinite}',
+      '.up-destaque-beacon::after{content:"";position:relative;display:block;width:8px;height:8px;border-radius:999px;background:var(--up-primary, #0058be);border:2px solid #fff}',
+      '@keyframes up-destaque-ping{0%{transform:scale(1);opacity:.85}75%,100%{transform:scale(2.4);opacity:0}}',
+      // position:fixed (não absolute) — top/left são calculados em JS por
+      // destaqueElementoCalcularPosicaoTooltip a cada render/scroll/resize,
+      // pra nunca cobrir o alvo (abaixo/acima/lateral conforme espaço
+      // disponível). Mesmo padrão de .up-tour-tooltip (posição via JS).
+      '.up-destaque-tooltip{position:fixed;width:260px;max-width:calc(100vw - 24px);background:#fff;border:1px solid rgba(194,198,214,.4);border-radius:16px;box-shadow:0 1px 2px rgba(11,28,48,.04),0 16px 36px -12px rgba(11,28,48,.22);padding:16px;color:#0b1c30;animation:up-fade-in .16s ease-out}',
+      '.up-destaque-close{position:absolute;top:10px;right:10px;width:22px;height:22px;border:0;border-radius:999px;background:transparent;color:#727785;display:flex;align-items:center;justify-content:center;cursor:pointer}',
+      '.up-destaque-close svg{width:14px;height:14px;fill:currentColor}',
+      '.up-destaque-close:hover{background:#f1f3fa}',
+      '.up-destaque-titulo{margin:0 22px 4px 0;font-size:13.5px;font-weight:800;line-height:1.35;color:#0b1c30}',
+      '.up-destaque-descricao{margin:0;font-size:12.5px;line-height:1.45;color:#4a5164}',
+      '.up-destaque-cta{display:inline-flex;align-items:center;justify-content:center;height:34px;margin-top:12px;padding:0 16px;border:0;border-radius:999px;background:var(--up-primary, #0058be);color:#fff;font-size:12px;font-weight:800;cursor:pointer}',
+      // Avaliação de utilidade do destaque ("Essa melhoria foi útil?") —
+      // separador sutil (mesma cor de borda do card) pra distinguir da
+      // descrição/CTA acima sem pesar visualmente.
+      '.up-destaque-util{margin-top:12px;padding-top:12px;border-top:1px solid rgba(194,198,214,.4)}',
+      '.up-destaque-util-label{margin:0 0 8px;font-size:12px;font-weight:700;line-height:1.4;color:#0b1c30}',
+      '.up-destaque-util-botoes{display:flex;gap:8px}',
+      '.up-destaque-util-btn{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border:1px solid rgba(194,198,214,.5);border-radius:999px;background:#f8f9ff;color:#4a5164;font-size:12px;font-weight:700;cursor:pointer;transition:transform .15s ease,background .15s ease,border-color .15s ease}',
+      '.up-destaque-util-btn:hover{border-color:var(--up-primary, #0058be)}',
+      '.up-destaque-util-btn:active{transform:scale(.96)}',
+      '.up-destaque-util-btn-ativo{background:var(--up-primary-soft, #eff4ff);border-color:var(--up-primary, #0058be);color:var(--up-primary, #0058be)}',
+      '.up-destaque-util-comentario{margin-top:10px}',
+      '.up-destaque-util-comentario .up-textarea{min-height:56px;font-size:12.5px}',
+      '.up-destaque-util-ok{margin:6px 0 0;color:#1e8e5a;font-size:11.5px;line-height:15px}',
+      '.up-destaque-util-comentario .up-submit{height:34px;margin-top:8px;font-size:11.5px}',
     ].join('');
     document.head.appendChild(style);
   }
@@ -953,7 +1049,32 @@
     if (name === 'search') {
       return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5Zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14Z"/></svg>';
     }
+    if (name === 'campaign') {
+      // Path oficial do Material Symbols Outlined "campaign" (24px), igual
+      // ao que campanhas2/Index.tsx exibe via material-symbols-outlined
+      // (ICONES_TIPO_CAMPANHA/iconeTipoCampanha) — copiado de
+      // github.com/google/material-design-icons,
+      // symbols/web/campaign/materialsymbolsoutlined/campaign_24px.svg.
+      // viewBox próprio (0 -960 960 960, convenção do Material Symbols,
+      // diferente do 0 0 24 24 usado pelos outros ícones deste arquivo) —
+      // funciona igual, o <svg> escala pro tamanho definido em CSS
+      // (.up-brand-icon svg) independente do viewBox interno.
+      return '<svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M720-440v-80h160v80H720Zm48 280-128-96 48-64 128 96-48 64Zm-80-480-48-64 128-96 48 64-128 96ZM200-200v-160h-40q-33 0-56.5-23.5T80-440v-80q0-33 23.5-56.5T160-600h160l200-120v480L320-360h-40v160h-80Zm240-182v-196l-98 58H160v80h182l98 58Zm120 36v-268q27 24 43.5 58.5T620-480q0 41-16.5 75.5T560-346ZM300-480Z"/></svg>';
+    }
+    if (name === 'rocket_launch') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c3.2.4 5.6 1.8 7.2 4.2-1.4.2-2.8.7-4.1 1.5l1.2 1.2c.8-.4 1.6-.7 2.5-.8.3 1 .4 2 .4 3.2 0 3.3-1.2 6.5-3.4 9.5l-4.4-4.4-3.2 3.2H4.4v-3.8l3.2-3.2-4.4-4.4C6.2 5.9 9.1 2.8 12 2Zm.7 3.1c-1.8.5-3.8 2.2-5.9 5l7.1 7.1c2.8-2.1 4.5-4.7 4.9-7.7-2.6.4-4.8 1.8-6.7 4.1L10.6 12c1.7-2.1 3.7-3.7 6-4.8-1-1-2.3-1.7-3.9-2.1ZM5.8 16.2v1.9h1.9l2.3-2.3-1.9-1.9-2.3 2.3Z"/></svg>';
+    }
+    if (name === 'quiz') {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a7 7 0 0 1 7 7c0 2.8-1.6 5.2-4 6.3V21H9v-4.7A7 7 0 0 1 12 3Zm0 2a5 5 0 0 0-1.6 9.7l.6.2V19h2v-4.1l.6-.2A5 5 0 0 0 12 5Zm-1 9h2v2h-2v-2Zm1-7c1.7 0 3 1.1 3 2.6 0 1-.5 1.7-1.4 2.3l-.7.5V13H11v-1.5l1.4-1c.5-.4.6-.6.6-.9 0-.4-.4-.7-1-.7-.7 0-1.1.4-1.2 1.1H9c.2-1.8 1.4-3 3-3Z"/></svg>';
+    }
     return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H8l-5 4V6a2 2 0 0 1 2-2Zm0 13.85L7.3 15H20V6H4v11.85Z"/></svg>';
+  }
+
+  function campaignIconName(campanha) {
+    var tipo = campanha && campanha.tipo ? String(campanha.tipo) : '';
+    if (tipo === 'melhoria') return 'rocket_launch';
+    if (tipo === 'pesquisa') return 'quiz';
+    return 'campaign';
   }
 
   function renderScale() {
@@ -1026,7 +1147,8 @@
       feedback = [
         '<div class="up-feedback-section">',
         state.error ? '<p class="up-error">' + escapeHtml(state.error) + '</p>' : '',
-        '<button type="button" class="up-submit" data-up-confirm="true"' + (state.submitting ? ' disabled' : '') + '>',
+        '<label class="up-confirm-check"><input type="checkbox" data-up-confirm-check="true"' + (state.confirmacaoMarcada ? ' checked' : '') + '>Confirmo que li esta comunicação</label>',
+        '<button type="button" class="up-submit" data-up-confirm="true"' + (!state.confirmacaoMarcada || state.submitting ? ' disabled' : '') + '>',
         state.submitting ? 'Aguarde…' : 'Li e entendi',
         '</button>',
         '</div>',
@@ -1049,7 +1171,7 @@
     return [
       '<div class="' + modalClass + '" role="dialog" aria-modal="true" aria-label="' + escapeHtml(campanha.titulo) + '">',
       '<div class="up-modal-header">',
-      '<div class="up-brand"><div class="up-brand-icon">' + icon('chat') + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
+      '<div class="up-brand"><div class="up-brand-icon">' + icon(campaignIconName(campanha)) + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
       campanha.permitir_fechar_modal !== false ? '<button type="button" class="up-close" aria-label="Fechar campanha" title="Fechar" data-up-toggle="true">' + icon('close') + '</button>' : '',
       '</div>',
       '<div class="up-body">',
@@ -1105,29 +1227,43 @@
     if (errorEl) errorEl.textContent = '';
   }
 
-  function shownKey(campanha, config) {
+  // itemId opcional (destaque_elemento com múltiplos itens — Fase 2): cada
+  // item tem sua própria chave (campanha_id + item + contexto + usuário),
+  // então interagir com o destaque A nunca marca B/C como visto. Omitido
+  // (undefined/null), a chave fica IDÊNTICA à de antes — modal_automatica
+  // nunca passa itemId, e o fallback de destaque_elemento sem `destaques[]`
+  // (pseudo-item legado, ver destaqueElementoResolverItens) também não, de
+  // propósito: preserva a MESMA chave que já existia antes de existir
+  // `destaques`, então quem já tinha dispensado o destaque legado continua
+  // sem vê-lo de novo depois desta atualização.
+  function shownKey(campanha, config, itemId) {
     var ctx = config.slug || (config.sistema + ':' + config.tela);
     var uid = config.usuario_id ? ':u:' + config.usuario_id : '';
-    return 'userpulse:shown:' + campanha.id + ':' + ctx + uid;
+    var sufixoItem = itemId ? (':item:' + itemId) : '';
+    return 'userpulse:shown:' + campanha.id + ':' + ctx + uid + sufixoItem;
   }
 
-  function wasShown(campanha, config) {
+  function wasShown(campanha, config, itemId) {
+    // Para usuário identificado, /candidatas já aplicou a política usando o
+    // histórico persistido. O estado deste navegador não participa da regra.
+    if (config.usuario_id) return false;
     if (!campanha.mostrar_uma_vez) return false;
     if (campanha.always_show_user) return false;
     if (!campanha.permitir_fechar_modal) return false;
     try {
-      return window.localStorage.getItem(shownKey(campanha, config)) === '1';
+      return window.localStorage.getItem(shownKey(campanha, config, itemId)) === '1';
     } catch (_err) {
       return false;
     }
   }
 
-  function markShown(campanha, config) {
+  function markShown(campanha, config, itemId) {
+    if (config.usuario_id) return;
     if (!campanha.mostrar_uma_vez) return;
     if (campanha.always_show_user) return;
     if (!campanha.permitir_fechar_modal) return;
     try {
-      window.localStorage.setItem(shownKey(campanha, config), '1');
+      window.localStorage.setItem(shownKey(campanha, config, itemId), '1');
     } catch (_err) {}
   }
 
@@ -1137,6 +1273,16 @@
   }
 
   function scheduleAutoOpen(campanha, config) {
+    // "Destaque em elemento" nunca abre como modal — é um badge/beacon
+    // ancorado num elemento da página. Delega pro fluxo próprio; os 4 pontos
+    // de seleção de campanha (slug, candidatas ao_abrir_tela, track x2) já
+    // chamam scheduleAutoOpen pra qualquer campanha selecionada, então
+    // ramificar aqui evita duplicar a lógica de agendamento/atraso em cada
+    // um deles.
+    if ((campanha.modo_exibicao || 'modal_automatica') === FORMATO_DESTAQUE_ELEMENTO) {
+      agendarDestaqueElemento(campanha, config);
+      return;
+    }
     if (!shouldAutoOpen(campanha) || wasShown(campanha, config)) return;
     var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
     state.timer = window.setTimeout(function () {
@@ -1153,6 +1299,1149 @@
     }, delay);
   }
 
+  // ─── Destaque em elemento (Fase 1 de adoção de funcionalidades) ───────────
+  // Formato leve: localiza um elemento por data-cy, ancora um badge/beacon
+  // nele e, ao clicar, abre um tooltip contextual (título/descrição/CTA
+  // opcional/fechar). Nunca quebra a página quando o elemento não existe, e
+  // nunca renderiza por cima de um tour ativo. Sem evento de utilização/
+  // feedback pós-uso nesta fase (isso é Fase 2, medido por evento real via
+  // track()) — reaproveita a MESMA infra de wasShown/markShown (localStorage)
+  // do modal, mas com um gatilho diferente: markShown só roda numa interação
+  // explícita (clicar no badge, no CTA, ou dispensar), nunca só por ter
+  // renderizado — ver comentário em destaqueElementoMontar.
+  var FORMATO_DESTAQUE_ELEMENTO = 'destaque_elemento';
+  var DATA_CY_SEGURO_REGEX = /^[A-Za-z0-9_][A-Za-z0-9_\-:.]{0,199}$/;
+
+  // Nunca interpola data-cy cru num seletor CSS — usa CSS.escape quando
+  // disponível (escapa aspas/colchetes de verdade) e, como rede de
+  // segurança adicional, só aceita o mesmo charset validado no servidor
+  // (ver dataCyValido em server/src/controllers/campanhas.ts) antes mesmo
+  // de tentar montar o seletor.
+  function destaqueElementoSeletorSeguro(dataCyBruto) {
+    if (typeof dataCyBruto !== 'string') return null;
+    var dataCy = dataCyBruto.trim();
+    if (!dataCy || !DATA_CY_SEGURO_REGEX.test(dataCy)) return null;
+    var valor = (typeof window.CSS !== 'undefined' && typeof window.CSS.escape === 'function')
+      ? window.CSS.escape(dataCy)
+      : dataCy;
+    return '[data-cy="' + valor + '"]';
+  }
+
+  // `item` é um CampanhaDestaqueItem (ou o pseudo-item legado montado por
+  // destaqueElementoResolverItens) — só precisa de `.data_cy`. A checagem de
+  // modo_exibicao acontece antes, em destaqueElementoResolverItens, não aqui.
+  function destaqueElementoLocalizarAlvo(item) {
+    if (!item) return null;
+    var seletor = destaqueElementoSeletorSeguro(item.data_cy);
+    if (!seletor) return null;
+    try {
+      // data-cy precisa identificar inequivocamente o alvo. Com dois matches,
+      // querySelector escolheria o primeiro conforme a ordem atual do DOM e
+      // uma mutation poderia fazer a mesma campanha reaparecer presa a outro
+      // elemento sem qualquer mudança de identidade.
+      if (typeof document.querySelectorAll === 'function') {
+        var matches = document.querySelectorAll(seletor);
+        return matches.length === 1 ? matches[0] : null;
+      }
+      return document.querySelector(seletor);
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  // Uma instância por destaque MONTADO (elemento encontrado na página) — 0 a
+  // N ao mesmo tempo, uma por CampanhaDestaqueItem independente. Substitui o
+  // antigo destaqueElementoState singular (Fase 1, só suportava 1 destaque
+  // por campanha).
+  var destaqueElementoInstancias = [];
+
+  // Identidade (campanha.id + ids dos itens ativos) da seleção destaque_elemento
+  // REALMENTE montada agora — null quando nada está montado. Mantida em
+  // sincronia só por destaqueElementoMontarTodos (seta) e
+  // destaqueElementoDesmontarTodos (limpa). Usada por
+  // destaqueElementoSincronizarSelecao (ver updateContext/evaluateCampaigns)
+  // pra decidir se uma nova avaliação deve preservar as instâncias
+  // existentes (mesma campanha/itens — nunca desmonta/remonta à toa) ou
+  // desmontar/remontar (campanha/itens mudaram, ou nenhum mais elegível).
+  var destaqueElementoSelecaoAtual = null;
+
+  function destaqueElementoDefinirAlvo(instancia, novoAlvo) {
+    if (instancia.alvo === novoAlvo) return false;
+    if (instancia.resizeObserver) {
+      instancia.resizeObserver.disconnect();
+      instancia.resizeObserver = null;
+    }
+    instancia.alvo = novoAlvo || null;
+    instancia.bindingGeracao++;
+    if (novoAlvo && typeof window.ResizeObserver === 'function') {
+      var geracao = instancia.bindingGeracao;
+      var observer = new window.ResizeObserver(function () {
+        if (instancia.desmontada || instancia.bindingGeracao !== geracao || instancia.alvo !== novoAlvo) return;
+        destaqueElementoReposicionar(instancia);
+      });
+      observer.observe(novoAlvo);
+      instancia.resizeObserver = observer;
+    }
+    return true;
+  }
+
+  function destaqueElementoSincronizarAlvo(instancia) {
+    if (!instancia || instancia.desmontada) return null;
+    // A API interna legada recebe um alvo direto; no runtime, data-cy define
+    // um binding transitório que precisa ser resolvido novamente a cada sinal.
+    if (!instancia.bindingDinamico) return instancia.alvo;
+    var alvo = destaqueElementoLocalizarAlvo(instancia.item);
+    destaqueElementoDefinirAlvo(instancia, alvo);
+    if (!alvo) {
+      instancia.oculto = true;
+      instancia.root.style.display = 'none';
+    }
+    return alvo;
+  }
+
+  function destaqueElementoRootConectado(instancia) {
+    if (!instancia || !instancia.root) return false;
+    if (typeof instancia.root.isConnected === 'boolean') return instancia.root.isConnected;
+    return document.body.contains(instancia.root);
+  }
+
+  function destaqueElementoAlvoOcultoNoHost(alvo) {
+    if (!alvo) return true;
+    var atual = alvo;
+    while (atual && atual !== document.body) {
+      if (atual.hidden || (atual.getAttribute && atual.getAttribute('aria-hidden') === 'true')) return true;
+      if (typeof window.getComputedStyle === 'function') {
+        var estilo = window.getComputedStyle(atual);
+        if (estilo && (estilo.display === 'none' || estilo.visibility === 'hidden' || estilo.visibility === 'collapse')) return true;
+      }
+      atual = atual.parentElement;
+    }
+    return false;
+  }
+
+  function destaqueElementoDesmontarInstancia(instancia) {
+    if (!instancia || instancia.desmontada) return;
+    instancia.desmontada = true;
+    destaqueElementoUtilCancelarAutoClose(instancia);
+    if (instancia.reposicionar) {
+      window.removeEventListener('scroll', instancia.reposicionar, true);
+      window.removeEventListener('resize', instancia.reposicionar);
+    }
+    if (instancia.resizeObserver) instancia.resizeObserver.disconnect();
+    if (instancia.mutationObserver) instancia.mutationObserver.disconnect();
+    if (instancia.layoutShiftObserver) instancia.layoutShiftObserver.disconnect();
+    if (instancia.root && instancia.root.parentNode) instancia.root.parentNode.removeChild(instancia.root);
+    var indice = destaqueElementoInstancias.indexOf(instancia);
+    if (indice !== -1) destaqueElementoInstancias.splice(indice, 1);
+  }
+
+  // Desmonta TODOS os destaques montados no momento — chamado antes de
+  // montar uma nova seleção de campanha (nunca deixa destaques de uma
+  // campanha anterior sobrepostos aos da campanha recém-selecionada), no
+  // início de init() (nunca deixa destaque de um usuário/config anterior
+  // sobreviver a uma nova sessão) e por destaqueElementoSincronizarSelecao
+  // quando a seleção elegível muda ou deixa de existir.
+  function destaqueElementoDesmontarTodos() {
+    var todas = destaqueElementoInstancias.slice();
+    for (var i = 0; i < todas.length; i++) destaqueElementoDesmontarInstancia(todas[i]);
+    destaqueElementoSelecaoAtual = null;
+  }
+
+  // Função pura: calcula onde o badge deve ficar em relação ao alvo, sempre
+  // FORA da caixa do alvo (nunca sobrepondo a área clicável). Preferência:
+  // acima, alinhado pela direita, com `gap` de folga; se não houver espaço
+  // acima usa abaixo; sempre clampado dentro da viewport horizontalmente.
+  // Sem acesso a DOM/window — só aritmética, testável em node:test puro.
+  function destaqueElementoCalcularPosicao(alvoRect, badgeSize, viewport, opts) {
+    var gap = (opts && typeof opts.gap === 'number') ? opts.gap : 8;
+    var margem = (opts && typeof opts.margem === 'number') ? opts.margem : 8;
+    var badgeW = badgeSize.width;
+    var badgeH = badgeSize.height;
+
+    var posicao = 'acima';
+    var top = alvoRect.top - gap - badgeH;
+    if (top < margem) {
+      posicao = 'abaixo';
+      top = alvoRect.bottom + gap;
+    }
+
+    var left = alvoRect.right - badgeW;
+    var maxLeft = viewport.width - badgeW - margem;
+    if (left > maxLeft) left = maxLeft;
+    if (left < margem) left = margem;
+
+    return { top: top, left: left, posicao: posicao };
+  }
+
+  // Função pura: calcula onde o tooltip deve ficar quando o destaque é
+  // aberto. Regra obrigatória: nunca intersecta o retângulo do alvo (o badge
+  // já garante isso pra si mesmo — aqui é só o tooltip). Ordem de
+  // preferência: abaixo do alvo, depois acima, depois lateral direita,
+  // depois lateral esquerda; cada candidato só é aceito se couber inteiro na
+  // viewport (com `margem` de folga) — do contrário tenta o próximo. Como
+  // abaixo/acima/direita/esquerda são sempre construídos com uma folga
+  // (`gap`) a partir do retângulo do alvo, a não-interseção é garantida por
+  // construção, não checada a posteriori. Alinhamento horizontal (abaixo/
+  // acima) e vertical (laterais) tenta ficar centralizado no badge/alvo pra
+  // preservar a associação visual, clampando na viewport quando preciso.
+  // Sem acesso a DOM/window — só aritmética, testável em node:test puro.
+  function destaqueElementoCalcularPosicaoTooltip(alvoRect, badgeRect, tooltipSize, viewport, opts) {
+    var gap = (opts && typeof opts.gap === 'number') ? opts.gap : 8;
+    var margem = (opts && typeof opts.margem === 'number') ? opts.margem : 8;
+    var w = tooltipSize.width;
+    var h = tooltipSize.height;
+
+    function clampHorizontal(left) {
+      var maxLeft = viewport.width - w - margem;
+      if (left > maxLeft) left = maxLeft;
+      if (left < margem) left = margem;
+      return left;
+    }
+    function clampVertical(top) {
+      var maxTop = viewport.height - h - margem;
+      if (top > maxTop) top = maxTop;
+      if (top < margem) top = margem;
+      return top;
+    }
+
+    var leftCentralizadoNoBadge = badgeRect.left + badgeRect.width / 2 - w / 2;
+
+    var topAbaixo = alvoRect.bottom + gap;
+    if (topAbaixo + h <= viewport.height - margem) {
+      return { top: topAbaixo, left: clampHorizontal(leftCentralizadoNoBadge), posicao: 'abaixo' };
+    }
+
+    var topAcima = alvoRect.top - gap - h;
+    if (topAcima >= margem) {
+      return { top: topAcima, left: clampHorizontal(leftCentralizadoNoBadge), posicao: 'acima' };
+    }
+
+    var topCentralizadoNoAlvo = clampVertical(alvoRect.top + alvoRect.height / 2 - h / 2);
+
+    var leftDireita = alvoRect.right + gap;
+    if (leftDireita + w <= viewport.width - margem) {
+      return { top: topCentralizadoNoAlvo, left: leftDireita, posicao: 'direita' };
+    }
+
+    var leftEsquerda = alvoRect.left - gap - w;
+    if (leftEsquerda >= margem) {
+      return { top: topCentralizadoNoAlvo, left: leftEsquerda, posicao: 'esquerda' };
+    }
+
+    // Nenhuma direção coube inteira na viewport (ex.: alvo enorme ocupando a
+    // tela). Prioridade é nunca cobrir o alvo — mantém abaixo (sem
+    // interseção por construção) mesmo que ultrapasse a viewport, em vez de
+    // clampar por cima do alvo.
+    return { top: topAbaixo, left: clampHorizontal(leftCentralizadoNoBadge), posicao: 'abaixo' };
+  }
+
+  // Função pura: calcula onde o beacon (ponto conector) deve ficar dentro da
+  // largura do badge. NUNCA assume que o centro do badge corresponde ao
+  // alvo — em viewports estreitas o clamp horizontal de
+  // destaqueElementoCalcularPosicao pode empurrar o badge pra longe do seu
+  // alinhamento preferencial (direita do alvo), e um beacon fixo no centro
+  // do badge acabaria apontando pro lugar errado. Em vez disso, projeta o
+  // centro horizontal do alvo dentro da largura do badge (clampado nas
+  // bordas do próprio badge quando o alvo está fora dessa faixa) — o beacon
+  // sempre aponta pro ponto do badge mais próximo do alvo real. Retorna um
+  // offset em px relativo à borda esquerda do badge (== borda esquerda do
+  // root, já que o badge é o único conteúdo em fluxo do root). Sem acesso a
+  // DOM/window — só aritmética, testável em node:test puro.
+  function destaqueElementoCalcularBeacon(alvoRect, badgeRect) {
+    var alvoCentroX = alvoRect.left + alvoRect.width / 2;
+    var left = alvoCentroX - badgeRect.left;
+    if (left < 0) left = 0;
+    if (left > badgeRect.width) left = badgeRect.width;
+    return { left: left };
+  }
+
+  // Função pura: diz se dois retângulos (getBoundingClientRect-like) são
+  // iguais nas 4 bordas. Usada pela estabilização pós-mount (ver
+  // destaqueElementoEstabilizar) pra decidir se o alvo se moveu entre dois
+  // frames — nunca compara width/height porque isso já é coberto pelo
+  // ResizeObserver; aqui o interesse é justamente o caso que o
+  // ResizeObserver NÃO cobre: o alvo muda de POSIÇÃO (reflow de algo acima
+  // dele) sem mudar de TAMANHO. `null`/`undefined` só são iguais um ao
+  // outro. Sem acesso a DOM/window — testável em node:test puro.
+  function destaqueElementoRectsIguais(a, b) {
+    if (!a || !b) return a === b;
+    return a.top === b.top && a.left === b.left && a.right === b.right && a.bottom === b.bottom;
+  }
+
+  var DESTAQUE_ESTABILIZACAO_FRAMES_ESTAVEIS = 3;
+  var DESTAQUE_ESTABILIZACAO_MAX_MS = 1000;
+
+  // Estabilização pós-mount: cobre o reflow tardio (mais comum em mobile —
+  // menu responsivo, banner, imagem sem dimensão reservada) que MUDA A
+  // POSIÇÃO do alvo sem mudar seu TAMANHO — cenário que o ResizeObserver do
+  // alvo estruturalmente não detecta (ele só dispara em mudança de
+  // tamanho da própria caixa observada, nunca só de posição — é assim que a
+  // API funciona, não uma lacuna desta página específica). Mede o rect do
+  // alvo a cada requestAnimationFrame; se mudou desde o frame anterior,
+  // reposiciona (badge/beacon/tooltip, via destaqueElementoReposicionar) e
+  // zera o contador de frames estáveis; encerra sozinha depois de
+  // DESTAQUE_ESTABILIZACAO_FRAMES_ESTAVEIS frames CONSECUTIVOS sem mudança,
+  // ou depois de DESTAQUE_ESTABILIZACAO_MAX_MS (~1s) no total, o que vier
+  // primeiro — nunca vira polling permanente. Depois disso só scroll/
+  // resize/ResizeObserver continuam cobrindo reposições.
+  function destaqueElementoEstabilizar(instancia) {
+    var alvo = destaqueElementoSincronizarAlvo(instancia);
+    if (!alvo) return;
+    var geracao = instancia.bindingGeracao;
+    var framesEstaveis = 0;
+    var inicio = Date.now();
+    var rectAnterior = alvo.getBoundingClientRect();
+
+    function passo() {
+      // Desmontado (fechado, elemento sumiu, campanha trocada) nesse
+      // meio-tempo — encerra sem reagendar mais frames.
+      if (instancia.desmontada) return;
+      var alvoAtual = destaqueElementoSincronizarAlvo(instancia);
+      if (instancia.bindingGeracao !== geracao || alvoAtual !== alvo) {
+        if (alvoAtual) {
+          destaqueElementoReposicionar(instancia, true);
+          destaqueElementoEstabilizar(instancia);
+        }
+        return;
+      }
+      var rectAtual = alvo.getBoundingClientRect();
+      if (!destaqueElementoRectsIguais(rectAnterior, rectAtual)) {
+        framesEstaveis = 0;
+        rectAnterior = rectAtual;
+        destaqueElementoReposicionar(instancia);
+      } else {
+        framesEstaveis++;
+      }
+      if (framesEstaveis >= DESTAQUE_ESTABILIZACAO_FRAMES_ESTAVEIS) return;
+      if (Date.now() - inicio >= DESTAQUE_ESTABILIZACAO_MAX_MS) return;
+      window.requestAnimationFrame(passo);
+    }
+
+    window.requestAnimationFrame(passo);
+  }
+
+  // Qualquer timeout finito na estabilização inicial continua sujeito ao
+  // mesmo bug: um reflow que só assenta DEPOIS da janela de ~1s (confirmado
+  // em mobile real — conteúdo acima do alvo crescendo por API lenta,
+  // hidratação em etapas, troca de fonte) nunca é pego, porque nada mais
+  // reagenda o monitor. Em vez de aumentar o timeout (só empurra o mesmo
+  // problema pra mais tarde), REARMAMOS um novo burst de estabilização toda
+  // vez que algo capaz de mudar o layout acontece enquanto o destaque está
+  // montado — sem virar polling permanente, porque só reage a sinais reais
+  // (mutation/fonte/layout-shift), nunca fica checando sozinho.
+  //
+  // destaqueElementoAgendarReacao agenda NO MÁXIMO uma reação por frame —
+  // várias mutations/sinais no mesmo frame colapsam numa única chamada de
+  // reposicionar()+estabilizar(), porque a flag `reacaoAgendada` bloqueia
+  // agendar de novo enquanto já existe um rAF pendente.
+  function destaqueElementoAgendarReacao(instancia) {
+    if (instancia.desmontada || instancia.reacaoAgendada) return;
+    instancia.reacaoAgendada = true;
+    window.requestAnimationFrame(function () {
+      instancia.reacaoAgendada = false;
+      if (instancia.desmontada) return;
+      destaqueElementoSincronizarAlvo(instancia);
+      destaqueElementoReposicionar(instancia, true);
+      destaqueElementoEstabilizar(instancia);
+    });
+  }
+
+  // Função pura: diz se TODAS as mutations da lista aconteceram dentro do
+  // próprio root do destaque (badge/beacon/tooltip, ou atributos do root
+  // como data-up-pos/style que destaqueElementoReposicionar seta). Essas são
+  // auto-causadas pelo próprio widget — reagir a elas criaria um loop
+  // (mutation -> reposiciona -> muda style/atributo -> nova mutation -> ...).
+  // Só uma mutation fora do root já é motivo suficiente pra reagir. Recebe
+  // `root` (com um .contains()) e a lista de mutations (cada uma só precisa
+  // de `.target`) — sem acessar estado de instância/rAF, testável isolada.
+  function destaqueElementoMutacoesApenasNoRoot(root, mutationsList) {
+    for (var i = 0; i < mutationsList.length; i++) {
+      if (!root.contains(mutationsList[i].target)) return false;
+    }
+    return true;
+  }
+
+  // MutationObserver no <body> inteiro (childList+subtree+attributes) — é
+  // proposital ser amplo: o reflow que desloca o alvo pode vir de QUALQUER
+  // elemento acima dele na página (banner, menu, imagem carregando), não só
+  // de um contêiner previsível. O custo fica sob controle porque: (1) só
+  // registra mutations, não recalcula layout nenhum; (2) destaqueElementoAgendarReacao
+  // coalesce tudo numa reação por frame; (3) mutations de dentro do próprio
+  // root nunca chegam a agendar nada. Feature-detectado — sem
+  // MutationObserver, esse sinal simplesmente não existe (scroll/resize/
+  // ResizeObserver/estabilização inicial continuam funcionando).
+  function destaqueElementoCriarObservadorMutacoes(instancia) {
+    if (typeof window.MutationObserver !== 'function') return null;
+    var observer = new window.MutationObserver(function (mutationsList) {
+      if (destaqueElementoMutacoesApenasNoRoot(instancia.root, mutationsList)) return;
+      if (!destaqueElementoRootConectado(instancia)) {
+        destaqueElementoSincronizarSelecao(instancia.campanha, instancia.config);
+        return;
+      }
+      destaqueElementoAgendarReacao(instancia);
+    });
+    try {
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+    } catch (_e) {
+      return null;
+    }
+    return observer;
+  }
+
+  // window.innerWidth/innerHeight incluem a faixa da scrollbar — confirmado
+  // em mobile real: innerWidth=390 vs visualViewport.width=375 (~15px de
+  // diferença). Não é a causa do deslocamento vertical reportado, mas é a
+  // fonte correta pro clamp horizontal: visualViewport é o retângulo que o
+  // usuário realmente vê. Preferência: visualViewport > clientWidth/Height
+  // (também exclui scrollbar) > innerWidth/innerHeight (último recurso).
+  function destaqueElementoObterViewport() {
+    if (window.visualViewport) {
+      return { width: window.visualViewport.width, height: window.visualViewport.height };
+    }
+    if (document.documentElement) {
+      return { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight };
+    }
+    return { width: window.innerWidth, height: window.innerHeight };
+  }
+
+  // Pontos úteis internos: centro + quatro cantos com margem. Um drawer pode
+  // cobrir apenas parte do alvo; basta uma área útil continuar alcançável.
+  function destaqueElementoPontoRepresentativo(rect) {
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
+  function destaqueElementoPontosInternos(rect) {
+    if (!rect || rect.width <= 0 || rect.height <= 0) return [];
+    var margemX = Math.min(8, rect.width / 4);
+    var margemY = Math.min(8, rect.height / 4);
+    return [
+      destaqueElementoPontoRepresentativo(rect),
+      { x: rect.left + margemX, y: rect.top + margemY },
+      { x: rect.right - margemX, y: rect.top + margemY },
+      { x: rect.left + margemX, y: rect.bottom - margemY },
+      { x: rect.right - margemX, y: rect.bottom - margemY },
+    ];
+  }
+
+  function destaqueElementoPrimeiroRelevante(instancia, elementos) {
+    if (!elementos) return null;
+    for (var i = 0; i < elementos.length; i++) {
+      var elemento = elementos[i];
+      if (!elemento) continue;
+      if (instancia.root && (elemento === instancia.root || instancia.root.contains(elemento))) continue;
+      return elemento;
+    }
+    return null;
+  }
+
+  // Função pura: decide se o alvo está REALMENTE visível — dimensões
+  // válidas e (quando o navegador suporta a checagem) nada cobrindo o ponto
+  // representativo do alvo. Recebe `elementoNoPonto` já resolvido por quem
+  // chama (document.elementFromPoint) em vez de acessar o DOM aqui, pra
+  // continuar testável com objetos sintéticos, sem harness. "Conectado ao
+  // DOM" já é responsabilidade de quem chama (document.body.contains, ver
+  // destaqueElementoReposicionar) — aqui só cobre dimensões + oclusão.
+  // `elementoNoPonto === undefined` significa que a checagem não pôde ser
+  // feita (navegador sem elementFromPoint) — trata como visível, preservando
+  // o comportamento de sempre pra quem não suporta a API.
+  function destaqueElementoAlvoRealmenteVisivel(alvo, rect, elementoNoPonto) {
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+    if (typeof elementoNoPonto === 'undefined') return true;
+    if (!elementoNoPonto) return false;
+    if (elementoNoPonto === alvo) return true;
+    return Boolean(alvo && typeof alvo.contains === 'function' && alvo.contains(elementoNoPonto));
+  }
+
+  function destaqueElementoReposicionar(instancia, alvoJaSincronizado) {
+    if (!instancia || !instancia.root) return;
+    var alvo = alvoJaSincronizado ? instancia.alvo : destaqueElementoSincronizarAlvo(instancia);
+    // SPA pode remover/substituir o alvo durante a navegação. Isso só desfaz
+    // o binding e oculta o root; a instância lógica e seu MutationObserver
+    // continuam vivos para reconciliar o mesmo item quando o alvo retornar.
+    if (!alvo || !document.body.contains(alvo)) {
+      if (alvo) destaqueElementoDefinirAlvo(instancia, null);
+      instancia.oculto = true;
+      instancia.root.style.display = 'none';
+      return;
+    }
+    var rect = alvo.getBoundingClientRect();
+
+    // Alvo continua no DOM mas pode estar ENCOBERTO por uma drawer/modal/
+    // overlay aberta por cima dele (ex.: clicar no próprio alvo abre um
+    // painel) — diferente de ter sumido do DOM (caso acima, que desmonta de
+    // vez): aqui só oculta badge/tooltip (sem desmontar, sem markShown, sem
+    // dispensa) até o alvo voltar a ficar realmente visível. Reaproveita o
+    // MutationObserver/estabilização já existentes — abrir/fechar o overlay
+    // já dispara destaqueElementoAgendarReacao, sem precisar de nenhum
+    // polling novo.
+    var visivel = rect && rect.width > 0 && rect.height > 0 && !destaqueElementoAlvoOcultoNoHost(alvo);
+    var pontos = destaqueElementoPontosInternos(rect);
+    if (visivel && typeof document.elementsFromPoint === 'function') {
+      visivel = false;
+      // O render troca root.innerHTML antes de chegar aqui. Em alguns
+      // layouts/navegadores, a pilha de hit-test desse mesmo ciclo ainda pode
+      // devolver um filho recém-substituído da própria instância. Retirar a
+      // root do hit-test durante a leitura torna a medição independente desse
+      // estado intermediário; pointer-events não altera geometria/layout. O
+      // filtro dinâmico root.contains abaixo continua necessário como defesa
+      // para implementações que ainda incluam a root na pilha.
+      var pointerEventsAnterior = instancia.root.style.pointerEvents;
+      instancia.root.style.pointerEvents = 'none';
+      try {
+        for (var p = 0; p < pontos.length; p++) {
+          var pilha = document.elementsFromPoint(pontos[p].x, pontos[p].y);
+          var primeiro = destaqueElementoPrimeiroRelevante(instancia, pilha);
+          if (destaqueElementoAlvoRealmenteVisivel(alvo, rect, primeiro)) {
+            visivel = true;
+            break;
+          }
+        }
+      } finally {
+        instancia.root.style.pointerEvents = pointerEventsAnterior;
+      }
+    } else if (visivel && typeof document.elementFromPoint === 'function') {
+      var ponto = destaqueElementoPontoRepresentativo(rect);
+      visivel = destaqueElementoAlvoRealmenteVisivel(alvo, rect, document.elementFromPoint(ponto.x, ponto.y));
+    }
+    if (!visivel) {
+      instancia.oculto = true;
+      instancia.root.style.display = 'none';
+      return;
+    }
+    if (instancia.oculto) {
+      instancia.oculto = false;
+      instancia.root.style.display = '';
+    }
+    if (instancia.prontoParaVisualizacao && !instancia.visualizacaoRegistrada) {
+      instancia.visualizacaoRegistrada = true;
+      registrarEvento('visualizacao', instancia.campanha, instancia.config, instancia.item.id);
+    }
+
+    var badgeEl = instancia.root.querySelector('.up-destaque-badge');
+    if (!badgeEl) return;
+    var badgeSize = { width: badgeEl.offsetWidth, height: badgeEl.offsetHeight };
+    var viewport = destaqueElementoObterViewport();
+    var pos = destaqueElementoCalcularPosicao(rect, badgeSize, viewport);
+    instancia.root.style.top = pos.top + 'px';
+    instancia.root.style.left = pos.left + 'px';
+    instancia.root.setAttribute('data-up-pos', pos.posicao);
+
+    // badgeRect é medido DEPOIS de aplicar top/left acima — reflete a
+    // posição final já clampada, não a preferencial. É a partir dela (não
+    // do badgeSize genérico) que beacon e tooltip calculam onde ficar.
+    var badgeRect = badgeEl.getBoundingClientRect();
+
+    var beaconEl = instancia.root.querySelector('.up-destaque-beacon');
+    if (beaconEl) {
+      var posBeacon = destaqueElementoCalcularBeacon(rect, badgeRect);
+      beaconEl.style.left = posBeacon.left + 'px';
+    }
+
+    var tooltipEl = instancia.root.querySelector('.up-destaque-tooltip');
+    if (tooltipEl) {
+      var tooltipSize = { width: tooltipEl.offsetWidth, height: tooltipEl.offsetHeight };
+      var posTooltip = destaqueElementoCalcularPosicaoTooltip(rect, badgeRect, tooltipSize, viewport);
+      tooltipEl.style.top = posTooltip.top + 'px';
+      tooltipEl.style.left = posTooltip.left + 'px';
+    }
+  }
+
+  // Avaliação "Essa melhoria foi útil?" (utilidade_destaque) — só faz
+  // sentido pra um item real (item.id truthy). O pseudo-item legado
+  // (id:null, campanha destaque_elemento ainda sem `destaques[]`, ver
+  // destaqueElementoResolverItens) nunca tem destaque_item_id válido pro
+  // backend validar, então nunca mostra esta seção. UX em 2 passos: clicar
+  // Sim/Não já registra a escolha (otimista, silencioso — mesmo padrão de
+  // registrarEvento/tourFeedback), depois revela um comentário opcional com
+  // envio próprio (com loading/erro visíveis, mesmo padrão do feedback geral).
+  function destaqueElementoUtilConteudo(utilidade) {
+    if (!utilidade) return '';
+    // comentarioEnviado === true só depois do envio VISÍVEL do comentário ter
+    // sucesso (nunca do clique silencioso em Sim/Não) — substitui a seção
+    // inteira por um agradecimento breve; destaqueElementoUtilAgendarFechamento
+    // já fechou (ou vai fechar) o tooltip sozinho pouco depois, então não faz
+    // sentido continuar mostrando os botões Sim/Não/comentário aqui.
+    if (utilidade.comentarioEnviado) {
+      return '<div class="up-destaque-util"><p class="up-destaque-util-ok">Obrigado pelo feedback!</p></div>';
+    }
+    var escolha = utilidade.escolha;
+    var partes = ['<div class="up-destaque-util">'];
+    if (escolha === null) {
+      partes.push('<p class="up-destaque-util-label">Essa melhoria foi útil?</p>');
+    }
+    partes.push(
+      '<div class="up-destaque-util-botoes">',
+      '<button type="button" class="up-destaque-util-btn' + (escolha === true ? ' up-destaque-util-btn-ativo' : '') + '" data-up-util-sim="true" aria-pressed="' + (escolha === true ? 'true' : 'false') + '">👍 Sim</button>',
+      '<button type="button" class="up-destaque-util-btn' + (escolha === false ? ' up-destaque-util-btn-ativo' : '') + '" data-up-util-nao="true" aria-pressed="' + (escolha === false ? 'true' : 'false') + '">👎 Não</button>',
+      '</div>'
+    );
+    if (escolha !== null) {
+      partes.push(
+        '<div class="up-destaque-util-comentario">',
+        '<p class="up-destaque-util-label">Quer contar mais? (opcional)</p>',
+        '<textarea class="up-textarea" data-up-util-comentario="true" placeholder="Comentário opcional">' + escapeHtml(utilidade.comentario || '') + '</textarea>',
+        utilidade.erro ? '<p class="up-error">' + escapeHtml(utilidade.erro) + '</p>' : '',
+        '<button type="button" class="up-submit" data-up-util-enviar-comentario="true"' + (utilidade.enviando ? ' disabled' : '') + '>' + (utilidade.enviando ? 'Enviando...' : 'Enviar') + '</button>',
+        '</div>'
+      );
+    }
+    partes.push('</div>');
+    return partes.join('');
+  }
+
+  // Envia a avaliação de utilidade do destaque (Sim/Não + comentário
+  // opcional). `comFeedbackVisivel` diferencia os 2 pontos de chamada:
+  // - false: clique inicial em Sim/Não — otimista/silencioso, mesmo
+  //   princípio de registrarEvento (falha de rede nunca aparece pro usuário,
+  //   nunca quebra o resto do widget).
+  // - true: clique em "Enviar" do comentário — mostra loading/erro visíveis
+  //   (mesmo padrão de submitFeedback/up-error), porque foi uma ação
+  //   explícita de formulário.
+  // Tudo dentro de try/catch, igual registrarEvento: erro síncrono ou de
+  // rede nunca pode quebrar o site do cliente onde o widget está embarcado.
+  function enviarUtilidadeDestaque(instancia, util, comentario, comFeedbackVisivel) {
+    try {
+      var campanha = instancia.campanha;
+      var config = instancia.config;
+      var item = instancia.item;
+      if (!campanha || !config || !item || !item.id) return;
+      // Sem usuario_id o backend rejeita (mesma exigência de
+      // registrarFeedback) — nunca manda a requisição à toa. A escolha local
+      // (otimista) já foi aplicada por quem chamou, então a UI não trava.
+      if (!config.usuario_id) return;
+
+      if (comFeedbackVisivel) {
+        instancia.utilidade.enviando = true;
+        instancia.utilidade.erro = null;
+        destaqueElementoRender(instancia);
+      }
+
+      fetch(apiUrl('/api/widget/feedback/utilidade-destaque'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          public_key: config.public_key || undefined,
+          campanha_id: campanha.id,
+          destaque_item_id: item.id,
+          util: util,
+          observacao: comentario || undefined,
+          usuario_id: config.usuario_id,
+          usuario_nome: config.usuario_nome || undefined,
+          usuario_email: config.usuario_email || undefined,
+          sistema: config.sistema || undefined,
+          tela: config.tela || undefined,
+          navegador: window.navigator.userAgent,
+          dispositivo: getDevice(),
+          contexto: config.contexto || undefined,
+        }),
+      }).then(function (resp) {
+        if (instancia.desmontada) return;
+        // Sim/Não (ou o comentário, que reenvia a mesma escolha) persistiu —
+        // item consumido pra futuras exibições, reaproveitando a MESMA
+        // infra de "até interagir" (mostrar_uma_vez). A instância ATUAL
+        // continua montada mesmo assim, só pra permitir o comentário
+        // opcional — quem decide fechar/desmontar é o botão X (dispensa) ou
+        // o fechamento automático após o comentário, nunca este markShown.
+        if (resp && resp.ok) markShown(campanha, config, item.id);
+        if (!comFeedbackVisivel) return;
+        instancia.utilidade.enviando = false;
+        if (resp && resp.ok) {
+          instancia.utilidade.comentarioEnviado = true;
+          instancia.utilidade.erro = null;
+          destaqueElementoRender(instancia);
+          // Sucesso do comentário: mostra "Obrigado pelo feedback!" por um
+          // instante e só então desmonta a instância inteira (badge incluso)
+          // — ver destaqueElementoUtilAgendarFechamento. Nunca dispensa.
+          destaqueElementoUtilAgendarFechamento(instancia);
+        } else {
+          instancia.utilidade.erro = 'Não foi possível enviar. Tente novamente.';
+          destaqueElementoRender(instancia);
+        }
+      }).catch(function () {
+        if (instancia.desmontada || !comFeedbackVisivel) return;
+        instancia.utilidade.enviando = false;
+        instancia.utilidade.erro = 'Não foi possível enviar. Tente novamente.';
+        destaqueElementoRender(instancia);
+      });
+    } catch (_e) {
+      if (comFeedbackVisivel && instancia && instancia.utilidade) {
+        instancia.utilidade.enviando = false;
+        instancia.utilidade.erro = 'Não foi possível enviar. Tente novamente.';
+      }
+    }
+  }
+
+  var UTIL_AUTO_CLOSE_MS = 2000;
+
+  function destaqueElementoUtilCancelarAutoClose(instancia) {
+    if (instancia && instancia.utilAutoCloseTimer) {
+      window.clearTimeout(instancia.utilAutoCloseTimer);
+      instancia.utilAutoCloseTimer = null;
+    }
+  }
+
+  // Desmonta a instância INTEIRA (badge incluso) depois de um comentário de
+  // utilidade enviado com sucesso — o item já foi marcado como consumido
+  // (markShown) no sucesso do Sim/Não, ver enviarUtilidadeDestaque; este
+  // timer só dá tempo do usuário ver "Obrigado pelo feedback!" antes de
+  // sumir. Nunca chama registrarEvento('dispensa', ...): esse evento é
+  // exclusivo do fechamento explícito pelo usuário (botão X, ver o listener
+  // de clique) — destaqueElementoDesmontarInstancia por si só nunca dispara
+  // nenhum evento.
+  function destaqueElementoUtilAgendarFechamento(instancia) {
+    destaqueElementoUtilCancelarAutoClose(instancia);
+    instancia.utilAutoCloseTimer = window.setTimeout(function () {
+      instancia.utilAutoCloseTimer = null;
+      if (instancia.desmontada) return;
+      destaqueElementoDesmontarInstancia(instancia);
+    }, UTIL_AUTO_CLOSE_MS);
+  }
+
+  // `item` é um CampanhaDestaqueItem (ou o pseudo-item legado) — cada
+  // instância renderiza o SEU próprio item, independente dos outros.
+  function destaqueElementoConteudo(item, aberto, utilidade) {
+    var badgeTexto = (item.texto_badge && String(item.texto_badge).trim()) || 'Novo';
+    var temCta = Boolean(item.texto_botao && item.url_botao);
+    var partes = [
+      '<span class="up-destaque-badge" data-up-destaque-toggle="true" role="button" tabindex="0" aria-expanded="' + (aberto ? 'true' : 'false') + '" aria-label="' + escapeHtml(badgeTexto) + '">',
+      escapeHtml(badgeTexto),
+      '</span>',
+      '<span class="up-destaque-beacon" aria-hidden="true"></span>',
+    ];
+    if (aberto) {
+      partes.push(
+        '<div class="up-destaque-tooltip" role="dialog" aria-label="' + escapeHtml(item.titulo || '') + '">',
+        '<button type="button" class="up-destaque-close" data-up-destaque-close="true" aria-label="Fechar">' + icon('close') + '</button>',
+        '<p class="up-destaque-titulo">' + escapeHtml(item.titulo || '') + '</p>',
+        item.descricao ? '<p class="up-destaque-descricao">' + escapeHtml(item.descricao) + '</p>' : '',
+        temCta ? '<button type="button" class="up-destaque-cta" data-up-destaque-cta="true" data-up-url="' + escapeHtml(item.url_botao) + '">' + escapeHtml(item.texto_botao) + '</button>' : '',
+        item.id ? destaqueElementoUtilConteudo(utilidade) : '',
+        '</div>'
+      );
+    }
+    return partes.join('');
+  }
+
+  function destaqueElementoRender(instancia) {
+    if (!instancia.root) return;
+    instancia.root.innerHTML = destaqueElementoConteudo(instancia.item, instancia.aberto, instancia.utilidade);
+    destaqueElementoReposicionar(instancia);
+  }
+
+  // Monta UMA instância independente pra `item` (já com o alvo localizado).
+  // Cada instância tem seu próprio root/listeners/observers — fechar ou
+  // interagir com uma nunca afeta as outras.
+  function destaqueElementoMontarItem(campanha, config, item, alvo) {
+    var root = document.createElement('div');
+    root.className = 'up-destaque-root';
+    document.body.appendChild(root);
+
+    var instancia = {
+      root: root,
+      campanha: campanha,
+      config: config,
+      item: item,
+      alvo: null,
+      bindingDinamico: Boolean(destaqueElementoSeletorSeguro(item && item.data_cy)),
+      bindingGeracao: 0,
+      aberto: false,
+      reposicionar: null,
+      resizeObserver: null,
+      mutationObserver: null,
+      layoutShiftObserver: null,
+      reacaoAgendada: false,
+      desmontada: false,
+      // Alvo encoberto por drawer/modal/overlay no momento (ver
+      // destaqueElementoReposicionar) — badge/tooltip ficam com display:none
+      // sem desmontar a instância nem consumir o item.
+      oculto: false,
+      // Avaliação de utilidade deste item ("Essa melhoria foi útil?") —
+      // independente de state.nota (feedback geral) e de qualquer outra
+      // instância (cada destaque tem a sua própria escolha/comentário).
+      utilidade: { escolha: null, comentario: '', enviando: false, erro: null, comentarioEnviado: false },
+      // Timer do fechamento automático do tooltip após um comentário de
+      // utilidade enviado com sucesso — ver destaqueElementoUtilAgendarFechamento.
+      utilAutoCloseTimer: null,
+      prontoParaVisualizacao: false,
+      visualizacaoRegistrada: false,
+    };
+    instancia.reposicionar = function () { destaqueElementoReposicionar(instancia); };
+    destaqueElementoInstancias.push(instancia);
+    destaqueElementoDefinirAlvo(instancia, alvo || null);
+    if (!instancia.alvo) {
+      instancia.oculto = true;
+      root.style.display = 'none';
+    }
+
+    window.addEventListener('scroll', instancia.reposicionar, true);
+    window.addEventListener('resize', instancia.reposicionar);
+
+    // ResizeObserver no ALVO (não polling) — cobre o caso de o próprio alvo
+    // mudar de TAMANHO sem disparar scroll/resize da window (ex.: texto do
+    // botão quebra em 2 linhas num viewport estreito, alterando a altura do
+    // alvo depois do mount). Feature-detectado — navegador sem suporte
+    // simplesmente não reposiciona nesse cenário específico, sem quebrar o
+    // resto (scroll/resize continuam cobrindo os outros casos).
+    // NÃO cobre o alvo mudar só de POSIÇÃO com o mesmo tamanho (reflow de
+    // algo acima dele) — é assim que a API funciona, por design. Esse caso é
+    // coberto por destaqueElementoEstabilizar logo abaixo.
+    // Cobre reflow tardio que só muda a POSIÇÃO do alvo, mesmo depois da
+    // estabilização inicial já ter encerrado — ver destaqueElementoAgendarReacao.
+    instancia.mutationObserver = destaqueElementoCriarObservadorMutacoes(instancia);
+
+    // Troca de fonte web costuma re-layoutar texto (e tudo abaixo dele) só
+    // depois de várias centenas de ms — bem depois da estabilização inicial.
+    // document.fonts.ready é uma Promise que resolve UMA vez; não precisa de
+    // disconnect (destaqueElementoAgendarReacao já ignora sozinha se tiver
+    // desmontado nesse meio-tempo).
+    // Feature-detectado — sem Fonts API, esse sinal simplesmente não existe.
+    if (typeof document !== 'undefined' && document.fonts && document.fonts.ready && typeof document.fonts.ready.then === 'function') {
+      document.fonts.ready.then(function () {
+        destaqueElementoAgendarReacao(instancia);
+      });
+    }
+
+    // Layout Shift (Web Vitals/CLS) — sinal ADICIONAL opcional, nunca do que
+    // o funcionamento depende (suporte varia muito entre navegadores, ex.:
+    // Safari não tem 'layout-shift'). observe() com um entry type não
+    // suportado lança síncrono — por isso o try/catch, não só o
+    // typeof PerformanceObserver.
+    if (typeof window.PerformanceObserver === 'function') {
+      try {
+        var layoutShiftObserver = new window.PerformanceObserver(function () {
+          destaqueElementoAgendarReacao(instancia);
+        });
+        layoutShiftObserver.observe({ type: 'layout-shift', buffered: false });
+        instancia.layoutShiftObserver = layoutShiftObserver;
+      } catch (_e) { /* 'layout-shift' não suportado neste navegador — sinal opcional, ignora */ }
+    }
+
+    root.addEventListener('click', function (event) {
+      var target = event.target;
+      var closeEl = target.closest && target.closest('[data-up-destaque-close]');
+      var toggleEl = target.closest && target.closest('[data-up-destaque-toggle]');
+      var ctaEl = target.closest && target.closest('[data-up-destaque-cta]');
+      // "Visto" pra destaque_elemento é uma INTERAÇÃO explícita (clicar no
+      // badge, no CTA ou dispensar) — nunca só a renderização. Diferente do
+      // modal, onde markShown roda ao abrir (ver scheduleAutoOpen): aqui o
+      // usuário pode ver o badge e ignorá-lo (ex.: está no meio de outra
+      // tarefa) sem que isso conte como "já viu a novidade" — ela deve
+      // continuar aparecendo até uma dessas 3 ações acontecer. `item.id`
+      // (null pro pseudo-item legado) escopa a marcação a ESTE destaque —
+      // interagir aqui nunca marca/esconde os outros itens da campanha.
+      if (closeEl) {
+        markShown(campanha, config, item.id);
+        registrarEvento('dispensa', campanha, config, item.id);
+        destaqueElementoDesmontarInstancia(instancia);
+        return;
+      }
+      if (ctaEl) {
+        markShown(campanha, config, item.id);
+        registrarEvento('clique_cta', campanha, config, item.id);
+        var url = ctaEl.getAttribute('data-up-url');
+        if (url) window.open(url, '_blank', 'noopener');
+        return;
+      }
+      if (toggleEl) {
+        markShown(campanha, config, item.id);
+        registrarEvento('interacao_badge', campanha, config, item.id);
+        instancia.aberto = !instancia.aberto;
+        destaqueElementoRender(instancia);
+        return;
+      }
+
+      var utilSimEl = target.closest && target.closest('[data-up-util-sim]');
+      var utilNaoEl = target.closest && target.closest('[data-up-util-nao]');
+      var utilEnviarEl = target.closest && target.closest('[data-up-util-enviar-comentario]');
+
+      // Avaliação de utilidade do destaque — independente de
+      // badge/CTA/dispensa acima (não chama markShown nem registrarEvento;
+      // é um fluxo de persistência próprio, ver enviarUtilidadeDestaque).
+      if (utilSimEl || utilNaoEl) {
+        if (instancia.utilidade.enviando) return;
+        destaqueElementoUtilCancelarAutoClose(instancia);
+        var novaEscolha = !!utilSimEl;
+        instancia.utilidade.escolha = novaEscolha;
+        instancia.utilidade.erro = null;
+        instancia.utilidade.comentarioEnviado = false;
+        destaqueElementoRender(instancia);
+        enviarUtilidadeDestaque(instancia, novaEscolha, null, false);
+        return;
+      }
+      if (utilEnviarEl) {
+        if (instancia.utilidade.escolha === null || instancia.utilidade.enviando) return;
+        enviarUtilidadeDestaque(instancia, instancia.utilidade.escolha, instancia.utilidade.comentario, true);
+      }
+    });
+
+    // Delegado (não re-renderiza a cada tecla, mesmo padrão de
+    // data-up-observacao no modal principal) — re-render destruiria o
+    // innerHTML e quebraria o foco/cursor do textarea a cada caractere
+    // digitado.
+    root.addEventListener('input', function (event) {
+      var target = event.target;
+      if (target && target.matches && target.matches('[data-up-util-comentario]')) {
+        instancia.utilidade.comentario = target.value;
+        instancia.utilidade.comentarioEnviado = false;
+      }
+    });
+
+    // Duplo requestAnimationFrame antes da primeira medição/posicionamento:
+    // garante que o navegador concluiu pelo menos um ciclo de layout+paint
+    // depois do mount antes de ler getBoundingClientRect/offsetWidth. Sem
+    // isso, medir no mesmo tick do mount pode capturar um layout ainda
+    // instável (fonte web carregando, imagem sem dimensão reservada, menu
+    // responsivo mobile ainda recalculando) — mais comum em mobile, onde a
+    // página tende a ter mais reflows tardios que o desktop. Um único rAF
+    // roda antes do próximo paint; o segundo garante que esse paint já
+    // aconteceu. Sem custo perceptível (~1 frame, ~16ms).
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        // Pode ter sido desmontada (fechada, elemento sumiu) nesse meio
+        // tempo — nunca opera sobre uma instância que não existe mais.
+        if (instancia.desmontada) return;
+        destaqueElementoRender(instancia);
+        instancia.prontoParaVisualizacao = true;
+        // "visualizacao" só aqui — no primeiro render de verdade da
+        // instância (badge já visível na tela), nunca nos re-renders
+        // disparados por destaqueElementoRender dentro do toggle (abrir/
+        // fechar o tooltip não é uma nova visualização do badge).
+        if (instancia.alvo && !instancia.oculto && !instancia.visualizacaoRegistrada) {
+          instancia.visualizacaoRegistrada = true;
+          registrarEvento('visualizacao', campanha, config, item.id);
+        }
+        // Cobre reflow tardio que só muda a POSIÇÃO do alvo (não o
+        // tamanho) — o ResizeObserver acima não pega esse caso. Curta,
+        // se auto-encerra (ver destaqueElementoEstabilizar).
+        destaqueElementoEstabilizar(instancia);
+      });
+    });
+
+    return instancia;
+  }
+
+  // Compat: uso antigo (Fase 1) com (campanha, config, alvo) direto — monta
+  // UMA instância usando os campos legados da própria campanha como um
+  // pseudo-item (id:null, mesmo shape do fallback em
+  // destaqueElementoResolverItens). O runtime real (agendarDestaqueElemento)
+  // sempre passa por destaqueElementoMontarTodos; esta função existe pra não
+  // quebrar quem já chamava a API antiga (ver
+  // server/src/widgetDestaqueElemento.test.ts).
+  function destaqueElementoMontar(campanha, config, alvo) {
+    destaqueElementoDesmontarTodos();
+    return destaqueElementoMontarItem(campanha, config, {
+      id: null,
+      data_cy: campanha.data_cy,
+      texto_badge: campanha.subtitulo,
+      titulo: campanha.titulo,
+      descricao: campanha.descricao,
+      texto_botao: campanha.texto_botao,
+      url_botao: campanha.url_botao,
+    }, alvo);
+  }
+
+  // Função pura: resolve a lista de itens a montar pra uma campanha
+  // destaque_elemento. `destaques` (Fase 2, N itens independentes) tem
+  // prioridade; sem nenhum item ali (campanha antiga que ainda não passou
+  // pelo backfill, ou resposta em cache de antes de `destaques` existir),
+  // cai pro fallback legado: um único pseudo-item (id:null, pra usar a MESMA
+  // chave de shownKey que já existia — ver comentário em shownKey) montado a
+  // partir dos campos antigos da própria Campanha. Sem acesso a DOM/window —
+  // testável em node:test puro.
+  function destaqueElementoResolverItens(campanha) {
+    if (!campanha) return [];
+    if (Array.isArray(campanha.destaques) && campanha.destaques.length > 0) {
+      return campanha.destaques;
+    }
+    if ((campanha.modo_exibicao || '') !== FORMATO_DESTAQUE_ELEMENTO) return [];
+    if (!campanha.data_cy) return [];
+    return [{
+      id: null,
+      data_cy: campanha.data_cy,
+      texto_badge: campanha.subtitulo,
+      titulo: campanha.titulo,
+      descricao: campanha.descricao,
+      texto_botao: campanha.texto_botao,
+      url_botao: campanha.url_botao,
+    }];
+  }
+
+  // Função pura: identidade ESTRUTURAL de uma seleção destaque_elemento —
+  // campanha.id + ids (ordenados) dos itens ativos (`ativo !== false`),
+  // independente de wasShown/alvo-encontrado (essas são preocupações de
+  // MONTAGEM, não de "qual campanha/itens deveriam estar ativos agora").
+  // Nunca usa posição/ordem do array como identidade — por isso o sort.
+  function destaqueElementoIdentidadeSelecao(campanha) {
+    var itens = destaqueElementoResolverItens(campanha).filter(function (item) { return item.ativo !== false; });
+    var ids = itens.map(function (item) { return item.id; });
+    ids.sort();
+    return { campanhaId: campanha ? campanha.id : null, itemIds: ids };
+  }
+
+  // Função pura: compara duas identidades (ver destaqueElementoIdentidadeSelecao).
+  function destaqueElementoIdentidadesIguais(a, b) {
+    if (!a || !b) return a === b;
+    if (a.campanhaId !== b.campanhaId) return false;
+    if (a.itemIds.length !== b.itemIds.length) return false;
+    for (var i = 0; i < a.itemIds.length; i++) {
+      if (a.itemIds[i] !== b.itemIds[i]) return false;
+    }
+    return true;
+  }
+
+  // Monta TODOS os destaques elegíveis da campanha. Um alvo ausente mantém
+  // uma instância lógica oculta para poder reagir ao DOM da SPA; um item já
+  // "visto" continua não sendo montado. Cada item é resolvido de forma
+  // independente, depois de desmontar a seleção anterior.
+  function destaqueElementoMontarTodos(campanha, config) {
+    destaqueElementoDesmontarTodos();
+    var itens = destaqueElementoResolverItens(campanha);
+    // Reflete a seleção ESTRUTURAL (campanha + itens ativos), não só os que
+    // acabaram sendo montados de fato (wasShown/alvo podem pular alguns) —
+    // ver destaqueElementoSincronizarSelecao, que compara contra isto pra
+    // decidir se uma nova avaliação é "a mesma seleção" ou não.
+    destaqueElementoSelecaoAtual = destaqueElementoIdentidadeSelecao(campanha);
+    for (var i = 0; i < itens.length; i++) {
+      var item = itens[i];
+      if (item.ativo === false) continue;
+      if (wasShown(campanha, config, item.id)) continue;
+      var alvo = destaqueElementoLocalizarAlvo(item);
+      // Sem match único, monta oculto; o observer fará o binding quando o
+      // alvo correto surgir. Nunca escolhe silenciosamente entre duplicados.
+      destaqueElementoMontarItem(campanha, config, item, alvo);
+    }
+  }
+
+  // Mesmo padrão de tourGetTestClickListener: devolve só o listener de
+  // clique religado no root de UMA instância (por padrão a primeira — índice
+  // 0, mesma que os testes da Fase 1 já esperavam), sem expor
+  // destaqueElementoInstancias (ou qualquer outro estado) em _internal.
+  // `.listeners` é uma propriedade do elemento FAKE usado só pelo harness de
+  // teste (vm) — um DOM real não tem isso, então este helper nunca resolve
+  // nada fora do harness. Usado por server/src/widgetDestaqueElemento.test.ts
+  // pra simular clique real no badge/CTA/fechar sem chamar a lógica de
+  // marcação como função solta.
+  function destaqueElementoGetTestClickListener(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    var root = instancia && instancia.root;
+    return (root && root.listeners && root.listeners.click && root.listeners.click[0]) || null;
+  }
+
+  // Mesmo padrão de destaqueElementoGetTestClickListener, pro listener
+  // 'input' (comentário opcional de utilidade_destaque) — usado por
+  // server/src/widgetDestaqueElemento.test.ts pra simular digitação no
+  // textarea sem tocar em instancia.utilidade diretamente como estado solto.
+  function destaqueElementoGetTestInputListener(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    var root = instancia && instancia.root;
+    return (root && root.listeners && root.listeners.input && root.listeners.input[0]) || null;
+  }
+
+  // Mesmo padrão dos 2 acima — expõe só instancia.utilidade (escolha/
+  // comentario/enviando/erro/comentarioEnviado) pra inspeção em teste, sem
+  // expor destaqueElementoInstancias inteiro. Usado por
+  // server/src/widgetDestaqueElemento.test.ts pra confirmar que uma falha de
+  // envio reseta `enviando` (permite tentar de novo) sem depender de
+  // inspecionar o HTML renderizado.
+  function destaqueElementoGetTestUtilidadeState(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    return (instancia && instancia.utilidade) || null;
+  }
+
+  // Mesmo padrão — expõe só instancia.aberto, pra confirmar em teste que o
+  // fechamento automático após um comentário de utilidade enviado com
+  // sucesso (ver destaqueElementoUtilAgendarFechamento) realmente fecha o
+  // tooltip, sem depender de inspecionar o HTML renderizado.
+  function destaqueElementoGetTestAberto(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    return instancia ? instancia.aberto : null;
+  }
+
+  // Mesmo padrão — expõe só instancia.oculto, pra confirmar em teste que um
+  // alvo encoberto por drawer/modal/overlay (ver destaqueElementoReposicionar)
+  // fica oculto sem ser desmontado, e volta a ficar visível quando o alvo
+  // deixa de estar coberto.
+  function destaqueElementoGetTestOculto(indice) {
+    var instancia = destaqueElementoInstancias[indice || 0];
+    return instancia ? Boolean(instancia.oculto) : null;
+  }
+
+  function agendarDestaqueElemento(campanha, config) {
+    if ((campanha.gatilho || 'ao_abrir_tela') !== 'ao_abrir_tela') return;
+    var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
+    var timer = window.setTimeout(function () {
+      // Um callback cancelado/substituido nao interfere na selecao atual;
+      // ao disparar, o timer ativo deixa de bloquear novos agendamentos.
+      if (state.timer !== timer) return;
+      state.timer = null;
+      if (tourState.ativo) return;
+      destaqueElementoMontarTodos(campanha, config);
+    }, delay);
+    state.timer = timer;
+  }
+
+  // Chamada a cada reavaliação de candidatas de updateContext()/evaluateCampaigns()
+  // (SPA trocando contexto sem reload) — decide o que fazer com o destaque_elemento
+  // ATUALMENTE montado (se houver) comparado com `campanhaSelecionada` desta
+  // rodada (null quando nenhuma candidata destaque_elemento passou nos
+  // filtros de elegibilidade/modo/wasShown desta vez):
+  //   - mesma campanha + mesmos itens ativos (comparado por id, nunca por
+  //     posição/ordem — ver destaqueElementoIdentidadeSelecao): PRESERVA as
+  //     instâncias existentes (nunca desmonta/remonta, nunca duplica
+  //     observers/listeners, zero flicker) — só revalida a posição contra o
+  //     layout atual, já que o contexto pode ter mudado mesmo sem trocar de
+  //     campanha/item.
+  //   - qualquer outra coisa (campanha diferente, itens diferentes, ou
+  //     nenhuma candidata elegível agora): desmonta IMEDIATAMENTE qualquer
+  //     destaque existente (nunca deixa um destaque de um contexto/usuário
+  //     anterior sobrevivendo) e, se houver uma seleção nova, agenda a
+  //     montagem dela normalmente (respeita atraso_ms/gatilho, mesmo
+  //     caminho de sempre). Cancela também um timer de destaque pendente de
+  //     uma avaliação anterior — sem isso, esse timer antigo podia disparar
+  //     DEPOIS desta decisão e remontar um destaque já invalidado.
+  function destaqueElementoSincronizarSelecao(campanhaSelecionada, config) {
+    var novaIdentidade = campanhaSelecionada ? destaqueElementoIdentidadeSelecao(campanhaSelecionada) : null;
+    if (novaIdentidade && destaqueElementoIdentidadesIguais(destaqueElementoSelecaoAtual, novaIdentidade)) {
+      var itensResolvidos = destaqueElementoResolverItens(campanhaSelecionada);
+      var itensEsperados = [];
+      for (var e = 0; e < itensResolvidos.length; e++) {
+        var itemResolvido = itensResolvidos[e];
+        if (itemResolvido.ativo === false) continue;
+        var instanciaExistente = null;
+        for (var n = 0; n < destaqueElementoInstancias.length; n++) {
+          if (destaqueElementoInstancias[n].item.id === itemResolvido.id) instanciaExistente = destaqueElementoInstancias[n];
+        }
+        // Alvo ausente/ambíguo não é esperado nesta tela. Item já consumido
+        // também não é, salvo enquanto sua instância atual ainda estiver viva.
+        if (!wasShown(campanhaSelecionada, config, itemResolvido.id) || instanciaExistente) {
+          itensEsperados.push({ item: itemResolvido, instancia: instanciaExistente });
+        }
+      }
+      var instanciasValidas = destaqueElementoInstancias.length === itensEsperados.length;
+      for (var i = 0; instanciasValidas && i < itensEsperados.length; i++) {
+        var esperado = itensEsperados[i];
+        var correspondente = esperado.instancia;
+        if (!correspondente || correspondente.desmontada || !destaqueElementoRootConectado(correspondente)) {
+          instanciasValidas = false;
+        }
+      }
+      if (instanciasValidas) {
+        for (var k = 0; k < destaqueElementoInstancias.length; k++) {
+          destaqueElementoReposicionar(destaqueElementoInstancias[k]);
+        }
+        return;
+      }
+    }
+    if (state.timer) {
+      window.clearTimeout(state.timer);
+      state.timer = null;
+    }
+    destaqueElementoDesmontarTodos();
+    if (campanhaSelecionada) {
+      agendarDestaqueElemento(campanhaSelecionada, config);
+    }
+  }
+
   var AUTO_CLOSE_MS = 2500;
 
   function doClose() {
@@ -1165,6 +2454,7 @@
     state.submitted = false;
     state.nota = null;
     state.observacao = '';
+    state.confirmacaoMarcada = false;
     state.error = '';
     render();
   }
@@ -1283,6 +2573,16 @@
         if (btn) btn.disabled = !masked.trim();
       }
     });
+
+    state.root.addEventListener('change', function (event) {
+      var target = event.target;
+      if (target && target.matches && target.matches('[data-up-confirm-check]')) {
+        state.confirmacaoMarcada = !!target.checked;
+        state.error = '';
+        var btn = state.root.querySelector('[data-up-confirm]');
+        if (btn) btn.disabled = !state.confirmacaoMarcada || state.submitting;
+      }
+    });
   }
 
   function resetRoot() {
@@ -1311,7 +2611,13 @@
       var k = CONTEXT_KEYS[i];
       if (c[k] != null && c[k] !== '') contexto[k] = String(c[k]);
     }
+    // public_key: identificador público do tenant (Fase 2 do widget
+    // multi-tenant) — aceita tanto public_key (convenção do projeto, igual
+    // usuario_id/usuario_nome) quanto publicKey (camelCase), pra não exigir
+    // um nome exato de quem já tenha copiado de outro exemplo.
+    var publicKey = c.public_key || c.publicKey;
     return {
+      public_key: publicKey ? String(publicKey) : '',
       slug: c.slug ? String(c.slug) : '',
       sistema: c.sistema ? String(c.sistema) : '',
       tela: c.tela ? String(c.tela) : '',
@@ -1321,6 +2627,15 @@
       contexto: Object.keys(contexto).length ? contexto : null,
       contextProvider: typeof c.contextProvider === 'function' ? c.contextProvider : null,
     };
+  }
+
+  // Anexa public_key (se configurado) a uma query string de rota pública do
+  // widget — lido de state.config em vez de receber como parâmetro pra não
+  // precisar mudar a assinatura de toda função que já monta uma URLSearchParams
+  // sem receber o config inteiro (fetchCandidatas, fetchTour, etc.), mesmo
+  // padrão já usado por registrarEvento() (topo do arquivo) pra outros campos.
+  function appendPublicKey(params) {
+    if (state.config && state.config.public_key) params.set('public_key', state.config.public_key);
   }
 
   // Consulta o contextProvider (se configurado) e faz merge no contexto atual.
@@ -1350,6 +2665,7 @@
     }
     if (config.usuario_id) params.set('usuario_id', config.usuario_id);
     appendContexto(params, config.contexto);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/campanha?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -1376,6 +2692,7 @@
     if (eventoNome) params.set('evento', String(eventoNome));
     if (usuario_id) params.set('usuario_id', usuario_id);
     appendContexto(params, contexto);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/candidatas?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -1524,6 +2841,7 @@
         Accept: 'application/json',
       },
       body: JSON.stringify({
+        public_key: config.public_key || undefined,
         campanha_id: campanha.id,
         nota: state.nota,
         observacao: state.observacao || undefined,
@@ -1567,6 +2885,12 @@
     var config = state.config;
     if (!campanha || !config || state.submitting) return;
 
+    if (!state.confirmacaoMarcada) {
+      state.error = 'Marque a confirmacao de leitura para continuar.';
+      render();
+      return;
+    }
+
     if (!config.usuario_id) {
       state.submitted = true;
       render();
@@ -1586,6 +2910,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
+        public_key: config.public_key || undefined,
         campanha_id: campanha.id,
         usuario_id: config.usuario_id,
         usuario_nome: config.usuario_nome || undefined,
@@ -1670,6 +2995,22 @@
   }
 
   function init(config) {
+    // Trata init() como sessão/config nova, incondicionalmente — nenhuma
+    // instância de destaque_elemento (root, listeners, MutationObserver/
+    // ResizeObserver/PerformanceObserver, e o `config`/usuario_id fechado
+    // nela) do usuário/config ANTERIOR pode sobreviver a um novo init(),
+    // mesmo que a próxima avaliação de candidatas não selecione nenhum
+    // destaque_elemento novo. Igual ao root da modal (removido mais abaixo)
+    // já era, mas destaqueElementoInstancias nunca tinha um ponto de reset
+    // aqui antes — numa SPA que troca de usuário sem reload completo, a
+    // instância antiga ficava viva pra sempre, com o usuario_id de quem
+    // usou antes. Tem que ser a primeira coisa, antes até de state.config
+    // ser substituído. evaluateCampaignsToken++ invalida qualquer
+    // evaluateCampaigns() (de um updateContext() anterior) ainda em voo —
+    // a resposta dela nunca pode agir sobre o contexto deste init() novo.
+    destaqueElementoDesmontarTodos();
+    evaluateCampaignsToken++;
+
     // Restaurar overflow do body caso a modal estivesse aberta ao re-inicializar
     document.body.style.overflow = state.bodyOverflow || '';
 
@@ -1683,12 +3024,21 @@
       config: debugSanitizar(normalized),
       url: debugStatusUrl(),
     });
+    // Fase 2 do widget multi-tenant: sem public_key, o backend cai num
+    // fallback temporário pro tenant Quark (ver resolverTenantPublico no
+    // servidor) — funciona hoje, mas deixará de existir quando public_key
+    // virar obrigatória para tenants novos. Só um aviso de debug (nunca
+    // bloqueia o init) — visível só com window.UserPulse.debug(true).
+    if (!normalized.public_key) {
+      debugLog('public_key ausente em init() — usando fallback temporário pro tenant Quark. Defina { public_key: "..." } antes que isso deixe de funcionar.', {});
+    }
     iniciarGravadorSeNecessario();
     iniciarPreviewSeNecessario();
     state.campanha = null;
     state.open = false;
     state.nota = null;
     state.observacao = '';
+    state.confirmacaoMarcada = false;
     state.submitting = false;
     state.submitted = false;
     state.error = '';
@@ -1846,15 +3196,17 @@
             for (var i = 0; i < candidatos.length; i++) {
               var c = candidatos[i];
               var okModo = checkMode(c, normalized);
+              var jaVista = okModo && wasShown(c, normalized);
               if (debugState.enabled) {
                 linhasDebug.push({
                   id: c.id,
                   titulo: c.titulo || c.slug || null,
                   modo_identificacao: c.modo_identificacao || 'sistema_tela',
-                  motivo: !okModo ? 'bloqueada: modo_identificacao não corresponde' : (selecionada ? 'elegível, porém outra já selecionada' : 'selecionada'),
+                  motivo: !okModo ? 'bloqueada: modo_identificacao não corresponde' : (jaVista ? 'bloqueada: já visto (localStorage)' : (selecionada ? 'elegível, porém outra já selecionada' : 'selecionada')),
                 });
               }
               if (!okModo) continue;
+              if (jaVista) continue;
               if (!selecionada) selecionada = c;
             }
             if (debugState.enabled) debugLog('Campanhas candidatas (' + (normalized.tela || 'ao_abrir_tela') + ')', linhasDebug);
@@ -1891,6 +3243,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
+          public_key: config.public_key || undefined,
           evento: eventoNome,
           sistema: config.sistema,
           usuario_id: config.usuario_id,
@@ -1934,6 +3287,7 @@
           state.open = false;
           state.nota = null;
           state.observacao = '';
+          state.confirmacaoMarcada = false;
           state.submitting = false;
           state.submitted = false;
           state.error = '';
@@ -1992,6 +3346,7 @@
           state.open = false;
           state.nota = null;
           state.observacao = '';
+          state.confirmacaoMarcada = false;
           state.submitting = false;
           state.submitted = false;
           state.error = '';
@@ -2012,6 +3367,33 @@
       .catch(function () {});
   }
 
+  // Incrementado em init() e a cada chamada de evaluateCampaigns() — guarda
+  // simples contra corrida: se updateContext() disparar 2 avaliações em
+  // sequência rápida (ou um init() acontecer no meio de uma já em voo), a
+  // resposta da fetch mais ANTIGA não pode restaurar/remontar destaque de um
+  // contexto já substituído por uma avaliação mais nova. Sem isso, a ordem
+  // de chegada das respostas (não a ordem de disparo) decidiria o estado
+  // final — exatamente o tipo de corrida que pode variar por usuário/rede.
+  var evaluateCampaignsToken = 0;
+
+  // Mesmo padrão de tourSetTestState: lista fechada de campos permitidos —
+  // nunca deixa um teste (ou script no domínio do cliente, já que _internal
+  // é exposto em produção) injetar campo arbitrário em state.config por essa
+  // via. Existe só pra exercitar evaluateCampaigns()/updateContext() em
+  // teste sem precisar simular o fetch de aparência/tour/candidata inicial
+  // que um init() de verdade dispara — substitui state.config por um objeto
+  // NOVO (nunca muta um já existente), mesmo comportamento de init().
+  var CONFIG_TEST_STATE_CAMPOS_PERMITIDOS = ['sistema', 'tela', 'usuario_id', 'contexto', 'slug', 'public_key'];
+  function configSetTestState(parcial) {
+    if (!parcial) return;
+    var novoConfig = {};
+    for (var i = 0; i < CONFIG_TEST_STATE_CAMPOS_PERMITIDOS.length; i++) {
+      var campo = CONFIG_TEST_STATE_CAMPOS_PERMITIDOS[i];
+      if (Object.prototype.hasOwnProperty.call(parcial, campo)) novoConfig[campo] = parcial[campo];
+    }
+    state.config = novoConfig;
+  }
+
   // Reavalia candidatas com o config/contexto atual (todos os modos).
   // Usado por updateContext e pode ser chamado quando o contexto muda sem reload.
   function evaluateCampaigns() {
@@ -2019,10 +3401,21 @@
     if (!config || !config.sistema) return;
     if (state.open) return;
     var contexto = resolveContexto();
+    var meuToken = ++evaluateCampaignsToken;
     fetchCandidatas(config.sistema, config.tela, 'ao_abrir_tela', null, config.usuario_id, contexto)
       .then(function (candidatos) {
+        // Resposta atrasada de uma avaliação já superada por outra mais
+        // recente (novo updateContext() ou init()) — nunca pode agir sobre
+        // um contexto que não existe mais. Ver evaluateCampaignsToken.
+        if (meuToken !== evaluateCampaignsToken) return;
         if (state.open) return;
         var linhasDebug = [];
+        // null quando nenhuma candidata destaque_elemento passa nos filtros
+        // desta rodada — destaqueElementoSincronizarSelecao (chamado sempre,
+        // abaixo) usa isso pra desmontar um destaque que deixou de ser
+        // elegível, exatamente como usaria uma candidata nova pra substituir
+        // o que já estava montado.
+        var destaqueSelecionado = null;
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
           var okModo = checkMode(c, config);
@@ -2042,6 +3435,7 @@
           state.open = false;
           state.nota = null;
           state.observacao = '';
+          state.confirmacaoMarcada = false;
           state.submitting = false;
           state.submitted = false;
           state.error = '';
@@ -2053,9 +3447,21 @@
           state.phoneError = '';
           ensureStyles();
           resetRoot();
-          scheduleAutoOpen(c, config);
+          // destaque_elemento nunca passa por scheduleAutoOpen aqui — vai
+          // por destaqueElementoSincronizarSelecao (abaixo, fora do loop),
+          // que decide preservar/substituir comparando com o que já está
+          // montado, em vez de sempre desmontar+remontar (flicker).
+          if ((c.modo_exibicao || 'modal_automatica') === FORMATO_DESTAQUE_ELEMENTO) {
+            destaqueSelecionado = c;
+          } else {
+            scheduleAutoOpen(c, config);
+          }
           break;
         }
+        // Sempre chamado, mesmo sem nenhuma candidata elegível desta vez —
+        // é o único jeito de garantir que um destaque_elemento de um
+        // contexto anterior seja desmontado quando deixa de ser elegível.
+        destaqueElementoSincronizarSelecao(destaqueSelecionado, config);
         if (debugState.enabled) debugLog('Campanhas candidatas (updateContext/evaluateCampaigns, tela: ' + config.tela + ')', linhasDebug);
       })
       .catch(function () {});
@@ -2104,9 +3510,9 @@
   // atualizada e retomava direto nele, pulando o passo intermediário).
   var TOUR_SPA_ASSENTAMENTO_MS = 500;
 
-  function handleUrlChange() {
+  function handleUrlChange(forcarReavaliacao) {
     var currentUrl = window.location.href;
-    if (currentUrl === lastUrl) return;
+    if (currentUrl === lastUrl && !forcarReavaliacao) return;
     var urlAnterior = lastUrl;
     lastUrl = currentUrl;
     if (urlChangeTimer) { window.clearTimeout(urlChangeTimer); urlChangeTimer = null; }
@@ -2172,6 +3578,10 @@
         }
       }
       evaluateUrlCampaigns();
+      // Candidatas por sistema/tela/contexto tambÃ©m precisam ser reavaliadas
+      // em toda navegaÃ§Ã£o do router. pushState/replaceState podem representar
+      // troca de tela mesmo quando o host conserva exatamente a mesma URL.
+      evaluateCampaigns();
       jornadaReavaliarAposNavegacao();
       // Reavalia tour automático (ex.: configurado por "Caminho da URL")
       // depois de uma navegação SPA — sem isso, um tour cuja condição só
@@ -2213,15 +3623,15 @@
 
     history.pushState = function () {
       origPushState.apply(this, arguments);
-      handleUrlChange();
+      handleUrlChange(true);
     };
     history.replaceState = function () {
       origReplaceState.apply(this, arguments);
-      handleUrlChange();
+      handleUrlChange(true);
     };
 
-    window.addEventListener('popstate', handleUrlChange);
-    window.addEventListener('hashchange', handleUrlChange);
+    window.addEventListener('popstate', function () { handleUrlChange(true); });
+    window.addEventListener('hashchange', function () { handleUrlChange(true); });
   }
 
   // ─── Tours guiados ────────────────────────────────────────────────────────
@@ -2419,6 +3829,7 @@
   function fetchTour(slug) {
     var params = new URLSearchParams();
     params.set('slug', slug);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/tour?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -2435,6 +3846,7 @@
   function fetchAparencia(sistema) {
     var params = new URLSearchParams();
     params.set('sistema', sistema);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/aparencia?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -2603,6 +4015,7 @@
     if (tela) params.set('tela', tela);
     if (usuario_id) params.set('usuario_id', usuario_id);
     appendContexto(params, contexto);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/tour/candidatas?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -2651,6 +4064,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
+        public_key: config.public_key || undefined,
         tour_id: tour.id,
         tipo_evento: tipoEvento,
         passo_ordem: passoOrdem != null ? passoOrdem : undefined,
@@ -3682,7 +5096,7 @@
   // retomada, como reconstituir o mesmo tipo de sessão (ver
   // tourRetomarSeHouver). 'jornada' tem prioridade sobre só "preview" porque
   // uma prévia nunca tem jornadaContexto (mutuamente exclusivos por natureza:
-  // jornadaContexto só é setado por jornadaEtapaClicar/iniciarTourPublico,
+  // jornadaContexto só é setado por jornadaEtapaClicar/iniciarTour,
   // nunca por recorderIniciarPreview).
   function tourModoAtual() {
     if (tourState.jornadaContexto) return 'jornada';
@@ -4621,7 +6035,7 @@
   // (ver renderTourNaoEncontrado), a única peça de UI do gravador que
   // aparece dentro do próprio overlay do tour (bar/painel já ficam
   // escondidos em qualquer prévia). O disparo real do tour
-  // (iniciarTourPublico/avaliarTourAutomatico) nunca passa esses argumentos,
+    // (API pública/avaliarTourAutomatico) nunca passa esses argumentos,
   // então continua com introdução normal e preview/modoUsuarioFinal=false.
   // indiceInicial (opcional, default 0) — usado só por tourRetomarSeHouver()
   // pra retomar diretamente num passo específico depois de um reload
@@ -4660,55 +6074,10 @@
     renderTour();
   }
 
-  // Avalia automaticamente, no init() e a cada reavaliação de SPA (ver
-  // handleUrlChange), se há um tour guiado elegível para o contexto atual
-  // (mesmo princípio do checkMode usado para campanhas).
+  // Tours não autoabrem mais. Mantido como no-op porque init()/updateContext()
+  // ainda chamam esta função em instalações existentes do widget.
   function avaliarTourAutomatico(config) {
-    // Central de ajuda aberta não pode ser coberta por um tour automático —
-    // o usuário abriu ela de propósito, então não compete por cima.
-    if (tourState.ativo || jornadaState.aberto || !config.sistema) {
-      if (debugState.enabled) {
-        debugLog('Tour automático — avaliação pulada', {
-          motivo: tourState.ativo ? 'já há um tour ativo' : (jornadaState.aberto ? 'Central de Jornadas aberta' : 'config sem "sistema"'),
-        });
-      }
-      return;
-    }
-    fetchTourCandidatos(config.sistema, config.tela, config.usuario_id, config.contexto)
-      .then(function (candidatos) {
-        if (tourState.ativo || jornadaState.aberto) return;
-        var selecionado = null;
-        var linhas = [];
-        for (var i = 0; i < candidatos.length; i++) {
-          var c = candidatos[i];
-          var okModo = checkMode(c, config);
-          var seg = avaliarSegmentacaoTour(c, config);
-          // Com usuario_id, confia no backend (já fez dedupe/reexibição). Sem
-          // usuario_id, o servidor não tem como identificar o usuário — cai
-          // no fallback localStorage.
-          var jaVisto = !config.usuario_id && tourWasShown(c);
-          if (debugState.enabled) {
-            var motivo;
-            if (!okModo) motivo = 'bloqueado: modo_identificacao não corresponde';
-            else if (!seg.ok) motivo = 'bloqueado por segmentação';
-            else if (jaVisto) motivo = 'bloqueado: já visto (localStorage)';
-            else motivo = selecionado ? 'elegível, porém outro tour de maior prioridade já selecionado' : 'selecionado';
-            linhas.push({
-              id: c.id,
-              titulo: c.titulo || null,
-              modo_identificacao: c.modo_identificacao || 'sistema_tela',
-              segmentacao: seg.motivo,
-              regra_que_falhou: seg.regraFalhou,
-              motivo: motivo,
-            });
-          }
-          if (!okModo || !seg.ok || jaVisto) continue;
-          if (!selecionado) selecionado = c;
-        }
-        if (debugState.enabled) debugLog('Tour automático — candidatos (' + config.tela + ')', linhas);
-        if (selecionado) aguardarAparenciaEIniciarTour(selecionado);
-      })
-      .catch(function () { /* fail silently */ });
+    if (debugState.enabled) debugLog('Tour automático desativado', { sistema: config && config.sistema ? config.sistema : null });
   }
 
   // Adia iniciarTour() até a aparência (cor/logo) do sistema atual estar
@@ -8468,21 +9837,18 @@
     iniciarTour(tourPreview, false, true);
   }
 
-  // API pública para disparar um tour manualmente (ex.: botão "Ver tour" no host):
-  //   window.UserPulse.iniciarTour('slug-do-tour')
-  // jornadaContexto (opcional, uso interno) — ver jornadaEtapaClicar/tourConcluir.
-  function iniciarTourPublico(slug, jornadaContexto) {
-    if (!slug) return;
-    fetchTour(slug).then(function (tour) {
-      if (tour) iniciarTour(tour, false, false, false, jornadaContexto);
-    }).catch(function () { /* fail silently */ });
+  // API pública mantida por compatibilidade, mas tour não dispara mais sozinho.
+  // Tours agora só iniciam a partir de uma etapa de Jornada, usando o objeto de
+  // tour embutido em /api/widget/jornadas (ver jornadaEtapaClicar).
+  function iniciarTourPublico() {
+    if (debugState.enabled) debugLog('Tour público bloqueado', { motivo: 'tour_disponivel_apenas_em_jornada' });
   }
 
   // ─── Onboarding Guiado (Jornadas) — MVP ────────────────────────────────────
   // Central/checklist que o usuário abre manualmente — via
   // window.UserPulse.abrirJornadas() ou pelo botão flutuante "Ajuda" (Parte 3),
-  // que só aparece quando há jornada elegível. Nunca dispara sozinha, ao
-  // contrário de campanhas/tours automáticos (avaliarTourAutomatico/checkMode).
+  // que só aparece quando há jornada elegível. Tours não autoabrem mais; eles
+  // só iniciam quando o usuário clica em uma etapa de Jornada.
   //
   // Estrutura: Jornada -> BlocoJornada ("Pacote" na UI/widget) -> EtapaJornada.
   // Navegação em 2 níveis: painel inicial lista os Pacotes de cada jornada
@@ -8527,6 +9893,7 @@
     if (tela) params.set('tela', tela);
     if (usuario_id) params.set('usuario_id', usuario_id);
     appendContexto(params, contexto);
+    appendPublicKey(params);
     return fetch(apiUrl('/api/widget/jornadas?' + params.toString()), {
       headers: { Accept: 'application/json' },
     }).then(function (response) {
@@ -8572,6 +9939,7 @@
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
+        public_key: config.public_key || undefined,
         jornada_id: jornadaId,
         bloco_id: blocoId != null ? blocoId : undefined,
         etapa_id: etapaId != null ? etapaId : undefined,
@@ -8595,35 +9963,28 @@
   function renderJornadaEtapaHtml(jornada, bloco, etapa, index) {
     var status = etapa.status || 'pendente';
     var concluida = status === 'concluida';
-    // Tour apontado pela etapa foi inativado depois de criada a jornada — não
-    // dá pra iniciar nem rever, então bloqueia independente de status/permitir_refazer.
-    var tourInativo = etapa.tipo === 'tour' && Boolean(etapa.tour) && etapa.tour.ativo === false;
     // permitir_refazer é configurado na Jornada (não no pacote/etapa) — só
     // libera reexecutar uma etapa já concluída quando true; por padrão (false)
     // fica bloqueada. Exceção: etapa tipo tour concluída sempre pode ser
     // revista (reabre o tour de novo, sem contar como nova conclusão) mesmo
     // com permitir_refazer=false — etapas tipo link continuam bloqueadas
     // nesse caso.
-    var podeRefazer = concluida && Boolean(jornada.permitir_refazer) && !tourInativo;
-    var podeRever = concluida && !podeRefazer && etapa.tipo === 'tour' && !tourInativo;
+    var podeRefazer = concluida && Boolean(jornada.permitir_refazer);
+    var podeRever = concluida && !podeRefazer && etapa.tipo === 'tour';
     // disabled nativo bloqueia clique/reexecução no próprio DOM (o clique nem
     // chega ao listener delegado) — não depende só da checagem em
     // jornadaPainelClick, que fica como segunda camada de segurança.
-    var desabilitada = (concluida && !podeRefazer && !podeRever) || etapa.tipo === 'campanha' || tourInativo;
+    var desabilitada = (concluida && !podeRefazer && !podeRever) || etapa.tipo === 'campanha';
     var classe = 'up-jorn-etapa' + (concluida ? ' up-jorn-etapa-concluida' : '');
     var marcador = concluida
       ? '<span class="up-jorn-etapa-check">' + icon('check') + '</span>'
       : '<span class="up-jorn-etapa-num">' + (index + 1) + '</span>';
-    var tituloAttr = tourInativo
-      ? ' title="Este tour está indisponível no momento."'
-      : (concluida
+    var tituloAttr = concluida
         ? (podeRefazer ? ' title="Clique para refazer esta etapa."' : (podeRever ? ' title="Clique para rever o tour."' : ' title="Etapa já concluída."'))
-        : (etapa.tipo === 'campanha' ? ' title="Campanha será suportada em breve."' : ''));
-    var tipoTexto = tourInativo
-      ? (concluida ? 'Concluída · Tour indisponível' : jornadaTipoLabel(etapa) + ' · indisponível')
-      : (concluida
+        : (etapa.tipo === 'campanha' ? ' title="Campanha será suportada em breve."' : '');
+    var tipoTexto = concluida
         ? (podeRefazer ? 'Concluída · Refazer' : (podeRever ? 'Concluída · Rever tour' : 'Concluída'))
-        : jornadaTipoLabel(etapa) + (etapa.obrigatoria ? '' : ' · opcional'));
+        : jornadaTipoLabel(etapa) + (etapa.obrigatoria ? '' : ' · opcional');
     return (
       '<button type="button" class="' + classe + '"' +
         ' data-up-jorn-jornada="' + escapeHtml(jornada.id) + '"' +
@@ -9049,22 +10410,19 @@
     if (etapa.tipo === 'link' && etapa.url) {
       window.open(etapa.url, etapa.abrir_nova_aba ? '_blank' : '_self', 'noopener,noreferrer');
       jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
-    } else if (etapa.tipo === 'tour' && etapa.tour && etapa.tour.slug) {
-      // disabled nativo já impede isso (ver renderJornadaEtapaHtml) — segunda
-      // camada de segurança, mesmo padrão de sempre.
-      if (etapa.tour.ativo === false) return;
+    } else if (etapa.tipo === 'tour' && etapa.tour && etapa.tour.passos) {
       if (revendoTour) {
         // Já concluída — só reabre o tour pra revisão, sem re-registrar
         // etapa_concluida nem mexer no progresso da jornada.
         fecharJornadaPainel();
-        iniciarTourPublico(etapa.tour.slug);
+        iniciarTour(etapa.tour, false, false, false);
       } else {
         // A etapa só é marcada concluída quando o tour é de fato concluído
         // (tourConcluir(), via tourState.jornadaContexto) — nunca já ao
         // iniciar. Encerrar/pular/abandonar o tour no meio não conta como
         // conclusão da etapa.
         fecharJornadaPainel();
-        iniciarTourPublico(etapa.tour.slug, {
+        iniciarTour(etapa.tour, false, false, false, {
           jornadaId: jornada.id, blocoId: bloco.id, etapaId: etapa.id, contextoExtra: contextoExtra,
         });
       }
@@ -9381,6 +10739,65 @@
     iniciarPreviewSeNecessario: iniciarPreviewSeNecessario,
     iniciarGravadorSeNecessario: iniciarGravadorSeNecessario,
     recorderTextosPainelFinal: recorderTextosPainelFinal,
+    // Destaque em elemento — funções puras (sem efeito colateral): só
+    // validam/montam um seletor CSS a partir de data-cy (sem tocar em
+    // localStorage/rede) ou consultam o DOM já presente (document.querySelector
+    // real, sem estado do widget). Ver server/src/widgetDestaqueElemento.test.ts.
+    destaqueElementoSeletorSeguro: destaqueElementoSeletorSeguro,
+    destaqueElementoLocalizarAlvo: destaqueElementoLocalizarAlvo,
+    destaqueElementoCalcularPosicao: destaqueElementoCalcularPosicao,
+    destaqueElementoCalcularPosicaoTooltip: destaqueElementoCalcularPosicaoTooltip,
+    destaqueElementoCalcularBeacon: destaqueElementoCalcularBeacon,
+    destaqueElementoRectsIguais: destaqueElementoRectsIguais,
+    destaqueElementoMutacoesApenasNoRoot: destaqueElementoMutacoesApenasNoRoot,
+    destaqueElementoObterViewport: destaqueElementoObterViewport,
+    // Visibilidade real do alvo (encoberto por drawer/modal/overlay) —
+    // funções puras, sem efeito colateral. Ver server/src/widgetDestaqueElemento.test.ts.
+    destaqueElementoPontoRepresentativo: destaqueElementoPontoRepresentativo,
+    destaqueElementoAlvoRealmenteVisivel: destaqueElementoAlvoRealmenteVisivel,
+    // destaqueElementoResolverItens: função pura (fallback destaques[] vs
+    // pseudo-item legado). destaqueElementoMontar/MontarTodos +
+    // destaqueElementoGetTestClickListener: mesmo padrão de renderTour/
+    // tourGetTestClickListener — expõem só o suficiente pra simular um
+    // clique real no badge/CTA/fechar num harness de teste (vm), sem expor
+    // destaqueElementoInstancias inteiro.
+    destaqueElementoResolverItens: destaqueElementoResolverItens,
+    destaqueElementoMontar: destaqueElementoMontar,
+    destaqueElementoMontarTodos: destaqueElementoMontarTodos,
+    destaqueElementoGetTestClickListener: destaqueElementoGetTestClickListener,
+    destaqueElementoGetTestInputListener: destaqueElementoGetTestInputListener,
+    destaqueElementoGetTestUtilidadeState: destaqueElementoGetTestUtilidadeState,
+    destaqueElementoGetTestAberto: destaqueElementoGetTestAberto,
+    destaqueElementoGetTestOculto: destaqueElementoGetTestOculto,
+    // Ciclo de vida da instância entre reavaliações (init()/updateContext(),
+    // nunca deixar destaque de um usuário/contexto anterior sobreviver) —
+    // destaqueElementoIdentidadeSelecao/Iguais são funções puras;
+    // destaqueElementoSincronizarSelecao é o ponto único de decisão
+    // preservar/substituir/remover chamado por evaluateCampaigns();
+    // evaluateCampaigns + configSetTestState (mesmo padrão de
+    // tourSetTestState, lista fechada de campos) existem só pra poder
+    // exercitar esse fluxo assíncrono de teste sem precisar simular o
+    // fetch de aparência/tour que um init() completo dispararia. Ver
+    // server/src/widgetDestaqueElemento.test.ts.
+    destaqueElementoIdentidadeSelecao: destaqueElementoIdentidadeSelecao,
+    destaqueElementoIdentidadesIguais: destaqueElementoIdentidadesIguais,
+    destaqueElementoSincronizarSelecao: destaqueElementoSincronizarSelecao,
+    evaluateCampaigns: evaluateCampaigns,
+    handleUrlChange: handleUrlChange,
+    configSetTestState: configSetTestState,
+    // wasShown/markShown já existiam (política de "mostrar_uma_vez"
+    // compartilhada por qualquer formato de campanha, via localStorage) —
+    // expostas aqui pra confirmar que Destaque em elemento reaproveita a
+    // mesma infra, mas com um gatilho diferente do modal: markShown só roda
+    // numa interação explícita (clicar no badge, no CTA, ou dispensar),
+    // nunca só por ter renderizado (ver comentário em destaqueElementoMontar).
+    wasShown: wasShown,
+    markShown: markShown,
+    // Ícone do cabeçalho da modal por tipo de campanha (comunicado/melhoria/
+    // pesquisa) — regra pura, exposta só pra confirmar por teste que fica em
+    // paridade com iconeTipoCampanha/ICONES_TIPO_CAMPANHA (campanhas2/Index.tsx,
+    // "preview"), a mesma regra do lado do admin. Ver server/src/widgetCampaignIcon.test.ts.
+    campaignIconName: campaignIconName,
   };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {

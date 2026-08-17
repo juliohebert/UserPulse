@@ -189,10 +189,6 @@ export function TourDashboard() {
           <p className="text-body-md text-on-surface-variant mt-0.5">
             {tour.sistema}
             {tour.tela ? ` · ${tour.tela}` : ''}
-            {' — '}
-            <span className={tour.ativo ? 'text-tertiary font-semibold' : 'text-outline font-semibold'}>
-              {tour.ativo ? 'Ativo' : 'Inativo'}
-            </span>
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -545,17 +541,17 @@ function KpiCard({ icon, iconColor, iconBg, label, value, sub }: {
   icon: string; iconColor: string; iconBg: string; label: string; value: string | number; sub?: string
 }) {
   return (
-    <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm">
+    <div className="bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm hover:border-primary/40 transition-colors">
       <div className="flex items-start gap-3">
-        <div className={`w-10 h-10 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
-          <span className={`material-symbols-outlined ${iconColor} text-[22px]`}>{icon}</span>
+        <div className={`w-9 h-9 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
+          <span className={`material-symbols-outlined ${iconColor} text-[19px]`}>{icon}</span>
         </div>
         <div className="min-w-0">
-          <p className="text-label-md text-outline">{label}</p>
+          <p className="text-label-md font-medium text-outline">{label}</p>
           <p className="text-headline-lg font-bold text-on-surface leading-none mt-1">
             {typeof value === 'number' ? value.toLocaleString('pt-BR') : value}
           </p>
-          {sub && <p className="text-label-md text-outline mt-1">{sub}</p>}
+          {sub && <p className="text-label-md font-medium text-outline mt-1">{sub}</p>}
         </div>
       </div>
     </div>

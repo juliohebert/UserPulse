@@ -1,8 +1,10 @@
 import { useNavigate } from 'react-router-dom'
 import type { Campanha } from '../../types'
-import { getStatus, formatDate } from '../../utils/campanha'
+import { getStatus, formatDate, rotaEditarCampanha } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
+import { useAuth } from '../../hooks/useAuth'
+import { podeEscreverConteudo } from '../../utils/permissions'
 
 interface Props {
   campanha: Campanha
@@ -11,6 +13,8 @@ interface Props {
 
 export function CampanhaQuickView({ campanha, onClose }: Props) {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const podeEscrever = podeEscreverConteudo(user?.role)
   const status = getStatus(campanha)
   const feedbackCount = campanha._count?.feedbacks ?? 0
 
@@ -31,14 +35,16 @@ export function CampanhaQuickView({ campanha, onClose }: Props) {
             <StatusBadge status={status} />
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            <button
-              onClick={() => navigate(`/campanhas/${campanha.id}/editar`)}
-              title="Editar"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-high transition-colors"
-            >
-              <span className="material-symbols-outlined text-[16px]">edit</span>
-              Editar
-            </button>
+            {podeEscrever && (
+              <button
+                onClick={() => navigate(rotaEditarCampanha(campanha))}
+                title="Editar"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-outline-variant text-label-md text-on-surface-variant hover:bg-surface-container-high transition-colors"
+              >
+                <span className="material-symbols-outlined text-[16px]">edit</span>
+                Editar
+              </button>
+            )}
             <button
               onClick={() => navigate(`/campanhas/${campanha.id}/preview`)}
               title="Preview"
@@ -49,6 +55,7 @@ export function CampanhaQuickView({ campanha, onClose }: Props) {
             </button>
             <button
               onClick={onClose}
+              title="Fechar"
               className="ml-1 p-1.5 rounded-lg text-outline hover:text-on-surface hover:bg-surface-container-high transition-colors"
               aria-label="Fechar"
             >

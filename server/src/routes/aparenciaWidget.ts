@@ -1,9 +1,12 @@
 import { Router } from 'express'
 import * as aparenciaWidget from '../controllers/aparenciaWidget'
+import { requireEscritaConfiguracao } from '../middleware/requireEscritaTenant'
 
 const router = Router()
 
+router.get('/default', aparenciaWidget.buscarDefault)
+router.put('/default', requireEscritaConfiguracao, aparenciaWidget.salvarDefault)
 router.get('/:sistema', aparenciaWidget.buscar)
-router.put('/:sistema', aparenciaWidget.salvar)
+router.put('/:sistema', requireEscritaConfiguracao, aparenciaWidget.salvar)
 
 export default router

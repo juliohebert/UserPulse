@@ -14,8 +14,8 @@ const EMPTY: GravadorForm = {
   titulo: '', descricao: '', sistema: '', urlInicial: '', prioridade: '0',
 }
 
-const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
-const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const field = 'w-full h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface outline-none transition-colors focus:border-2 focus:border-primary'
+const card = 'w-full bg-surface p-6 rounded-3xl border border-outline-variant'
 
 // ─── Gravador de fluxo (MVP) ────────────────────────────────────────────────
 // Esta tela só monta a URL de gravação e abre numa nova aba — toda a gravação
@@ -63,21 +63,14 @@ export function TourGravador() {
 
   return (
     <div className="relative">
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
-        <nav className="flex gap-2 text-label-md text-outline mb-0.5">
-          <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">
-            Tours Guiados
-          </button>
-          <span>/</span>
-          <span className="text-on-surface">Gravador de fluxo</span>
-        </nav>
-        <h2 className="text-title-lg font-bold text-on-surface leading-tight">Gravador de Fluxo (MVP)</h2>
-        <p className="text-label-md text-on-surface-variant mt-0.5">
-          Grave um fluxo navegando pelo sistema real e gere um rascunho de tour pra importar.
+      <div className="px-4 lg:px-margin-desktop py-5">
+        <h2 className="text-title-lg font-bold text-on-surface">Gravador de Fluxo (MVP)</h2>
+        <p className="text-body-md text-on-surface-variant mt-0.5">
+          Grave um fluxo navegando pelo sistema real e gere um tour para usar em jornadas.
         </p>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px] space-y-4">
         <div className={card}>
           <div className="flex items-center justify-between gap-3 mb-4">
             <div className="flex items-center gap-3">
@@ -99,7 +92,7 @@ export function TourGravador() {
             <li>Na aba aberta, uma barra flutuante "Gravando Tour" aparece. Navegue e interaja normalmente com o sistema (clique em botões/links, preencha campos, selecione opções).</li>
             <li>Use "Pausar/Continuar" para ignorar temporariamente suas próprias interações, e "Desfazer último passo" se capturar algo por engano.</li>
             <li>Clique em "Finalizar" — o widget mostra o JSON gerado, com botões para copiar ou baixar.</li>
-            <li>Volte para <button onClick={() => navigate('/tours')} className="underline hover:text-primary">Tours Guiados</button> e use "Importar JSON" para criar o tour como rascunho — revise título, descrição e seletores antes de ativar.</li>
+            <li>Volte para <button onClick={() => navigate('/tours')} className="underline hover:text-primary">Tours Guiados</button> e use "Importar JSON" para criar o tour — revise título, descrição e seletores antes de usar em uma jornada.</li>
           </ol>
         </div>
 

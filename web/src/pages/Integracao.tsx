@@ -1,423 +1,316 @@
-import { useState, useRef } from 'react'
+import { useRef, useState } from 'react'
+import { useAuth } from '../hooks/useAuth'
 
-const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const painel = 'rounded-[32px] border border-[#dee3e9] bg-white p-6 sm:p-8'
+const pill = 'inline-flex items-center rounded-[100px] border border-[#ced0d4] bg-white px-4 py-2 text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#1c1e21]'
 
 function CodeBlock({ code, lang = 'javascript' }: { code: string; lang?: string }) {
-  const [copied, setCopied] = useState(false)
+  const [copiado, setCopiado] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const copy = () => {
+  const copiar = () => {
     navigator.clipboard.writeText(code).catch(() => {})
-    setCopied(true)
+    setCopiado(true)
     if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => setCopied(false), 2000)
+    timer.current = setTimeout(() => setCopiado(false), 2000)
   }
 
   return (
-    <div className="w-full max-w-4xl rounded-xl overflow-hidden border border-[#313244]">
-      <div className="flex items-center justify-between bg-[#1e1e2e] px-4 py-2 border-b border-[#313244]">
-        <span className="text-[11px] text-[#6c7086] font-mono uppercase tracking-wider select-none">
-          {lang}
-        </span>
+    <div className="overflow-hidden rounded-[24px] border border-[#dee3e9] bg-[#0a1317]">
+      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+        <span className="font-mono text-[12px] font-bold uppercase tracking-[0.08em] text-white/55">{lang}</span>
         <button
-          onClick={copy}
-          className="flex items-center gap-1.5 text-[11px] text-[#6c7086] hover:text-[#cdd6f4] transition-colors"
+          type="button"
+          onClick={copiar}
+          className="inline-flex items-center gap-2 rounded-[100px] border border-white/15 px-3 py-1.5 text-[12px] font-bold text-white transition-colors active:bg-white/10"
         >
-          <span className="material-symbols-outlined text-[14px]">
-            {copied ? 'check_circle' : 'content_copy'}
-          </span>
-          <span>{copied ? 'Copiado!' : 'Copiar'}</span>
+          <span className="material-symbols-outlined text-[16px] leading-none">{copiado ? 'check_circle' : 'content_copy'}</span>
+          {copiado ? 'Copiado' : 'Copiar'}
         </button>
       </div>
-      <pre className="bg-[#1e1e2e] px-4 py-4 overflow-x-auto">
-        <code className="text-[13px] text-[#cdd6f4] font-mono leading-relaxed whitespace-pre">{code}</code>
+      <pre className="overflow-x-auto px-4 py-5">
+        <code className="whitespace-pre font-mono text-[13px] leading-relaxed text-white">{code}</code>
       </pre>
     </div>
   )
 }
 
-function SectionCard({
-  icon, iconBg, iconColor, title, subtitle, children,
+function Secao({
+  icon,
+  titulo,
+  subtitulo,
+  children,
 }: {
   icon: string
-  iconBg: string
-  iconColor: string
-  title: string
-  subtitle?: string
+  titulo: string
+  subtitulo?: string
   children: React.ReactNode
 }) {
   return (
-    <div className={card}>
-      <div className="flex items-center gap-3 mb-4">
-        <span className={`p-1.5 ${iconBg} rounded-lg ${iconColor} material-symbols-outlined text-[20px] shrink-0`}>
+    <section className={painel}>
+      <div className="mb-6 flex items-start gap-4">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#e8f2ff] text-[#0064e0]">
+          <span className="material-symbols-outlined text-[22px] leading-none">
           {icon}
+          </span>
         </span>
         <div>
-          <h3 className="text-title-lg font-bold text-on-surface leading-tight">{title}</h3>
-          {subtitle && <p className="text-label-md text-on-surface-variant mt-0.5">{subtitle}</p>}
+          <h3 className="text-[24px] font-semibold leading-[1.25] text-[#0a1317]">{titulo}</h3>
+          {subtitulo && <p className="mt-1 max-w-3xl text-[16px] leading-[1.5] tracking-[-0.16px] text-[#4b4c4f]">{subtitulo}</p>}
         </div>
       </div>
-      <div className="space-y-3">{children}</div>
-    </div>
+      <div className="space-y-5">{children}</div>
+    </section>
   )
 }
 
-function InfoChip({ children }: { children: React.ReactNode }) {
+function Campo({ nome, descricao, exemplo }: { nome: string; descricao: string; exemplo: string }) {
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary-fixed text-primary text-label-md font-medium">
-      {children}
-    </span>
+    <tr className="border-b border-[#dee3e9] last:border-0">
+      <td className="px-4 py-4 align-top">
+        <code className="rounded-[100px] bg-[#f1f4f7] px-3 py-1 text-[12px] font-bold text-[#0a1317]">{nome}</code>
+      </td>
+      <td className="px-4 py-4 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#444950]">{descricao}</td>
+      <td className="hidden px-4 py-4 align-top sm:table-cell">
+        <code className="text-[12px] text-[#5d6c7b]">{exemplo}</code>
+      </td>
+    </tr>
   )
 }
 
-function Tip({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="flex items-start gap-1.5 text-[12px] text-on-surface-variant">
-      <span className="material-symbols-outlined text-[14px] text-outline shrink-0 mt-0.5">info</span>
-      {children}
-    </p>
-  )
-}
+const CODE_INSTALL_PROD = `<script src="https://userpulse-prod.onrender.com/widget-loader.js" async></script>`
 
-// ── Code snippets ──────────────────────────────────────────────────────────
-
-const CODE_INSTALL_TEST = `<!-- Ambiente de testes -->
-<script src="https://userpulse-866c.onrender.com/widget-loader.js" async></script>`
-
-const CODE_INSTALL_PROD = `<!-- Produção -->
-<script src="https://userpulse-prod.onrender.com/widget-loader.js" async></script>`
-
-const CODE_INIT = `window.UserPulse.init({
+const codeInit = (publicKey: string) => `window.UserPulse.init({
+  public_key: "${publicKey}",
   sistema: "NomeDoSistema",
   usuario_id: "123",
   usuario_nome: "Maria Silva",
   usuario_email: "maria@empresa.com",
   contexto: {
-    cliente_id:    "456",
-    cliente_nome:  "Clínica Exemplo",
-    unidade_id:    "789",
-    unidade_nome:  "Unidade Centro",
-    perfil:        "ADMINISTRADOR",
-    usuario_tipo:  "ADMINISTRADOR",
-    estado:        "RN"
+    cliente_id: "456",
+    cliente_nome: "Clínica Exemplo",
+    unidade_id: "789",
+    unidade_nome: "Unidade Centro",
+    perfil: "ADMINISTRADOR",
+    usuario_tipo: "ADMINISTRADOR",
+    estado: "RN"
   }
 });`
 
 const CODE_UPDATE_CONTEXT = `window.UserPulse.updateContext({
-  cliente_id:   "999",
-  unidade_id:   "888",
-  perfil:       "GESTOR",
+  cliente_id: "999",
+  unidade_id: "888",
+  perfil: "GESTOR",
   usuario_tipo: "GESTOR",
-  estado:       "SP"
+  estado: "SP"
 });`
 
 const CODE_TRACK = `window.UserPulse.track("usou_nova_agenda");`
 
-const CODE_FULL = `// 1. Na inicialização do sistema (ex: após login)
+const codeFull = (publicKey: string) => `// 1. Após o login do usuário
 window.UserPulse.init({
-  sistema:       "MeuSistema",
-  usuario_id:    usuario.id,
-  usuario_nome:  usuario.nome,
+  public_key: "${publicKey}",
+  sistema: "MeuSistema",
+  usuario_id: usuario.id,
+  usuario_nome: usuario.nome,
   usuario_email: usuario.email,
   contexto: {
-    cliente_id:   cliente.id,
+    cliente_id: cliente.id,
     cliente_nome: cliente.nome,
-    unidade_id:   unidade.id,
+    unidade_id: unidade.id,
     unidade_nome: unidade.nome,
-    perfil:       usuario.perfil,
+    perfil: usuario.perfil,
     usuario_tipo: usuario.tipo,
-    estado:       cliente.estado,
+    estado: cliente.estado,
   }
 });
 
 // 2. Quando o usuário trocar de cliente ou unidade ativa
 window.UserPulse.updateContext({
-  cliente_id:   novoCliente.id,
-  unidade_id:   novaUnidade.id,
-  perfil:       usuario.perfil,
+  cliente_id: novoCliente.id,
+  unidade_id: novaUnidade.id,
+  perfil: usuario.perfil,
   usuario_tipo: usuario.tipo,
-  estado:       novoCliente.estado,
+  estado: novoCliente.estado,
 });
 
 // 3. Quando uma funcionalidade relevante for usada
 window.UserPulse.track("usou_nova_agenda");`
 
-// ── Segmentation fields ────────────────────────────────────────────────────
-
-const SEG_FIELDS = [
-  { campo: 'cliente_id',   descricao: 'ID do cliente/empresa ativa',            exemplo: '"456"' },
-  { campo: 'unidade_id',   descricao: 'ID da unidade/filial ativa',             exemplo: '"789"' },
-  { campo: 'perfil',       descricao: 'Perfil de acesso do usuário',            exemplo: '"ADMINISTRADOR"' },
-  { campo: 'usuario_tipo', descricao: 'Tipo de conta do usuário',               exemplo: '"GESTOR"' },
-  { campo: 'estado',       descricao: 'UF do cliente (sigla de 2 letras)',      exemplo: '"RN"' },
+const CAMPOS = [
+  { nome: 'cliente_id', descricao: 'ID do cliente ou empresa ativa.', exemplo: '"456"' },
+  { nome: 'unidade_id', descricao: 'ID da unidade ou filial ativa.', exemplo: '"789"' },
+  { nome: 'perfil', descricao: 'Perfil de acesso do usuário.', exemplo: '"ADMINISTRADOR"' },
+  { nome: 'usuario_tipo', descricao: 'Tipo de conta do usuário.', exemplo: '"GESTOR"' },
+  { nome: 'estado', descricao: 'UF do cliente, sempre com 2 letras.', exemplo: '"RN"' },
 ]
 
-// ── Policies ───────────────────────────────────────────────────────────────
-
-const POLICIES = [
-  {
-    icon: 'looks_one',
-    label: 'Uma vez após visualização',
-    desc: 'Campanha exibida uma única vez. Após o usuário visualizar, não aparece mais, independentemente de ter respondido.',
-  },
-  {
-    icon: 'repeat',
-    label: 'Até responder ou confirmar',
-    desc: 'Campanha continua sendo exibida em cada acesso até o usuário responder o feedback ou confirmar a leitura.',
-  },
-  {
-    icon: 'schedule',
-    label: 'Reexibir após X dias',
-    desc: 'Campanha reaparece automaticamente após o intervalo configurado, mesmo que o usuário já tenha interagido anteriormente.',
-  },
-  {
-    icon: 'event_available',
-    label: 'Encerrar após evento realizado',
-    desc: 'Campanha nunca mais aparece após o usuário disparar um evento específico via UserPulse.track(). O bloqueio é permanente e retroativo — funciona mesmo em campanhas criadas depois do evento.',
-  },
+const POLITICAS = [
+  { icon: 'looks_one', label: 'Uma vez após visualização', desc: 'Exibe uma única vez e depois não aparece mais para o mesmo usuário.' },
+  { icon: 'repeat', label: 'Até responder ou confirmar', desc: 'Continua aparecendo até o usuário interagir com a campanha.' },
+  { icon: 'schedule', label: 'Reexibir após X dias', desc: 'Volta automaticamente depois do intervalo configurado.' },
+  { icon: 'event_available', label: 'Encerrar após evento realizado', desc: 'Bloqueia a campanha quando o usuário dispara um evento específico.' },
 ]
 
-// ── Best practices ─────────────────────────────────────────────────────────
-
-const BEST_PRACTICES = [
-  {
-    icon: 'label',
-    text: 'Use nomes de evento estáveis e descritivos.',
-    example: '"usou_nova_agenda", "concluiu_onboarding"',
-  },
-  {
-    icon: 'warning',
-    text: 'Não dispare track() globalmente para qualquer clique — use apenas para ações que representam uso real de funcionalidade.',
-    example: null,
-  },
-  {
-    icon: 'sync',
-    text: 'Chame updateContext() sempre que o usuário trocar de cliente ou unidade ativa, para manter a segmentação correta.',
-    example: null,
-  },
-  {
-    icon: 'tag',
-    text: 'Mantenha o campo sistema com um nome fixo e padronizado por produto.',
-    example: '"QuarkClinic", "GestorPro"',
-  },
-  {
-    icon: 'security',
-    text: 'Não inclua dados sensíveis desnecessários no contexto — use apenas identificadores e classificações.',
-    example: null,
-  },
+const BOAS_PRATICAS = [
+  'Use nomes de evento estáveis e descritivos, como "usou_nova_agenda".',
+  'Não dispare track() para qualquer clique; registre apenas ações com valor de produto.',
+  'Chame updateContext() sempre que o cliente ou a unidade ativa mudar.',
+  'Mantenha sistema com um nome fixo por produto integrado.',
+  'Não inclua dados sensíveis desnecessários no contexto.',
 ]
-
-// ── Page ──────────────────────────────────────────────────────────────────
 
 export function IntegracaoPage() {
-  return (
-    <div className="relative">
+  const { user } = useAuth()
+  const publicKey = user?.tenant.public_key || '00000000-0000-0000-0000-000000000000'
+  const [chaveCopiada, setChaveCopiada] = useState(false)
+  const timerChave = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-      {/* ── Header ── */}
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
-        <div className="flex items-center gap-3">
-          <span className="p-1.5 bg-primary-fixed rounded-lg text-primary material-symbols-outlined text-[20px]">
-            integration_instructions
-          </span>
-          <div>
-            <h2 className="text-title-lg font-bold text-on-surface leading-tight">Integração</h2>
-            <p className="text-label-md text-on-surface-variant">
-              Guia de integração do UserPulse com sistemas externos
+  const copiarChavePublica = () => {
+    navigator.clipboard.writeText(publicKey).catch(() => {})
+    setChaveCopiada(true)
+    if (timerChave.current) clearTimeout(timerChave.current)
+    timerChave.current = setTimeout(() => setChaveCopiada(false), 2000)
+  }
+
+  return (
+    <div className="min-h-full bg-white text-[#1c1e21]">
+      <section className="px-4 py-6 lg:px-margin-desktop lg:py-8">
+        <div className="relative overflow-hidden rounded-[40px] bg-[#f1f4f7] px-6 py-10 sm:px-10 lg:px-16 lg:py-14">
+          <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-[#0064e0]/15 blur-3xl" />
+          <div className="max-w-3xl">
+            <span className="mb-5 inline-flex rounded-[100px] bg-[#0064e0] px-4 py-2 text-[12px] font-bold uppercase tracking-[0.08em] text-white">
+              Integração em produção
+            </span>
+            <h2 className="text-[36px] font-semibold leading-[1.28] text-[#0a1317] sm:text-[48px] sm:leading-[1.17]">
+              Conecte o UserPulse ao seu produto com um único script.
+            </h2>
+            <p className="mt-5 max-w-2xl text-[18px] leading-[1.44] text-[#444950]">
+              Instale o widget, identifique o usuário logado e envie contexto suficiente para campanhas, tours e jornadas aparecerem no momento certo.
             </p>
           </div>
         </div>
-      </div>
+      </section>
 
-      {/* ── Content ── */}
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px] space-y-4">
+      <section className="grid gap-5 px-4 pb-8 lg:px-margin-desktop xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-5">
+          <Secao icon="code" titulo="Instalação do script" subtitulo="Adicione esta tag ao HTML do sistema integrado." >
+            <div id="instalacao" />
+            <CodeBlock code={CODE_INSTALL_PROD} lang="html" />
+            <p className="text-[14px] leading-[1.43] tracking-[-0.14px] text-[#5d6c7b]">
+              O script carrega de forma assíncrona e não bloqueia a renderização da página.
+            </p>
+          </Secao>
 
-        {/* A — Instalação */}
-        <SectionCard
-          icon="code"
-          iconBg="bg-tertiary-fixed"
-          iconColor="text-tertiary"
-          title="Instalação do script"
-          subtitle="Adicione uma tag <script> ao HTML do sistema integrado."
-        >
-          <p className="text-body-md text-on-surface-variant">Ambiente de testes:</p>
-          <CodeBlock code={CODE_INSTALL_TEST} lang="html" />
-          <p className="text-body-md text-on-surface-variant mt-2">Produção:</p>
-          <CodeBlock code={CODE_INSTALL_PROD} lang="html" />
-          <Tip>
-            O script é carregado de forma assíncrona e não bloqueia a renderização da página.
-          </Tip>
-        </SectionCard>
-
-        {/* B — Inicialização */}
-        <SectionCard
-          icon="login"
-          iconBg="bg-primary-fixed"
-          iconColor="text-primary"
-          title="Inicialização"
-          subtitle="Chame UserPulse.init() logo após o login do usuário, passando os dados de identificação e contexto."
-        >
-          <CodeBlock code={CODE_INIT} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-1">
-            <div className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/50 space-y-1">
-              <p className="text-label-md font-semibold text-on-surface">Campos obrigatórios</p>
-              <div className="flex flex-wrap gap-1.5 mt-1.5">
-                <InfoChip>sistema</InfoChip>
-                <InfoChip>usuario_id</InfoChip>
+          <Secao icon="login" titulo="Inicialização" subtitulo="Chame UserPulse.init() logo após o login do usuário." >
+            <CodeBlock code={codeInit(publicKey)} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="relative overflow-hidden rounded-[24px] border-2 border-[#0064e0] bg-[#f4f9ff] p-5">
+                <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-[#0064e0]/15" />
+                <p className="text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Campos essenciais</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="inline-flex items-center rounded-[100px] bg-[#0064e0] px-4 py-2 text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-white">public_key</span>
+                  <span className="inline-flex items-center rounded-[100px] bg-[#0064e0] px-4 py-2 text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-white">sistema</span>
+                  <span className="inline-flex items-center rounded-[100px] bg-[#0064e0] px-4 py-2 text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-white">usuario_id</span>
+                </div>
+              </div>
+              <div className="rounded-[24px] border border-[#dee3e9] bg-white p-5">
+                <p className="text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Campos recomendados</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className={pill}>usuario_nome</span>
+                  <span className={pill}>usuario_email</span>
+                  <span className={pill}>contexto</span>
+                </div>
               </div>
             </div>
-            <div className="p-3 rounded-xl bg-surface-container-low border border-outline-variant/50 space-y-1">
-              <p className="text-label-md font-semibold text-on-surface">Campos opcionais</p>
-              <div className="flex flex-wrap gap-1.5 mt-1.5">
-                <InfoChip>usuario_nome</InfoChip>
-                <InfoChip>usuario_email</InfoChip>
-                <InfoChip>contexto</InfoChip>
-              </div>
+          </Secao>
+
+          <Secao icon="sync" titulo="Atualização de contexto em SPA" subtitulo="Atualize o contexto sempre que o cliente, unidade ou perfil ativo mudar." >
+            <CodeBlock code={CODE_UPDATE_CONTEXT} />
+            <p className="text-[14px] leading-[1.43] tracking-[-0.14px] text-[#5d6c7b]">
+              Sem isso, campanhas segmentadas podem aparecer com dados da seleção anterior.
+            </p>
+          </Secao>
+
+          <Secao icon="bolt" titulo="Eventos globais" subtitulo="Registre ações relevantes para acionar campanhas baseadas em comportamento." >
+            <CodeBlock code={CODE_TRACK} />
+            <div className="grid gap-3 sm:grid-cols-3">
+              {['Aciona campanhas com gatilho por evento.', 'Registra histórico global do usuário.', 'Permite encerrar campanhas após uma ação.'].map(item => (
+                <div key={item} className="rounded-[16px] border border-[#dee3e9] p-5 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#444950]">
+                  {item}
+                </div>
+              ))}
             </div>
-          </div>
-          <Tip>
-            O campo <span className="font-mono">sistema</span> deve ser um nome fixo que identifica o produto integrado — use sempre o mesmo valor em todas as chamadas.
-          </Tip>
-        </SectionCard>
+          </Secao>
 
-        {/* C — updateContext */}
-        <SectionCard
-          icon="sync"
-          iconBg="bg-secondary-fixed"
-          iconColor="text-secondary"
-          title="Atualização de contexto em SPA"
-          subtitle="Em sistemas Single-Page Application, chame updateContext() sempre que o cliente ou unidade ativa mudar."
-        >
-          <p className="text-body-md text-on-surface-variant max-w-3xl">
-            Sem isso, campanhas segmentadas por <span className="font-mono text-[12px]">cliente_id</span> ou <span className="font-mono text-[12px]">unidade_id</span> podem exibir conteúdo incorreto após a troca.
-          </p>
-          <CodeBlock code={CODE_UPDATE_CONTEXT} />
-          <Tip>
-            updateContext() aceita um subconjunto dos campos de contexto — apenas os campos informados serão atualizados.
-          </Tip>
-        </SectionCard>
-
-        {/* D — track */}
-        <SectionCard
-          icon="bolt"
-          iconBg="bg-[#fef3c7]"
-          iconColor="text-[#b45309]"
-          title="Eventos globais"
-          subtitle="Registre ações relevantes do usuário para acionar campanhas baseadas em comportamento."
-        >
-          <CodeBlock code={CODE_TRACK} />
-          <ul className="space-y-2 mt-1">
-            {[
-              'Dispara exibição de campanhas configuradas com gatilho "Após evento".',
-              'Registra o evento no histórico global do usuário (tabela eventos_usuario).',
-              'Usado na regra "Encerrar após evento realizado": quando disparado, bloqueia permanentemente campanhas vinculadas a esse evento — incluindo campanhas criadas depois do disparo.',
-            ].map((item, i) => (
-              <li key={i} className="flex items-start gap-2 text-body-md text-on-surface-variant">
-                <span className="material-symbols-outlined text-[16px] text-primary shrink-0 mt-0.5">check_circle</span>
-                {item}
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
-
-        {/* E — Segmentação */}
-        <SectionCard
-          icon="filter_alt"
-          iconBg="bg-primary-fixed"
-          iconColor="text-primary"
-          title="Segmentação"
-          subtitle="Campanhas podem segmentar por qualquer combinação dos campos abaixo, definidos no contexto do usuário."
-        >
-          <div className="overflow-x-auto rounded-xl border border-outline-variant">
-            <table className="w-full text-body-md">
-              <thead>
-                <tr className="bg-surface-container-low border-b border-outline-variant">
-                  <th className="text-left px-4 py-2.5 text-label-md font-semibold text-on-surface-variant">Campo</th>
-                  <th className="text-left px-4 py-2.5 text-label-md font-semibold text-on-surface-variant">Descrição</th>
-                  <th className="text-left px-4 py-2.5 text-label-md font-semibold text-on-surface-variant hidden sm:table-cell">Exemplo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SEG_FIELDS.map((f, i) => (
-                  <tr
-                    key={f.campo}
-                    className={`border-b border-outline-variant/40 last:border-0 ${i % 2 === 0 ? 'bg-surface' : 'bg-surface-container-lowest'}`}
-                  >
-                    <td className="px-4 py-2.5">
-                      <span className="font-mono text-[12px] bg-primary-fixed text-primary px-2 py-0.5 rounded-md">
-                        {f.campo}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-on-surface-variant">{f.descricao}</td>
-                    <td className="px-4 py-2.5 hidden sm:table-cell">
-                      <span className="font-mono text-[12px] text-outline">{f.exemplo}</span>
-                    </td>
+          <Secao icon="filter_alt" titulo="Segmentação" subtitulo="Use o contexto para controlar quem vê cada campanha, tour ou jornada." >
+            <div className="overflow-hidden rounded-[16px] border border-[#dee3e9]">
+              <table className="w-full">
+                <thead className="bg-[#f1f4f7]">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-[12px] font-bold uppercase tracking-[0.08em] text-[#5d6c7b]">Campo</th>
+                    <th className="px-4 py-3 text-left text-[12px] font-bold uppercase tracking-[0.08em] text-[#5d6c7b]">Descrição</th>
+                    <th className="hidden px-4 py-3 text-left text-[12px] font-bold uppercase tracking-[0.08em] text-[#5d6c7b] sm:table-cell">Exemplo</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Tip>
-            Se uma campanha não tiver segmentação configurada para um campo, qualquer valor (inclusive vazio) será aceito.
-          </Tip>
-        </SectionCard>
+                </thead>
+                <tbody>{CAMPOS.map(campo => <Campo key={campo.nome} {...campo} />)}</tbody>
+              </table>
+            </div>
+          </Secao>
 
-        {/* F — Políticas de reexibição */}
-        <SectionCard
-          icon="policy"
-          iconBg="bg-secondary-fixed"
-          iconColor="text-secondary"
-          title="Políticas de reexibição"
-          subtitle="Cada campanha pode ter uma política diferente que define quando ela volta a aparecer."
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {POLICIES.map(p => (
-              <div
-                key={p.label}
-                className="flex gap-3 p-3.5 rounded-xl bg-surface-container-low border border-outline-variant/50"
+          <Secao icon="policy" titulo="Políticas de reexibição" subtitulo="Defina quando uma comunicação volta a aparecer para o usuário." >
+            <div className="grid gap-3 sm:grid-cols-2">
+              {POLITICAS.map(politica => (
+                <div key={politica.label} className="rounded-[16px] border border-[#dee3e9] p-5">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#e8f2ff] text-[#0064e0]">
+                    <span className="material-symbols-outlined text-[22px] leading-none">{politica.icon}</span>
+                  </span>
+                  <p className="mt-3 text-[18px] font-bold leading-[1.44] text-[#0a1317]">{politica.label}</p>
+                  <p className="mt-1 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#444950]">{politica.desc}</p>
+                </div>
+              ))}
+            </div>
+          </Secao>
+
+          <Secao icon="integration_instructions" titulo="Exemplo completo para SPA" subtitulo="Padrão recomendado para produtos com troca de contexto durante a sessão." >
+            <div id="exemplo-completo" />
+            <CodeBlock code={codeFull(publicKey)} />
+          </Secao>
+        </div>
+
+        <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
+          <div className="rounded-[32px] bg-[#0064e0] p-8 text-white">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[12px] font-bold uppercase tracking-[0.08em] text-white/60">Sua chave pública</p>
+              <button
+                type="button"
+                onClick={copiarChavePublica}
+                className="inline-flex shrink-0 items-center gap-2 rounded-[100px] border border-white/25 px-3 py-2 text-[12px] font-bold text-white active:bg-white/10"
               >
-                <span className="material-symbols-outlined text-[22px] text-primary shrink-0 mt-0.5">{p.icon}</span>
-                <div>
-                  <p className="text-label-md font-semibold text-on-surface">{p.label}</p>
-                  <p className="text-[12px] text-on-surface-variant mt-0.5 leading-relaxed">{p.desc}</p>
-                </div>
-              </div>
-            ))}
+                <span className="material-symbols-outlined text-[16px] leading-none">{chaveCopiada ? 'check_circle' : 'content_copy'}</span>
+                {chaveCopiada ? 'Copiada' : 'Copiar'}
+              </button>
+            </div>
+            <code className="mt-4 block break-all rounded-[16px] bg-white/15 p-4 text-[13px] leading-relaxed text-white">{publicKey}</code>
+            <p className="mt-4 text-[14px] leading-[1.43] tracking-[-0.14px] text-white/70">
+              Esta chave identifica sua conta na integração. Ela não é segredo, mas deve ser copiada sem alteração.
+            </p>
           </div>
-        </SectionCard>
 
-        {/* G — Exemplo completo */}
-        <SectionCard
-          icon="integration_instructions"
-          iconBg="bg-tertiary-fixed"
-          iconColor="text-tertiary"
-          title="Exemplo completo para SPA"
-          subtitle="Padrão recomendado para sistemas Single-Page Application com troca de contexto."
-        >
-          <CodeBlock code={CODE_FULL} />
-        </SectionCard>
-
-        {/* H — Boas práticas */}
-        <SectionCard
-          icon="tips_and_updates"
-          iconBg="bg-[#fef3c7]"
-          iconColor="text-[#b45309]"
-          title="Boas práticas"
-        >
-          <ul className="space-y-3">
-            {BEST_PRACTICES.map((bp, i) => (
-              <li key={i} className="flex items-start gap-3 p-3 rounded-xl bg-surface-container-low border border-outline-variant/50">
-                <span className="material-symbols-outlined text-[20px] text-primary shrink-0 mt-0.5">{bp.icon}</span>
-                <div>
-                  <p className="text-body-md text-on-surface">{bp.text}</p>
-                  {bp.example && (
-                    <p className="font-mono text-[12px] text-outline mt-0.5">{bp.example}</p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </SectionCard>
-
+          <div className={painel}>
+            <h3 className="text-[24px] font-semibold leading-[1.25] text-[#0a1317]">Boas práticas</h3>
+            <ul className="mt-5 space-y-4">
+              {BOAS_PRATICAS.map(item => (
+                <li key={item} className="flex gap-3 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#444950]">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#31a24c]">
+                    <span className="material-symbols-outlined text-[16px] leading-none">check_circle</span>
+                  </span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </aside>
       </section>
     </div>
   )

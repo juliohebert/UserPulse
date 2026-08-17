@@ -1,11 +1,16 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
+import { AvisoComercial } from './AvisoComercial'
 
 const STORAGE_KEY = 'userpulse:sidebar:collapsed'
 
 export function Layout() {
+  const location = useLocation()
+  const rotaConfiguracoes = location.pathname === '/configuracoes' || location.pathname.startsWith('/configuracoes/')
+  const [submoduloAberto, setSubmoduloAberto] = useState(rotaConfiguracoes)
+  const [sidebarMobileAberta, setSidebarMobileAberta] = useState(false)
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem(STORAGE_KEY) === '1' } catch { return false }
   })
@@ -19,9 +24,24 @@ export function Layout() {
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar collapsed={collapsed} onToggle={toggle} />
-      <Topbar collapsed={collapsed} />
-      <main className={`ml-16 ${collapsed ? 'md:ml-16' : 'md:ml-[248px]'} pt-16 min-h-screen transition-[margin-left] duration-200`}>
+      {sidebarMobileAberta && (
+        <button
+          type="button"
+          aria-label="Fechar menu"
+          onClick={() => setSidebarMobileAberta(false)}
+          className="fixed inset-0 z-40 bg-[#0a1317]/45 backdrop-blur-sm md:hidden"
+        />
+      )}
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={toggle}
+        onSubmoduloChange={setSubmoduloAberto}
+        mobileOpen={sidebarMobileAberta}
+        onCloseMobile={() => setSidebarMobileAberta(false)}
+      />
+      <Topbar collapsed={collapsed} onOpenMobileSidebar={() => setSidebarMobileAberta(true)} />
+      <main className={`ml-0 ${collapsed ? 'md:ml-24' : submoduloAberto ? 'md:ml-[296px]' : 'md:ml-[296px]'} pt-16 min-h-screen transition-[margin-left] duration-200`}>
+        <AvisoComercial />
         <Outlet />
       </main>
     </div>

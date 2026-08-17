@@ -3,10 +3,38 @@
 @tailwind utilities;
 
 body {
-  font-family: 'Inter', sans-serif;
-  background-color: #f8f9ff;
-  color: #0b1c30;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+  background-color: #ffffff;
+  color: #0a1317;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+@layer base {
+  html {
+    background: #ffffff;
+  }
+
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .up-card {
+    @apply rounded-3xl border border-outline-variant bg-surface p-6;
+  }
+
+  .up-input {
+    @apply h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface outline-none transition-colors focus:border-2 focus:border-primary;
+  }
+
+  .up-section {
+    @apply px-4 py-8 lg:px-margin-desktop;
+  }
 }
 
 .material-symbols-outlined {
@@ -30,4 +58,59 @@ body {
   0%   { transform: scale(1);   opacity: 0.8; }
   50%  { transform: scale(1.1); opacity: 0.4; }
   100% { transform: scale(1);   opacity: 0.8; }
+}
+
+@keyframes novo-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes novo-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes search-dot {
+  0%, 80%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* Login (coluna institucional com preview, ver AuthLayout.tsx): último
+   recurso pra eliminar scroll vertical em telas desktop baixas (ex.:
+   1366x768/1440x900), sem alterar fonte/conteúdo aprovado — só reduz os
+   espaçamentos ao redor um pouco mais. min-width 1024px garante que nunca
+   afeta mobile (onde scroll é esperado e correto). Único breakpoint por
+   altura, não uma regra por resolução. */
+@media (min-width: 1024px) and (max-height: 820px) {
+  .auth-inst-col {
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
+  }
+  .auth-inst-logo {
+    margin-bottom: 1rem;
+  }
+  .auth-inst-cards {
+    margin-top: 0.75rem;
+  }
+  .auth-inst-grid {
+    row-gap: 1rem;
+  }
 }

@@ -7,28 +7,364 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Login admin (uso interno Quark) — single-tenant, sem organização/tenant
-// nenhum associado ainda (ver contexto da tarefa: multi-tenancy fica pra uma
-// fase futura). role é string livre (não enum) de propósito — mesmo padrão já
-// usado no schema pra campos de categoria simples (ex.: tipo_evento), sem
-// tabela de permissões: hoje nada lê/valida esse campo além de guardá-lo.
-model AdminUser {
-  id            String   @id @default(uuid())
+// ─── SaaS: tenants e planos ──────────────────────────────────────────────────
+// Fundação multi-tenant (ver contexto da tarefa "SaaS multi-tenant"). Cada
+// AdminUser e cada registro operacional (Campanha/TourGuiado/Jornada/
+// AparenciaWidget/TelaCatalogo/EventoUsuario) pertence a exatamente um Tenant.
+// Tabelas filhas (Feedback, EventoCampanha, EventoTour, EventoJornada,
+// ConfirmacaoLeitura, TourPasso, BlocoJornada, EtapaJornada) NÃO ganharam
+// tenant_id próprio — seu isolamento vem do tenant_id do pai
+// (campanha_id/tour_id/jornada_id), sempre validado nos controllers antes de
+// tocar nelas. EventoUsuario é a única exceção que ganhou tenant_id direto
+// (Fase 2 do widget multi-tenant, ver resolverTenantPublico em
+// tenantGuards.ts): é escrito/lido só pelas rotas públicas do widget,
+// identificado por "sistema" (uma string livre) — sem tenant_id, dois
+// tenants usando o mesmo "sistema" + usuario_id + evento_conclusao podiam
+// encerrar campanha um do outro (ver verificarConclusaoGlobal em widget.ts).
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  CANCELED
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+// Fase 6D — os 4 marcos do alerta automático de trial por e-mail (ver
+// lib/trialAlertas.ts, decidirMarcoAlertaTrial). Nomes fixos (não
+// "7_DIAS"/"3_DIAS" porque enum do Prisma não aceita começar com dígito).
+enum MarcoAlertaTrial {
+  D7
+  D3
+  D1
+  VENCIDO
+}
+
+// ENVIADO nunca é revertido (garante "uma única vez", mesmo após reinício —
+// ver TrialEmailAlerta abaixo). FALHOU permite nova tentativa na próxima
+// execução do scheduler — nunca vira ENVIADO sem confirmação real de envio.
+// ENVIANDO (correção pós-revisão) é a trava atômica de reivindicação: uma
+// linha existente (FALHOU de uma tentativa anterior) só pode ser
+// reprocessada depois de um UPDATE condicional FALHOU->ENVIANDO que afete
+// exatamente 1 linha — sem isso, duas instâncias do processo rodando o
+// scheduler ao mesmo tempo (2+ réplicas, ou reinício sobrepondo a execução
+// anterior) podiam ler o MESMO registro FALHOU e enviar o e-mail duas
+// vezes, já que a unique constraint só protege o create() inicial, nunca
+// o retry de um registro que já existe. Ver deveEnviarAlerta em
+// lib/trialAlertas.ts e reivindicarRegistro em
+// services/trialAlertasScheduler.ts.
+enum StatusAlertaTrial {
+  ENVIADO
+  FALHOU
+  ENVIANDO
+}
+
+// public_key é o identificador PÚBLICO do tenant, enviado pelo widget em toda
+// chamada pública (Fase 2 do widget multi-tenant — ver resolverTenantPublico
+// em tenantGuards.ts) pra resolver qual tenant está falando. codigo é um
+// número sequencial simples (1, 2, 3...) só para uso comercial/suporte/vendas
+// (ex.: "cliente 42" é mais fácil de falar/anotar que um UUID) — nunca é
+// usado como chave técnica: o id (UUID) continua sendo o usado em todo
+// FK/tenant_id, e codigo nunca deve ser usado como public_key.
+model Tenant {
+  id            String       @id @default(uuid())
+  codigo        Int          @unique @default(autoincrement())
   nome          String
-  email         String   @unique
-  password_hash String
-  role          String   @default("admin")
+  slug          String       @unique
+  public_key    String       @unique @default(uuid())
+  status        TenantStatus @default(TRIAL)
+  trial_inicio  DateTime?
+  trial_fim     DateTime?
+  // Controle de licença PAGA — tudo ajustado manualmente pelo super admin no
+  // painel (ver adminTenants.ts), nunca por gateway/cobrança automática (fora
+  // de escopo). trial_inicio/trial_fim continuam exclusivos do período de
+  // teste grátis (status TRIAL); estes campos cobrem o período depois da
+  // conversão (status ACTIVE): licenca_fim/proxima_cobranca substituem o
+  // acompanhamento manual que antes não tinha onde ser registrado.
+  // observacao_comercial é texto livre (ex.: "negociando renovação",
+  // "pagou via PIX direto") — sem estrutura, só contexto pro super admin.
+  licenca_inicio       DateTime?
+  licenca_fim          DateTime?
+  proxima_cobranca     DateTime?
+  ultimo_pagamento_em  DateTime?
+  observacao_comercial String?
+  plano_id      String?
+  // Fase 6A (fundação do trial) — plano ESCOLHIDO pelo cliente ao converter
+  // (trial→pago) ou trocar de plano, mas ainda NÃO pago/confirmado. plano_id
+  // continua sendo o plano em vigor (o que efetivamente define limites/
+  // situação comercial) até o webhook do Asaas confirmar o pagamento — só
+  // então plano_pendente_id é aplicado em plano_id e limpo (ver
+  // calcularAtualizacaoTenant em asaasClient.ts, ainda não alterado nesta
+  // fase). Nenhuma rota desta fase escreve neste campo ainda — só a base de
+  // dados está sendo preparada (ver docs da Fase 6 completa).
+  plano_pendente_id String?
+  // Fase 8A — correlaciona o plano_pendente_id acima com a cobrança Asaas
+  // exata que precisa confirmar pra aplicá-lo (ver solicitarUpgrade em
+  // controllers/billing.ts, que grava o payment.id da cobrança proporcional
+  // avulsa aqui). Sem isso, QUALQUER pagamento confirmado do tenant
+  // aplicava o plano pendente (renovação normal da assinatura, por
+  // exemplo) — agora tratarWebhookAsaas só aplica quando
+  // acao.paymentId === este campo. null é permissivo de propósito
+  // (mantém o comportamento antigo pra conversão trial->pago, que nunca
+  // captura o payment.id — ver criarAssinatura, não alterado nesta fase):
+  // sem um payment.id esperado pra comparar, qualquer pagamento confirmado
+  // do tenant ainda aplica, exatamente como sempre funcionou.
+  plano_pendente_payment_id String?
+  // Fase 8B (fundação) — espelho local do valor REALMENTE contratado na
+  // assinatura Asaas, distinto de Plano.asaas_subscription_value (preço de
+  // CATÁLOGO, pode mudar sem afetar quem já contratou). Só gravado nos
+  // momentos em que uma troca financeira é de fato efetivada — primeira
+  // contratação confirmada e upgrade confirmado nesta etapa (ver
+  // calcularAtualizacaoTenant em asaasClient.ts); downgrade efetivado e
+  // reajuste explícito ficam pra próximas etapas. Editar o preço de um
+  // Plano no catálogo NUNCA escreve aqui — os dois caminhos de código são
+  // completamente separados de propósito. null pra tenants ainda sem
+  // nenhuma confirmação financeira (trial) ou legados anteriores a este
+  // campo — GET /billing/situacao cai em fallback nesse caso (ver
+  // obterSituacao em controllers/billing.ts).
+  valor_assinatura_atual Decimal? @db.Decimal(10, 2)
+  // Fase 8B (fundação) — downgrade agendado, efetivo só no fim do ciclo já
+  // pago (nunca imediato, ao contrário de upgrade). Deliberadamente campos
+  // PRÓPRIOS, nunca reaproveitando plano_pendente_id/plano_pendente_payment_id:
+  // aquele par é disparado por um PAGAMENTO específico confirmando (upgrade
+  // cria uma cobrança avulsa e sabe o payment.id esperado de antemão);
+  // downgrade não gera cobrança nenhuma na solicitação — o gatilho é uma
+  // DATA (downgrade_efetivar_em), não um pagamento. Reaproveitar os mesmos
+  // campos tornaria impossível distinguir "upgrade aguardando pagamento X"
+  // de "downgrade aguardando a data Y" a partir do mesmo estado.
+  // downgrade_valor_origem/downgrade_valor_destino são snapshots do preço
+  // NO MOMENTO da solicitação (origem: lido AO VIVO da assinatura Asaas via
+  // buscarAssinaturaAsaas, nunca do catálogo; destino: Plano.asaas_subscription_value
+  // do plano escolhido, também lido uma única vez) — sem isso, se o preço de
+  // qualquer um dos dois planos mudar no catálogo entre a solicitação e um
+  // cancelamento, restaurar ou efetivar usaria o preço ERRADO (o novo do
+  // catálogo, não o que foi de fato combinado com o cliente). Nenhum desses
+  // 3 campos é escrito ainda nesta etapa (fundação) — só o schema.
+  plano_downgrade_id      String?
+  downgrade_efetivar_em   DateTime?
+  downgrade_valor_origem  Decimal?  @db.Decimal(10, 2)
+  downgrade_valor_destino Decimal?  @db.Decimal(10, 2)
+  // Vínculo com o Asaas (gateway de pagamento, integração fundação/sandbox —
+  // ver server/src/services/asaasClient.ts). Nada aqui é escrito automático
+  // fora de: ação explícita do SUPER_ADMIN (criar cliente/assinatura, ver
+  // adminTenantsAsaas.ts) ou um webhook do Asaas pra um tenant já vinculado
+  // (ver tratarWebhookAsaas). asaas_status é só espelho pra exibição — nunca
+  // usado sozinho pra decidir bloqueio de escrita, isso continua 100% via
+  // status/licenca_fim (ver tenantGuards.ts) mesmo quando o status é setado
+  // por um webhook.
+  asaas_customer_id          String?
+  asaas_subscription_id      String?
+  asaas_status                String?
+  asaas_ultima_sincronizacao DateTime?
+  // Dados de cobrança (Fase 2 da integração Asaas) — usados só ao criar/
+  // atualizar o customer no Asaas (ver criarClienteAsaas/atualizarClienteAsaas
+  // em asaasClient.ts) e exibidos só dentro de Gestão SaaS (SUPER_ADMIN),
+  // nunca em /auth/me nem em qualquer resposta acessível ao cliente comum
+  // (ver tenantPublico() em controllers/auth.ts — esses campos não entram
+  // lá). billing_cpf_cnpj é o único dado sensível do grupo — nunca logado
+  // (ver comentário em adminTenantsAsaas.ts) e nunca usado em nenhuma regra
+  // de negócio, só repassado ao Asaas.
+  billing_nome_responsavel String?
+  billing_email            String?
+  billing_cpf_cnpj         String?
+  billing_telefone         String?
+  billing_endereco         String?
+  billing_numero           String?
+  billing_complemento      String?
+  billing_bairro           String?
+  billing_cidade           String?
+  billing_estado           String?
+  billing_cep              String?
+  criado_em     DateTime     @default(now())
+  atualizado_em DateTime     @updatedAt
+
+  // Duas relações distintas com Plano (plano em vigor / plano pendente de
+  // confirmação de pagamento) exigem nomes explícitos — sem isso o Prisma
+  // não sabe distinguir qual FK cada lado do relacionamento representa.
+  plano             Plano?            @relation("PlanoAtualTenant", fields: [plano_id], references: [id])
+  plano_pendente    Plano?            @relation("PlanoPendenteTenant", fields: [plano_pendente_id], references: [id])
+  plano_downgrade   Plano?            @relation("PlanoDowngradeTenant", fields: [plano_downgrade_id], references: [id])
+  admins            AdminUser[]
+  campanhas         Campanha[]
+  tours             TourGuiado[]
+  jornadas          Jornada[]
+  sistemas          Sistema[]
+  aparenciasWidget  AparenciaWidget[]
+  telasCatalogo     TelaCatalogo[]
+  eventosUsuario    EventoUsuario[]
+  trialEmailAlertas TrialEmailAlerta[]
+
+  @@map("tenants")
+}
+
+model Sistema {
+  id            String   @id @default(uuid())
+  tenant_id     String
+  nome          String
+  slug          String
+  descricao     String?
+  identificador String
+  url_base      String?
   ativo         Boolean  @default(true)
+  padrao        Boolean  @default(false)
   criado_em     DateTime @default(now())
   atualizado_em DateTime @updatedAt
 
+  tenant     Tenant             @relation(fields: [tenant_id], references: [id])
+  telas      TelaCatalogo[]
+  aparencias AparenciaWidget[]
+
+  @@unique([tenant_id, slug])
+  @@unique([tenant_id, identificador])
+  @@index([tenant_id])
+  @@index([tenant_id, padrao])
+  @@map("sistemas")
+}
+
+// Limites nulos = sem limite (plano ilimitado nesse quesito — usado pelo
+// plano interno da Quark). Sem integração de pagamento nesta fase: preco_mensal
+// é só informativo, nada aqui gera cobrança.
+model Plano {
+  id                      String   @id @default(uuid())
+  nome                    String
+  slug                    String   @unique
+  descricao               String?
+  preco_mensal            Decimal? @db.Decimal(10, 2)
+  limite_campanhas_ativas Int?
+  limite_tours_ativos     Int?
+  // Mesma convenção de limite_campanhas_ativas/limite_tours_ativos (null =
+  // sem limite) — antes deste campo, jornadas só tinham o gate booleano
+  // permite_jornadas (liga/desliga o recurso), sem nenhuma contagem de
+  // jornadas ATIVAS ao mesmo tempo (ver checarLimiteJornadasAtivas em
+  // tenantGuards.ts).
+  limite_jornadas_ativas  Int?
+  limite_eventos_mes      Int?
+  limite_usuarios_admin   Int?
+  permite_tours           Boolean  @default(true)
+  permite_jornadas        Boolean  @default(true)
+  permite_white_label     Boolean  @default(false)
+  ativo                   Boolean  @default(true)
+  // Fase 6A (fundação do trial) — marca qual plano é usado como fonte dos
+  // limites/duração do trial no cadastro self-service (ainda não
+  // implementado, ver docs da Fase 6). Deve haver exatamente 1 plano com
+  // eh_plano_trial=true em uso normal — 0 ou mais de 1 é configuração
+  // inválida, nunca resolvida arbitrariamente (ver resolverPlanoTrial em
+  // tenantGuards.ts). Hoje só "teste-gratis" é marcado (ver seedPlanos.ts).
+  eh_plano_trial          Boolean  @default(false)
+  // Duração do trial em dias quando este é o plano de trial (eh_plano_trial
+  // =true) — null cai no default de 14 dias na hora de calcular trial_fim
+  // (ver docs da Fase 6; nenhum código ainda lê este campo nesta fase).
+  trial_dias              Int?
+  // Plano interno (hoje só "Interno (Quark)") — nunca oferecido a cliente
+  // comum no select de plano (ver Tenants.tsx) nem removível (ver
+  // remover() em adminPlanos.ts), independente do valor de `ativo`.
+  // Distinto de `ativo`: um plano comercial pode ficar inativo (oculto de
+  // novas vendas, mas ainda vinculável/editável) sem nunca virar interno.
+  interno                 Boolean  @default(false)
+  // Hierarquia EXPLÍCITA entre planos comerciais — nunca inferida por preço
+  // (preço de catálogo é editável e um tenant pode manter o valor
+  // historicamente contratado, então "preço maior = plano superior" deixou
+  // de ser seguro pra decidir upgrade/downgrade, ver compararNivelPlanos em
+  // services/asaasClient.ts). Obrigatório pra todo plano comercial (interno
+  // = false, ver validarCamposPlano em adminPlanos.ts); null só é aceito
+  // pro plano interno, que fica de propósito fora da hierarquia comercial.
+  // Sem @unique — a exclusividade entre planos comerciais é validada na
+  // aplicação (adminPlanos.ts), não por constraint de banco.
+  nivel                   Int?
+  // Configuração pra gerar a assinatura Asaas correspondente a este plano
+  // (ver criarAssinaturaAsaas em asaasClient.ts) — todos opcionais: um plano
+  // sem asaas_subscription_value preenchido simplesmente não pode ter
+  // assinatura Asaas criada ainda (ver validação em adminTenantsAsaas.ts).
+  // asaas_billing_cycle segue o enum de ciclo do Asaas (MONTHLY/WEEKLY/
+  // BIWEEKLY/BIMONTHLY/QUARTERLY/SEMIANNUALLY/YEARLY) — sem enum próprio no
+  // Prisma de propósito, é validado só na hora de chamar o Asaas.
+  asaas_external_reference String?
+  asaas_subscription_value Decimal? @db.Decimal(10, 2)
+  asaas_billing_cycle      String?
+  criado_em               DateTime @default(now())
+  atualizado_em           DateTime @updatedAt
+
+  tenants           Tenant[] @relation("PlanoAtualTenant")
+  tenants_pendentes Tenant[] @relation("PlanoPendenteTenant")
+  tenants_downgrade Tenant[] @relation("PlanoDowngradeTenant")
+
+  @@map("planos")
+}
+
+// Login admin — cada admin pertence a um Tenant (tenant_id obrigatório desde
+// esta migration; ver seedAdmin.ts pra como o tenant é resolvido/criado no
+// bootstrap). role virou enum (era string livre) porque agora efetivamente
+// controla acesso (SUPER_ADMIN reservado pra uma Fase 2 de rotas globais —
+// hoje se comporta como ADMIN dentro do próprio tenant, sem bypass).
+model AdminUser {
+  id            String    @id @default(uuid())
+  nome          String
+  email         String    @unique
+  password_hash String
+  role          AdminRole @default(ADMIN)
+  tenant_id     String
+  ativo         Boolean   @default(true)
+  // Troca obrigatória de senha (ver server/src/controllers/auth.ts,
+  // trocarSenha) — true sempre que a senha foi definida por outra pessoa que
+  // não o próprio usuário (admin inicial do cliente ou reset manual pelo
+  // SUPER_ADMIN). Vira false só quando o usuário troca a própria senha via
+  // POST /auth/trocar-senha. @default(false) de propósito: usuários já
+  // existentes antes desta migration não são afetados retroativamente.
+  senha_temporaria  Boolean   @default(false)
+  senha_alterada_em DateTime?
+  ultimo_login_em   DateTime?
+  criado_em     DateTime  @default(now())
+  atualizado_em DateTime  @updatedAt
+
+  tenant               Tenant                @relation(fields: [tenant_id], references: [id])
+  passwordResetTokens  PasswordResetToken[]
+
+  @@index([tenant_id])
   @@map("admin_users")
+}
+
+// "Esqueci minha senha" self-service (ver server/src/controllers/auth.ts,
+// esqueciSenha/redefinirSenha). token_hash é SHA-256 do token bruto enviado
+// por e-mail (nunca bcrypt aqui — precisa ser determinístico pra buscar por
+// where:{token_hash}, o que bcrypt/salt não permite; o token em si já tem
+// entropia suficiente, 256 bits, pra dispensar hash lento). O token bruto
+// NUNCA é persistido, só o hash. admin_user_id sempre resolve o tenant
+// através do próprio AdminUser (nunca um campo tenant_id solto aqui) —
+// mesmo princípio de isolamento das demais tabelas filhas sem tenant_id
+// próprio (ver CLAUDE.md, "Tabelas filhas... herdam isolamento do pai").
+// used_at marca tanto um token efetivamente usado quanto um invalidado por
+// um pedido de redefinição mais novo do mesmo usuário (ver esqueciSenha) —
+// um único campo cobre os dois casos, ambos significam "não usável mais".
+model PasswordResetToken {
+  id            String    @id @default(uuid())
+  admin_user_id String
+  token_hash    String    @unique
+  expires_at    DateTime
+  used_at       DateTime?
+  created_at    DateTime  @default(now())
+
+  adminUser AdminUser @relation(fields: [admin_user_id], references: [id], onDelete: Cascade)
+
+  @@index([admin_user_id])
+  @@map("password_reset_tokens")
 }
 
 model Campanha {
   id                        String    @id @default(uuid())
-  slug                      String    @unique
+  tenant_id                 String
+  slug                      String
   titulo                    String
+  // Eyebrow curto/negrito acima do título no modal. Quando
+  // modo_exibicao = "destaque_elemento", este mesmo campo é reutilizado como
+  // texto do badge (ex.: "Novo") — mesma natureza de conteúdo (rótulo curto
+  // e destacado), só renderizado diferente. Ver validarFormatoDestaqueElemento
+  // em server/src/controllers/campanhas.ts.
   subtitulo                 String?
   descricao                 String
   tipo                      String
@@ -62,6 +398,14 @@ model Campanha {
   encerrar_apos_evento      Boolean   @default(false)
   evento_conclusao          String?
   categoria                 String?
+  // Fundação NPS/CSAT/utilidade_destaque — fonte da verdade de que tipo de
+  // avaliação o feedback "geral" desta campanha usa (ver
+  // registrarFeedback/validarAvaliacaoFeedback em widget.ts; nunca confia
+  // num tipo enviado pelo widget). @default("nps") preserva 100% o
+  // comportamento atual pra toda campanha já existente e pra criação nova
+  // até a fase de UI de seleção existir (nenhum controller escreve este
+  // campo ainda).
+  tipo_avaliacao_feedback   String    @default("nps")
   segmentar_cliente_ids     String[]  @default([])
   segmentar_unidade_ids     String[]  @default([])
   segmentar_perfis          String[]  @default([])
@@ -70,12 +414,54 @@ model Campanha {
   criado_em                 DateTime  @default(now())
   atualizado_em             DateTime  @updatedAt
 
+  tenant        Tenant                 @relation(fields: [tenant_id], references: [id])
   feedbacks     Feedback[]
   eventos       EventoCampanha[]
   confirmacoes  ConfirmacaoLeitura[]
   etapasJornada EtapaJornada[]
+  destaques     CampanhaDestaqueItem[]
 
+  // slug deixou de ser globalmente único (era @unique) e virou único por
+  // tenant — dois clientes podem ter, cada um, uma campanha "boas-vindas".
+  @@unique([tenant_id, slug])
   @@map("campanhas")
+}
+
+// Um destaque_elemento independente dentro de uma campanha — Fase 1 permitia
+// só 1 (os campos titulo/descricao/subtitulo/texto_botao/url_botao/data_cy
+// na própria Campanha). Múltiplos destaques (filtro-status,
+// filtro-profissional, filtro-convenio, etc.) viram N linhas aqui; os campos
+// legados em Campanha continuam existindo (nunca removidos) e alimentam o
+// backfill de 1 item + o fallback de leitura quando uma campanha ainda não
+// tem nenhuma linha em `destaques` (ver server/src/controllers/campanhas.ts).
+// tenant_id é denormalizado de propósito (não é só campanha_id, diferente de
+// TourPasso/Feedback/EventoCampanha) — a leitura pública do widget
+// (buscarCandidatas) resolve por tenant primeiro, e um item nunca pode
+// pertencer a um tenant diferente do da sua própria campanha; o controller
+// valida os dois (tenant_id do item == tenant_id da campanha) em toda
+// escrita, nunca confia só na FK.
+model CampanhaDestaqueItem {
+  id            String   @id @default(uuid())
+  tenant_id     String
+  campanha_id   String
+  ordem         Int      @default(1)
+  data_cy       String
+  texto_badge   String?
+  titulo        String
+  descricao     String
+  texto_botao   String?
+  url_botao     String?
+  ativo         Boolean  @default(true)
+  criado_em     DateTime @default(now())
+  atualizado_em DateTime @updatedAt
+
+  campanha  Campanha         @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
+  eventos   EventoCampanha[]
+  feedbacks Feedback[]
+
+  @@index([campanha_id, ordem])
+  @@index([tenant_id])
+  @@map("campanha_destaque_itens")
 }
 
 model ConfirmacaoLeitura {
@@ -92,10 +478,33 @@ model ConfirmacaoLeitura {
   @@map("confirmacoes_leitura")
 }
 
+// Fundação NPS/CSAT/utilidade_destaque — um único model continua cobrindo os
+// 3 tipos (em vez de tabelas separadas) porque o essencial (campanha_id,
+// usuario_id, observacao, contexto/telefone) é idêntico nos 3; só o formato
+// do "valor" muda. tipo_avaliacao é obrigatório e SEM @default de propósito
+// — a aplicação sempre resolve e envia o valor explicitamente a partir de
+// Campanha.tipo_avaliacao_feedback (feedback geral, só nps/csat — nunca
+// utilidade_destaque) ou do tipo fixo 'utilidade_destaque'
+// (registrarUtilidadeDestaque, widget.ts), nunca confia num tipo vindo do
+// widget. nota virou opcional (Int?) porque utilidade_destaque nunca a usa
+// (usa `util` no lugar); regra de qual combinação de nota/util/
+// destaque_item_id é válida por tipo fica centralizada em
+// validarAvaliacaoFeedback (widget.ts), não aqui no schema. Feedback geral e
+// utilidade_destaque são independentes por design: um nunca conta como
+// resposta do outro no gating de reexibição (ver verificarHistorico,
+// widget.ts).
 model Feedback {
   id               String   @id @default(uuid())
   campanha_id      String
-  nota             Int
+  // 'nps' | 'csat' | 'utilidade_destaque' — ver TIPOS_AVALIACAO_FEEDBACK em
+  // widget.ts. String simples (não enum do Postgres), mesmo padrão já usado
+  // em Campanha.tipo/modo_exibicao neste schema.
+  tipo_avaliacao   String
+  // NPS: 0..10. CSAT: 1..5. utilidade_destaque: sempre null (usa `util`).
+  nota             Int?
+  // Só preenchido em utilidade_destaque ("Essa melhoria foi útil?" Sim/Não);
+  // null pra nps/csat.
+  util             Boolean?
   observacao       String?
   usuario_id       String?
   usuario_nome     String?
@@ -107,14 +516,40 @@ model Feedback {
   contexto         Json?
   telefone_contato String?
   criado_em        DateTime @default(now())
+  // Só preenchido em utilidade_destaque — null pra nps/csat (feedback da
+  // campanha inteira, sem item específico). onDelete: SetNull segue o mesmo
+  // raciocínio de EventoCampanha.destaque_item_id: o item nunca é
+  // hard-deletado de verdade (vira ativo:false, ver campanhas.ts), então
+  // SetNull só protege o caso extremo de o item em si sumir por outro
+  // caminho — o histórico do feedback nunca se perde.
+  destaque_item_id String?
 
-  campanha Campanha @relation(fields: [campanha_id], references: [id])
+  campanha     Campanha              @relation(fields: [campanha_id], references: [id])
+  destaqueItem CampanhaDestaqueItem? @relation(fields: [destaque_item_id], references: [id], onDelete: SetNull)
 
+  // Toda leitura de NPS do dashboard filtra por campanha_id + tipo_avaliacao
+  // (ver whereFeedbackNps em dashboard.ts) — índice cobre exatamente esse
+  // padrão de acesso.
+  @@index([campanha_id, tipo_avaliacao])
+  // "Uma resposta atual" por usuário+item+tipo — um novo envio ATUALIZA em
+  // vez de duplicar (registrarUtilidadeDestaque usa upsert com esta chave
+  // composta, que o Postgres compila num INSERT ... ON CONFLICT DO UPDATE
+  // atômico, seguro contra race entre 2 envios concorrentes do mesmo
+  // usuário). Só afeta utilidade_destaque na prática: nps/csat sempre tem
+  // destaque_item_id NULL, e Postgres nunca considera dois NULLs iguais num
+  // índice único — a constraint não colide entre linhas de nps/csat, nem
+  // entre elas e as de utilidade_destaque. map curto de propósito: o nome
+  // default do Prisma pra este índice passaria dos 63 caracteres do limite
+  // de identificador do Postgres (mesmo cuidado já documentado nos índices
+  // de EventoCampanha).
+  @@unique([campanha_id, destaque_item_id, usuario_id, tipo_avaliacao], map: "feedbacks_avaliacao_unica_key")
   @@map("feedbacks")
 }
 
 model TelaCatalogo {
   id                 String   @id @default(uuid())
+  tenant_id          String
+  sistema_id         String
   nome               String
   sistema            String
   categoria          String
@@ -126,47 +561,80 @@ model TelaCatalogo {
   criado_em          DateTime @default(now())
   atualizado_em      DateTime @updatedAt
 
+  tenant        Tenant  @relation(fields: [tenant_id], references: [id])
+  sistemaConfig Sistema @relation(fields: [sistema_id], references: [id])
+
+  @@index([tenant_id])
+  @@index([sistema_id])
   @@map("telas_catalogo")
 }
 
 // Aparência visual do widget (cor principal + logo/ícone do runtime de
-// Tours) — uma configuração por sistema/tenant, nunca por tour individual
-// (mesmo padrão de "sistema" já usado em Campanha/TourGuiado/TelaCatalogo,
-// sem precisar de uma tabela de tenants separada). cor_principal/logo_url
-// opcionais: sem registro, ou com os dois vazios, o widget usa o fallback
-// visual atual (cor azul padrão, ícone padrão) — nunca quebra clientes que
-// não configuraram nada.
+// Tours) — uma configuração por sistema, nunca por tour individual. sistema
+// virou único POR TENANT (era @unique GLOBAL) — Fase 2 do widget multi-tenant
+// (ver PublicKey em Tenant) fez a rota pública buscarAparencia (widget.ts)
+// resolver o tenant via public_key antes de consultar, então já existe
+// tenant_id disponível ali; dois tenants podem agora ter, cada um, aparência
+// própria pro mesmo nome de "sistema". cor_principal/logo_url opcionais: sem
+// registro, ou com os dois vazios, o widget usa o fallback visual atual (cor
+// azul padrão, ícone padrão) — nunca quebra clientes que não configuraram nada.
 model AparenciaWidget {
   id            String   @id @default(uuid())
-  sistema       String   @unique
+  tenant_id     String
+  sistema_id    String?
+  sistema       String?
   cor_principal String?
   logo_url      String?
   criado_em     DateTime @default(now())
   atualizado_em DateTime @updatedAt
 
+  tenant        Tenant  @relation(fields: [tenant_id], references: [id])
+  sistemaConfig Sistema? @relation(fields: [sistema_id], references: [id])
+
+  @@unique([tenant_id, sistema])
+  @@unique([tenant_id, sistema_id])
   @@map("aparencias_widget")
 }
 
+// destaque_item_id (Fase 3 de destaque_elemento — tracking por item) é
+// opcional e nunca ganha tenant_id próprio: o isolamento de tenant continua
+// vindo só de campanha_id -> Campanha.tenant_id, igual a todo o resto deste
+// model (ver comentário no topo do arquivo sobre child tables sem tenant_id
+// próprio). onDelete: SetNull — um CampanhaDestaqueItem removido da
+// configuração vira ativo:false (nunca é hard-deletado, ver
+// sincronizarDestaques/atualizar em campanhas.ts), então SetNull na prática
+// só protege contra o caso extremo de o item em si ser apagado por outro
+// caminho; o histórico do evento nunca é perdido de qualquer forma (a FK
+// nunca é RESTRICT/CASCADE aqui).
 model EventoCampanha {
-  id          String   @id @default(uuid())
-  campanha_id String
-  tipo_evento String
-  usuario_id  String?
-  sistema     String?
-  tela        String?
-  navegador   String?
-  dispositivo String?
-  contexto    Json?
-  criado_em   DateTime @default(now())
+  id               String   @id @default(uuid())
+  campanha_id      String
+  tipo_evento      String
+  usuario_id       String?
+  destaque_item_id String?
+  sistema          String?
+  tela             String?
+  navegador        String?
+  dispositivo      String?
+  contexto         Json?
+  criado_em        DateTime @default(now())
 
-  campanha Campanha @relation(fields: [campanha_id], references: [id])
+  campanha     Campanha              @relation(fields: [campanha_id], references: [id])
+  destaqueItem CampanhaDestaqueItem? @relation(fields: [destaque_item_id], references: [id], onDelete: SetNull)
 
+  // Nomes explícitos (map) curtos de propósito — o nome default do Prisma
+  // pra este segundo índice bate quase exatamente no limite de 63
+  // caracteres do Postgres; nomear explicitamente evita qualquer ambiguidade
+  // de truncamento entre este arquivo e a migration hand-written.
+  @@index([campanha_id, tipo_evento, criado_em], map: "evt_campanha_tipo_criado_idx")
+  @@index([campanha_id, destaque_item_id, tipo_evento], map: "evt_campanha_item_tipo_idx")
   @@map("eventos_campanha")
 }
 
 model TourGuiado {
   id                 String   @id @default(uuid())
-  slug               String   @unique
+  tenant_id          String
+  slug               String
   titulo             String
   descricao          String?
   sistema            String
@@ -193,10 +661,14 @@ model TourGuiado {
   criado_em          DateTime @default(now())
   atualizado_em      DateTime @updatedAt
 
+  tenant        Tenant         @relation(fields: [tenant_id], references: [id])
   passos        TourPasso[]
   eventos       EventoTour[]
   etapasJornada EtapaJornada[]
 
+  // slug deixou de ser globalmente único e virou único por tenant (mesmo
+  // raciocínio de Campanha.slug acima).
+  @@unique([tenant_id, slug])
   @@map("tours_guiados")
 }
 
@@ -247,6 +719,7 @@ model TourPasso {
 
 model EventoUsuario {
   id           String   @id @default(uuid())
+  tenant_id    String
   sistema      String
   usuario_id   String
   evento       String
@@ -258,8 +731,10 @@ model EventoUsuario {
   contexto     Json?
   criado_em    DateTime @default(now())
 
-  @@index([sistema, usuario_id, evento])
-  @@index([sistema, usuario_id, evento, criado_em])
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  @@index([tenant_id, sistema, usuario_id, evento])
+  @@index([tenant_id, sistema, usuario_id, evento, criado_em])
   @@map("eventos_usuario")
 }
 
@@ -272,7 +747,8 @@ model EventoUsuario {
 
 model Jornada {
   id                      String   @id @default(uuid())
-  slug                    String   @unique
+  tenant_id               String
+  slug                    String
   titulo                  String
   descricao               String?
   ativo                   Boolean  @default(true)
@@ -286,9 +762,13 @@ model Jornada {
   criado_em               DateTime @default(now())
   atualizado_em           DateTime @updatedAt
 
+  tenant  Tenant          @relation(fields: [tenant_id], references: [id])
   blocos  BlocoJornada[]
   eventos EventoJornada[]
 
+  // slug deixou de ser globalmente único e virou único por tenant (mesmo
+  // raciocínio de Campanha.slug acima).
+  @@unique([tenant_id, slug])
   @@map("jornadas")
 }
 
@@ -370,4 +850,73 @@ model EventoJornada {
 
   @@index([jornada_id])
   @@map("eventos_jornada")
+}
+
+// ─── Asaas (gateway de pagamento) — fundação/sandbox ───────────────────────
+// Log + idempotência dos webhooks recebidos do Asaas (ver tratarWebhookAsaas
+// em server/src/services/asaasClient.ts). asaas_event_id é o campo "id" do
+// payload do Asaas (ex.: "evt_xxx&yyy") — único quando presente, garante que
+// o mesmo evento nunca é aplicado duas vezes (Asaas entrega no modelo "at
+// least once", duplicatas são esperadas). Nem todo payload necessariamente
+// traz esse id (ex.: um teste manual sem "id") — opcional nesse caso, sem
+// idempotência possível, cada chamada cria uma linha nova.
+model AsaasWebhookEvent {
+  id              String    @id @default(uuid())
+  asaas_event_id  String?   @unique
+  evento          String
+  payment_id      String?
+  subscription_id String?
+  customer_id     String?
+  payload         Json
+  processado      Boolean   @default(false)
+  erro            String?
+  criado_em       DateTime  @default(now())
+  processado_em   DateTime?
+
+  @@map("asaas_webhook_events")
+}
+
+// ─── Fase 6D — alertas automáticos de trial por e-mail ───────────────────────
+// Controle de idempotência do scheduler interno (ver
+// services/trialAlertasScheduler.ts): 1 linha por tenant+marco+destinatário.
+// status=ENVIADO bloqueia qualquer reenvio pra sempre (mesmo depois de
+// reinício/deploy do processo, já que o estado vive no banco, não em
+// memória) — garante "uma única vez" por marco (D7/D3/D1/VENCIDO).
+// status=ENVIANDO é a reivindicação atômica (ver reivindicarRegistro em
+// trialAlertasScheduler.ts): a linha nasce assim no create() (só uma
+// instância consegue criar, protegida pela unique abaixo) ou é promovida
+// pra lá via UPDATE condicional a partir de FALHOU — só quem consegue esse
+// UPDATE/create é quem efetivamente tenta enviar, o que fecha a brecha de
+// 2 processos reenviando o MESMO registro FALHOU ao mesmo tempo (a unique
+// sozinha só protegia a criação inicial, não o retry). status=FALHOU é o
+// único estado (além de um ENVIANDO "travado" havia muito tempo, indicando
+// um crash no meio do envio) que permite nova tentativa numa execução
+// futura (ver deveEnviarAlerta em lib/trialAlertas.ts) — nunca vira ENVIADO
+// sem confirmação real do provider. destinatario_email é guardado como
+// string solta (não uma FK pra AdminUser) de propósito: o histórico do
+// alerta precisa sobreviver mesmo se aquele AdminUser for desativado ou
+// removido depois do envio.
+model TrialEmailAlerta {
+  id                 String             @id @default(uuid())
+  tenant_id          String
+  marco              MarcoAlertaTrial
+  destinatario_email String
+  status             StatusAlertaTrial
+  tentativas         Int                @default(0)
+  ultimo_erro        String?
+  enviado_em         DateTime?
+  criado_em          DateTime           @default(now())
+  atualizado_em      DateTime           @updatedAt
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id])
+
+  // Unicidade que garante a idempotência: nunca mais de 1 linha pro mesmo
+  // tenant+marco+destinatário. Protege tanto a criação concorrente (P2002,
+  // ver reivindicarRegistro em services/trialAlertasScheduler.ts) quanto o
+  // retry de uma linha FALHOU já existente (reivindicada via UPDATE
+  // condicional FALHOU/ENVIANDO-travado -> ENVIANDO antes de qualquer
+  // tentativa de envio) — é o índice que efetivamente impede duplicação,
+  // não só a checagem em memória antes do insert/update.
+  @@unique([tenant_id, marco, destinatario_email])
+  @@map("trial_email_alertas")
 }
