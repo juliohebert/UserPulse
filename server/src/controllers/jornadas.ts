@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
+import { checarLimiteJornadasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, motivoRecursoNaoPermitido, planoEfetivoParaLimite } from '../lib/tenantGuards'
 
 const TIPOS_ETAPA = ['tour', 'campanha', 'link']
 
@@ -45,12 +46,12 @@ function gerarSlugBase(titulo: string): string {
     .replace(/-+/g, '-')
 }
 
-async function slugUnico(base: string, ignorarId?: string): Promise<string> {
+async function slugUnico(tenantId: string, base: string, ignorarId?: string): Promise<string> {
   let slug = base
   let contador = 1
   while (true) {
     const existente = await prisma.jornada.findFirst({
-      where: { slug, ...(ignorarId ? { NOT: { id: ignorarId } } : {}) },
+      where: { tenant_id: tenantId, slug, ...(ignorarId ? { NOT: { id: ignorarId } } : {}) },
     })
     if (!existente) return slug
     slug = `${base}-${contador++}`
@@ -146,7 +147,7 @@ function montarDadosBloco(b: BlocoValidado, ordem: number) {
   }
 }
 
-// Inclui só campos básicos do Tour/Campanha referenciado (id/titulo/slug/ativo)
+// Inclui só campos básicos do Tour/Campanha referenciado.
 // — o suficiente pro admin mostrar "aponta para: X" sem trazer o cadastro inteiro.
 const INCLUDE_BLOCOS = {
   blocos: {
@@ -155,7 +156,7 @@ const INCLUDE_BLOCOS = {
       etapas: {
         orderBy: { ordem: 'asc' as const },
         include: {
-          tour: { select: { id: true, titulo: true, slug: true, ativo: true } },
+          tour: { select: { id: true, titulo: true, slug: true } },
           campanha: { select: { id: true, titulo: true, slug: true, ativo: true } },
         },
       },
@@ -167,7 +168,7 @@ export async function listar(req: Request, res: Response) {
   try {
     const { busca, ativo } = req.query as Record<string, string | undefined>
 
-    const where: Prisma.JornadaWhereInput = {}
+    const where: Prisma.JornadaWhereInput = { tenant_id: req.adminUser!.tenant_id }
     if (ativo === 'true') where.ativo = true
     else if (ativo === 'false') where.ativo = false
 
@@ -204,8 +205,8 @@ export async function listar(req: Request, res: Response) {
 
 export async function buscarPorId(req: Request, res: Response) {
   try {
-    const jornada = await prisma.jornada.findUnique({
-      where: { id: req.params.id as string },
+    const jornada = await prisma.jornada.findFirst({
+      where: { id: req.params.id as string, tenant_id: req.adminUser!.tenant_id },
       include: INCLUDE_BLOCOS,
     })
     if (!jornada) return res.status(404).json({ erro: 'Jornada não encontrada.' })
@@ -218,6 +219,14 @@ export async function buscarPorId(req: Request, res: Response) {
 
 export async function criar(req: Request, res: Response) {
   try {
+    const tenantId = req.adminUser!.tenant_id
+    const tenant = req.adminUser!.tenant
+
+    const bloqueioEscrita = motivoBloqueioEscrita(tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+    const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_jornadas')
+    if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
+
     const { titulo, descricao, ativo, permitir_refazer, permitir_pacotes_fora_ordem, blocos } = req.body
     const {
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis,
@@ -236,14 +245,27 @@ export async function criar(req: Request, res: Response) {
       return res.status(400).json({ erro: 'A jornada precisa ter pelo menos um pacote.' })
     }
 
-    const slug = await slugUnico(gerarSlugBase(titulo))
+    const ativoBool = ativo !== undefined ? Boolean(ativo) : true
+    if (ativoBool) {
+      const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
+      if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
+    }
+    // Fase 6D — em trial, o limite conta TOTAL cadastrado, então precisa
+    // checar mesmo criando com ativo:false (ver deveChecarLimiteCadastro).
+    if (deveChecarLimiteCadastro(ativoBool, tenant.plano)) {
+      const limite = await checarLimiteJornadasAtivas(tenantId, planoEfetivoParaLimite(tenant))
+      if (limite) return res.status(403).json({ erro: limite })
+    }
+
+    const slug = await slugUnico(tenantId, gerarSlugBase(titulo))
 
     const jornada = await prisma.jornada.create({
       data: {
+        tenant_id: tenantId,
         slug,
         titulo: titulo.trim(),
         descricao: descricao?.trim() || null,
-        ativo: ativo !== undefined ? Boolean(ativo) : true,
+        ativo: ativoBool,
         permitir_refazer: permitir_refazer !== undefined ? Boolean(permitir_refazer) : false,
         permitir_pacotes_fora_ordem: permitir_pacotes_fora_ordem !== undefined ? Boolean(permitir_pacotes_fora_ordem) : true,
         segmentar_cliente_ids: Array.isArray(segmentar_cliente_ids) ? segmentar_cliente_ids : [],
@@ -267,8 +289,12 @@ export async function criar(req: Request, res: Response) {
 
 export async function atualizar(req: Request, res: Response) {
   try {
+    const tenant = req.adminUser!.tenant
+    const bloqueioEscrita = motivoBloqueioEscrita(tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+
     const id = req.params.id as string
-    const existente = await prisma.jornada.findUnique({ where: { id } })
+    const existente = await prisma.jornada.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
     if (!existente) return res.status(404).json({ erro: 'Jornada não encontrada.' })
 
     const { titulo, descricao, ativo, permitir_refazer, permitir_pacotes_fora_ordem, blocos } = req.body
@@ -279,6 +305,20 @@ export async function atualizar(req: Request, res: Response) {
 
     if (titulo !== undefined && !titulo?.trim()) {
       return res.status(400).json({ erro: 'titulo não pode ficar vazio.' })
+    }
+
+    // Só checa bloqueio quando a requisição está de fato LIGANDO a jornada
+    // (false -> true) — mesmo raciocínio de campanhas.ts/tours.ts atualizar().
+    const ativandoAgora = ativo !== undefined && Boolean(ativo) && !existente.ativo
+    if (ativandoAgora) {
+      const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
+      if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
+      const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_jornadas')
+      if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
+      // excluirId: a própria jornada já existe (só está inativa) — não pode
+      // contar contra si mesma na contagem de trial (ver checarLimiteJornadasAtivas).
+      const limite = await checarLimiteJornadasAtivas(req.adminUser!.tenant_id, planoEfetivoParaLimite(tenant), existente.id)
+      if (limite) return res.status(403).json({ erro: limite })
     }
 
     let listaBlocos: BlocoValidado[] | null = null
@@ -333,8 +373,11 @@ export async function atualizar(req: Request, res: Response) {
 
 export async function remover(req: Request, res: Response) {
   try {
+    const bloqueioEscrita = motivoBloqueioEscrita(req.adminUser!.tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+
     const id = req.params.id as string
-    const existente = await prisma.jornada.findUnique({ where: { id } })
+    const existente = await prisma.jornada.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
     if (!existente) return res.status(404).json({ erro: 'Jornada não encontrada.' })
 
     // Exclusão de verdade. Blocos e etapas caem em cascade (migration);

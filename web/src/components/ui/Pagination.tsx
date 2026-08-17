@@ -20,7 +20,7 @@ export function Pagination({ page, total, perPage, onChange }: Props) {
   const end = Math.min(page * perPage, total)
 
   return (
-    <div className="px-6 py-4 bg-surface-container-low border-t border-outline-variant flex items-center justify-between">
+    <div className="px-6 py-4 bg-white border-t border-outline-variant flex items-center justify-between">
       <span className="text-label-md text-on-surface-variant">
         Mostrando {start}–{end} de {total}
       </span>
@@ -28,7 +28,7 @@ export function Pagination({ page, total, perPage, onChange }: Props) {
         <button
           onClick={() => onChange(page - 1)}
           disabled={page === 1}
-          className="p-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:opacity-30"
         >
           <span className="material-symbols-outlined text-[20px]">chevron_left</span>
         </button>
@@ -42,9 +42,9 @@ export function Pagination({ page, total, perPage, onChange }: Props) {
               <button
                 key={p}
                 onClick={() => onChange(p)}
-                className={`w-9 h-9 rounded-lg text-label-md font-bold transition-colors ${
+                className={`w-9 h-9 rounded-full text-label-md font-bold transition-colors ${
                   p === page
-                    ? 'bg-primary text-on-primary'
+                    ? 'bg-primary text-white'
                     : 'hover:bg-surface-container-high text-on-surface-variant'
                 }`}
               >
@@ -56,7 +56,7 @@ export function Pagination({ page, total, perPage, onChange }: Props) {
         <button
           onClick={() => onChange(page + 1)}
           disabled={page === totalPages}
-          className="p-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant transition-colors hover:bg-surface-container-low disabled:opacity-30"
         >
           <span className="material-symbols-outlined text-[20px]">chevron_right</span>
         </button>

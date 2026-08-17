@@ -1,4 +1,8 @@
 import type { Campanha, StatusCampanha } from '../types'
+// Reexportada daqui (não definida neste arquivo) — ver o comentário em
+// campanhaForm.ts sobre por que ela precisa viver num módulo sem
+// import.meta.env/window no top-level.
+export { rotaEditarCampanha } from '../pages/campanhas2/campanhaForm'
 
 export function getStatus(c: Campanha): StatusCampanha {
   if (!c.ativo) return 'inativa'
@@ -27,12 +31,37 @@ export function formatDate(iso: string): string {
   })
 }
 
+// Datas civis financeiras (dueDate/paymentDate do Asaas, "YYYY-MM-DD" sem
+// hora) nunca devem passar por new Date(string) — o parser trata strings
+// só-de-data como meia-noite UTC, e toLocaleDateString converte pro fuso
+// local, adiantando ou atrasando o dia exibido (ex.: "2026-09-12" vira
+// "11 de set." em UTC-3). new Date(ano, mes-1, dia) usa componentes locais
+// diretamente, sem conversão de fuso nenhuma.
+export function formatDateCivil(value: string | null | undefined): string {
+  const match = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null
+  if (!match) return '—'
+  const ano = Number(match[1])
+  const mes = Number(match[2])
+  const dia = Number(match[3])
+  const data = new Date(ano, mes - 1, dia)
+  if (data.getFullYear() !== ano || data.getMonth() !== mes - 1 || data.getDate() !== dia) return '—'
+  return data.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return 'Não informado'
   const d = new Date(iso)
   const date = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
   return `${date} ${time}`
+}
+
+export function formatarValorReais(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
 export function toInputDate(iso: string | null): string {
@@ -52,7 +81,11 @@ export interface EmbedParts {
   isAfterEvent: boolean
 }
 
-export function gerarEmbedParts(campanha: Campanha): EmbedParts {
+// publicKey (Fase 2 do widget multi-tenant) — opcional aqui só porque
+// quem chama pode não ter a sessão/tenant carregada ainda; sem ela, o
+// snippet gerado usa o placeholder de sempre, igual aos outros campos
+// desta função quando a campanha não tem o dado preenchido.
+export function gerarEmbedParts(campanha: Campanha, publicKey?: string): EmbedParts {
   const modo = campanha.modo_identificacao || 'sistema_tela'
   const gatilho = campanha.gatilho || 'ao_abrir_tela'
   const sistema = campanha.sistema || 'seu-sistema'
@@ -62,7 +95,7 @@ export function gerarEmbedParts(campanha: Campanha): EmbedParts {
   const evento = campanha.evento || 'nome_do_evento'
   const isAfterEvent = gatilho === 'apos_evento'
 
-  const initLines: string[] = [`  sistema: "${sistema}",`]
+  const initLines: string[] = [`  public_key: "${publicKey || '00000000-0000-0000-0000-000000000000'}",`, `  sistema: "${sistema}",`]
   if (modo === 'sistema_tela') initLines.push(`  tela: "${tela}",`)
   initLines.push(`  usuario_id: "ID_DO_USUARIO"`)
 
@@ -88,8 +121,8 @@ export function gerarEmbedParts(campanha: Campanha): EmbedParts {
   }
 }
 
-export function gerarEmbed(campanha: Campanha): string {
-  const p = gerarEmbedParts(campanha)
+export function gerarEmbed(campanha: Campanha, publicKey?: string): string {
+  const p = gerarEmbedParts(campanha, publicKey)
   const body: string[] = [p.initCode]
   if (p.initNote) body.push('', p.initNote)
   if (p.trackCode) body.push('', p.trackCode)

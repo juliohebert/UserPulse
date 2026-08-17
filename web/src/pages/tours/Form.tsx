@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { TourGuiado, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour } from '../../types'
-import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
+import type { TourGuiado, TourGuiadoListaPaginada, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour } from '../../types'
+import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
+import { Button } from '../../components/ui/Button'
 import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
 import { buildGravadorUrl, buildPreviewUrl, comandoTestarSeletor, type GravadorUrlResultado, type PreviewUrlResultado } from '../../utils/tour'
+import { useAuth } from '../../hooks/useAuth'
+import { limiteTrial, LIMITE_TRIAL_NAO_ATINGIDO, type LimiteTrialInfo } from '../../utils/limiteTrial'
 
 interface PassoState {
   id?: string
@@ -35,11 +38,9 @@ interface FormState {
   ativo: boolean
 }
 
-// Um tour novo começa como rascunho (inativo) — precisa ser testado antes de
-// ser ativado para os usuários. Ver aviso no topo do formulário de criação.
 const EMPTY: FormState = {
   titulo: '', descricao: '', sistema: '', modo_identificacao: 'sistema_tela',
-  tela: '', data_cy: '', url_contem: '', prioridade: '0', ativo: false,
+  tela: '', data_cy: '', url_contem: '', prioridade: '0', ativo: true,
 }
 
 const PASSO_VAZIO: PassoState = {
@@ -176,13 +177,13 @@ function extrairPassosDoJson(texto: string): { passos: PassoState[] } | { erro: 
   return { passos }
 }
 
-const field = 'w-full bg-surface-bright border border-outline-variant rounded-lg px-3 py-2.5 text-body-md focus:outline-none focus:ring-2 focus:ring-primary'
-const card = 'w-full bg-surface-container-lowest p-5 rounded-xl border border-outline-variant shadow-sm'
+const field = 'w-full h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface outline-none transition-colors focus:border-2 focus:border-primary'
+const card = 'w-full bg-surface p-6 rounded-3xl border border-outline-variant'
 
 // ─── Checklist de qualidade ─────────────────────────────────────────────────
 // Só orienta — não bloqueia nada além das validações que já existem em
-// handleSubmit (título de passo sempre obrigatório; seletor só obrigatório
-// para ativar). "critico" aqui sinaliza o que de fato impede salvar/ativar;
+// handleSubmit (título de passo sempre obrigatório). "critico" aqui sinaliza
+// o que de fato impede salvar;
 // "aviso" é recomendação; "neutro" é só informativo.
 
 type ChecklistStatus = 'ok' | 'aviso' | 'critico' | 'neutro'
@@ -238,25 +239,19 @@ function montarChecklist(form: FormState, passos: PassoState[]): ChecklistItem[]
     },
     {
       label: semSeletor === 0 ? 'Nenhum passo sem seletor' : `${semSeletor} passo${semSeletor === 1 ? '' : 's'} sem seletor`,
-      status: semSeletor === 0 ? 'ok' : (form.ativo ? 'critico' : 'aviso'),
+      status: semSeletor === 0 ? 'ok' : 'aviso',
       detalhe: semSeletor > 0 ? 'Necessário para o widget localizar o elemento na tela do usuário.' : undefined,
-    },
-    {
-      label: `Status: ${form.ativo ? 'Ativo' : 'Inativo (rascunho)'}`,
-      status: form.ativo ? 'ok' : 'neutro',
     },
   ]
 
-  if (form.ativo && algumIncompleto) {
+  if (algumIncompleto) {
     items.push({
-      label: 'Tour ativo com passo incompleto',
-      status: 'critico',
-      detalhe: 'Existe passo sem título ou sem seletor — complete os passos pendentes ou desative o tour antes de publicar.',
+      label: 'Tour com passo incompleto',
+      status: semTitulo > 0 ? 'critico' : 'aviso',
+      detalhe: 'O tour pode ser salvo, mas revise seletores antes de adicioná-lo a uma jornada.',
     })
-  } else if (!form.ativo) {
-    items.push({ label: 'Tour em rascunho — não visível para usuários', status: 'neutro' })
   } else {
-    items.push({ label: 'Tour ativo e pronto para publicação', status: 'ok' })
+    items.push({ label: 'Tour pronto para ser usado em uma jornada', status: 'ok' })
   }
 
   if (algumComCss) {
@@ -296,7 +291,7 @@ function ChecklistCard({ form, passos, numero }: { form: FormState; passos: Pass
         iconBg="bg-primary-fixed"
         iconColor="text-primary"
         title="Resumo do tour"
-        description="Orienta antes de testar ou ativar — não bloqueia o salvamento."
+        description="Orienta antes de testar ou usar este tour em uma jornada — não bloqueia o salvamento."
         action={
           <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase whitespace-nowrap ${resumo.className}`}>
             {resumo.texto}
@@ -324,8 +319,7 @@ function ChecklistCard({ form, passos, numero }: { form: FormState; passos: Pass
 // ─── Alertas de configuração por passo ─────────────────────────────────────
 // Heurística por nome do seletor (o admin não tem acesso ao DOM real da tela
 // integrada — só ao texto do seletor cadastrado). Só orienta, nunca bloqueia
-// o salvamento; a única validação que bloqueia continua sendo a de seletor
-// vazio em tour ativo (handleSubmit), que essas heurísticas não substituem.
+// o salvamento; isso orienta a revisão antes de usar o tour em uma jornada.
 const REGEX_CAMPO_PREENCHIVEL = /input|select|autocomplete|combobox|busca|search|campo|filtro|dropdown|typeahead/i
 const REGEX_BOTAO_OU_ACAO = /bot[aã]o|button|\bbtn\b|a[cç][aã]o|link|clique|click|salvar|confirmar|enviar|cancelar|fechar|remover|excluir/i
 // Classes geradas por framework (Angular, ng-zorro/Ant Design, CSS-in-JS) ou
@@ -535,6 +529,7 @@ export function TourForm() {
   const isEdit = Boolean(id)
   const navigate = useNavigate()
   const location = useLocation()
+  const { user } = useAuth()
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [passos, setPassos] = useState<PassoState[]>([{ ...PASSO_VAZIO }])
@@ -543,6 +538,13 @@ export function TourForm() {
   // segmentado abaixo, mesmo padrão de isSegmented em campanhas/Form.tsx).
   const [regrasSegmentacao, setRegrasSegmentacao] = useState<RegraSegmentacaoTour[]>([])
   const [loadingTour, setLoadingTour] = useState(isEdit)
+  // Fase 6E — só relevante na criação (isEdit=false): busca resumo.total
+  // (mesmo endpoint paginado já usado em tours/Index.tsx, ver
+  // server/src/controllers/tours.ts listar()) pra saber se o trial já
+  // bateu no limite antes de liberar o formulário — sem endpoint novo,
+  // pageSize=1 só pra não trazer os tours inteiros à toa.
+  const [carregandoLimite, setCarregandoLimite] = useState(!isEdit)
+  const [limiteTours, setLimiteTours] = useState<LimiteTrialInfo>(LIMITE_TRIAL_NAO_ATINGIDO)
   // Separado de `error` (usado só para validação/erro de salvar) de
   // propósito — sem essa separação, uma falha no GET /tours/:id ainda
   // renderizava o formulário normalmente, caindo no PASSO_VAZIO default (só
@@ -592,6 +594,18 @@ export function TourForm() {
   const [urlGravadorPendente, setUrlGravadorPendente] = useState<string | null>(null)
   const [copiadoPassosGravador, setCopiadoPassosGravador] = useState(false)
 
+  // Fase 6E — ver comentário de carregandoLimite/limiteTours acima.
+  useEffect(() => {
+    if (isEdit) return
+    get<TourGuiadoListaPaginada>('/tours?page=1&pageSize=1')
+      .then(data => {
+        setLimiteTours(limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_tours_ativos, data.resumo.total, 'tour'))
+      })
+      .catch(() => {})
+      .finally(() => setCarregandoLimite(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit])
+
   // Feedback de "salvo com sucesso" sobrevive ao redirecionamento pós-criação
   // (de /tours/novo para /tours/:id/editar) via router state, em vez de um
   // timer artificial. Consome e limpa o state para não reaparecer em
@@ -628,7 +642,7 @@ export function TourForm() {
           data_cy: t.data_cy ?? '',
           url_contem: t.url_contem ?? '',
           prioridade: String(t.prioridade ?? 0),
-          ativo: t.ativo,
+          ativo: true,
         })
         // Preserva a ordem já retornada pela API (buscarPorId ordena por
         // `ordem` — ver include em tours.ts) e o id de cada passo existente
@@ -751,11 +765,9 @@ export function TourForm() {
   // Preenche apenas título, descrição e passos base — sistema, modo de
   // identificação etc. não são tocados, e seletor/tipo de seletor ficam em
   // branco (dependem da tela real do sistema hospedeiro). Tudo continua
-  // editável normalmente depois de aplicado. ativo é forçado para false: como
-  // os seletores vêm vazios, o tour não pode ser ativado até serem
-  // preenchidos (ver validação em handleSubmit).
+  // editável normalmente depois de aplicado.
   const aplicarTemplate = (tpl: TourTemplate) => {
-    setForm(prev => ({ ...prev, titulo: tpl.titulo_sugerido, descricao: tpl.descricao_sugerida, ativo: false }))
+    setForm(prev => ({ ...prev, titulo: tpl.titulo_sugerido, descricao: tpl.descricao_sugerida, ativo: true }))
     setPassos(tpl.passos.map(p => ({
       titulo: p.titulo,
       descricao: p.descricao,
@@ -953,7 +965,7 @@ export function TourForm() {
   // só a última checagem, não a única exposição ao conteúdo) e envia direto
   // pro PUT autenticado que o admin já usa (mesmo endpoint/token de sempre —
   // nada de nova rota nem de o gravador falar com o backend). título,
-  // sistema, tela, prioridade, ativo e segmentação vêm do estado atual do
+  // sistema, tela, prioridade e segmentação vêm do estado atual do
   // formulário (montarPayloadTour) — só a lista de passos é trocada. Se o PUT
   // falhar, não mexe em `passos` nem em `jsonColadoTexto`: nada capturado é
   // perdido, o usuário pode tentar de novo.
@@ -1060,10 +1072,11 @@ export function TourForm() {
   // Mesmo payload usado pelo "Salvar" normal (handleSubmit) e pela ação
   // rápida "Atualizar Tour existente" (atualizarTourComPassosColados, na
   // seção "Editar fluxo no sistema") — só os passos mudam entre os dois;
-  // título, sistema, tela, prioridade, ativo e segmentação sempre vêm do
+  // título, sistema, tela, prioridade e segmentação sempre vêm do
   // estado atual do formulário (form/regrasSegmentacao), nunca do gravador.
   const montarPayloadTour = (passosParaEnviar: PassoState[]) => ({
     ...form,
+    ativo: true,
     descricao: form.descricao || null,
     tela: form.modo_identificacao === 'sistema_tela' ? form.tela : '',
     data_cy: form.modo_identificacao === 'data_cy' ? form.data_cy : null,
@@ -1089,16 +1102,6 @@ export function TourForm() {
     e.preventDefault()
     if (passos.length === 0 || passos.some(p => !p.titulo.trim())) {
       setError('Todo passo precisa de título preenchido.')
-      return
-    }
-    // Seletor só é exigido para ativar — um rascunho pode ficar com
-    // seletores vazios (ex.: logo depois de aplicar um template).
-    if (form.ativo && passos.some(p => !p.seletor.trim())) {
-      setError('Para ativar o tour, todos os passos precisam ter um seletor/data-cy informado.')
-      return
-    }
-    if (form.ativo && passos.some(p => MODOS_AVANCO_COM_CONFIRMACAO.includes(p.modo_avanco_interacao) && !p.seletor_confirmacao.trim())) {
-      setError('Para ativar o tour, os passos com avanço "quando outro elemento aparecer/sumir" precisam do seletor de confirmação.')
       return
     }
     if (segmentado && regrasSegmentacao.some(r => !r.campo || !r.valor.trim())) {
@@ -1130,7 +1133,24 @@ export function TourForm() {
     }
   }
 
-  if (loadingTour) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+  if (loadingTour || carregandoLimite) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+
+  // Fase 6E — trial no limite: bloqueia acesso direto à rota /tours/novo
+  // (nunca a edição — isEdit já exclui esse caso). Mesma mensagem usada pelo
+  // backend (que continua validando de verdade no POST) e pelo botão "Novo
+  // Tour Guiado" da listagem (ver tours/Index.tsx).
+  if (!isEdit && limiteTours.atingido) {
+    return (
+      <div className="px-4 lg:px-margin-desktop py-10">
+        <EmptyState
+          icon="lock"
+          title="Limite do teste grátis atingido"
+          description={limiteTours.mensagem!}
+          action={<Button onClick={() => navigate('/tours')}>Voltar para Tours</Button>}
+        />
+      </div>
+    )
+  }
 
   // Nunca renderiza o formulário (nem o fallback de "nenhum passo
   // preenchido ainda") se o GET por id falhou — sem essa checagem, um erro
@@ -1155,20 +1175,13 @@ export function TourForm() {
   return (
     <div className="relative">
       {/* Page action bar */}
-      <div className="bg-surface border-b border-outline-variant px-4 lg:px-margin-desktop py-3">
+      <div className="px-4 lg:px-margin-desktop py-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <nav className="flex gap-2 text-label-md text-outline mb-0.5">
-              <button onClick={() => navigate('/tours')} className="hover:text-primary transition-colors">
-                Tours Guiados
-              </button>
-              <span>/</span>
-              <span className="text-on-surface">{isEdit ? 'Editar' : 'Criar Novo'}</span>
-            </nav>
-            <h2 className="text-headline-md font-bold text-on-surface leading-tight">
+            <h2 className="text-title-lg font-bold text-on-surface">
               {isEdit ? 'Editar Tour Guiado' : 'Novo Tour Guiado'}
             </h2>
-            <p className="text-body-md text-on-surface-variant mt-0.5 hidden sm:block">
+            <p className="text-body-md text-on-surface-variant mt-0.5">
               {isEdit
                 ? 'Ajuste os passos e o destino deste tour guiado.'
                 : 'Monte um passo a passo para guiar usuários dentro do produto.'}
@@ -1183,41 +1196,35 @@ export function TourForm() {
             </button>
           </div>
           <div className="flex gap-2 shrink-0">
-            <button
+            <Button
               type="button"
               onClick={() => navigate('/tours')}
-              className="px-4 py-2 border border-outline-variant rounded-xl text-label-md text-on-surface-variant hover:bg-surface-container-low transition-all"
+              variant="ghost"
             >
               Cancelar
-            </button>
+            </Button>
             {isEdit && (
-              <button
+              <Button
                 type="button"
                 onClick={() => navigate(`/tours/${id}/preview`)}
-                className="px-4 py-2 border border-primary text-primary rounded-xl text-label-md font-bold hover:bg-primary-fixed transition-all"
+                variant="ghost"
               >
                 Testar tour
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               form="tour-form"
               type="submit"
               disabled={submitting}
-              className="px-5 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95 disabled:opacity-60"
+              size="md"
             >
               {submitting ? 'Salvando…' : isEdit ? 'Salvar' : 'Publicar'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1400px]">
-        {!isEdit && !form.ativo && (
-          <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px]">info</span>
-            Este tour começa como rascunho. Teste antes de ativar para os usuários.
-          </div>
-        )}
+      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px]">
         {success && (
           <div className="mb-5 p-4 bg-tertiary/10 rounded-xl">
             <p className="text-body-md text-tertiary font-semibold flex items-center gap-2 mb-3">
@@ -1693,6 +1700,7 @@ export function TourForm() {
                         onClick={() => movePasso(i, -1)}
                         disabled={i === 0}
                         title="Mover para cima"
+                        aria-label={`Mover passo ${i + 1} para cima`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
@@ -1702,6 +1710,7 @@ export function TourForm() {
                         onClick={() => movePasso(i, 1)}
                         disabled={i === passos.length - 1}
                         title="Mover para baixo"
+                        aria-label={`Mover passo ${i + 1} para baixo`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
@@ -1710,6 +1719,7 @@ export function TourForm() {
                         type="button"
                         onClick={() => duplicarPasso(i)}
                         title="Duplicar passo"
+                        aria-label={`Duplicar passo ${i + 1}`}
                         className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[16px]">content_copy</span>
@@ -1719,6 +1729,7 @@ export function TourForm() {
                         onClick={() => removePasso(i)}
                         disabled={passos.length === 1}
                         title="Remover passo"
+                        aria-label={`Remover passo ${i + 1}`}
                         className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">delete</span>
@@ -1911,19 +1922,6 @@ export function TourForm() {
                 />
               </div>
 
-              <div>
-                <label className="block text-label-md text-on-surface-variant mb-1.5">Status</label>
-                <label className="relative inline-flex items-center cursor-pointer mt-1">
-                  <input
-                    type="checkbox"
-                    checked={form.ativo}
-                    onChange={e => set('ativo', e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-outline-variant rounded-full peer peer-checked:bg-primary peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative" />
-                  <span className="ml-3 text-body-md text-on-surface">{form.ativo ? 'Ativo' : 'Inativo'}</span>
-                </label>
-              </div>
             </div>
           </div>
 

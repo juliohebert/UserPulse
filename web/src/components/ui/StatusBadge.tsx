@@ -1,17 +1,14 @@
 import type { StatusCampanha } from '../../types'
+import { DesignStatusBadge, type DesignStatusBadgeVariant } from './DesignStatusBadge'
 
-const config: Record<StatusCampanha, { label: string; className: string }> = {
-  ativa:     { label: 'Ativa',     className: 'bg-tertiary/10 text-tertiary' },
-  inativa:   { label: 'Inativa',   className: 'bg-outline-variant/30 text-outline' },
-  agendada:  { label: 'Agendada',  className: 'bg-primary/10 text-primary' },
-  encerrada: { label: 'Encerrada', className: 'bg-outline-variant/30 text-outline' },
+const config: Record<StatusCampanha, { label: string; variant: DesignStatusBadgeVariant }> = {
+  ativa:     { label: 'Ativa',     variant: 'success' },
+  inativa:   { label: 'Inativa',   variant: 'neutral' },
+  agendada:  { label: 'Agendada',  variant: 'promo' },
+  encerrada: { label: 'Encerrada', variant: 'neutral' },
 }
 
 export function StatusBadge({ status }: { status: StatusCampanha }) {
-  const { label, className } = config[status]
-  return (
-    <span className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase ${className}`}>
-      {label}
-    </span>
-  )
+  const { label, variant } = config[status]
+  return <DesignStatusBadge variant={variant}>{label}</DesignStatusBadge>
 }
