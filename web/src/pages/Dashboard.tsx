@@ -621,7 +621,7 @@ export function Dashboard() {
               <Button
                 onClick={() => navigate("/tours/gravador")}
                 size="md"
-                className="bg-white text-black"
+                className="bg-white text-on-surface"
                 iconLeft={
                   <span className="material-symbols-outlined text-[18px] text-red-500 ">
                     radio_button_checked
