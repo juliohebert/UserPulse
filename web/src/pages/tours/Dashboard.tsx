@@ -186,9 +186,15 @@ export function TourDashboard() {
             <span className="text-on-surface">Dashboard</span>
           </nav>
           <h2 className="text-headline-lg font-bold text-on-surface">{tour.titulo}</h2>
-          <p className="text-body-md text-on-surface-variant mt-0.5">
-            {tour.sistema}
-            {tour.tela ? ` · ${tour.tela}` : ''}
+          <p className="text-body-md text-on-surface-variant mt-0.5 flex flex-wrap items-center gap-2">
+            <span>
+              {tour.sistema}
+              {tour.tela ? ` · ${tour.tela}` : ''}
+            </span>
+            <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${tour.ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
+              <span className={`h-2 w-2 rounded-full ${tour.ativo ? 'bg-tertiary' : 'bg-outline'}`} />
+              Exibição autônoma {tour.ativo ? 'ativa' : 'inativa'}
+            </span>
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
