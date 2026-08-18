@@ -5,6 +5,7 @@ import {
   FORMATO_DESTAQUE_ELEMENTO,
   formInicial,
   resolverTipoDestino,
+  resolverModoSegmentacao,
   hidratarFormState,
   montarPayloadCampanha,
   rotaEditarCampanha,
@@ -103,6 +104,41 @@ describe('resolverTipoDestino', () => {
 
   test('modo_identificacao sistema_tela -> tela', () => {
     assert.equal(resolverTipoDestino({ gatilho: 'ao_abrir_tela', modo_identificacao: 'sistema_tela' }), 'tela')
+  })
+})
+
+describe('resolverModoSegmentacao', () => {
+  test('todos os 5 arrays vazios -> todos', () => {
+    assert.equal(resolverModoSegmentacao(formInicial), 'todos')
+  })
+
+  test('só segmentar_cliente_ids -> cliente', () => {
+    assert.equal(resolverModoSegmentacao({ ...formInicial, segmentar_cliente_ids: ['c1'] }), 'cliente')
+  })
+
+  test('só segmentar_unidade_ids -> cliente', () => {
+    assert.equal(resolverModoSegmentacao({ ...formInicial, segmentar_unidade_ids: ['u1'] }), 'cliente')
+  })
+
+  test('cliente_ids + unidade_ids -> cliente', () => {
+    assert.equal(resolverModoSegmentacao({ ...formInicial, segmentar_cliente_ids: ['c1'], segmentar_unidade_ids: ['u1'] }), 'cliente')
+  })
+
+  test('só segmentar_perfis -> perfil', () => {
+    assert.equal(resolverModoSegmentacao({ ...formInicial, segmentar_perfis: ['gestor'] }), 'perfil')
+  })
+
+  test('só segmentar_usuario_tipos -> perfil', () => {
+    assert.equal(resolverModoSegmentacao({ ...formInicial, segmentar_usuario_tipos: ['admin'] }), 'perfil')
+  })
+
+  test('só segmentar_estados -> perfil', () => {
+    assert.equal(resolverModoSegmentacao({ ...formInicial, segmentar_estados: ['SP'] }), 'perfil')
+  })
+
+  test('lado cliente E lado perfil preenchidos -> combinada', () => {
+    assert.equal(resolverModoSegmentacao({ ...formInicial, segmentar_cliente_ids: ['c1'], segmentar_perfis: ['gestor'] }), 'combinada')
+    assert.equal(resolverModoSegmentacao({ ...formInicial, segmentar_unidade_ids: ['u1'], segmentar_estados: ['SP'] }), 'combinada')
   })
 })
 
@@ -350,5 +386,84 @@ describe('round-trip: campanha antiga -> hidratar -> salvar sem alterações', (
     assert.equal(payload.prioridade, 7)
     assert.equal(payload.ordem, 3)
     assert.equal(payload.atraso_ms, 1500)
+  })
+})
+
+// Bug: ao editar uma campanha, o dock inicializava modoSegmentacao com
+// useState('todos') hardcoded, nunca re-derivado do form já hidratado — os
+// IDs salvos apareciam (o array em si carregava certo), mas o seletor
+// ficava preso em "Todos" até o usuário clicar manualmente. A correção
+// centraliza a decisão em resolverModoSegmentacao (campanhaForm.ts), usado
+// como inicializador do useState no DockLateral — estas suítes cobrem o
+// roundtrip completo: campanha salva -> hidratar -> modo restaurado.
+describe('round-trip: modo de segmentação restaurado ao editar', () => {
+  test('campanha "Todos" (sem nenhum array preenchido) -> editar -> todos', () => {
+    const original = campanhaAntiga({
+      segmentar_cliente_ids: [], segmentar_unidade_ids: [], segmentar_perfis: [],
+      segmentar_usuario_tipos: [], segmentar_estados: [],
+    })
+    assert.equal(resolverModoSegmentacao(hidratarFormState(original)), 'todos')
+  })
+
+  test('campanha "Por cliente" com IDs -> editar -> cliente, com os mesmos IDs visíveis', () => {
+    const original = campanhaAntiga({
+      segmentar_cliente_ids: ['cliente-9', 'cliente-10'], segmentar_unidade_ids: ['unidade-3'],
+      segmentar_perfis: [], segmentar_usuario_tipos: [], segmentar_estados: [],
+    })
+    const form = hidratarFormState(original)
+    assert.equal(resolverModoSegmentacao(form), 'cliente')
+    assert.deepEqual(form.segmentar_cliente_ids, ['cliente-9', 'cliente-10'])
+    assert.deepEqual(form.segmentar_unidade_ids, ['unidade-3'])
+  })
+
+  test('campanha "Por perfil" com perfis/tipos/estados -> editar -> perfil, com os mesmos valores visíveis', () => {
+    const original = campanhaAntiga({
+      segmentar_cliente_ids: [], segmentar_unidade_ids: [],
+      segmentar_perfis: ['gestor', 'financeiro'], segmentar_usuario_tipos: ['admin'], segmentar_estados: ['SP', 'RJ'],
+    })
+    const form = hidratarFormState(original)
+    assert.equal(resolverModoSegmentacao(form), 'perfil')
+    assert.deepEqual(form.segmentar_perfis, ['gestor', 'financeiro'])
+    assert.deepEqual(form.segmentar_usuario_tipos, ['admin'])
+    assert.deepEqual(form.segmentar_estados, ['SP', 'RJ'])
+  })
+
+  test('campanha "combinada" (cliente + perfil) -> editar -> combinada, com todos os valores visíveis', () => {
+    const original = campanhaAntiga({
+      segmentar_cliente_ids: ['cliente-1'], segmentar_unidade_ids: [],
+      segmentar_perfis: ['gestor'], segmentar_usuario_tipos: [], segmentar_estados: ['SP'],
+    })
+    const form = hidratarFormState(original)
+    assert.equal(resolverModoSegmentacao(form), 'combinada')
+    assert.deepEqual(form.segmentar_cliente_ids, ['cliente-1'])
+    assert.deepEqual(form.segmentar_perfis, ['gestor'])
+    assert.deepEqual(form.segmentar_estados, ['SP'])
+  })
+
+  test('campanha legada sem nenhuma segmentação salva (arrays vazios por padrão) -> editar -> todos', () => {
+    const original = campanhaAntiga({
+      segmentar_cliente_ids: [], segmentar_unidade_ids: [], segmentar_perfis: [],
+      segmentar_usuario_tipos: [], segmentar_estados: [],
+    })
+    const form = hidratarFormState(original)
+    assert.equal(resolverModoSegmentacao(form), 'todos')
+  })
+
+  test('salvar e reabrir não perde modo nem valores (form -> payload -> hidratar de novo)', () => {
+    const formOriginal: FormState = { ...formInicial, segmentar_perfis: ['gestor'], segmentar_estados: ['SP', 'MG'] }
+    const payload = montarPayloadCampanha(formOriginal)
+    // Simula o que a API devolveria ao reler a campanha recém-salva: mesmos
+    // arrays de segmentação, resto dos campos obrigatórios preenchidos.
+    const recarregada = campanhaAntiga({
+      segmentar_cliente_ids: payload.segmentar_cliente_ids as string[],
+      segmentar_unidade_ids: payload.segmentar_unidade_ids as string[],
+      segmentar_perfis: payload.segmentar_perfis as string[],
+      segmentar_usuario_tipos: payload.segmentar_usuario_tipos as string[],
+      segmentar_estados: payload.segmentar_estados as string[],
+    })
+    const formReaberto = hidratarFormState(recarregada)
+    assert.equal(resolverModoSegmentacao(formReaberto), 'perfil')
+    assert.deepEqual(formReaberto.segmentar_perfis, ['gestor'])
+    assert.deepEqual(formReaberto.segmentar_estados, ['SP', 'MG'])
   })
 })
