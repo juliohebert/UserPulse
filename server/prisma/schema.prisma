@@ -36,6 +36,28 @@ enum AdminRole {
   VIEWER
 }
 
+// Fase 1 de permissões personalizadas por usuário (ver
+// server/src/lib/permissoesModulo.ts). Módulos operacionais do painel —
+// Billing/Minha Assinatura fica de fora de propósito (é ADMIN-only por
+// motivo próprio, nunca fez parte de "configuração" pra fins de RBAC, ver
+// requireEscritaConfiguracao em routes/billing.ts) — assim como Gestão SaaS
+// (SUPER_ADMIN-only, cross-tenant, sem relação com permissão por módulo).
+enum ModuloPainel {
+  CAMPANHAS
+  TOURS
+  JORNADAS
+  CONFIGURACOES
+}
+
+// GERENCIAR implica VISUALIZAR (checado em código, não no banco — ver
+// permissoesModulo.ts). Ausência de linha em AdminUserPermissao para um
+// módulo == NENHUM, nunca herda de outro módulo.
+enum NivelAcessoModulo {
+  NENHUM
+  VISUALIZAR
+  GERENCIAR
+}
+
 // Fase 6D — os 4 marcos do alerta automático de trial por e-mail (ver
 // lib/trialAlertas.ts, decidirMarcoAlertaTrial). Nomes fixos (não
 // "7_DIAS"/"3_DIAS" porque enum do Prisma não aceita começar com dígito).
@@ -321,12 +343,45 @@ model AdminUser {
   ultimo_login_em   DateTime?
   criado_em     DateTime  @default(now())
   atualizado_em DateTime  @updatedAt
+  // Fase 1 de permissões personalizadas por usuário (ver
+  // lib/permissoesModulo.ts). @default(false) de propósito: usuários já
+  // existentes continuam 100% regidos pela role, sem mudança de
+  // comportamento retroativa — mesmo padrão de senha_temporaria acima. Só
+  // quando true as linhas de AdminUserPermissao passam a ser autoritativas
+  // (e substituem a role por completo para este usuário, módulo a módulo —
+  // nunca um "OR" com o padrão da role). SUPER_ADMIN ignora esta flag
+  // sempre (permanece irrestrito, ver permissoesModulo.ts).
+  permissoes_personalizadas Boolean @default(false)
 
   tenant               Tenant                @relation(fields: [tenant_id], references: [id])
   passwordResetTokens  PasswordResetToken[]
+  permissoes           AdminUserPermissao[]
 
   @@index([tenant_id])
   @@map("admin_users")
+}
+
+// Override por módulo de um AdminUser específico — só é lido/aplicado
+// quando AdminUser.permissoes_personalizadas=true (ver permissoesModulo.ts).
+// Sem tenant_id próprio de propósito: isolamento entre tenants vem do
+// admin_user_id (que já pertence a exatamente um Tenant), mesmo princípio de
+// isolamento das demais tabelas filhas sem tenant_id direto (ver CLAUDE.md,
+// "Tabelas filhas... herdam isolamento do pai"). onDelete: Cascade — excluir
+// um AdminUser (hoje o produto só inativa via campo `ativo`, nunca exclui de
+// verdade, mas a FK precisa ser segura de qualquer forma) limpa as
+// permissões junto, nunca deixa linha órfã.
+model AdminUserPermissao {
+  id            String            @id @default(uuid())
+  admin_user_id String
+  modulo        ModuloPainel
+  nivel         NivelAcessoModulo @default(NENHUM)
+  criado_em     DateTime          @default(now())
+  atualizado_em DateTime          @updatedAt
+
+  adminUser AdminUser @relation(fields: [admin_user_id], references: [id], onDelete: Cascade)
+
+  @@unique([admin_user_id, modulo])
+  @@map("admin_user_permissoes")
 }
 
 // "Esqueci minha senha" self-service (ver server/src/controllers/auth.ts,

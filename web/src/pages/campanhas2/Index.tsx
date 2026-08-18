@@ -7,6 +7,8 @@ import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { get, post, put } from '../../services/api'
 import type { AparenciaWidget, Campanha, Sistema, TelaCatalogo } from '../../types'
 import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
+import { useAuth } from '../../hooks/useAuth'
+import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 import type { DestaqueFormItem, FormState, FormatoExibicao, TipoDestino } from './campanhaForm'
 import {
@@ -199,7 +201,10 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
   selecionada: TelaCatalogo | undefined
   disabled?: boolean
   onSelecionar: (telaId: string) => void
-  onCriar: (busca?: string) => void
+  // Opcional (Fase 5) — undefined quando o usuário não tem
+  // CONFIGURACOES.GERENCIAR, esconde o botão "+" e a sugestão "Criar tela".
+  // Selecionar uma tela já existente continua sempre disponível.
+  onCriar?: (busca?: string) => void
 }) {
   const [aberto, setAberto] = useState(false)
   const [busca, setBusca] = useState('')
@@ -226,7 +231,7 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
   const temIgual = termo
     ? telas.some(tela => [tela.nome, alvoTelaCatalogo(tela)].some(valor => valor.trim().toLowerCase() === termo))
     : false
-  const mostrarCriar = !disabled && Boolean(termo) && !temIgual
+  const mostrarCriar = !disabled && Boolean(termo) && !temIgual && Boolean(onCriar)
 
   return (
     <div className="relative" ref={ref}>
@@ -252,16 +257,18 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
             <span className={`material-symbols-outlined text-[18px] transition-transform ${aberto ? 'rotate-180' : ''}`}>expand_more</span>
           </button>
         </div>
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => { setAberto(false); setBusca(''); onCriar() }}
-          aria-label="Criar nova tela"
-          title="Criar nova tela"
-          className="flex w-9 shrink-0 items-center justify-center border-l border-[#dee3e9] text-[#0064e0] transition hover:bg-[#eff4ff] disabled:cursor-not-allowed disabled:bg-[#f8f9ff] disabled:text-[#8595a4]"
-        >
-          <span className="material-symbols-outlined text-[18px]">add</span>
-        </button>
+        {onCriar && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => { setAberto(false); setBusca(''); onCriar() }}
+            aria-label="Criar nova tela"
+            title="Criar nova tela"
+            className="flex w-9 shrink-0 items-center justify-center border-l border-[#dee3e9] text-[#0064e0] transition hover:bg-[#eff4ff] disabled:cursor-not-allowed disabled:bg-[#f8f9ff] disabled:text-[#8595a4]"
+          >
+            <span className="material-symbols-outlined text-[18px]">add</span>
+          </button>
+        )}
       </div>
 
       {aberto && !disabled && (
@@ -289,7 +296,7 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
             <div className="border-t border-[#dee3e9] p-2">
               <button
                 type="button"
-                onClick={() => { onCriar(busca.trim() || undefined); setAberto(false); setBusca('') }}
+                onClick={() => { onCriar?.(busca.trim() || undefined); setAberto(false); setBusca('') }}
                 className="flex w-full items-center gap-2 rounded-xl bg-[#0064e0] px-3 py-2.5 text-left text-[14px] font-bold text-white transition hover:bg-[#0457cb]"
               >
                 <span className="material-symbols-outlined text-[18px]">add</span>
@@ -313,8 +320,12 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
   setCampo: <K extends keyof FormState>(campo: K, valor: FormState[K]) => void
   setSecao: (secao: SecaoDock) => void
   onSelecionarTela: (telaId: string) => void
-  onAdicionarTela: (busca?: string) => void
-  onGerenciarSistemas: () => void
+  // Ambos opcionais (Fase 5) — undefined quando o usuário não tem
+  // CONFIGURACOES.GERENCIAR, escondendo os atalhos de criação inline (ver
+  // Campanhas2Index). Selecionar uma tela/sistema já existente continua
+  // sempre disponível, independente disso.
+  onAdicionarTela?: (busca?: string) => void
+  onGerenciarSistemas?: () => void
   onLimpar: () => void
   onPreview: () => void
 }) {
@@ -624,7 +635,7 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
                 {!sistemaSelecionado ? (
                   <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
                     {temSistemas ? 'Selecione um sistema no card para listar as telas cadastradas.' : 'Este cliente ainda não tem sistemas cadastrados. Crie um sistema antes de escolher telas para a campanha.'}
-                    {!temSistemas && (
+                    {!temSistemas && onGerenciarSistemas && (
                       <button
                         type="button"
                         onClick={onGerenciarSistemas}
@@ -1725,6 +1736,16 @@ export function Campanhas2Index() {
   const navigate = useNavigate()
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
+  const { user } = useAuth()
+  // Ajuste pós-revisão (Fase 5) — esta página só exige CAMPANHAS.GERENCIAR
+  // pra ser alcançada (ver App.tsx), mas dois atalhos aqui escrevem em
+  // CONFIGURACOES (criar sistema/tela inline, ver DockLateral/CardEditavel
+  // abaixo): POST /catalogo-telas e a navegação pra /configuracoes/sistemas.
+  // Sem essa checagem, um EDITOR (CAMPANHAS=GERENCIAR, CONFIGURACOES=NENHUM
+  // por padrão) via essas ações, que o backend/rota já bloqueariam — GET
+  // de catalogo-telas/sistemas (selecionar uma tela/sistema já existente)
+  // continua liberado pra qualquer papel, só a CRIAÇÃO inline é restrita.
+  const podeGerenciarConfiguracoes = podeGerenciarModulo(user, 'CONFIGURACOES')
   const [carregandoCampanha, setCarregandoCampanha] = useState(Boolean(id))
   const [erroCarregarCampanha, setErroCarregarCampanha] = useState<string | null>(null)
   const [form, setForm] = useState<FormState>(formInicial)
@@ -2008,7 +2029,7 @@ export function Campanhas2Index() {
                 onMostrarMidia={(posicao = 'topo') => { setMostrarMidia(true); setMediaPosition(posicao) }}
                 onRemoverMidia={removerMidia}
                 onMoverMidia={moverMidia}
-                onGerenciarSistemas={() => navigate('/configuracoes/sistemas')}
+                onGerenciarSistemas={podeGerenciarConfiguracoes ? () => navigate('/configuracoes/sistemas') : undefined}
               />
             )}
           </div>
@@ -2025,8 +2046,8 @@ export function Campanhas2Index() {
           setCampo={setCampo}
           setSecao={setSecaoDock}
           onSelecionarTela={selecionarTelaCatalogo}
-          onAdicionarTela={abrirModalNovaTela}
-          onGerenciarSistemas={() => navigate('/configuracoes/sistemas')}
+          onAdicionarTela={podeGerenciarConfiguracoes ? abrirModalNovaTela : undefined}
+          onGerenciarSistemas={podeGerenciarConfiguracoes ? () => navigate('/configuracoes/sistemas') : undefined}
           onLimpar={limparConstrutor}
           onPreview={() => setPreviewAberto(true)}
         />

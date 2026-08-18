@@ -575,6 +575,14 @@ export interface AdminUser {
   // decidir o redirect.
   senha_temporaria: boolean
   precisa_trocar_senha: boolean
+  // Fase 4 de permissões personalizadas (ver server/src/controllers/auth.ts,
+  // usuarioPublico) — permissoes_efetivas já vem calculada pelo backend
+  // (mesma nivelAcessoEfetivo que autoriza de verdade nas rotas, ver
+  // server/src/lib/permissoesModulo.ts); o front nunca recalcula essa regra
+  // sozinho, só lê o valor (ver utils/permissoesEfetivas.ts). Presente pros
+  // 4 módulos personalizáveis sempre, com ou sem permissoes_personalizadas.
+  permissoes_personalizadas: boolean
+  permissoes_efetivas: Record<ModuloPainel, NivelAcessoModulo>
   criado_em: string
   atualizado_em: string
   tenant: TenantResumo
@@ -638,8 +646,34 @@ export interface AdminDoTenant {
   email: string
   role: AdminRole
   ativo: boolean
+  // Fase 1/3 de permissões personalizadas por usuário — ver
+  // server/src/lib/permissoesModulo.ts e components/admin/PermissoesUsuarioModal.tsx.
+  // true = permissões por módulo são autoritativas pra este usuário (a role
+  // deixa de decidir sozinha); false = comportamento normal da role.
+  permissoes_personalizadas: boolean
   criado_em: string
   atualizado_em: string
+}
+
+// Fase 1/3 de permissões personalizadas por usuário — mesmos enums de
+// server/prisma/schema.prisma (ModuloPainel/NivelAcessoModulo). Billing/
+// Minha Assinatura nunca entra aqui (fica fora de CONFIGURACOES de
+// propósito, ver server/src/routes/billing.ts).
+export type ModuloPainel = 'CAMPANHAS' | 'TOURS' | 'JORNADAS' | 'CONFIGURACOES'
+export type NivelAcessoModulo = 'NENHUM' | 'VISUALIZAR' | 'GERENCIAR'
+
+// Resposta de GET/PUT/DELETE .../admins/:adminId/permissoes (ver
+// server/src/controllers/adminTenantsPermissoes.ts, montarRespostaPermissoes).
+// permissoes_efetivas reflete o que vale DE FATO agora (role OU matriz,
+// dependendo de permissoes_personalizadas); permissoes_personalizadas_salvas
+// mostra a matriz gravada mesmo quando a flag está desligada (null = módulo
+// sem linha salva) — é o que permite reativar sem perder a configuração
+// anterior (ver formularioInicialDePermissoes em utils/permissoesUsuario.ts).
+export interface PermissoesUsuario {
+  role: AdminRole
+  permissoes_personalizadas: boolean
+  permissoes_efetivas: Record<ModuloPainel, NivelAcessoModulo>
+  permissoes_personalizadas_salvas: Record<ModuloPainel, NivelAcessoModulo | null>
 }
 
 export interface TenantAdminItem {

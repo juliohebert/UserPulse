@@ -131,8 +131,11 @@ async function validarAdminInicial(body: TenantBody): Promise<
 }
 
 // Recorte devolvido pro admin de usuários já criados num tenant — nunca
-// password_hash.
-const SELECAO_ADMIN = { id: true, nome: true, email: true, role: true, ativo: true, criado_em: true, atualizado_em: true } as const
+// password_hash. permissoes_personalizadas (Fase 3 de permissões
+// personalizadas) entra aqui pra listarAdmins alimentar o indicador
+// "PERSONALIZADO" na tela de Acessos (ver Tenants.tsx) sem precisar de uma
+// chamada extra por usuário.
+const SELECAO_ADMIN = { id: true, nome: true, email: true, role: true, ativo: true, permissoes_personalizadas: true, criado_em: true, atualizado_em: true } as const
 
 export async function listar(req: Request, res: Response) {
   try {

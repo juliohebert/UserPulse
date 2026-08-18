@@ -3,7 +3,7 @@ import { Layout } from './components/layout/Layout'
 import { RequireAuth } from './components/auth/RequireAuth'
 import { RequireSuperAdmin } from './components/auth/RequireSuperAdmin'
 import { RequireSenhaAtualizada } from './components/auth/RequireSenhaAtualizada'
-import { RequireEscritaConteudo } from './components/auth/RequireEscritaConteudo'
+import { RequireAcessoModulo } from './components/auth/RequireAcessoModulo'
 import { RequireEscritaConfiguracao } from './components/auth/RequireEscritaConfiguracao'
 import { LoginPage } from './pages/Login'
 import { CadastroPage } from './pages/Cadastro'
@@ -57,42 +57,67 @@ export default function App() {
         <Route element={<RequireSenhaAtualizada />}>
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
-            <Route path="campanhas" element={<CampanhasIndex />} />
-            <Route path="campanhas/:id/dashboard" element={<CampanhaDashboard />} />
-            <Route path="campanhas/:id/preview" element={<CampanhaPreview />} />
-            <Route path="tours" element={<ToursIndex />} />
-            <Route path="tours/:id/preview" element={<TourPreview />} />
-            <Route path="tours/:id/dashboard" element={<TourDashboard />} />
-            <Route path="jornadas" element={<JornadasIndex />} />
             {/* Minha conta — sem guard de escrita/configuração: qualquer
                 papel autenticado só edita a própria senha aqui, nunca dados
                 de outra pessoa nem nada administrativo (ver MinhaConta.tsx,
                 reaproveita POST /auth/trocar-senha). */}
             <Route path="minha-conta" element={<MinhaContaPage />} />
-            {/* Criação/edição de campanhas, tours e jornadas (inclui o
-                Gravador de fluxo) — RBAC real: VIEWER nunca acessa, o
-                backend (requireEscritaConteudo) bloqueia com 403 mesmo se
-                alguém pular este guard (ver RequireEscritaConteudo.tsx).
-                tours/guia fica FORA (é só documentação de como criar tours,
-                sem ação de escrita — ok pra qualquer papel ler). */}
-            <Route element={<RequireEscritaConteudo />}>
+
+            {/* Fase 4 de permissões personalizadas — cada módulo (Campanhas/
+                Tours/Jornadas/Configurações) tem seu próprio guard de
+                VISUALIZAR (leitura, inclusive a rota em si) e de GERENCIAR
+                (criar/editar/gravador), em vez do antigo grupo único
+                "conteúdo" que tratava os 3 como uma coisa só (ver
+                RequireAcessoModulo.tsx). NENHUM no módulo bloqueia a rota
+                inteira, mesmo o acesso direto por URL — o backend
+                (requireAcessoModulo/requireEscritaConteudo, ver
+                server/src/middleware/) já bloqueia com 403 mesmo que
+                alguém contorne esta tela. */}
+            <Route element={<RequireAcessoModulo modulo="CAMPANHAS" nivel="VISUALIZAR" />}>
+              <Route path="campanhas" element={<CampanhasIndex />} />
+              <Route path="campanhas/:id/dashboard" element={<CampanhaDashboard />} />
+              <Route path="campanhas/:id/preview" element={<CampanhaPreview />} />
+            </Route>
+            <Route element={<RequireAcessoModulo modulo="CAMPANHAS" nivel="GERENCIAR" />}>
               <Route path="campanhas-2" element={<Navigate to="/campanhas/nova" replace />} />
               <Route path="campanhas/nova" element={<Campanhas2Index />} />
               <Route path="campanhas/:id/editar" element={<Campanhas2Index />} />
               <Route path="campanhas2/:id/editar" element={<Campanhas2Index />} />
+            </Route>
+
+            {/* tours/guia fica dentro do VISUALIZAR (é só documentação de
+                como criar tours, sem ação de escrita, mas ainda é conteúdo
+                do módulo TOURS — sem VISUALIZAR em TOURS, nem a documentação
+                aparece). */}
+            <Route element={<RequireAcessoModulo modulo="TOURS" nivel="VISUALIZAR" />}>
+              <Route path="tours" element={<ToursIndex />} />
+              <Route path="tours/:id/preview" element={<TourPreview />} />
+              <Route path="tours/:id/dashboard" element={<TourDashboard />} />
+              <Route path="tours/guia" element={<TourGuide />} />
+            </Route>
+            <Route element={<RequireAcessoModulo modulo="TOURS" nivel="GERENCIAR" />}>
               <Route path="tours/gravador" element={<TourGravador />} />
               <Route path="tours/novo" element={<TourForm />} />
               <Route path="tours/:id/editar" element={<TourForm />} />
+            </Route>
+
+            <Route element={<RequireAcessoModulo modulo="JORNADAS" nivel="VISUALIZAR" />}>
+              <Route path="jornadas" element={<JornadasIndex />} />
+            </Route>
+            <Route element={<RequireAcessoModulo modulo="JORNADAS" nivel="GERENCIAR" />}>
               <Route path="jornadas/novo" element={<JornadaForm />} />
               <Route path="jornadas/:id/editar" element={<JornadaForm />} />
             </Route>
-            <Route path="tours/guia" element={<TourGuide />} />
+
             {/* Configuração do tenant (aparência do widget, catálogo de
-                telas) — RBAC real: só ADMIN/SUPER_ADMIN, EDITOR e VIEWER
-                nunca acessam (ver RequireEscritaConfiguracao.tsx). Backend
-                (requireEscritaConfiguracao) bloqueia a escrita com 403 mesmo
-                se alguém pular este guard. */}
-            <Route element={<RequireEscritaConfiguracao />}>
+                telas, sistemas, integração) — desde a Fase 4, VISUALIZAR já
+                dá acesso de leitura à rota (antes era ADMIN/SUPER_ADMIN-only
+                mesmo pra ler, um mismatch com o backend que sempre deixou o
+                GET aberto, ver relatório da Fase 1); GERENCIAR (criar/
+                editar/excluir) é checado botão a botão dentro de cada
+                página (ver SistemasPage.tsx/catalogo/Index.tsx/
+                AparenciaWidget.tsx), não a rota inteira. */}
+            <Route element={<RequireAcessoModulo modulo="CONFIGURACOES" nivel="VISUALIZAR" />}>
               <Route path="configuracoes" element={<Navigate to="/configuracoes/sistemas" replace />} />
               <Route path="configuracoes/sistemas" element={<SistemasPage />} />
               <Route path="configuracoes/telas" element={<CatalogoTelasIndex />} />
@@ -102,13 +127,19 @@ export default function App() {
               <Route path="catalogo-telas" element={<Navigate to="/configuracoes/telas" replace />} />
               <Route path="aparencia-widget" element={<Navigate to="/configuracoes/aparencia" replace />} />
               <Route path="integracao" element={<Navigate to="/configuracoes/integracao" replace />} />
-              {/* Fase 5 — "Minha assinatura" (billing self-service). Mesmo
-                  guard de aparência/catálogo (ADMIN-only dentro do próprio
-                  tenant) porque billing é sensível o bastante pra restringir
-                  até a leitura, não só a escrita — mesma regra já aplicada
-                  no backend (requireEscritaConfiguracao em routes/billing.ts). */}
+            </Route>
+
+            {/* Fase 5 — "Minha assinatura" (billing self-service). Fica DE
+                PROPÓSITO fora do módulo CONFIGURACOES/da personalização (ver
+                RequireEscritaConfiguracao.tsx) — regra fechada da Fase 4:
+                Billing mantém exatamente o comportamento anterior
+                (ADMIN/SUPER_ADMIN, sem personalização), a mesma regra já
+                aplicada no backend (requireEscritaConfiguracao em
+                routes/billing.ts, nunca tocado pela Fase 1/2/4). */}
+            <Route element={<RequireEscritaConfiguracao />}>
               <Route path="minha-assinatura" element={<MinhaAssinatura />} />
             </Route>
+
             {/* Painel Super Admin — RequireSuperAdmin manda ADMIN comum de
                 volta pro dashboard; o backend (requireSuperAdmin.ts) também
                 bloqueia com 403, então nenhuma chamada de API teria sucesso

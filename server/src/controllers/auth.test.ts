@@ -1,12 +1,31 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { validarCadastroPublico, calcularTrialDatas, montarDadosCadastroPublico, motivoSenhaFraca } from './auth'
+import type { Plano, Tenant } from '@prisma/client'
+import { validarCadastroPublico, calcularTrialDatas, montarDadosCadastroPublico, motivoSenhaFraca, usuarioPublico } from './auth'
 
 // Fase 6B — cadastro público self-service. Só funções puras (sem Prisma/
 // banco), mesmo padrão de tenantGuards.test.ts/tours.test.ts — os caminhos
 // que tocam banco (checagem de e-mail duplicado, criação em transação,
 // resolução do plano trial via prisma.plano.findMany) são validados
 // manualmente contra um servidor local, documentado no relatório da fase.
+
+// Tenant mínimo só pra satisfazer o tipo de tenantPublico() — nenhum destes
+// campos importa pros testes de permissoes_efetivas abaixo.
+function tenantFake(): Tenant & { plano: Plano | null } {
+  return {
+    id: 't1', codigo: 1, nome: 'Acme', slug: 'acme', public_key: 'pk', status: 'ACTIVE',
+    trial_inicio: null, trial_fim: null, licenca_inicio: null, licenca_fim: null,
+    proxima_cobranca: null, ultimo_pagamento_em: null, observacao_comercial: null,
+    plano_id: null, plano_pendente_id: null, plano_pendente_payment_id: null,
+    valor_assinatura_atual: null, plano_downgrade_id: null, downgrade_efetivar_em: null,
+    downgrade_valor_origem: null, downgrade_valor_destino: null,
+    asaas_customer_id: null, asaas_subscription_id: null, asaas_status: null,
+    asaas_ultima_sincronizacao: null, billing_nome_responsavel: null, billing_email: null,
+    billing_cpf_cnpj: null, billing_telefone: null, billing_endereco: null, billing_numero: null,
+    billing_complemento: null, billing_bairro: null, billing_cidade: null, billing_estado: null,
+    billing_cep: null, criado_em: new Date(), atualizado_em: new Date(), plano: null,
+  } as unknown as Tenant & { plano: Plano | null }
+}
 
 describe('validarCadastroPublico — payload válido/inválido', () => {
   test('payload completo e válido é aceito', () => {
@@ -185,5 +204,75 @@ describe('montarDadosCadastroPublico — Tenant/AdminUser sempre a partir de val
       dados, slug: 'acme-ltda', planoTrialId: 'plano-trial-id', trialDias: 14, passwordHash: 'hash', agora,
     })
     assert.equal('plano_pendente_id' in tenantData, false)
+  })
+})
+
+// Fase 4 de permissões personalizadas — usuarioPublico() é a resposta de
+// login/me/trocar-senha/cadastro (ver comentário na função). permissoes_efetivas
+// reusa nivelAcessoEfetivo (lib/permissoesModulo.ts, já coberto por
+// permissoesModulo.test.ts) — aqui só confirma que usuarioPublico passa os
+// campos certos pra função certa, sem reimplementar a regra.
+function usuarioBase(over: Partial<Parameters<typeof usuarioPublico>[0]> = {}): Parameters<typeof usuarioPublico>[0] {
+  return {
+    id: 'u1', nome: 'Ana', email: 'ana@acme.com', role: 'EDITOR', ativo: true,
+    senha_temporaria: false, criado_em: new Date(), atualizado_em: new Date(),
+    tenant: tenantFake(), permissoes_personalizadas: false, permissoes: [],
+    ...over,
+  }
+}
+
+describe('usuarioPublico — permissoes_efetivas (Fase 4)', () => {
+  test('nunca inclui password_hash (nem no tipo de entrada, nem na saída)', () => {
+    const resp = usuarioPublico(usuarioBase())
+    assert.equal('password_hash' in resp, false)
+  })
+
+  test('permissoes_personalizadas=false — permissoes_efetivas reflete o padrão da role (sem regressão)', () => {
+    const resp = usuarioPublico(usuarioBase({ role: 'VIEWER', permissoes_personalizadas: false }))
+    assert.equal(resp.permissoes_personalizadas, false)
+    assert.equal(resp.permissoes_efetivas.CAMPANHAS, 'VISUALIZAR')
+    assert.equal(resp.permissoes_efetivas.TOURS, 'VISUALIZAR')
+    assert.equal(resp.permissoes_efetivas.JORNADAS, 'VISUALIZAR')
+    // CONFIGURACOES é NENHUM pra VIEWER/EDITOR sem personalização (ajuste
+    // pós-revisão da Fase 4) — antes da Fase 4 a rota inteira era
+    // ADMIN/SUPER_ADMIN-only, flag=false precisa preservar isso.
+    assert.equal(resp.permissoes_efetivas.CONFIGURACOES, 'NENHUM')
+  })
+
+  test('EDITOR, flag=false — CONFIGURACOES também é NENHUM (mesma regra de VIEWER)', () => {
+    const resp = usuarioPublico(usuarioBase({ role: 'EDITOR', permissoes_personalizadas: false }))
+    assert.equal(resp.permissoes_efetivas.CONFIGURACOES, 'NENHUM')
+  })
+
+  test('ADMIN, flag=false — CONFIGURACOES é GERENCIAR', () => {
+    const resp = usuarioPublico(usuarioBase({ role: 'ADMIN', permissoes_personalizadas: false }))
+    assert.equal(resp.permissoes_efetivas.CONFIGURACOES, 'GERENCIAR')
+  })
+
+  test('permissoes_personalizadas=true — permissoes_efetivas reflete a matriz salva, não a role', () => {
+    const resp = usuarioPublico(usuarioBase({
+      role: 'VIEWER',
+      permissoes_personalizadas: true,
+      permissoes: [
+        { modulo: 'CAMPANHAS', nivel: 'GERENCIAR' },
+        { modulo: 'TOURS', nivel: 'NENHUM' },
+      ],
+    }))
+    assert.equal(resp.permissoes_efetivas.CAMPANHAS, 'GERENCIAR')
+    assert.equal(resp.permissoes_efetivas.TOURS, 'NENHUM')
+    // Módulos sem linha salva = NENHUM, nunca herdam da role.
+    assert.equal(resp.permissoes_efetivas.JORNADAS, 'NENHUM')
+    assert.equal(resp.permissoes_efetivas.CONFIGURACOES, 'NENHUM')
+  })
+
+  test('SUPER_ADMIN sempre GERENCIAR em todos os módulos, com ou sem personalização', () => {
+    const semPersonalizacao = usuarioPublico(usuarioBase({ role: 'SUPER_ADMIN', permissoes_personalizadas: false }))
+    const comPersonalizacaoZerada = usuarioPublico(usuarioBase({
+      role: 'SUPER_ADMIN', permissoes_personalizadas: true, permissoes: [{ modulo: 'CAMPANHAS', nivel: 'NENHUM' }],
+    }))
+    for (const modulo of ['CAMPANHAS', 'TOURS', 'JORNADAS', 'CONFIGURACOES'] as const) {
+      assert.equal(semPersonalizacao.permissoes_efetivas[modulo], 'GERENCIAR')
+      assert.equal(comPersonalizacaoZerada.permissoes_efetivas[modulo], 'GERENCIAR')
+    }
   })
 })

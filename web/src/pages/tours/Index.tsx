@@ -9,7 +9,7 @@ import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/Empt
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useAuth } from '../../hooks/useAuth'
-import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
+import { podeGerenciarModulo, podeExcluirOuImportarModulo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
 
 const PAGE_SIZE = 10
@@ -110,12 +110,13 @@ function montarQueryTours(busca: string, sistema: string, passos: FiltroPassos, 
 
 export function ToursIndex() {
   const { user } = useAuth()
-  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — VIEWER
-  // só lê; esconder os botões aqui é só UX, o backend já bloqueia 403.
-  const podeEscrever = podeEscreverConteudo(user?.role)
+  // Fase 4 de permissões personalizadas (ver utils/permissions.ts) — VIEWER/
+  // NENHUM só lê; esconder os botões aqui é só UX, o backend já bloqueia 403.
+  const podeEscrever = podeGerenciarModulo(user, 'TOURS')
   // Excluir (hard delete) e importar tour — mais restrito que criar/editar:
-  // só ADMIN/SUPER_ADMIN, EDITOR não (ver comentário em utils/permissions.ts).
-  const podeExcluirOuImportar = podeExcluirOuImportarConteudo(user?.role)
+  // exige GERENCIAR e continua limitado a ADMIN/SUPER_ADMIN, mesmo com
+  // GERENCIAR personalizado (ver podeExcluirOuImportarModulo).
+  const podeExcluirOuImportar = podeExcluirOuImportarModulo(user, 'TOURS')
   const [data, setData] = useState<TourGuiadoListaPaginada | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -195,13 +196,22 @@ export function ToursIndex() {
   // sozinho, pra o usuário colar. O parâmetro nunca carrega o JSON em si (só
   // um sinal de "abra o modal"), e é removido da URL logo em seguida via
   // replaceState pra não reabrir o modal num refresh ou ao voltar a página.
+  //
+  // Ajuste pós-revisão (Fase 5) — o Gravador é gate GERENCIAR em TOURS, mas
+  // importar exige o teto mais restrito de podeExcluirOuImportar (ADMIN/
+  // SUPER_ADMIN). Um EDITOR alcança o Gravador (tem GERENCIAR) mas não deve
+  // ver o modal de importação, que o backend (POST /tours/importar) já
+  // bloquearia com 403 — sem essa checagem aqui, o link do widget abria o
+  // modal mesmo assim, inconsistente com o botão "Importar JSON" (já
+  // corretamente escondido pra EDITOR, ver podeExcluirOuImportar acima).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('importarJson') !== '1') return
+    window.history.replaceState({}, '', window.location.pathname)
+    if (!podeExcluirOuImportar) return
     setModalImportarAberto(true)
     setImportarViaGravador(true)
-    window.history.replaceState({}, '', window.location.pathname)
-  }, [])
+  }, [podeExcluirOuImportar])
 
   // page é sempre o pedido explicitamente por quem chama load() — nunca lido
   // de volta de `data` no meio do caminho, pra não haver corrida entre um

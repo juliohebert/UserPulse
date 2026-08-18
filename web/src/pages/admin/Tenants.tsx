@@ -1,16 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
-import { get, post, put } from '../../services/api'
-import type { AdminDoTenant, AdminRole, AsaasEventoTenant, AsaasVinculoTenant, AtualizarCobrancaResposta, CobrancaResumo, CobrancasAsaasResposta, DiagnosticoAsaasResposta, PlanoAdmin, SituacaoAsaasDecisao, TenantAdminItem, TenantStatus } from '../../types'
+import { get, post, put, del } from '../../services/api'
+import type { AdminDoTenant, AdminRole, AsaasEventoTenant, AsaasVinculoTenant, AtualizarCobrancaResposta, CobrancaResumo, CobrancasAsaasResposta, DiagnosticoAsaasResposta, ModuloPainel, NivelAcessoModulo, PermissoesUsuario, PlanoAdmin, SituacaoAsaasDecisao, TenantAdminItem, TenantStatus } from '../../types'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { Button } from '../../components/ui/Button'
+import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
 import { ConfirmDialog, type ConfirmDialogVariant } from '../../components/ui/ConfirmDialog'
 import { AdminSaasTabs } from '../../components/admin/AdminSaasTabs'
+import { PermissoesUsuarioModal } from '../../components/admin/PermissoesUsuarioModal'
 import { gerarSlug, formatDate, formatDateCivil, formatDateTime, formatarValorReais, toInputDate } from '../../utils/campanha'
 import {
   formatarCpfCnpj, formatarTelefone, formatarCep, formatarEstado,
   normalizarCpfCnpj, normalizarTelefone, normalizarCep, normalizarEmail, emailValido,
 } from '../../utils/mascaras'
+import {
+  formularioInicialDePermissoes, montarPayloadPermissoes, metodoParaSalvarPermissoes,
+  podeReceberPersonalizacao, rotuloIndicadorPersonalizacao, type FormPermissoes,
+} from '../../utils/permissoesUsuario'
 
 const STATUS_OPCOES: { value: TenantStatus; label: string }[] = [
   { value: 'TRIAL', label: 'Teste grátis' },
@@ -218,13 +224,17 @@ const ROLE_ACESSO_OPCOES: { value: AdminRole; label: string }[] = [
 ]
 
 // Descrição exibida abaixo do select "Papel" (ver card no formulário de
-// Acessos) — hoje é só INFORMATIVO: nenhuma rota de campanhas/tours/jornadas/
-// aparência/catálogo confere role para restringir escrita (só
-// requireSuperAdmin.ts confere role, e só pra bloquear rotas cross-tenant de
-// Gestão SaaS). ADMIN, EDITOR e VIEWER têm hoje o mesmo acesso de leitura e
-// escrita dentro do próprio tenant — este texto descreve o uso PRETENDIDO de
-// cada papel, não uma permissão já aplicada pelo backend. Implementar RBAC
-// de verdade é uma tarefa própria, fora de escopo aqui.
+// Acessos) — ATENÇÃO: comentário antigo aqui dizia que role era "só
+// informativo, sem RBAC de verdade no backend". Isso está desatualizado: o
+// backend aplica RBAC real por role (ver server/src/middleware/
+// requireEscritaTenant.ts — requireEscritaConteudo/
+// requireExclusaoOuImportacaoConteudo/requireEscritaConfiguracao) e, desde
+// a Fase 1/3 de permissões personalizadas, cada usuário pode ainda
+// substituir esse padrão por uma matriz própria por módulo (ver botão
+// "Personalizar permissões" na linha de cada acesso, abaixo, e
+// server/src/lib/permissoesModulo.ts). Este texto descreve o comportamento
+// PADRÃO de cada papel quando a personalização está desligada — a fonte de
+// verdade de autorização é sempre o backend, nunca esta string.
 const ROLE_DESCRICAO: Record<RoleAcessoCliente, string> = {
   ADMIN: 'Pode gerenciar campanhas, tours, jornadas, aparência, integrações e configurações do cliente. Não acessa Gestão SaaS.',
   EDITOR: 'Pode criar e editar campanhas, tours e jornadas do próprio cliente. Não gerencia plano, licença, integrações globais ou acessos.',
@@ -353,6 +363,17 @@ export function AdminTenantsIndex() {
   const [resetSaving, setResetSaving] = useState(false)
   const [resetError, setResetError] = useState<string | null>(null)
   const [resetSucesso, setResetSucesso] = useState<string | null>(null)
+
+  // Modal "Personalizar permissões" (Fase 3), empilhado por cima do modal de
+  // Acessos — mesmo z-[60]/estilo do mini-modal de reset de senha acima.
+  // permissoesForm começa null (nada renderiza até o GET inicial responder,
+  // ver abrirPermissoes) — nunca pré-preenche nada no cliente antes de saber
+  // o estado real salvo no servidor.
+  const [permissoesUsuarioAlvo, setPermissoesUsuarioAlvo] = useState<AdminDoTenant | null>(null)
+  const [permissoesForm, setPermissoesForm] = useState<FormPermissoes | null>(null)
+  const [permissoesLoading, setPermissoesLoading] = useState(false)
+  const [permissoesSaving, setPermissoesSaving] = useState(false)
+  const [permissoesError, setPermissoesError] = useState<string | null>(null)
 
   // Modal "Cobrança Asaas" — vínculo do tenant selecionado com o Asaas
   // (fundação/sandbox, ver server/src/services/asaasClient.ts). Nunca abre
@@ -709,6 +730,67 @@ export function AdminTenantsIndex() {
       setResetError(e instanceof Error ? e.message : 'Erro ao redefinir senha.')
     } finally {
       setResetSaving(false)
+    }
+  }
+
+  // Abre o modal e busca o estado real no servidor — nunca pré-preenche
+  // nada no cliente antes da resposta (ver "Carregamento" na tarefa: se a
+  // personalização já está ativa, usa a matriz efetiva; senão, preserva a
+  // última matriz salva pra eventual reativação, ou cai no padrão da role
+  // se nunca houve nada salvo — tudo decidido por
+  // formularioInicialDePermissoes, puro, testado em
+  // utils/permissoesUsuario.test.ts).
+  const abrirPermissoes = (acesso: AdminDoTenant) => {
+    if (!acessosModalTenant) return
+    setPermissoesUsuarioAlvo(acesso)
+    setPermissoesForm(null)
+    setPermissoesError(null)
+    setPermissoesLoading(true)
+    get<PermissoesUsuario>(`/admin/tenants/${acessosModalTenant.id}/admins/${acesso.id}/permissoes`)
+      .then(resp => setPermissoesForm(formularioInicialDePermissoes(resp)))
+      .catch(e => setPermissoesError(e instanceof Error ? e.message : 'Erro ao carregar permissões.'))
+      .finally(() => setPermissoesLoading(false))
+  }
+
+  const fecharPermissoes = () => {
+    setPermissoesUsuarioAlvo(null)
+    setPermissoesForm(null)
+    setPermissoesError(null)
+  }
+
+  const alternarPersonalizadoPermissoes = (v: boolean) => {
+    setPermissoesForm(prev => (prev ? { ...prev, personalizado: v } : prev))
+  }
+
+  const alterarNivelModuloPermissoes = (modulo: ModuloPainel, nivel: NivelAcessoModulo) => {
+    setPermissoesForm(prev => (prev ? { ...prev, matriz: { ...prev.matriz, [modulo]: nivel } } : prev))
+  }
+
+  // Switch ligado -> PUT com a matriz completa (sempre os 4 módulos,
+  // inclusive NENHUM, ver montarPayloadPermissoes); switch desligado ->
+  // DELETE (volta pro padrão da role, sem apagar a matriz salva no
+  // backend). Depois do sucesso, recarrega a lista de acessos (mesmo
+  // padrão de salvarAcesso/confirmarAlternarAtivoAcesso acima) — é o que
+  // atualiza o indicador PERSONALIZADO na linha, servindo de feedback de
+  // sucesso sem precisar de um sistema de toast que este app não tem.
+  const salvarPermissoes = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!acessosModalTenant || !permissoesUsuarioAlvo || !permissoesForm || permissoesSaving) return
+    setPermissoesSaving(true)
+    setPermissoesError(null)
+    const path = `/admin/tenants/${acessosModalTenant.id}/admins/${permissoesUsuarioAlvo.id}/permissoes`
+    try {
+      if (metodoParaSalvarPermissoes(permissoesForm.personalizado) === 'PUT') {
+        await put(path, montarPayloadPermissoes(permissoesForm.matriz))
+      } else {
+        await del(path)
+      }
+      fecharPermissoes()
+      carregarAcessos(acessosModalTenant.id)
+    } catch (e) {
+      setPermissoesError(e instanceof Error ? e.message : 'Erro ao salvar permissões.')
+    } finally {
+      setPermissoesSaving(false)
     }
   }
 
@@ -1422,7 +1504,14 @@ export function AdminTenantsIndex() {
               )}
 
               {!acessosLoading && acessos.length > 0 && (
-                <div className="rounded-xl border border-outline-variant divide-y divide-outline-variant overflow-hidden">
+                // overflow-hidden foi trocado por arredondar só a primeira/
+                // última linha (mesmo efeito visual do card) — com
+                // overflow-hidden, o tooltip do TooltipIconButton
+                // ("Personalizar permissões", ver ação abaixo) ficava
+                // cortado por este container sempre que a linha estava
+                // perto do topo da lista, já que o balão do tooltip
+                // aparece ACIMA do ícone (position: absolute, bottom-full).
+                <div className="rounded-xl border border-outline-variant divide-y divide-outline-variant [&>*:first-child]:rounded-t-xl [&>*:last-child]:rounded-b-xl">
                   {acessos.map(acesso => (
                     <div key={acesso.id} className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-surface-container-lowest transition-colors">
                       <div className="min-w-0">
@@ -1432,10 +1521,25 @@ export function AdminTenantsIndex() {
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${acesso.ativo ? 'bg-tertiary/10 text-tertiary' : 'bg-outline-variant/30 text-outline'}`}>
                             {acesso.ativo ? 'Ativo' : 'Inativo'}
                           </span>
+                          {rotuloIndicadorPersonalizacao(acesso.permissoes_personalizadas) && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-primary/10 text-primary">
+                              {rotuloIndicadorPersonalizacao(acesso.permissoes_personalizadas)}
+                            </span>
+                          )}
                         </div>
                         <p className="text-[12px] text-on-surface-variant truncate">{acesso.email}</p>
                       </div>
                       <div className="flex items-center gap-0.5 shrink-0">
+                        {podeReceberPersonalizacao(acesso.role) && (
+                          <TooltipIconButton
+                            label="Personalizar permissões"
+                            ariaLabel={`Personalizar permissões de ${acesso.nome}`}
+                            onClick={() => abrirPermissoes(acesso)}
+                            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">tune</span>
+                          </TooltipIconButton>
+                        )}
                         <button
                           onClick={() => abrirEditarAcesso(acesso)}
                           title="Editar"
@@ -1932,6 +2036,24 @@ export function AdminTenantsIndex() {
             )}
           </div>
         </div>
+      )}
+
+      {/* Modal "Personalizar permissões" (Fase 3) — empilhado por cima do
+          modal de Acessos, mesmo padrão do mini-modal de reset de senha
+          acima. Nunca aparece pra um acesso SUPER_ADMIN (ver
+          podeReceberPersonalizacao, botão condicional na linha do acesso). */}
+      {permissoesUsuarioAlvo && (
+        <PermissoesUsuarioModal
+          usuario={permissoesUsuarioAlvo}
+          loading={permissoesLoading}
+          saving={permissoesSaving}
+          error={permissoesError}
+          form={permissoesForm}
+          onClose={fecharPermissoes}
+          onSubmit={salvarPermissoes}
+          onTogglePersonalizado={alternarPersonalizadoPermissoes}
+          onChangeModulo={alterarNivelModuloPermissoes}
+        />
       )}
 
       {/* ConfirmDialog padrão (ver components/ui/ConfirmDialog.tsx) — substitui
