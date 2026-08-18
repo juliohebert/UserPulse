@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { validarSegmentacaoRegras, montarFunilPorPasso, montarResumoFeedback, montarWhereListaTours, normalizarPaginacaoTours } from './tours'
+import { validarSegmentacaoRegras, validarPassos, montarFunilPorPasso, montarResumoFeedback, montarWhereListaTours, normalizarPaginacaoTours } from './tours'
 
 // validarSegmentacaoRegras é a única peça de lógica de Segmentação de Tours
 // que vive no backend — decide o que criar()/atualizar()/importar() persistem
@@ -237,10 +237,17 @@ describe('montarWhereListaTours — filtros da listagem de Tours (GET /tours)', 
     assert.deepEqual(montarWhereListaTours({}), {})
   })
 
-  test('status legado é ignorado => sem where.ativo, igual a "sem filtro"', () => {
-    assert.deepEqual(montarWhereListaTours({ status: 'ativos' } as unknown as Parameters<typeof montarWhereListaTours>[0]), {})
-    assert.deepEqual(montarWhereListaTours({ status: 'inativos' } as unknown as Parameters<typeof montarWhereListaTours>[0]), {})
-    assert.deepEqual(montarWhereListaTours({ status: 'todos' } as unknown as Parameters<typeof montarWhereListaTours>[0]), {})
+  test('status=ativos => where.ativo=true', () => {
+    assert.deepEqual(montarWhereListaTours({ status: 'ativos' }), { ativo: true })
+  })
+
+  test('status=inativos => where.ativo=false', () => {
+    assert.deepEqual(montarWhereListaTours({ status: 'inativos' }), { ativo: false })
+  })
+
+  test('status=todos (ou qualquer outro valor) => sem where.ativo, igual a "sem filtro"', () => {
+    assert.deepEqual(montarWhereListaTours({ status: 'todos' }), {})
+    assert.deepEqual(montarWhereListaTours({ status: 'qualquer-coisa' }), {})
   })
 
   test('sistema preenchido => match exato, trimado', () => {
@@ -276,6 +283,53 @@ describe('montarWhereListaTours — filtros da listagem de Tours (GET /tours)', 
     const where = montarWhereListaTours({ busca: 'agenda', sistema: 'crm' })
     assert.equal(where.sistema, 'crm')
     assert.ok(Array.isArray(where.OR))
+  })
+
+  test('busca + sistema + status combinados => todos os filtros presentes juntos (AND implícito)', () => {
+    const where = montarWhereListaTours({ busca: 'agenda', sistema: 'crm', status: 'ativos' })
+    assert.equal(where.ativo, true)
+    assert.equal(where.sistema, 'crm')
+    assert.ok(Array.isArray(where.OR))
+  })
+})
+
+describe('validarPassos — regra "seletor obrigatório só pra ativar" (Tour.ativo controla o uso autônomo)', () => {
+  const PASSO_OK = { titulo: 'Passo 1', seletor: '[data-cy="botao"]' }
+  const PASSO_SEM_SELETOR = { titulo: 'Passo 1' }
+  const PASSO_SEM_TITULO = { seletor: '[data-cy="botao"]' }
+
+  test('lista vazia ou não-array => erro, mesmo com exigirSeletor=false (rascunho precisa de ao menos 1 passo)', () => {
+    assert.equal(validarPassos([], false).erro, 'O tour precisa ter ao menos um passo.')
+    assert.equal(validarPassos(undefined, false).erro, 'O tour precisa ter ao menos um passo.')
+  })
+
+  test('título é sempre obrigatório, independente de exigirSeletor', () => {
+    assert.match(validarPassos([PASSO_SEM_TITULO], false).erro!, /título é obrigatório/)
+    assert.match(validarPassos([PASSO_SEM_TITULO], true).erro!, /título é obrigatório/)
+  })
+
+  test('exigirSeletor=false (tour ainda rascunho) => passo sem seletor é aceito', () => {
+    const r = validarPassos([PASSO_SEM_SELETOR], false)
+    assert.equal(r.erro, null)
+    assert.equal(r.lista.length, 1)
+  })
+
+  test('exigirSeletor=true (ativando o tour) => passo sem seletor bloqueia', () => {
+    const r = validarPassos([PASSO_SEM_SELETOR], true)
+    assert.match(r.erro!, /seletor\/data-cy informado/)
+    assert.deepEqual(r.lista, [])
+  })
+
+  test('exigirSeletor=true com todos os passos preenchidos => sem erro', () => {
+    const r = validarPassos([PASSO_OK, { titulo: 'Passo 2', seletor: '#outro' }], true)
+    assert.equal(r.erro, null)
+    assert.equal(r.lista.length, 2)
+  })
+
+  test('modo de avanço com confirmação exige seletor_confirmacao só quando exigirSeletor=true', () => {
+    const passoSemConfirmacao = { ...PASSO_OK, modo_avanco_interacao: 'ao_aparecer_elemento' }
+    assert.equal(validarPassos([passoSemConfirmacao], false).erro, null)
+    assert.match(validarPassos([passoSemConfirmacao], true).erro!, /seletor de confirmação/)
   })
 })
 
@@ -316,7 +370,8 @@ describe('normalizarPaginacaoTours — clamp de page/pageSize da listagem de Tou
 // ─── O que ficou fora deste arquivo, e por quê ─────────────────────────────
 // criar()/atualizar()/duplicar()/exportar()/importar() em si (efeito de
 // verdade no banco: "salva null", "PUT sem campo preserva", "PUT null limpa",
-// "duplicar copia segmentacao_regras") não têm teste automatizado aqui — o
+// "duplicar copia segmentacao_regras", ativo real gravado/lido, rascunho por
+// padrão em criar/duplicar/importar) não têm teste automatizado aqui — o
 // projeto não tem infraestrutura de teste de integração HTTP+banco (sem
 // supertest, sem banco de teste isolado, sem mock de Prisma; o único padrão
 // de teste existente, mesmo antes desta feature, é função pura via
@@ -324,10 +379,15 @@ describe('normalizarPaginacaoTours — clamp de page/pageSize da listagem de Tou
 // a "improvisação grande" que a tarefa pediu para evitar. Esses fluxos foram
 // validados manualmente contra o servidor local real (curl) antes deste
 // commit: criar sem/com segmentação, PUT preservando/limpando, regra
-// inválida → 400 — e cada um deles depende SOMENTE de validarSegmentacaoRegras
-// (testada acima) + um repasse direto pro Prisma sem lógica própria — ver
-// criar()/atualizar() em tours.ts, onde o único branching é
-// `listaSegmentacao ?? Prisma.DbNull` / `...(listaSegmentacao && {...})`.
+// inválida → 400, criar/duplicar/importar nascendo inativos, PUT ativando com
+// passo sem seletor bloqueando (400) e liberando quando todos têm seletor,
+// bloqueio de plano/limite ao ativar — e cada um deles depende SOMENTE de
+// validarSegmentacaoRegras/validarPassos (ambas testadas acima) + guards de
+// tenantGuards.ts (motivoBloqueioAtivacao delega pra motivoBloqueioEscrita,
+// já testada em tenantGuards.test.ts; motivoRecursoNaoPermitido/
+// checarLimiteToursAtivos são triviais/dependem de Prisma) + um repasse
+// direto pro Prisma sem lógica própria adicional — ver criar()/atualizar()
+// em tours.ts.
 //
 // buscarDashboard (a rota em si — groupBy por passo_ordem, o findMany de
 // feedback_tour, e principalmente se os filtros de período/tour/cliente/
