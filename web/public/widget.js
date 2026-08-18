@@ -15,6 +15,15 @@
     submitted: false,
     error: '',
     timer: null,
+    // Timer de agendamento do destaque_elemento (agendarDestaqueElemento),
+    // separado de `timer` (auto-open do modal/track). Antes de existir,
+    // compartilhavam o mesmo slot — destaqueElementoSincronizarSelecao roda
+    // incondicionalmente a cada evaluateCampaigns() (mesmo quando a
+    // candidata da vez é modal_automatica, não destaque_elemento) e limpava
+    // esse timer achando que era um agendamento de destaque desatualizado;
+    // na prática, cancelava o auto-open do modal recém-selecionado, que
+    // nunca chegava a abrir mesmo com a campanha corretamente elegível.
+    destaqueTimer: null,
     visualizacaoRegistrada: false,
     scrollY: 0,
     bodyOverflow: '',
@@ -2372,12 +2381,12 @@
     var timer = window.setTimeout(function () {
       // Um callback cancelado/substituido nao interfere na selecao atual;
       // ao disparar, o timer ativo deixa de bloquear novos agendamentos.
-      if (state.timer !== timer) return;
-      state.timer = null;
+      if (state.destaqueTimer !== timer) return;
+      state.destaqueTimer = null;
       if (tourState.ativo) return;
       destaqueElementoMontarTodos(campanha, config);
     }, delay);
-    state.timer = timer;
+    state.destaqueTimer = timer;
   }
 
   // Chamada a cada reavaliação de candidatas de updateContext()/evaluateCampaigns()
@@ -2432,9 +2441,9 @@
         return;
       }
     }
-    if (state.timer) {
-      window.clearTimeout(state.timer);
-      state.timer = null;
+    if (state.destaqueTimer) {
+      window.clearTimeout(state.destaqueTimer);
+      state.destaqueTimer = null;
     }
     destaqueElementoDesmontarTodos();
     if (campanhaSelecionada) {
@@ -3051,6 +3060,10 @@
     if (state.timer) {
       window.clearTimeout(state.timer);
       state.timer = null;
+    }
+    if (state.destaqueTimer) {
+      window.clearTimeout(state.destaqueTimer);
+      state.destaqueTimer = null;
     }
     if (state.closeTimer) {
       window.clearTimeout(state.closeTimer);
@@ -10785,6 +10798,12 @@
     evaluateCampaigns: evaluateCampaigns,
     handleUrlChange: handleUrlChange,
     configSetTestState: configSetTestState,
+    // doClose: mesma função chamada pelo clique real no X do modal (ver
+    // bindEvents, [data-up-close]) — exposta pra simular "usuário fechou o
+    // modal" num teste sem precisar montar um clique de verdade. Só flipa
+    // state.open/campos de formulário e re-renderiza; nunca marca
+    // mostrar_uma_vez (isso é scheduleAutoOpen ao abrir, não o fechamento).
+    doClose: doClose,
     // wasShown/markShown já existiam (política de "mostrar_uma_vez"
     // compartilhada por qualquer formato de campanha, via localStorage) —
     // expostas aqui pra confirmar que Destaque em elemento reaproveita a
