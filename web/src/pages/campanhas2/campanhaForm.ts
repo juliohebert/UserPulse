@@ -211,6 +211,28 @@ export function resolverTipoDestino(form: Pick<FormState, 'gatilho' | 'modo_iden
   return 'tela'
 }
 
+// ─── Segmentação ────────────────────────────────────────────────────────
+// 'modo' não existe como campo persistido — é só uma lente da UI sobre os 5
+// arrays de segmentar_* que o backend de fato guarda (ver FormState). Fica
+// aqui (e não como useState hardcoded no componente) porque precisa ser
+// derivado do FormState já hidratado sempre que uma campanha é carregada
+// pra edição: sem isso, o seletor volta pro default 'todos' mesmo quando os
+// IDs de cliente/perfil já estão salvos e presentes no form (bug de
+// hidratação — ver campanhaForm.test.ts).
+export type ModoSegmentacao = 'todos' | 'cliente' | 'perfil' | 'combinada'
+
+export function resolverModoSegmentacao(form: Pick<FormState,
+  'segmentar_cliente_ids' | 'segmentar_unidade_ids' | 'segmentar_perfis' | 'segmentar_usuario_tipos' | 'segmentar_estados'
+>): ModoSegmentacao {
+  const temCliente = form.segmentar_cliente_ids.length > 0 || form.segmentar_unidade_ids.length > 0
+  const temPerfil = form.segmentar_perfis.length > 0 || form.segmentar_usuario_tipos.length > 0 || form.segmentar_estados.length > 0
+
+  if (temCliente && temPerfil) return 'combinada'
+  if (temCliente) return 'cliente'
+  if (temPerfil) return 'perfil'
+  return 'todos'
+}
+
 // ─── Hidratação: Campanha (API) -> FormState ───────────────────────────────
 // Espelha 1:1 os campos de Campanha (web/src/types.ts) — qualquer campo
 // existente no backend que não tenha um `?? valorPadrao` aqui e não seja
