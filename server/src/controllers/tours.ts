@@ -118,10 +118,16 @@ function getCamposObrigatorios(modo: string): string[] {
   return ['tela']
 }
 
-// Seletor pode ficar vazio enquanto o admin ainda está montando o conteúdo.
-// O status ativo/inativo do Tour é legado; disponibilidade final é definida
-// pela Jornada que referencia o tour.
-function validarPassos(passos: unknown, exigirSeletor: boolean): { erro: string | null; lista: PassoInput[] } {
+// Seletor só é obrigatório quando o tour vai ficar ativo (uso autônomo) — um
+// rascunho (ex.: recém-criado a partir de um template) pode ser salvo com
+// seletores vazios, mas não pode ser publicado (ativo: true) sem eles, já que
+// o widget depende do seletor para localizar o elemento na tela. Tour.ativo
+// não afeta o uso deste tour como etapa de Jornada — a Jornada sempre embute
+// o tour completo na resposta pública, independente de ativo (ver
+// buscarJornadas em widget.ts). Exportada (mesmo padrão de
+// validarSegmentacaoRegras) para ser testada direto em tours.test.ts, já que
+// é a única validação por trás de "ativar sem seletor bloqueia".
+export function validarPassos(passos: unknown, exigirSeletor: boolean): { erro: string | null; lista: PassoInput[] } {
   if (!Array.isArray(passos) || passos.length === 0) {
     return { erro: 'O tour precisa ter ao menos um passo.', lista: [] }
   }
@@ -153,15 +159,18 @@ function validarPassos(passos: unknown, exigirSeletor: boolean): { erro: string 
 export interface FiltrosListaTours {
   busca?: string
   sistema?: string
+  status?: string
   passos?: string
 }
 
-// Pura — monta só o where do Prisma a partir dos filtros da tela (busca por
-// título/sistema/slug/tela, sistema exato do dropdown e presença de passos).
-// Sem toque em Prisma/HTTP, testável direto
+// Pura — monta só o where do Prisma a partir dos filtros já usados hoje na
+// tela (busca por título/sistema/slug/tela, sistema exato do dropdown,
+// status ativos/inativos das abas). Sem toque em Prisma/HTTP, testável direto
 // (mesmo padrão de validarSegmentacaoRegras acima).
 export function montarWhereListaTours(filtros: FiltrosListaTours): Prisma.TourGuiadoWhereInput {
   const where: Prisma.TourGuiadoWhereInput = {}
+  if (filtros.status === 'ativos') where.ativo = true
+  else if (filtros.status === 'inativos') where.ativo = false
   if (filtros.passos === 'com') where.passos = { some: {} }
   else if (filtros.passos === 'sem') where.passos = { none: {} }
   if (filtros.sistema?.trim()) where.sistema = filtros.sistema.trim()
@@ -189,13 +198,14 @@ export function normalizarPaginacaoTours(page: unknown, perPage: unknown): { pag
   return { page: pageNum, perPage: perPageNum }
 }
 
-type SortKeyListaTours = 'tour' | 'sistema' | 'passos' | 'atualizado'
+type SortKeyListaTours = 'tour' | 'sistema' | 'status' | 'passos' | 'atualizado'
 
 function montarOrderByListaTours(sortKey?: string, sortDirection?: string): Prisma.TourGuiadoOrderByWithRelationInput {
   const direction = sortDirection === 'asc' ? 'asc' : 'desc'
   switch (sortKey as SortKeyListaTours) {
     case 'tour': return { titulo: direction }
     case 'sistema': return { sistema: direction }
+    case 'status': return { ativo: direction }
     case 'passos': return { passos: { _count: direction } }
     case 'atualizado': return { atualizado_em: direction }
     default: return { criado_em: 'desc' }
@@ -205,8 +215,8 @@ function montarOrderByListaTours(sortKey?: string, sortDirection?: string): Pris
 export async function listar(req: Request, res: Response) {
   try {
     const tenantId = req.adminUser!.tenant_id
-    const { busca, sistema, passos, page, pageSize, sortKey, sortDirection } = req.query as Record<string, string | undefined>
-    const where = { ...montarWhereListaTours({ busca, sistema, passos }), tenant_id: tenantId }
+    const { busca, sistema, status, passos, page, pageSize, sortKey, sortDirection } = req.query as Record<string, string | undefined>
+    const where = { ...montarWhereListaTours({ busca, sistema, status, passos }), tenant_id: tenantId }
     const orderBy = montarOrderByListaTours(sortKey, sortDirection)
 
     // Sem page/pageSize, devolve o array puro de sempre — compatibilidade com
@@ -289,7 +299,7 @@ export async function criar(req: Request, res: Response) {
     const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_tours')
     if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
 
-    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, passos, segmentacao_regras } = req.body
+    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras } = req.body
 
     if (!titulo?.trim() || !sistema?.trim()) {
       return res.status(400).json({ erro: 'titulo e sistema são obrigatórios.' })
@@ -303,15 +313,23 @@ export async function criar(req: Request, res: Response) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
     }
 
-    // `ativo` virou legado para Tour: disponibilidade é definida pela Jornada
-    // que referencia o tour. Mantemos true no banco para neutralizar dados
-    // antigos sem introduzir migration agora.
-    if (deveChecarLimiteCadastro(false, tenant.plano)) {
+    // Rascunho por padrão: um tour novo só fica ativo (elegível pro uso
+    // autônomo) se o pedido pedir isso explicitamente (o formulário admin já
+    // envia ativo: false por padrão). Não afeta uso como etapa de Jornada.
+    const ativoBool = ativo !== undefined ? Boolean(ativo) : false
+
+    if (ativoBool) {
+      const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
+      if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
+    }
+    // Fase 6D — em trial, o limite conta TOTAL cadastrado, então precisa
+    // checar mesmo criando com ativo:false (ver deveChecarLimiteCadastro).
+    if (deveChecarLimiteCadastro(ativoBool, tenant.plano)) {
       const limite = await checarLimiteToursAtivos(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
     }
 
-    const { erro: erroPassos, lista: listaPassos } = validarPassos(passos, false)
+    const { erro: erroPassos, lista: listaPassos } = validarPassos(passos, ativoBool)
     if (erroPassos) return res.status(400).json({ erro: erroPassos })
 
     const { erro: erroSegmentacao, lista: listaSegmentacao } = validarSegmentacaoRegras(segmentacao_regras)
@@ -331,7 +349,7 @@ export async function criar(req: Request, res: Response) {
         data_cy: data_cy?.trim() || null,
         url_contem: url_contem?.trim() || null,
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
-        ativo: true,
+        ativo: ativoBool,
         // Omitido (não Prisma.DbNull) quando não há regras — deixa a coluna
         // no default (NULL), igual a um tour criado antes desta feature existir.
         ...(listaSegmentacao && { segmentacao_regras: listaSegmentacao as unknown as Prisma.InputJsonValue }),
@@ -375,7 +393,7 @@ export async function atualizar(req: Request, res: Response) {
     })
     if (!existente) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
 
-    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, passos, segmentacao_regras } = req.body
+    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras } = req.body
 
     const modo = (modo_identificacao !== undefined ? modo_identificacao?.trim() : existente.modo_identificacao) as string
     if (!MODOS_IDENTIFICACAO.includes(modo)) {
@@ -387,11 +405,35 @@ export async function atualizar(req: Request, res: Response) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
     }
 
+    const ativoEfetivo = ativo !== undefined ? Boolean(ativo) : existente.ativo
+
+    // Só checa bloqueio/limite/recurso do plano quando a requisição está de
+    // fato LIGANDO o tour (false -> true) — mesmo raciocínio de
+    // campanhas.ts atualizar().
+    const ativandoAgora = ativo !== undefined && Boolean(ativo) && !existente.ativo
+    if (ativandoAgora) {
+      const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
+      if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
+      const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_tours')
+      if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
+      // excluirId: o próprio tour já existe (só está inativo) — não pode
+      // contar contra si mesmo na contagem de trial (ver checarLimiteToursAtivos).
+      const limite = await checarLimiteToursAtivos(tenantId, planoEfetivoParaLimite(tenant), existente.id)
+      if (limite) return res.status(403).json({ erro: limite })
+    }
+
     let listaPassos: PassoInput[] | null = null
     if (passos !== undefined) {
-      const { erro: erroPassos, lista } = validarPassos(passos, false)
+      const { erro: erroPassos, lista } = validarPassos(passos, ativoEfetivo)
       if (erroPassos) return res.status(400).json({ erro: erroPassos })
       listaPassos = lista
+    } else if (ativoEfetivo) {
+      // Ativando sem reenviar os passos (ex.: toggle rápido na listagem) —
+      // valida os passos já salvos, que são os que o widget vai usar.
+      const semSeletor = existente.passos.some(p => !p.seletor?.trim())
+      if (semSeletor) {
+        return res.status(400).json({ erro: 'Para ativar o tour, todos os passos precisam ter um seletor/data-cy informado.' })
+      }
     }
 
     // undefined = campo não enviado, não mexe no que já está salvo (mesmo
@@ -426,7 +468,7 @@ export async function atualizar(req: Request, res: Response) {
           ...(data_cy !== undefined && { data_cy: data_cy?.trim() || null }),
           ...(url_contem !== undefined && { url_contem: url_contem?.trim() || null }),
           ...(prioridade !== undefined && { prioridade: Number(prioridade) }),
-          ativo: true,
+          ...(ativo !== undefined && { ativo: Boolean(ativo) }),
           ...(segmentacaoInformada && { segmentacao_regras: (listaSegmentacao as unknown as Prisma.InputJsonValue) ?? Prisma.DbNull }),
           ...(listaPassos && {
             passos: {
@@ -503,9 +545,11 @@ export async function duplicar(req: Request, res: Response) {
     const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_tours')
     if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
 
-    // Em trial, o limite conta TOTAL cadastrado: sem esta checagem, duplicar
-    // seria um jeito de contornar o limite. Planos pagos continuam podendo
-    // duplicar livremente (deveChecarLimiteCadastro(false, plano)).
+    // Fase 6D — a cópia nasce sempre inativa (ver `ativo: false` abaixo), mas
+    // em trial o limite conta TOTAL cadastrado: sem esta checagem, duplicar
+    // seria um jeito de contornar o limite (nunca dispara o bloqueio de
+    // "ativação", já que a cópia nunca nasce ativa). Planos pagos continuam
+    // podendo duplicar livremente (deveChecarLimiteCadastro(false, plano)).
     if (deveChecarLimiteCadastro(false, tenant.plano)) {
       const limite = await checarLimiteToursAtivos(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
@@ -521,8 +565,9 @@ export async function duplicar(req: Request, res: Response) {
     const tituloCopia = `Cópia de ${original.titulo}`
     const slug = await slugUnico(tenantId, gerarSlugBase(tituloCopia))
 
-    // Copia sistema/destino e passos do original. Não herda os EventoTour do
-    // original — é um cadastro novo, sem histórico de exibição.
+    // Copia sistema/destino e passos do original. Fica inativo (rascunho) para
+    // não publicar automaticamente, e não herda os EventoTour do original —
+    // é um cadastro novo, sem histórico de exibição.
     const copia = await prisma.tourGuiado.create({
       data: {
         tenant_id: tenantId,
@@ -535,7 +580,7 @@ export async function duplicar(req: Request, res: Response) {
         data_cy: original.data_cy,
         url_contem: original.url_contem,
         prioridade: original.prioridade,
-        ativo: true,
+        ativo: false,
         ...(original.segmentacao_regras !== null && { segmentacao_regras: original.segmentacao_regras as Prisma.InputJsonValue }),
         passos: {
           create: original.passos.map(p => ({
@@ -616,8 +661,10 @@ export async function importar(req: Request, res: Response) {
     const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_tours')
     if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
 
-    // Em trial, o limite conta TOTAL cadastrado: mesmo raciocínio de duplicar()
-    // acima, senão importar vira outro jeito de contornar o limite.
+    // Fase 6D — tour importado nasce sempre inativo (ver "ativo do JSON é
+    // ignorado" mais abaixo), mas em trial o limite conta TOTAL cadastrado:
+    // mesmo raciocínio de duplicar() acima, senão importar vira outro jeito
+    // de contornar o limite.
     if (deveChecarLimiteCadastro(false, tenant.plano)) {
       const limite = await checarLimiteToursAtivos(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
@@ -645,8 +692,10 @@ export async function importar(req: Request, res: Response) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando no JSON importado: ${faltando.join(', ')}.` })
     }
 
-    // Reaproveita a mesma validação de passos. id/slug/ativo do JSON são
-    // ignorados: o tour importado ganha novo slug gerado a partir do título.
+    // Reaproveita a mesma validação de passos — sempre como rascunho, então
+    // seletor não é exigido (igual a aplicar um template). id/slug/ativo do
+    // JSON são ignorados: o tour importado nasce sempre inativo, com slug
+    // novo gerado a partir do título.
     const { erro: erroPassos, lista: listaPassos } = validarPassos(passos, false)
     if (erroPassos) return res.status(400).json({ erro: erroPassos })
 
@@ -669,7 +718,7 @@ export async function importar(req: Request, res: Response) {
         data_cy: data_cy?.trim() || null,
         url_contem: url_contem?.trim() || null,
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
-        ativo: true,
+        ativo: false,
         ...(listaSegmentacao && { segmentacao_regras: listaSegmentacao as unknown as Prisma.InputJsonValue }),
         passos: {
           create: listaPassos.map((p, i) => ({

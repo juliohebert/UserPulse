@@ -999,14 +999,22 @@ export async function registrarEventoUsuario(req: Request, res: Response) {
 
 export async function buscarTour(req: Request, res: Response) {
   try {
-    const { slug } = req.query
+    const { public_key, slug } = req.query
     if (!slug) return res.status(400).json({ erro: 'Informe slug.' })
 
-    // Tours não são mais uma experiência autônoma do widget. O runtime só pode
-    // iniciar um tour quando ele veio embutido em uma etapa de Jornada
-    // (/api/widget/jornadas). Manter esta rota retornando 404 preserva o
-    // contrato público sem permitir iniciar por slug/window.UserPulse.iniciarTour.
-    return res.status(404).json({ erro: 'Tour guiado disponível apenas dentro de uma jornada.' })
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.status(404).json({ erro: 'Nenhum tour guiado ativo encontrado.' })
+
+    // Tour.ativo controla só o uso autônomo (autoabertura/busca por slug) —
+    // um tour usado apenas dentro de Jornada continua podendo ficar inativo
+    // aqui (ver buscarJornadas, que embute o tour inteiro na etapa sem
+    // passar por esta rota).
+    const tour = await prisma.tourGuiado.findFirst({
+      where: { tenant_id: resolucao.tenantId, slug: String(slug), ativo: true },
+      include: { passos: { orderBy: { ordem: 'asc' } } },
+    })
+    if (!tour) return res.status(404).json({ erro: 'Nenhum tour guiado ativo encontrado.' })
+    res.json(ocultarTenantId(tour))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar tour guiado.' })
@@ -1051,13 +1059,54 @@ export async function buscarAparencia(req: Request, res: Response) {
 
 export async function buscarTourCandidatos(req: Request, res: Response) {
   try {
-    const { sistema } = req.query
+    const { public_key, sistema, tela, usuario_id } = req.query
     if (!sistema) return res.status(400).json({ erro: 'Informe sistema.' })
 
-    // Tours candidatos eram o mecanismo de autoabertura por sistema/tela. A
-    // partir de agora, tour só aparece dentro de Jornada; portanto o widget não
-    // recebe mais candidatos autônomos.
-    return res.json([])
+    const resolucao = await resolverTenantPublico(public_key)
+    if (!resolucao.ok) return res.json([])
+
+    // sistema_tela tours are filtered by tela server-side (tela deve corresponder).
+    // data_cy e url_contem são sempre incluídos — o widget valida no client.
+    // Segmentação por contexto (segmentacao_regras) é avaliada no client
+    // (avaliarSegmentacaoTour em widget.js) — o campo já vem no tour completo,
+    // sem filtro adicional aqui.
+    const modoFiltros: object[] = []
+    if (tela) modoFiltros.push({ modo_identificacao: 'sistema_tela', tela: String(tela) })
+    modoFiltros.push({ modo_identificacao: 'data_cy' })
+    modoFiltros.push({ modo_identificacao: 'url_contem' })
+
+    const tours = await prisma.tourGuiado.findMany({
+      where: { tenant_id: resolucao.tenantId, ativo: true, sistema: String(sistema), OR: modoFiltros },
+      orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
+      include: { passos: { orderBy: { ordem: 'asc' } } },
+    })
+
+    if (!usuario_id || tours.length === 0) {
+      return res.json(ocultarTenantId(tours))
+    }
+
+    const uidStr = String(usuario_id)
+
+    // Usuários de validação (mesma lista usada pelas campanhas) sempre veem o
+    // tour de novo, mesmo já tendo concluído/pulado — usado para QA repetir o fluxo.
+    if (isAlwaysShowUser(uidStr)) {
+      return res.json(ocultarTenantId(tours.map(t => ({ ...t, always_show_user: true }))))
+    }
+
+    // Reexibição mínima (MVP): não reabrir automaticamente um tour que este
+    // usuário já concluiu ou pulou. iniciarTour(slug) manual ignora este filtro
+    // (busca o tour direto por slug, não passa por aqui).
+    const jaVistos = await prisma.eventoTour.findMany({
+      where: {
+        usuario_id: uidStr,
+        tour_id: { in: tours.map(t => t.id) },
+        tipo_evento: { in: ['concluido', 'pulado'] },
+      },
+      select: { tour_id: true },
+    })
+    const vistos = new Set(jaVistos.map(e => e.tour_id))
+
+    res.json(ocultarTenantId(tours.filter(t => !vistos.has(t.id))))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar tours candidatos.' })

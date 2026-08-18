@@ -38,9 +38,13 @@ interface FormState {
   ativo: boolean
 }
 
+// Um tour novo começa com a exibição autônoma inativa — precisa ser testado
+// antes de ser ativado. ativo NÃO controla se o tour existe ou pode ser
+// usado: mesmo inativo, ele já pode ser adicionado como etapa de uma
+// Jornada normalmente (ver aviso no topo do formulário de criação).
 const EMPTY: FormState = {
   titulo: '', descricao: '', sistema: '', modo_identificacao: 'sistema_tela',
-  tela: '', data_cy: '', url_contem: '', prioridade: '0', ativo: true,
+  tela: '', data_cy: '', url_contem: '', prioridade: '0', ativo: false,
 }
 
 const PASSO_VAZIO: PassoState = {
@@ -239,19 +243,28 @@ function montarChecklist(form: FormState, passos: PassoState[]): ChecklistItem[]
     },
     {
       label: semSeletor === 0 ? 'Nenhum passo sem seletor' : `${semSeletor} passo${semSeletor === 1 ? '' : 's'} sem seletor`,
-      status: semSeletor === 0 ? 'ok' : 'aviso',
+      // Seletor vazio só bloqueia de verdade quando a exibição autônoma está
+      // ativa (handleSubmit) — com ela inativa, é só um aviso: o tour ainda
+      // pode ser salvo e usado como etapa de Jornada enquanto for revisado.
+      status: semSeletor === 0 ? 'ok' : (form.ativo ? 'critico' : 'aviso'),
       detalhe: semSeletor > 0 ? 'Necessário para o widget localizar o elemento na tela do usuário.' : undefined,
+    },
+    {
+      label: `Exibição autônoma: ${form.ativo ? 'Ativa' : 'Inativa'}`,
+      status: form.ativo ? 'ok' : 'neutro',
     },
   ]
 
-  if (algumIncompleto) {
+  if (form.ativo && algumIncompleto) {
     items.push({
-      label: 'Tour com passo incompleto',
-      status: semTitulo > 0 ? 'critico' : 'aviso',
-      detalhe: 'O tour pode ser salvo, mas revise seletores antes de adicioná-lo a uma jornada.',
+      label: 'Exibição autônoma ativa com passo incompleto',
+      status: 'critico',
+      detalhe: 'Existe passo sem título ou sem seletor. Complete os passos pendentes ou desative a exibição autônoma. O tour continua podendo ser usado em uma jornada enquanto isso.',
     })
+  } else if (!form.ativo) {
+    items.push({ label: 'Exibição autônoma inativa. O tour pode ser usado em uma jornada normalmente', status: 'neutro' })
   } else {
-    items.push({ label: 'Tour pronto para ser usado em uma jornada', status: 'ok' })
+    items.push({ label: 'Exibição autônoma ativa e pronta', status: 'ok' })
   }
 
   if (algumComCss) {
@@ -642,7 +655,7 @@ export function TourForm() {
           data_cy: t.data_cy ?? '',
           url_contem: t.url_contem ?? '',
           prioridade: String(t.prioridade ?? 0),
-          ativo: true,
+          ativo: t.ativo,
         })
         // Preserva a ordem já retornada pela API (buscarPorId ordena por
         // `ordem` — ver include em tours.ts) e o id de cada passo existente
@@ -765,9 +778,12 @@ export function TourForm() {
   // Preenche apenas título, descrição e passos base — sistema, modo de
   // identificação etc. não são tocados, e seletor/tipo de seletor ficam em
   // branco (dependem da tela real do sistema hospedeiro). Tudo continua
-  // editável normalmente depois de aplicado.
+  // editável normalmente depois de aplicado. ativo é forçado para false: como
+  // os seletores vêm vazios, a exibição autônoma não pode ser ativada até
+  // serem preenchidos (ver validação em handleSubmit) — o tour já pode,
+  // ainda assim, ser usado numa Jornada.
   const aplicarTemplate = (tpl: TourTemplate) => {
-    setForm(prev => ({ ...prev, titulo: tpl.titulo_sugerido, descricao: tpl.descricao_sugerida, ativo: true }))
+    setForm(prev => ({ ...prev, titulo: tpl.titulo_sugerido, descricao: tpl.descricao_sugerida, ativo: false }))
     setPassos(tpl.passos.map(p => ({
       titulo: p.titulo,
       descricao: p.descricao,
@@ -1072,11 +1088,12 @@ export function TourForm() {
   // Mesmo payload usado pelo "Salvar" normal (handleSubmit) e pela ação
   // rápida "Atualizar Tour existente" (atualizarTourComPassosColados, na
   // seção "Editar fluxo no sistema") — só os passos mudam entre os dois;
-  // título, sistema, tela, prioridade e segmentação sempre vêm do
-  // estado atual do formulário (form/regrasSegmentacao), nunca do gravador.
+  // título, sistema, tela, prioridade, ativo (exibição autônoma) e
+  // segmentação sempre vêm do estado atual do formulário
+  // (form/regrasSegmentacao), nunca do gravador. `...form` já inclui
+  // `ativo` com o valor real escolhido no formulário — nunca hardcoded.
   const montarPayloadTour = (passosParaEnviar: PassoState[]) => ({
     ...form,
-    ativo: true,
     descricao: form.descricao || null,
     tela: form.modo_identificacao === 'sistema_tela' ? form.tela : '',
     data_cy: form.modo_identificacao === 'data_cy' ? form.data_cy : null,
@@ -1102,6 +1119,17 @@ export function TourForm() {
     e.preventDefault()
     if (passos.length === 0 || passos.some(p => !p.titulo.trim())) {
       setError('Todo passo precisa de título preenchido.')
+      return
+    }
+    // Seletor só é exigido para ativar a exibição autônoma — com ela
+    // inativa, o tour pode ficar com seletores vazios (ex.: logo depois de
+    // aplicar um template) e ainda assim ser salvo e usado numa Jornada.
+    if (form.ativo && passos.some(p => !p.seletor.trim())) {
+      setError('Para ativar a exibição autônoma deste tour, todos os passos precisam ter um seletor/data-cy informado.')
+      return
+    }
+    if (form.ativo && passos.some(p => MODOS_AVANCO_COM_CONFIRMACAO.includes(p.modo_avanco_interacao) && !p.seletor_confirmacao.trim())) {
+      setError('Para ativar a exibição autônoma, os passos com avanço "quando outro elemento aparecer/sumir" precisam do seletor de confirmação.')
       return
     }
     if (segmentado && regrasSegmentacao.some(r => !r.campo || !r.valor.trim())) {
@@ -1225,6 +1253,12 @@ export function TourForm() {
       </div>
 
       <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px]">
+        {!isEdit && !form.ativo && (
+          <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px]">info</span>
+            Este tour começa com a exibição autônoma inativa. Teste antes de ativar; ele já pode ser usado como etapa de uma jornada normalmente.
+          </div>
+        )}
         {success && (
           <div className="mb-5 p-4 bg-tertiary/10 rounded-xl">
             <p className="text-body-md text-tertiary font-semibold flex items-center gap-2 mb-3">
@@ -1907,7 +1941,7 @@ export function TourForm() {
               iconBg="bg-tertiary-fixed"
               iconColor="text-tertiary"
               title="Configurações de exibição"
-              description="Prioridade entre tours elegíveis e status de publicação."
+              description="Prioridade entre tours elegíveis e exibição autônoma."
             />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
               <div>
@@ -1922,6 +1956,22 @@ export function TourForm() {
                 />
               </div>
 
+              <div>
+                <label className="block text-label-md text-on-surface-variant mb-1.5">Exibição autônoma</label>
+                <label className="relative inline-flex items-center cursor-pointer mt-1">
+                  <input
+                    type="checkbox"
+                    checked={form.ativo}
+                    onChange={e => set('ativo', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-outline-variant rounded-full peer peer-checked:bg-primary peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative" />
+                  <span className="ml-3 text-body-md text-on-surface">{form.ativo ? 'Ativa' : 'Inativa'}</span>
+                </label>
+                <p className="text-[12px] text-on-surface-variant mt-1.5 leading-relaxed">
+                  Quando ativada, este tour pode ser exibido automaticamente ou iniciado pela integração. Jornadas podem utilizá-lo independentemente desta configuração.
+                </p>
+              </div>
             </div>
           </div>
 

@@ -6087,10 +6087,59 @@
     renderTour();
   }
 
-  // Tours não autoabrem mais. Mantido como no-op porque init()/updateContext()
-  // ainda chamam esta função em instalações existentes do widget.
+  // Avalia automaticamente, no init() e a cada reavaliação de SPA (ver
+  // handleUrlChange), se há um tour guiado elegível para o contexto atual
+  // (mesmo princípio do checkMode usado para campanhas). Tour.ativo controla
+  // só este fluxo autônomo — o backend (buscarTourCandidatos) já filtra por
+  // ativo:true, então nunca chega aqui um candidato inativo. Não interfere
+  // com Jornada: jornadaEtapaClicar inicia o tour embutido na etapa direto
+  // via iniciarTour(), sem passar por esta função.
   function avaliarTourAutomatico(config) {
-    if (debugState.enabled) debugLog('Tour automático desativado', { sistema: config && config.sistema ? config.sistema : null });
+    // Central de ajuda aberta não pode ser coberta por um tour automático —
+    // o usuário abriu ela de propósito, então não compete por cima.
+    if (tourState.ativo || jornadaState.aberto || !config.sistema) {
+      if (debugState.enabled) {
+        debugLog('Tour automático — avaliação pulada', {
+          motivo: tourState.ativo ? 'já há um tour ativo' : (jornadaState.aberto ? 'Central de Jornadas aberta' : 'config sem "sistema"'),
+        });
+      }
+      return;
+    }
+    fetchTourCandidatos(config.sistema, config.tela, config.usuario_id, config.contexto)
+      .then(function (candidatos) {
+        if (tourState.ativo || jornadaState.aberto) return;
+        var selecionado = null;
+        var linhas = [];
+        for (var i = 0; i < candidatos.length; i++) {
+          var c = candidatos[i];
+          var okModo = checkMode(c, config);
+          var seg = avaliarSegmentacaoTour(c, config);
+          // Com usuario_id, confia no backend (já fez dedupe/reexibição). Sem
+          // usuario_id, o servidor não tem como identificar o usuário — cai
+          // no fallback localStorage.
+          var jaVisto = !config.usuario_id && tourWasShown(c);
+          if (debugState.enabled) {
+            var motivo;
+            if (!okModo) motivo = 'bloqueado: modo_identificacao não corresponde';
+            else if (!seg.ok) motivo = 'bloqueado por segmentação';
+            else if (jaVisto) motivo = 'bloqueado: já visto (localStorage)';
+            else motivo = selecionado ? 'elegível, porém outro tour de maior prioridade já selecionado' : 'selecionado';
+            linhas.push({
+              id: c.id,
+              titulo: c.titulo || null,
+              modo_identificacao: c.modo_identificacao || 'sistema_tela',
+              segmentacao: seg.motivo,
+              regra_que_falhou: seg.regraFalhou,
+              motivo: motivo,
+            });
+          }
+          if (!okModo || !seg.ok || jaVisto) continue;
+          if (!selecionado) selecionado = c;
+        }
+        if (debugState.enabled) debugLog('Tour automático — candidatos (' + config.tela + ')', linhas);
+        if (selecionado) aguardarAparenciaEIniciarTour(selecionado);
+      })
+      .catch(function () { /* fail silently */ });
   }
 
   // Adia iniciarTour() até a aparência (cor/logo) do sistema atual estar
@@ -9850,11 +9899,17 @@
     iniciarTour(tourPreview, false, true);
   }
 
-  // API pública mantida por compatibilidade, mas tour não dispara mais sozinho.
-  // Tours agora só iniciam a partir de uma etapa de Jornada, usando o objeto de
-  // tour embutido em /api/widget/jornadas (ver jornadaEtapaClicar).
-  function iniciarTourPublico() {
-    if (debugState.enabled) debugLog('Tour público bloqueado', { motivo: 'tour_disponivel_apenas_em_jornada' });
+  // API pública para disparar um tour manualmente (ex.: botão "Ver tour" no host):
+  //   window.UserPulse.iniciarTour('slug-do-tour')
+  // fetchTour(slug) só encontra tours com ativo:true (ver buscarTour no
+  // backend) — um tour inativo (rascunho) simplesmente não é encontrado,
+  // então não inicia por slug, sem precisar de checagem extra aqui.
+  // jornadaContexto (opcional, uso interno) — ver jornadaEtapaClicar/tourConcluir.
+  function iniciarTourPublico(slug, jornadaContexto) {
+    if (!slug) return;
+    fetchTour(slug).then(function (tour) {
+      if (tour) iniciarTour(tour, false, false, false, jornadaContexto);
+    }).catch(function () { /* fail silently */ });
   }
 
   // ─── Onboarding Guiado (Jornadas) — MVP ────────────────────────────────────
@@ -10798,6 +10853,14 @@
     evaluateCampaigns: evaluateCampaigns,
     handleUrlChange: handleUrlChange,
     configSetTestState: configSetTestState,
+    // Tour autônomo (avaliarTourAutomatico/iniciarTourPublico) + iniciarTour
+    // em si — exposta pra poder simular exatamente como uma etapa de Jornada
+    // inicia um tour (iniciarTour(tour, ..., jornadaContexto), sem passar
+    // por fetch nenhum), sem precisar clicar de verdade no painel de
+    // Jornadas. Ver server/src/widgetTourAutomatico.test.ts.
+    avaliarTourAutomatico: avaliarTourAutomatico,
+    iniciarTourPublico: iniciarTourPublico,
+    iniciarTour: iniciarTour,
     // doClose: mesma função chamada pelo clique real no X do modal (ver
     // bindEvents, [data-up-close]) — exposta pra simular "usuário fechou o
     // modal" num teste sem precisar montar um clique de verdade. Só flipa
