@@ -10,7 +10,7 @@ import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrl
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
-import type { DestaqueFormItem, FormState, FormatoExibicao, TipoDestino } from './campanhaForm'
+import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
   CATEGORIAS,
@@ -19,6 +19,7 @@ import {
   converterVideoEmbed,
   pareceUrlVideo,
   resolverTipoDestino,
+  resolverModoSegmentacao,
   hidratarFormState,
   montarPayloadCampanha,
 } from './campanhaForm'
@@ -27,7 +28,6 @@ type SecaoDock = 'destino' | 'exibicao' | 'feedback' | 'segmentacao'
 type PosicaoMidia = 'topo' | 'antes_cta'
 type FrequenciaExibicao = 'uma_vez' | 'ate_responder' | 'reexibir_depois'
 type AcaoFinalCampanha = 'feedback' | 'confirmacao' | 'visualizacao'
-type ModoSegmentacao = 'todos' | 'cliente' | 'perfil' | 'combinada'
 
 type AparenciaCard = Pick<AparenciaWidget, 'cor_principal' | 'logo_url'>
 
@@ -329,7 +329,11 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
   onLimpar: () => void
   onPreview: () => void
 }) {
-  const [modoSegmentacao, setModoSegmentacao] = useState<ModoSegmentacao>('todos')
+  // Inicializado a partir do form já hidratado (DockLateral só monta depois
+  // que carregandoCampanha vira false — ver early return em Index) em vez
+  // de hardcoded 'todos', senão o seletor mostrava "Todos" mesmo quando a
+  // campanha salva era "Por cliente"/"Por perfil"/combinada.
+  const [modoSegmentacao, setModoSegmentacao] = useState<ModoSegmentacao>(() => resolverModoSegmentacao(form))
   // Índice do destaque com os campos abertos pra edição — só 1 por vez
   // (mesmo padrão de "editar" expansível usado em outras listas do dock).
   const [destaqueExpandido, setDestaqueExpandido] = useState<number | null>(0)
