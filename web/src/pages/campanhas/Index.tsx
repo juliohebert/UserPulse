@@ -5,7 +5,7 @@ import { get, del, post, put } from '../../services/api'
 import type { Campanha, StatusCampanha } from '../../types'
 import { getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { useAuth } from '../../hooks/useAuth'
-import { podeEscreverConteudo } from '../../utils/permissions'
+import { podeGerenciarModulo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { CategoryBadge } from '../../components/ui/CategoryBadge'
@@ -290,9 +290,9 @@ function CampanhaCard({
 
 export function CampanhasIndex() {
   const { user } = useAuth()
-  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — VIEWER
-  // só lê; esconder os botões aqui é só UX, o backend já bloqueia 403.
-  const podeEscrever = podeEscreverConteudo(user?.role)
+  // Fase 4 de permissões personalizadas (ver utils/permissions.ts) — VIEWER/
+  // NENHUM só lê; esconder os botões aqui é só UX, o backend já bloqueia 403.
+  const podeEscrever = podeGerenciarModulo(user, 'CAMPANHAS')
   const [campanhas, setCampanhas] = useState<Campanha[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

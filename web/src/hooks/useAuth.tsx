@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { get, post, setUnauthorizedHandler } from '../services/api'
+import { get, post, setUnauthorizedHandler, setForbiddenHandler } from '../services/api'
 import type { AdminUser } from '../types'
+import { criarRefreshUnico } from '../utils/refreshUnico'
 
 interface AuthContextValue {
   user: AdminUser | null
@@ -37,12 +38,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // pra /login. Registrado uma vez, pro app inteiro (não só pra este effect).
     setUnauthorizedHandler(() => setUser(null))
 
+    // Fase 6 de permissões personalizadas — 403 de qualquer rota admin
+    // (autorização, não autenticação) dispara uma revalidação de /auth/me,
+    // pra Sidebar/rotas/botões refletirem uma permissão personalizada que o
+    // SUPER_ADMIN alterou enquanto este usuário já estava logado (o backend
+    // já aplica a mudança na hora; só o front ficava com permissoes_efetivas
+    // desatualizadas até reload/login). criarRefreshUnico garante no máximo
+    // 1 GET /auth/me em voo por vez, mesmo com vários 403 quase simultâneos
+    // (ver utils/refreshUnico.ts) — nunca um por 403, nunca um loop (api.ts
+    // nunca chama este handler pra respostas do próprio /auth/me). A
+    // request original que recebeu o 403 continua rejeitando normalmente
+    // pra quem chamou (nunca é repetida aqui); falha no próprio refresh
+    // (rede etc.) é silenciosa de propósito — nunca desloga por causa
+    // disso, só um 401 de verdade faz isso, via onUnauthorized acima.
+    const refrescarPermissoes = criarRefreshUnico(() =>
+      get<AdminUser>('/auth/me').then(setUser).catch(() => {})
+    )
+    setForbiddenHandler(() => { void refrescarPermissoes() })
+
     get<AdminUser>('/auth/me')
       .then(setUser)
       .catch(() => setUser(null))
       .finally(() => setLoading(false))
 
-    return () => setUnauthorizedHandler(null)
+    return () => {
+      setUnauthorizedHandler(null)
+      setForbiddenHandler(null)
+    }
   }, [])
 
   const login = async (email: string, senha: string) => {

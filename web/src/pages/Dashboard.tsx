@@ -9,10 +9,7 @@ import { LoadingSpinner, ErrorState } from "../components/ui/EmptyState";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { useAuth } from "../hooks/useAuth";
-import {
-  podeEscreverConteudo,
-  podeEscreverConfiguracao,
-} from "../utils/permissions";
+import { podeGerenciarModulo, podeVisualizarModulo } from "../utils/permissions";
 
 // ─── Building blocks ────────────────────────────────────────────────────────
 
@@ -143,10 +140,12 @@ function InsightCard({
 
 function OnboardingState({
   navigate,
-  podeEscrever,
+  podeCriarCampanha,
+  podeCriarTour,
 }: {
   navigate: (path: string) => void;
-  podeEscrever: boolean;
+  podeCriarCampanha: boolean;
+  podeCriarTour: boolean;
 }) {
   return (
     <div className="bg-surface rounded-3xl border border-outline-variant p-8 sm:p-12 text-center">
@@ -164,32 +163,32 @@ function OnboardingState({
         produto.
       </p>
       <div className="flex flex-wrap justify-center gap-3">
-        {podeEscrever && (
-          <>
-            <Button
-              onClick={() => navigate("/campanhas/nova")}
-              size="md"
-              iconLeft={
-                <span className="material-symbols-outlined text-[18px]">
-                  add_circle
-                </span>
-              }
-            >
-              Criar campanha
-            </Button>
-            <Button
-              onClick={() => navigate("/tours/novo")}
-              variant="ghost"
-              size="md"
-              iconLeft={
-                <span className="material-symbols-outlined text-[18px]">
-                  map
-                </span>
-              }
-            >
-              Criar tour guiado
-            </Button>
-          </>
+        {podeCriarCampanha && (
+          <Button
+            onClick={() => navigate("/campanhas/nova")}
+            size="md"
+            iconLeft={
+              <span className="material-symbols-outlined text-[18px]">
+                add_circle
+              </span>
+            }
+          >
+            Criar campanha
+          </Button>
+        )}
+        {podeCriarTour && (
+          <Button
+            onClick={() => navigate("/tours/novo")}
+            variant="ghost"
+            size="md"
+            iconLeft={
+              <span className="material-symbols-outlined text-[18px]">
+                map
+              </span>
+            }
+          >
+            Criar tour guiado
+          </Button>
         )}
         <Button
           onClick={() => navigate("/integracao")}
@@ -391,10 +390,14 @@ function trialModalKey(
 
 export function Dashboard() {
   const { user } = useAuth();
-  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — esconder
-  // aqui é só UX, o backend já bloqueia 403 em qualquer chamada de escrita.
-  const podeEscrever = podeEscreverConteudo(user?.role);
-  const podeConfig = podeEscreverConfiguracao(user?.role);
+  // Fase 4 de permissões personalizadas (ver utils/permissions.ts) —
+  // Campanhas e Tours são módulos independentes agora: GERENCIAR pode
+  // divergir entre os dois com personalização ativa, por isso não dá mais
+  // pra usar um único "podeEscrever" pros dois. Esconder aqui é só UX, o
+  // backend já bloqueia 403 em qualquer chamada de escrita.
+  const podeGerenciarCampanhas = podeGerenciarModulo(user, "CAMPANHAS");
+  const podeGerenciarTours = podeGerenciarModulo(user, "TOURS");
+  const podeVisualizarConfiguracoes = podeVisualizarModulo(user, "CONFIGURACOES");
   const [campanhas, setCampanhas] = useState<Campanha[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -604,32 +607,36 @@ export function Dashboard() {
             </h2>
             <p className="text-body-lg opacity-90 max-w-xl">{heroSubtitulo}</p>
           </div>
-          {podeEscrever && (
+          {(podeGerenciarCampanhas || podeGerenciarTours) && (
             <div className="flex flex-wrap gap-3 shrink-0">
-              <Button
-                onClick={() => navigate("/campanhas/nova")}
-                size="md"
-                className="!bg-white !text-primary"
-                iconLeft={
-                  <span className="material-symbols-outlined text-[18px]">
-                    add
-                  </span>
-                }
-              >
-                Nova campanha
-              </Button>
-              <Button
-                onClick={() => navigate("/tours/gravador")}
-                size="md"
-                className="bg-white text-black"
-                iconLeft={
-                  <span className="material-symbols-outlined text-[18px] text-red-500 ">
-                    radio_button_checked
-                  </span>
-                }
-              >
-                Gravar fluxo
-              </Button>
+              {podeGerenciarCampanhas && (
+                <Button
+                  onClick={() => navigate("/campanhas/nova")}
+                  size="md"
+                  className="!bg-white !text-primary"
+                  iconLeft={
+                    <span className="material-symbols-outlined text-[18px]">
+                      add
+                    </span>
+                  }
+                >
+                  Nova campanha
+                </Button>
+              )}
+              {podeGerenciarTours && (
+                <Button
+                  onClick={() => navigate("/tours/gravador")}
+                  size="md"
+                  className="bg-white text-on-surface"
+                  iconLeft={
+                    <span className="material-symbols-outlined text-[18px] text-red-500 ">
+                      radio_button_checked
+                    </span>
+                  }
+                >
+                  Gravar fluxo
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -699,16 +706,18 @@ export function Dashboard() {
               Ações rápidas
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              {podeEscrever && (
+              {podeGerenciarCampanhas && (
+                <AcaoRapida
+                  icon="add_circle"
+                  iconBg="bg-primary/10"
+                  iconColor="text-primary"
+                  title="Nova campanha"
+                  description="Crie um anúncio, pesquisa ou aviso para os usuários."
+                  onClick={() => navigate("/campanhas/nova")}
+                />
+              )}
+              {podeGerenciarTours && (
                 <>
-                  <AcaoRapida
-                    icon="add_circle"
-                    iconBg="bg-primary/10"
-                    iconColor="text-primary"
-                    title="Nova campanha"
-                    description="Crie um anúncio, pesquisa ou aviso para os usuários."
-                    onClick={() => navigate("/campanhas/nova")}
-                  />
                   <AcaoRapida
                     icon="map"
                     iconBg="bg-secondary/10"
@@ -735,7 +744,7 @@ export function Dashboard() {
                 description="Veja como instalar e configurar o widget."
                 onClick={() => navigate("/integracao")}
               />
-              {podeConfig && (
+              {podeVisualizarConfiguracoes && (
                 <AcaoRapida
                   icon="grid_view"
                   iconBg="bg-secondary/10"
@@ -749,7 +758,11 @@ export function Dashboard() {
           </div>
 
           {isEmpty ? (
-            <OnboardingState navigate={navigate} podeEscrever={podeEscrever} />
+            <OnboardingState
+              navigate={navigate}
+              podeCriarCampanha={podeGerenciarCampanhas}
+              podeCriarTour={podeGerenciarTours}
+            />
           ) : (
             <>
               {/* O que merece atenção */}
@@ -860,7 +873,7 @@ export function Dashboard() {
                                 </td>
                                 <td className="px-5 py-4">
                                   <div className="flex items-center justify-end gap-0.5 opacity-50 group-hover:opacity-100 transition-opacity">
-                                    {podeEscrever && (
+                                    {podeGerenciarCampanhas && (
                                       <button
                                         onClick={() =>
                                           navigate(`/campanhas/${c.id}/editar`)
@@ -886,7 +899,7 @@ export function Dashboard() {
                                         query_stats
                                       </span>
                                     </button>
-                                    {podeEscrever && (
+                                    {podeGerenciarCampanhas && (
                                       <button
                                         onClick={() => {
                                           setErroConfirmacao(null);
@@ -955,7 +968,7 @@ export function Dashboard() {
                               key={t.id}
                               onClick={() =>
                                 navigate(
-                                  podeEscrever
+                                  podeGerenciarTours
                                     ? `/tours/${t.id}/editar`
                                     : `/tours/${t.id}/dashboard`,
                                 )
@@ -980,7 +993,7 @@ export function Dashboard() {
                       </>
                     )}
 
-                    {podeEscrever && (
+                    {podeGerenciarTours && (
                       <Button
                         onClick={() => navigate("/tours/gravador")}
                         variant="ghost"
@@ -1015,7 +1028,7 @@ export function Dashboard() {
                               navigate(
                                 a.tipo === "campanha"
                                   ? `/campanhas/${a.id}/dashboard`
-                                  : podeEscrever
+                                  : podeGerenciarTours
                                     ? `/tours/${a.id}/editar`
                                     : `/tours/${a.id}/dashboard`,
                               )

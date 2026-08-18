@@ -1,9 +1,10 @@
 import { Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
-import { AdminRole, Plano, Prisma, Tenant, TenantStatus } from '@prisma/client'
+import { AdminRole, ModuloPainel, NivelAcessoModulo, Plano, Prisma, Tenant, TenantStatus } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { ADMIN_SESSION_COOKIE, SESSION_MAX_AGE, sessionCookieOptions, signSessionToken } from '../lib/auth'
 import { diasRestantesTolerancia, diasRestantesTrial, obterSituacaoComercialTenant, resolverDuracaoTrialDias, resolverPlanoTrial } from '../lib/tenantGuards'
+import { nivelAcessoEfetivo, type PermissaoModuloLinha } from '../lib/permissoesModulo'
 import { emailService } from '../lib/email/EmailService'
 import {
   REDEFINICAO_SENHA_VALIDADE_MINUTOS, calcularExpiracaoRedefinicaoSenha,
@@ -77,10 +78,26 @@ function tenantPublico(t: Tenant & { plano: Plano | null }) {
   }
 }
 
+// Fase 4 de permissões personalizadas — os 4 módulos personalizáveis do
+// painel, mesma lista de lib/permissoesModulo.ts (sem export de lá hoje,
+// duplicado aqui como já é feito em adminTenantsPermissoes.ts).
+const MODULOS_PAINEL = Object.values(ModuloPainel)
+
 // Nunca devolve password_hash — nem aqui, nem em /me. Sempre a mesma forma
-// reduzida do usuário em qualquer resposta de sucesso (login/me) — exportada
-// pra me() (abaixo) reaproveitar em cima de req.adminUser, sem duplicar o
-// formato do tenant/plano devolvido.
+// reduzida do usuário em qualquer resposta de sucesso (login/me/trocar-senha/
+// cadastro) — exportada pra me() (abaixo) reaproveitar em cima de
+// req.adminUser, sem duplicar o formato do tenant/plano devolvido.
+//
+// permissoes_efetivas (Fase 4) reusa nivelAcessoEfetivo (lib/
+// permissoesModulo.ts) — a MESMA função pura que os middlewares
+// (requireAcessoModulo/requireEscritaTenant.ts) usam pra autorizar de
+// verdade. Nunca uma segunda implementação da regra aqui: o front só lê o
+// resultado já calculado, exatamente como já faz com situacao_comercial
+// (ver tenantPublico acima). Sem query adicional — quem chama
+// usuarioPublico() já trouxe permissoes_personalizadas/permissoes no mesmo
+// SELECT que buscou o resto do usuário (ver login/me/trocarSenha/cadastro
+// abaixo; me() nem precisa disso, req.adminUser já vem populado por
+// requireAdminAuth.ts).
 export function usuarioPublico(u: {
   id: string
   nome: string
@@ -91,7 +108,17 @@ export function usuarioPublico(u: {
   criado_em: Date
   atualizado_em: Date
   tenant: Tenant & { plano: Plano | null }
+  permissoes_personalizadas: boolean
+  permissoes: PermissaoModuloLinha[]
 }) {
+  const permissoes_efetivas = {} as Record<ModuloPainel, NivelAcessoModulo>
+  for (const modulo of MODULOS_PAINEL) {
+    permissoes_efetivas[modulo] = nivelAcessoEfetivo(
+      { role: u.role, permissoes_personalizadas: u.permissoes_personalizadas, permissoes: u.permissoes },
+      modulo
+    )
+  }
+
   return {
     id: u.id,
     nome: u.nome,
@@ -106,6 +133,8 @@ export function usuarioPublico(u: {
     // qual campo é o "estado" e qual é a "decisão" derivada dele.
     senha_temporaria: u.senha_temporaria,
     precisa_trocar_senha: u.senha_temporaria,
+    permissoes_personalizadas: u.permissoes_personalizadas,
+    permissoes_efetivas,
     criado_em: u.criado_em,
     atualizado_em: u.atualizado_em,
     tenant: tenantPublico(u.tenant),
@@ -124,7 +153,12 @@ export async function login(req: Request, res: Response) {
 
     const usuario = await prisma.adminUser.findUnique({
       where: { email: email.trim().toLowerCase() },
-      include: { tenant: { include: { plano: true } } },
+      // permissoes (Fase 4) no mesmo SELECT que já busca tenant/plano —
+      // nunca uma query própria por módulo (mesmo raciocínio de
+      // requireAdminAuth.ts). permissoes_personalizadas já vem junto por
+      // ser coluna escalar de AdminUser (sem select explícito, Prisma
+      // sempre traz todos os escalares).
+      include: { tenant: { include: { plano: true } }, permissoes: true },
     })
     // Mesma mensagem genérica pra "usuário não existe", "inativo" e "senha
     // errada" — nunca revelar qual dessas três é o motivo real (evita um
@@ -236,7 +270,14 @@ export async function trocarSenha(req: Request, res: Response) {
     const token = signSessionToken({ sub: atualizado.id, email: atualizado.email, role: atualizado.role })
     res.cookie(ADMIN_SESSION_COOKIE, token, { ...sessionCookieOptions(), maxAge: SESSION_MAX_AGE })
 
-    res.json(usuarioPublico(atualizado))
+    // Troca de senha nunca mexe em permissão — reaproveita o que
+    // requireAdminAuth já carregou pra req.adminUser no início do request
+    // (Fase 4), em vez de pedir permissoes de novo nas duas queries acima.
+    res.json(usuarioPublico({
+      ...atualizado,
+      permissoes_personalizadas: req.adminUser!.permissoes_personalizadas,
+      permissoes: req.adminUser!.permissoes,
+    }))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao trocar senha.' })
@@ -539,7 +580,11 @@ export async function cadastro(req: Request, res: Response) {
       )
       .catch(err => console.error(`Erro ao enviar e-mail de boas-vindas (usuário ${criado.id}):`, err))
 
-    res.status(201).json(usuarioPublico(criado))
+    // Cadastro cria o AdminUser agora mesmo, na mesma transação acima —
+    // nunca existe nenhuma linha de AdminUserPermissao pra ele ainda
+    // (permissoes_personalizadas já nasce false, valor default da coluna).
+    // Sem query adicional: não há nada pra buscar.
+    res.status(201).json(usuarioPublico({ ...criado, permissoes: [] }))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao concluir o cadastro.' })

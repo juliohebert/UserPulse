@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import type { Campanha, Jornada, TourGuiadoListaPaginada } from '../../types'
-import { podeEscreverConteudo } from '../../utils/permissions'
+import type { Campanha, Jornada, ModuloPainel, TourGuiadoListaPaginada } from '../../types'
+import { podeGerenciarModulo } from '../../utils/permissions'
 import { get } from '../../services/api'
 
 interface Props {
@@ -10,10 +10,14 @@ interface Props {
   onOpenMobileSidebar: () => void
 }
 
-const opcoesNovo = [
-  { label: 'Campanha', description: 'Criar comunicado, melhoria ou pesquisa.', icon: 'campaign', to: '/campanhas/nova' },
-  { label: 'Jornada', description: 'Criar uma trilha de etapas guiadas.', icon: 'route', to: '/jornadas/novo' },
-  { label: 'Tour', description: 'Criar um passo a passo dentro do produto.', icon: 'map', to: '/tours/novo' },
+// Cada atalho de criação pertence a um módulo diferente (Fase 4) — não dá
+// mais pra esconder os 3 atrás de um único booleano "pode escrever
+// conteúdo", já que GERENCIAR pode divergir entre CAMPANHAS/JORNADAS/TOURS
+// com personalização ativa (ver opcoesNovoDisponiveis abaixo).
+const opcoesNovo: { label: string; description: string; icon: string; to: string; modulo: ModuloPainel }[] = [
+  { label: 'Campanha', description: 'Criar comunicado, melhoria ou pesquisa.', icon: 'campaign', to: '/campanhas/nova', modulo: 'CAMPANHAS' },
+  { label: 'Jornada', description: 'Criar uma trilha de etapas guiadas.', icon: 'route', to: '/jornadas/novo', modulo: 'JORNADAS' },
+  { label: 'Tour', description: 'Criar um passo a passo dentro do produto.', icon: 'map', to: '/tours/novo', modulo: 'TOURS' },
 ]
 
 type ResultadoBusca = {
@@ -49,7 +53,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuth()
-  const podeCriarConteudo = podeEscreverConteudo(user?.role)
+  const opcoesNovoDisponiveis = opcoesNovo.filter(o => podeGerenciarModulo(user, o.modulo))
 
   useEffect(() => {
     if (!novoAberto) return
@@ -266,7 +270,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
       </form>
 
       <div className="flex items-center gap-1.5 sm:gap-2 ml-3 sm:ml-5">
-        {podeCriarConteudo && (
+        {opcoesNovoDisponiveis.length > 0 && (
           <div className="relative" ref={novoRef}>
             <button
               type="button"
@@ -280,7 +284,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
             </button>
             {novoAberto && (
               <div className="absolute right-0 z-50 mt-2 w-72 origin-top-right overflow-hidden rounded-3xl border border-outline-variant bg-surface p-2 shadow-panel animate-[novo-menu-in_240ms_cubic-bezier(0.16,1,0.3,1)]" role="menu">
-                {opcoesNovo.map((opcao, index) => (
+                {opcoesNovoDisponiveis.map((opcao, index) => (
                   <button
                     key={opcao.to}
                     type="button"
