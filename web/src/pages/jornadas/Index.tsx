@@ -8,7 +8,7 @@ import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/Empt
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useAuth } from '../../hooks/useAuth'
-import { podeEscreverConteudo, podeExcluirOuImportarConteudo } from '../../utils/permissions'
+import { podeGerenciarModulo, podeExcluirOuImportarModulo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
 
 const PER_PAGE = 10
@@ -125,12 +125,13 @@ function StatusBadge({ ativo }: { ativo: boolean }) {
 
 export function JornadasIndex() {
   const { user } = useAuth()
-  // RBAC real (ver server/src/middleware/requireEscritaTenant.ts) — VIEWER
-  // só lê; esconder os botões aqui é só UX, o backend já bloqueia 403.
-  const podeEscrever = podeEscreverConteudo(user?.role)
+  // Fase 4 de permissões personalizadas (ver utils/permissions.ts) — VIEWER/
+  // NENHUM só lê; esconder os botões aqui é só UX, o backend já bloqueia 403.
+  const podeEscrever = podeGerenciarModulo(user, 'JORNADAS')
   // Excluir jornada é hard delete (ver controller) — mais restrito que
-  // criar/editar: só ADMIN/SUPER_ADMIN, EDITOR não.
-  const podeExcluir = podeExcluirOuImportarConteudo(user?.role)
+  // criar/editar: exige GERENCIAR e continua limitado a ADMIN/SUPER_ADMIN,
+  // mesmo com GERENCIAR personalizado (ver podeExcluirOuImportarModulo).
+  const podeExcluir = podeExcluirOuImportarModulo(user, 'JORNADAS')
   const [jornadas, setJornadas] = useState<Jornada[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

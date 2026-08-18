@@ -3,13 +3,16 @@ import { useAuth } from '../../hooks/useAuth'
 import { EmptyState } from '../ui/EmptyState'
 import { podeEscreverConfiguracao } from '../../utils/permissions'
 
-// Protege as telas de configuração do tenant (Aparência do Widget, Catálogo
-// de Telas) — EDITOR e VIEWER nunca chegam aqui, só ADMIN/SUPER_ADMIN. Só
-// UX: o backend (requireEscritaConfiguracao, ver
-// server/src/middleware/requireEscritaTenant.ts) já bloqueia a escrita com
-// 403 mesmo que alguém contorne esta tela; aqui a tela inteira fica restrita
-// porque as duas páginas são formulários únicos de visualizar+editar, sem
-// versão só-leitura.
+// Fase 4 de permissões personalizadas — ATENÇÃO: desde esta fase, este guard
+// protege SÓ Billing/Minha Assinatura (/minha-assinatura em App.tsx), nunca
+// mais as telas de Configurações (aparência/catálogo/sistemas/integração) —
+// essas migraram pra RequireAcessoModulo modulo="CONFIGURACOES" (ver
+// App.tsx e RequireAcessoModulo.tsx), que respeita permissão personalizada.
+// Billing fica de propósito fora da nova permissão por módulo (regra
+// fechada da tarefa) — continua 100% Set-based (podeEscreverConfiguracao,
+// ADMIN/SUPER_ADMIN, sem personalização), mesmo comportamento de sempre. Só
+// UX: o backend (requireEscritaConfiguracao em routes/billing.ts) já
+// bloqueia com 403 mesmo que alguém contorne esta tela.
 export function RequireEscritaConfiguracao() {
   const { user } = useAuth()
 
@@ -19,7 +22,7 @@ export function RequireEscritaConfiguracao() {
         <EmptyState
           icon="lock"
           title="Acesso restrito"
-          description="Apenas administradores podem acessar as configurações do cliente (aparência do widget, catálogo de telas). Peça a um administrador do seu time se precisar de acesso."
+          description="Apenas administradores podem acessar Minha Assinatura. Peça a um administrador do seu time se precisar de acesso."
         />
       </div>
     )

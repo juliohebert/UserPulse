@@ -9,6 +9,21 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
   onUnauthorized = fn
 }
 
+// Chamado a cada resposta 403 de qualquer rota admin, EXCETO a do próprio
+// /auth/me — quem registra é AuthProvider (ver hooks/useAuth.tsx), que
+// reage buscando /auth/me de novo pra atualizar permissoes_efetivas em
+// memória (backend já aplica mudança de permissão na hora; o front só
+// ficava desatualizado até reload/login). Nunca dispara pra /auth/me em si:
+// evita a própria chamada de refresh reentrar aqui e encadear outra
+// (looping), e evita reagir caso /auth/me alguma vez responda 403. Trata só
+// como um sinal ("algo mudou, revalide") — nunca repete a request original
+// nem mexe na mensagem de erro que ela já lança pra quem chamou (ver
+// tratamento de !res.ok abaixo, inalterado).
+let onForbidden: (() => void) | null = null
+export function setForbiddenHandler(fn: (() => void) | null): void {
+  onForbidden = fn
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const merged: RequestInit = {
     ...init,
@@ -19,6 +34,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const res = await fetch(`${BASE}${path}`, merged)
   if (res.status === 401) onUnauthorized?.()
+  if (res.status === 403 && path !== '/auth/me') onForbidden?.()
   if (!res.ok) {
     const text = await res.text()
     let message = text
@@ -50,6 +66,7 @@ export const del = (path: string) => request<void>(path, { method: 'DELETE' })
 export const getBlob = (path: string): Promise<Blob> =>
   fetch(`${BASE}${path}`, { credentials: 'include' }).then(res => {
     if (res.status === 401) onUnauthorized?.()
+    if (res.status === 403 && path !== '/auth/me') onForbidden?.()
     if (!res.ok) throw new Error('Erro ao baixar arquivo')
     return res.blob()
   })

@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import { podeEscreverConfiguracao } from '../../utils/permissions'
+import { podeEscreverConfiguracao, podeVisualizarModulo } from '../../utils/permissions'
 
 type LinkItem = { icon: string; label: string; to: string }
 type ActionItem = { icon: string; label: string; action: 'configuracoes' }
 type Item = LinkItem | ActionItem
 
-const navItemsConfiguracao: Item[] = [
-  { icon: 'settings', label: 'Configurações', action: 'configuracoes' },
-  { icon: 'receipt_long', label: 'Minha Assinatura', to: '/minha-assinatura' },
-]
+// "Configurações" (submenu) e "Minha Assinatura" NÃO são mais o mesmo item
+// agrupado (Fase 4) — o primeiro segue VISUALIZAR no módulo CONFIGURACOES
+// (personalizável), o segundo continua na regra antiga de billing
+// (podeEscreverConfiguracao, ADMIN/SUPER_ADMIN, nunca personalizado — ver
+// utils/permissions.ts). Cada um é adicionado a itemsPrincipais
+// separadamente, com seu próprio guard.
+const ITEM_CONFIGURACOES: ActionItem = { icon: 'settings', label: 'Configurações', action: 'configuracoes' }
+const ITEM_MINHA_ASSINATURA: LinkItem = { icon: 'receipt_long', label: 'Minha Assinatura', to: '/minha-assinatura' }
 
 const navItemsSubmoduloConfiguracao: LinkItem[] = [
   { icon: 'palette', label: 'Aparência', to: '/configuracoes/aparencia' },
@@ -149,12 +153,21 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
     setSubmoduloAberto('configuracoes')
   }
 
+  // Fase 4 de permissões personalizadas — cada módulo aparece no menu só com
+  // VISUALIZAR (ou mais) efetivo; NENHUM esconde o item por completo (ver
+  // utils/permissions.ts, podeVisualizarModulo). Sem personalização, o
+  // resultado é idêntico ao padrão da role de antes (nenhuma role hoje tem
+  // NENHUM por padrão em nenhum módulo, ver lib/permissoesModulo.ts).
   const itemsPrincipais: Item[] = [
     { icon: 'dashboard', label: 'Dashboard', to: '/' },
-    { icon: 'campaign', label: 'Campanhas', to: '/campanhas' },
-    { icon: 'map', label: 'Tours Guiados', to: '/tours' },
-    { icon: 'route', label: 'Jornadas', to: '/jornadas' },
-    ...(podeEscreverConfiguracao(user?.role) ? navItemsConfiguracao : []),
+    ...(podeVisualizarModulo(user, 'CAMPANHAS') ? [{ icon: 'campaign', label: 'Campanhas', to: '/campanhas' }] : []),
+    ...(podeVisualizarModulo(user, 'TOURS') ? [{ icon: 'map', label: 'Tours Guiados', to: '/tours' }] : []),
+    ...(podeVisualizarModulo(user, 'JORNADAS') ? [{ icon: 'route', label: 'Jornadas', to: '/jornadas' }] : []),
+    ...(podeVisualizarModulo(user, 'CONFIGURACOES') ? [ITEM_CONFIGURACOES] : []),
+    // Minha Assinatura fica de propósito fora do módulo CONFIGURACOES (regra
+    // fechada da Fase 4) — continua na regra antiga de billing, não
+    // personalizável.
+    ...(podeEscreverConfiguracao(user?.role) ? [ITEM_MINHA_ASSINATURA] : []),
     ...(user?.role === 'SUPER_ADMIN' ? [{ icon: 'admin_panel_settings', label: 'Gestão SaaS', to: '/admin/tenants' }] : []),
   ]
 

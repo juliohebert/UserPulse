@@ -3,6 +3,8 @@ import { get, post, put } from '../../services/api'
 import type { Sistema, TelaCatalogo } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, formTelaCatalogoDeTela, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
+import { useAuth } from '../../hooks/useAuth'
+import { podeGerenciarModulo } from '../../utils/permissions'
 
 const MODO_ICONE: Record<string, string> = {
   url_contem: 'link',
@@ -33,6 +35,11 @@ function alvoTela(tela: TelaCatalogo): string {
 }
 
 export function CatalogoTelasIndex() {
+  const { user } = useAuth()
+  // Fase 4 de permissões personalizadas — rota exige só VISUALIZAR em
+  // CONFIGURACOES (ver App.tsx); escrever (criar/editar/inativar tela)
+  // continua exigindo GERENCIAR, checado botão a botão.
+  const podeGerenciar = podeGerenciarModulo(user, 'CONFIGURACOES')
   const [telas, setTelas] = useState<TelaCatalogo[]>([])
   const [sistemas, setSistemas] = useState<Sistema[]>([])
   const [loading, setLoading] = useState(true)
@@ -154,10 +161,12 @@ export function CatalogoTelasIndex() {
             Telas cadastradas para preenchimento automático em campanhas.
           </p>
         </div>
-        <button type="button" onClick={openNova} className={botaoPrimario}>
-          <span className="material-symbols-outlined text-[18px] leading-none">add</span>
-          Nova Tela
-        </button>
+        {podeGerenciar && (
+          <button type="button" onClick={openNova} className={botaoPrimario}>
+            <span className="material-symbols-outlined text-[18px] leading-none">add</span>
+            Nova Tela
+          </button>
+        )}
       </div>
 
       {/* Busca */}
@@ -196,7 +205,7 @@ export function CatalogoTelasIndex() {
           <p className="text-[16px] leading-[1.5] tracking-[-0.16px] text-[#4b4c4f]">
             {busca ? 'Nenhuma tela encontrada para essa busca.' : 'Nenhuma tela cadastrada ainda.'}
           </p>
-          {!busca && (
+          {!busca && podeGerenciar && (
             <button type="button" onClick={openNova} className={`${botaoPrimario} mt-5`}>
               <span className="material-symbols-outlined text-[18px] leading-none">add</span>
               Nova Tela
@@ -243,27 +252,29 @@ export function CatalogoTelasIndex() {
                     <AtivoBadge ativo={tela.ativo} />
                   </td>
                   <td className="px-4 py-3 align-middle">
-                    <div className="flex w-[80px] items-center justify-end gap-2">
-                      <button
-                        onClick={() => openEditar(tela)}
-                        title="Editar"
-                        aria-label={`Editar ${tela.nome}`}
-                        className="flex h-9 w-9 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]"
-                      >
-                        <span className="material-symbols-outlined text-[18px] leading-none">edit</span>
-                      </button>
-                      <button
-                        onClick={() => toggleAtivo(tela)}
-                        disabled={toggling === tela.id}
-                        title={tela.ativo ? 'Inativar' : 'Reativar'}
-                        aria-label={`${tela.ativo ? 'Inativar' : 'Reativar'} ${tela.nome}`}
-                        className={`flex h-9 w-9 items-center justify-center rounded-full border border-[#dee3e9] active:bg-[#f1f4f7] disabled:opacity-50 ${tela.ativo ? 'text-[#e41e3f]' : 'text-[#31a24c]'}`}
-                      >
-                        <span className={`material-symbols-outlined text-[18px] leading-none ${toggling === tela.id ? 'animate-spin' : ''}`}>
-                          {toggling === tela.id ? 'progress_activity' : tela.ativo ? 'block' : 'check_circle'}
-                        </span>
-                      </button>
-                    </div>
+                    {podeGerenciar && (
+                      <div className="flex w-[80px] items-center justify-end gap-2">
+                        <button
+                          onClick={() => openEditar(tela)}
+                          title="Editar"
+                          aria-label={`Editar ${tela.nome}`}
+                          className="flex h-9 w-9 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]"
+                        >
+                          <span className="material-symbols-outlined text-[18px] leading-none">edit</span>
+                        </button>
+                        <button
+                          onClick={() => toggleAtivo(tela)}
+                          disabled={toggling === tela.id}
+                          title={tela.ativo ? 'Inativar' : 'Reativar'}
+                          aria-label={`${tela.ativo ? 'Inativar' : 'Reativar'} ${tela.nome}`}
+                          className={`flex h-9 w-9 items-center justify-center rounded-full border border-[#dee3e9] active:bg-[#f1f4f7] disabled:opacity-50 ${tela.ativo ? 'text-[#e41e3f]' : 'text-[#31a24c]'}`}
+                        >
+                          <span className={`material-symbols-outlined text-[18px] leading-none ${toggling === tela.id ? 'animate-spin' : ''}`}>
+                            {toggling === tela.id ? 'progress_activity' : tela.ativo ? 'block' : 'check_circle'}
+                          </span>
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -3,6 +3,8 @@ import { del, get, post, put } from '../services/api'
 import type { Sistema } from '../types'
 import { LoadingSpinner } from '../components/ui/EmptyState'
 import { ToggleSwitch } from '../components/ui/ToggleSwitch'
+import { useAuth } from '../hooks/useAuth'
+import { podeGerenciarModulo } from '../utils/permissions'
 
 const EMPTY_FORM = {
   nome: '',
@@ -31,6 +33,13 @@ function sugerirSlug(valor: string): string {
 }
 
 export function SistemasPage() {
+  const { user } = useAuth()
+  // Fase 4 de permissões personalizadas — a rota exige só VISUALIZAR em
+  // CONFIGURACOES (ver App.tsx), então EDITOR/VIEWER podem chegar aqui em
+  // modo leitura agora; escrever (criar/editar sistema) continua exigindo
+  // GERENCIAR, checado botão a botão (evita mostrar controle que o backend
+  // já bloquearia com 403 — ver requireGerenciarModuloConfiguracoes).
+  const podeGerenciar = podeGerenciarModulo(user, 'CONFIGURACOES')
   const [sistemas, setSistemas] = useState<Sistema[]>([])
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -128,10 +137,12 @@ export function SistemasPage() {
             Cadastre os produtos ou aplicações usados por campanhas, tours, catálogo e widget.
           </p>
         </div>
-        <button type="button" onClick={openNovo} className={botaoPrimario}>
-          <span className="material-symbols-outlined text-[18px] leading-none">add</span>
-          Novo Sistema
-        </button>
+        {podeGerenciar && (
+          <button type="button" onClick={openNovo} className={botaoPrimario}>
+            <span className="material-symbols-outlined text-[18px] leading-none">add</span>
+            Novo Sistema
+          </button>
+        )}
       </div>
 
       {loading && <LoadingSpinner />}
@@ -143,10 +154,12 @@ export function SistemasPage() {
             <span className="material-symbols-outlined text-[24px] leading-none">dns</span>
           </span>
           <p className="text-[16px] leading-[1.5] tracking-[-0.16px] text-[#4b4c4f]">Nenhum sistema cadastrado ainda.</p>
-          <button type="button" onClick={openNovo} className={`${botaoPrimario} mt-5`}>
-            <span className="material-symbols-outlined text-[18px] leading-none">add</span>
-            Novo Sistema
-          </button>
+          {podeGerenciar && (
+            <button type="button" onClick={openNovo} className={`${botaoPrimario} mt-5`}>
+              <span className="material-symbols-outlined text-[18px] leading-none">add</span>
+              Novo Sistema
+            </button>
+          )}
         </div>
       )}
 
@@ -177,12 +190,14 @@ export function SistemasPage() {
               <div className="hidden shrink-0 items-center gap-2 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#5d6c7b] sm:flex">
                 <span>{sistema._count?.telas ?? 0} telas</span>
               </div>
-              <div className="flex shrink-0 items-center gap-3">
-                <ToggleSwitch checked={sistema.ativo} onChange={() => toggleAtivo(sistema)} disabled={toggling === sistema.id || sistema.padrao} />
-                <button onClick={() => openEditar(sistema)} title="Editar" aria-label={`Editar ${sistema.nome}`} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]">
-                  <span className="material-symbols-outlined text-[18px] leading-none">edit</span>
-                </button>
-              </div>
+              {podeGerenciar && (
+                <div className="flex shrink-0 items-center gap-3">
+                  <ToggleSwitch checked={sistema.ativo} onChange={() => toggleAtivo(sistema)} disabled={toggling === sistema.id || sistema.padrao} />
+                  <button onClick={() => openEditar(sistema)} title="Editar" aria-label={`Editar ${sistema.nome}`} className="flex h-10 w-10 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]">
+                    <span className="material-symbols-outlined text-[18px] leading-none">edit</span>
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
