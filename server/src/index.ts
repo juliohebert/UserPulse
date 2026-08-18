@@ -21,6 +21,7 @@ import { requireAdminAuth } from './middleware/requireAdminAuth'
 import { requireSuperAdmin } from './middleware/requireSuperAdmin'
 import { requireAcessoOperacional } from './middleware/requireAcessoOperacional'
 import { getSessionSecret } from './lib/auth'
+import { resolverWidgetVersion, lerWidgetVersionDoArquivo, injetarVersaoNoLoader } from './lib/widgetVersion'
 import { iniciarSchedulerAlertasTrial } from './services/trialAlertasScheduler'
 import { iniciarSchedulerDowngrade } from './services/downgradeScheduler'
 
@@ -41,18 +42,27 @@ const app = express()
 const PORT = process.env.PORT ?? 3333
 const WEB_DIST = path.resolve(__dirname, '../../web/dist')
 
-// Version injected into the widget loader for cache-busting.
-// Set WIDGET_VERSION on the deploy platform (e.g., git rev-parse --short HEAD).
-const WIDGET_VERSION =
-  process.env.WIDGET_VERSION ||
-  process.env.npm_package_version ||
-  String(Date.now())
+// Versão injetada no widget loader pra cache-busting (?v=<versao> em
+// /widget.js) — ver server/src/lib/widgetVersion.ts pra ordem de resolução e
+// o motivo do fallback em arquivo (bug do ambiente Quark: WIDGET_VERSION
+// nunca setado no deploy e npm_package_version nunca presente, já que o
+// Dockerfile do clinic roda `node` direto, sem passar por npm).
+// WIDGET_VERSION_FILE aponta pro arquivo gravado em build-time pelo
+// Dockerfile do clinic (hash de conteúdo do próprio widget.js servido) —
+// ausente em dev local ou em deploys que não gerem esse arquivo, caso em
+// que lerWidgetVersionDoArquivo retorna null e a resolução cai pros
+// fallbacks seguintes normalmente.
+const WIDGET_VERSION_FILE = path.resolve(__dirname, '../../.widget-version')
+const WIDGET_VERSION = resolverWidgetVersion({
+  env: process.env,
+  lerArquivoVersion: () => lerWidgetVersionDoArquivo(WIDGET_VERSION_FILE),
+})
 
 const WIDGET_LOADER_TEMPLATE = path.join(WEB_DIST, 'widget-loader.js')
 let widgetLoaderJs: string | null = null
 function getWidgetLoader(): string {
   if (!widgetLoaderJs) {
-    widgetLoaderJs = fs.readFileSync(WIDGET_LOADER_TEMPLATE, 'utf8').replace('__UP_VERSION__', WIDGET_VERSION)
+    widgetLoaderJs = injetarVersaoNoLoader(fs.readFileSync(WIDGET_LOADER_TEMPLATE, 'utf8'), WIDGET_VERSION)
   }
   return widgetLoaderJs
 }
