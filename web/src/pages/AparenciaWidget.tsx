@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { get, put } from '../services/api'
 import type { AparenciaWidget, Sistema } from '../types'
+import { useAuth } from '../hooks/useAuth'
+import { podeGerenciarModulo } from '../utils/permissions'
 
 const COR_PADRAO = '#0058be'
 const HEX_REGEX = /^#[0-9a-fA-F]{6}$/
@@ -30,6 +32,14 @@ function IconeCircular({ icon }: { icon: string }) {
 }
 
 export function AparenciaWidgetPage() {
+  const { user } = useAuth()
+  // Fase 4 de permissões personalizadas — rota exige só VISUALIZAR em
+  // CONFIGURACOES (ver App.tsx); esta página é um formulário único de
+  // visualizar+editar (sem versão só-leitura separada), então GERENCIAR
+  // desabilita os campos e o botão Salvar em vez de esconder uma tela
+  // inteira (mesmo raciocínio do antigo RequireEscritaConfiguracao.tsx,
+  // agora aplicado por campo).
+  const podeGerenciar = podeGerenciarModulo(user, 'CONFIGURACOES')
   const [sistemas, setSistemas] = useState<Sistema[]>([])
   const [selecao, setSelecao] = useState<Selecao>({
     tipo: 'default',
@@ -94,6 +104,7 @@ export function AparenciaWidgetPage() {
   }, [salvoEm])
 
   async function salvar() {
+    if (!podeGerenciar) return
     if (!corValida(corPrincipal)) { setErro('Cor principal inválida — use um HEX no formato #0066CC.'); return }
     if (logoUrl.trim() && !/^https?:\/\//i.test(logoUrl.trim())) {
       setErro('URL da logo inválida — use uma URL completa começando com http:// ou https://.')
@@ -144,14 +155,16 @@ export function AparenciaWidgetPage() {
                 Salvo
               </span>
             )}
-            <button
-              type="button"
-              onClick={salvar}
-              disabled={salvando || carregando}
-              className="rounded-[100px] bg-[#0064e0] px-[30px] py-[14px] text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-white active:bg-[#0457cb] disabled:bg-[#bcc0c4]"
-            >
-              {salvando ? 'Salvando...' : 'Salvar'}
-            </button>
+            {podeGerenciar && (
+              <button
+                type="button"
+                onClick={salvar}
+                disabled={salvando || carregando}
+                className="rounded-[100px] bg-[#0064e0] px-[30px] py-[14px] text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-white active:bg-[#0457cb] disabled:bg-[#bcc0c4]"
+              >
+                {salvando ? 'Salvando...' : 'Salvar'}
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -220,7 +233,7 @@ export function AparenciaWidgetPage() {
               </div>
             </div>
 
-            <fieldset disabled={carregando} className="space-y-6 disabled:opacity-50">
+            <fieldset disabled={carregando || !podeGerenciar} className="space-y-6 disabled:opacity-50">
               <div>
                 <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Cor principal</label>
                 <div className="flex max-w-md items-center gap-3">

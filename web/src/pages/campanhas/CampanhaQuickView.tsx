@@ -4,7 +4,7 @@ import { getStatus, formatDate, rotaEditarCampanha } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { useAuth } from '../../hooks/useAuth'
-import { podeEscreverConteudo } from '../../utils/permissions'
+import { podeGerenciarModulo } from '../../utils/permissions'
 
 interface Props {
   campanha: Campanha
@@ -14,7 +14,7 @@ interface Props {
 export function CampanhaQuickView({ campanha, onClose }: Props) {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const podeEscrever = podeEscreverConteudo(user?.role)
+  const podeEscrever = podeGerenciarModulo(user, 'CAMPANHAS')
   const status = getStatus(campanha)
   const feedbackCount = campanha._count?.feedbacks ?? 0
 

@@ -3,6 +3,7 @@ import { AdminRole } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { ADMIN_SESSION_COOKIE, sessaoInvalidadaPorTrocaSenha, verifySessionToken } from '../lib/auth'
 import type { TenantComPlano } from '../lib/tenantGuards'
+import type { PermissaoModuloLinha } from '../lib/permissoesModulo'
 
 // Substitui o antigo requireAdminToken (header Authorization: Bearer, opcional
 // se ADMIN_TOKEN não definido — ver histórico em index.ts). Login real por
@@ -31,6 +32,12 @@ export interface AdminAuthPayload {
   atualizado_em: Date
   tenant_id: string
   tenant: TenantComPlano
+  // Fase 1 de permissões personalizadas (ver lib/permissoesModulo.ts) — as
+  // linhas de AdminUserPermissao já vêm no mesmo SELECT abaixo, nunca uma
+  // query separada por guard/módulo (requireAcessoModulo e
+  // requireEscritaTenant.ts só leem daqui, nunca tocam Prisma).
+  permissoes_personalizadas: boolean
+  permissoes: PermissaoModuloLinha[]
 }
 
 declare global {
@@ -59,8 +66,13 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
       // plano_downgrade (Fase 8B) entra no mesmo SELECT — custo marginal de
       // 1 join a mais, evita uma consulta extra em cada call site que
       // precisa da capacidade EFETIVA durante um downgrade agendado (ver
-      // planoEfetivoParaLimite em lib/tenantGuards.ts).
-      include: { tenant: { include: { plano: true, plano_downgrade: true } } },
+      // planoEfetivoParaLimite em lib/tenantGuards.ts). permissoes (Fase 1
+      // de permissões personalizadas) entra pelo mesmo motivo: mais um join
+      // marginal aqui, em vez de uma query própria em cada
+      // requireAcessoModulo/requireEscritaConteudo/etc. — sempre um SELECT
+      // só por request admin, sempre trazido mesmo com
+      // permissoes_personalizadas=false (nesse caso vem vazio/ignorado).
+      include: { tenant: { include: { plano: true, plano_downgrade: true } }, permissoes: true },
     })
     if (!usuario || !usuario.ativo) {
       res.status(401).json({ erro: 'Não autenticado.' })
@@ -88,6 +100,8 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
       atualizado_em: usuario.atualizado_em,
       tenant_id: usuario.tenant_id,
       tenant: usuario.tenant,
+      permissoes_personalizadas: usuario.permissoes_personalizadas,
+      permissoes: usuario.permissoes,
     }
     next()
   } catch (err) {
