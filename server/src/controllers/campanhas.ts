@@ -799,7 +799,6 @@ export async function criar(req: Request, res: Response) {
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
       politica_reexibicao, reexibir_apos_dias,
       encerrar_apos_evento, evento_conclusao,
-      categoria,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
 
@@ -878,7 +877,6 @@ export async function criar(req: Request, res: Response) {
         reexibir_apos_dias: diasReexibir,
         encerrar_apos_evento: encerrarAposEvento,
         evento_conclusao: eventoConclusao,
-        categoria: categoria?.trim() || null,
         segmentar_cliente_ids: parseArray(segmentar_cliente_ids),
         segmentar_unidade_ids: parseArray(segmentar_unidade_ids),
         segmentar_perfis: parseArray(segmentar_perfis),
@@ -971,7 +969,6 @@ export async function atualizar(req: Request, res: Response) {
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
       politica_reexibicao, reexibir_apos_dias,
       encerrar_apos_evento, evento_conclusao,
-      categoria,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
     } = req.body
 
@@ -1118,7 +1115,6 @@ export async function atualizar(req: Request, res: Response) {
         ...(reexibir_apos_dias !== undefined && { reexibir_apos_dias: diasReexibir }),
         ...(encerrar_apos_evento !== undefined && { encerrar_apos_evento: encerrarAposEvento }),
         ...(evento_conclusao !== undefined && { evento_conclusao: eventoConclusao }),
-        ...(categoria !== undefined && { categoria: categoria?.trim() || null }),
         ...(segmentar_cliente_ids !== undefined && { segmentar_cliente_ids: parseArray(segmentar_cliente_ids) }),
         ...(segmentar_unidade_ids !== undefined && { segmentar_unidade_ids: parseArray(segmentar_unidade_ids) }),
         ...(segmentar_perfis !== undefined && { segmentar_perfis: parseArray(segmentar_perfis) }),
@@ -1276,7 +1272,6 @@ export async function duplicar(req: Request, res: Response) {
         reexibir_apos_dias: original.reexibir_apos_dias,
         encerrar_apos_evento: original.encerrar_apos_evento,
         evento_conclusao: original.evento_conclusao,
-        categoria: original.categoria,
         segmentar_cliente_ids: original.segmentar_cliente_ids,
         segmentar_unidade_ids: original.segmentar_unidade_ids,
         segmentar_perfis: original.segmentar_perfis,

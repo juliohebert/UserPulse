@@ -61,7 +61,6 @@ function campanhaAntiga(over: Partial<Campanha> = {}): Campanha {
     reexibir_apos_dias: 30,
     encerrar_apos_evento: true,
     evento_conclusao: 'pesquisa_respondida',
-    categoria: 'Pesquisa',
     segmentar_cliente_ids: ['cliente-1', 'cliente-2'],
     segmentar_unidade_ids: ['unidade-1'],
     segmentar_perfis: ['gestor'],

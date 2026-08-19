@@ -8,7 +8,6 @@ import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
 import { TypeBadge } from '../../components/ui/TypeBadge'
-import { CategoryBadge } from '../../components/ui/CategoryBadge'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
@@ -18,7 +17,7 @@ import { CampanhaQuickView } from './CampanhaQuickView'
 
 const PER_PAGE = 10
 
-type SortKey = 'campanha' | 'categoria' | 'tipo' | 'sistema' | 'status' | 'respostas'
+type SortKey = 'campanha' | 'tipo' | 'sistema' | 'status' | 'respostas'
 type SortDirection = 'asc' | 'desc'
 type ColumnKey = SortKey | 'acoes'
 type FiltroStatus = 'todas' | StatusCampanha
@@ -26,7 +25,6 @@ type FiltroRespostas = 'todas' | 'com' | 'sem'
 const FILTRO_STATUS_PADRAO: FiltroStatus = 'ativa'
 
 const TIPOS = ['comunicado', 'melhoria', 'pesquisa']
-const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
 const STATUS_FILTRO: Array<{ value: FiltroStatus; label: string }> = [
   { value: 'todas', label: 'Todas' },
   { value: 'rascunho', label: 'Rascunhos' },
@@ -38,7 +36,6 @@ const STATUS_FILTRO: Array<{ value: FiltroStatus; label: string }> = [
 
 const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
   { label: 'Campanha', key: 'campanha', sortKey: 'campanha' },
-  { label: 'Categoria', key: 'categoria', sortKey: 'categoria' },
   { label: 'Tipo', key: 'tipo', sortKey: 'tipo' },
   { label: 'Sistema / Tela', key: 'sistema', sortKey: 'sistema' },
   { label: 'Status', key: 'status', sortKey: 'status' },
@@ -48,7 +45,6 @@ const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | n
 
 const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
   campanha: true,
-  categoria: true,
   tipo: true,
   sistema: true,
   status: true,
@@ -85,7 +81,6 @@ function StatusInline({ status }: { status: StatusCampanha }) {
 function valorOrdenacao(c: Campanha, key: SortKey): string | number {
   switch (key) {
     case 'campanha': return c.titulo
-    case 'categoria': return c.categoria ?? ''
     case 'tipo': return c.tipo
     case 'sistema': return `${c.sistema} ${c.tela}`
     case 'status': return STATUS_BADGE[getStatus(c)].label
@@ -220,9 +215,6 @@ function CampanhaCard({
 
       <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
         <TypeBadge tipo={c.tipo} />
-        {c.categoria && (
-          <CategoryBadge categoria={c.categoria} />
-        )}
       </div>
 
       <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-3 pt-3 border-t border-outline-variant/20 text-[12px]">
@@ -344,7 +336,6 @@ export function CampanhasIndex() {
   const [filtrosAberto, setFiltrosAberto] = useState(false)
   const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>(FILTRO_STATUS_PADRAO)
   const [filtroTipo, setFiltroTipo] = useState('')
-  const [filtroCategoria, setFiltroCategoria] = useState('')
   const [filtroSistema, setFiltroSistema] = useState('')
   const [filtroRespostas, setFiltroRespostas] = useState<FiltroRespostas>('todas')
   const colunasRef = useRef<HTMLDivElement | null>(null)
@@ -401,7 +392,6 @@ export function CampanhasIndex() {
     if (termoBusca && !c.titulo.toLowerCase().includes(termoBusca)) return false
     if (filtroStatus !== 'todas' && getStatus(c) !== filtroStatus) return false
     if (filtroTipo && c.tipo !== filtroTipo) return false
-    if (filtroCategoria && c.categoria !== filtroCategoria) return false
     if (filtroSistema && c.sistema !== filtroSistema) return false
     if (filtroRespostas === 'com' && (c._count?.feedbacks ?? 0) === 0) return false
     if (filtroRespostas === 'sem' && (c._count?.feedbacks ?? 0) > 0) return false
@@ -423,7 +413,6 @@ export function CampanhasIndex() {
   const totalFiltrosAtivos = [
     filtroStatus !== 'todas',
     Boolean(filtroTipo),
-    Boolean(filtroCategoria),
     Boolean(filtroSistema),
     filtroRespostas !== 'todas',
   ].filter(Boolean).length
@@ -459,7 +448,6 @@ export function CampanhasIndex() {
   const limparFiltros = () => {
     setFiltroStatus('todas')
     setFiltroTipo('')
-    setFiltroCategoria('')
     setFiltroSistema('')
     setFiltroRespostas('todas')
     setPage(1)
@@ -726,15 +714,6 @@ export function CampanhasIndex() {
                         onChange={value => { setFiltroTipo(value); setPage(1) }}
                       />
                       <FilterSelect
-                        label="Categoria"
-                        value={filtroCategoria}
-                        options={[
-                          { value: '', label: 'Todas as categorias' },
-                          ...CATEGORIAS.map(categoria => ({ value: categoria, label: categoria })),
-                        ]}
-                        onChange={value => { setFiltroCategoria(value); setPage(1) }}
-                      />
-                      <FilterSelect
                         label="Sistema"
                         value={filtroSistema}
                         options={[
@@ -768,9 +747,6 @@ export function CampanhasIndex() {
             )}
             {filtroTipo && (
               <FilterChip label={filtroTipo.charAt(0).toUpperCase() + filtroTipo.slice(1)} onRemove={() => { setFiltroTipo(''); setPage(1) }} />
-            )}
-            {filtroCategoria && (
-              <FilterChip label={filtroCategoria} onRemove={() => { setFiltroCategoria(''); setPage(1) }} />
             )}
             {filtroSistema && (
               <FilterChip label={filtroSistema} onRemove={() => { setFiltroSistema(''); setPage(1) }} />
@@ -816,8 +792,8 @@ export function CampanhasIndex() {
                   <tr className="bg-surface-container-low/50 border-b border-outline-variant/40">
                     {TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).map(col => {
                       const active = sort?.key === col.sortKey
-                      const align = col.label === 'Ações' ? ' text-right' : col.label === 'Categoria' || col.label === 'Status' || col.label === 'Tipo' || col.label === 'Respostas' ? ' text-center' : ''
-                      const visibility = `${col.label === 'Categoria' ? ' hidden md:table-cell' : ''}${col.label === 'Tipo' ? ' hidden md:table-cell' : ''}${col.label === 'Sistema / Tela' ? ' hidden lg:table-cell' : ''}${col.label === 'Respostas' ? ' hidden sm:table-cell' : ''}`
+                      const align = col.label === 'Ações' ? ' text-right' : col.label === 'Status' || col.label === 'Tipo' || col.label === 'Respostas' ? ' text-center' : ''
+                      const visibility = `${col.label === 'Tipo' ? ' hidden md:table-cell' : ''}${col.label === 'Sistema / Tela' ? ' hidden lg:table-cell' : ''}${col.label === 'Respostas' ? ' hidden sm:table-cell' : ''}`
                       return (
                         <th
                           key={col.label}
@@ -891,17 +867,6 @@ export function CampanhasIndex() {
                                   </span>
                                 )}
                               </div>
-                            </td>
-                          )}
-
-                          {/* Categoria */}
-                          {colunasVisiveis.categoria && (
-                            <td className="px-4 py-4 align-middle text-center whitespace-nowrap hidden md:table-cell">
-                              {c.categoria ? (
-                                <CategoryBadge categoria={c.categoria} />
-                              ) : (
-                                <span className="text-label-md text-outline">—</span>
-                              )}
                             </td>
                           )}
 

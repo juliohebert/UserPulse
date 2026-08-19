@@ -74,7 +74,6 @@ export interface FormState {
   reexibir_apos_dias: string
   encerrar_apos_evento: boolean
   evento_conclusao: string
-  categoria: string
   cta_habilitado: boolean
   segmentar_cliente_ids: string[]
   segmentar_unidade_ids: string[]
@@ -92,7 +91,6 @@ export interface FormState {
 export type FormatoExibicao = 'modal_automatica' | 'destaque_elemento'
 export const FORMATO_DESTAQUE_ELEMENTO: FormatoExibicao = 'destaque_elemento'
 
-export const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
 export const TIPOS_CAMPANHA = ['comunicado', 'melhoria', 'pesquisa']
 
 export const formInicial: FormState = {
@@ -128,7 +126,6 @@ export const formInicial: FormState = {
   reexibir_apos_dias: '',
   encerrar_apos_evento: false,
   evento_conclusao: '',
-  categoria: 'Novidade',
   cta_habilitado: true,
   segmentar_cliente_ids: [],
   segmentar_unidade_ids: [],
@@ -277,7 +274,6 @@ export function hidratarFormState(c: Campanha): FormState {
     reexibir_apos_dias: c.reexibir_apos_dias != null ? String(c.reexibir_apos_dias) : '',
     encerrar_apos_evento: c.encerrar_apos_evento,
     evento_conclusao: c.evento_conclusao ?? '',
-    categoria: c.categoria ?? '',
     // texto_botao/url_botao só existem juntos (ver montarPayloadCampanha) —
     // a presença de qualquer um dos dois já indica CTA habilitado.
     cta_habilitado: Boolean(c.texto_botao || c.url_botao),
@@ -397,7 +393,6 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
     intervalo_reexibicao_dias: form.intervalo_reexibicao_dias !== '' ? Number(form.intervalo_reexibicao_dias) : null,
     reexibir_apos_dias: form.reexibir_apos_dias !== '' ? Number(form.reexibir_apos_dias) : null,
     evento_conclusao: form.evento_conclusao.trim() || null,
-    categoria: form.categoria || null,
     // Fonte de verdade pra destaque_elemento (Fase 2) — os campos únicos
     // acima (subtitulo/titulo/descricao/texto_botao/url_botao/data_cy) são
     // ignorados pelo backend nesse formato; ele os recalcula a partir do
