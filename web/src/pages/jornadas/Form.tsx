@@ -991,7 +991,7 @@ function PainelEtapa({ etapa, blocoIndex, etapaIndex, tours, campanhas, onPatch 
       {etapa.tipo === 'campanha' && (
         <div>
           <label className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Campanha <span className="text-error">*</span></label>
-          <Select size="sm" value={etapa.campanha_id} onChange={v => onPatch({ campanha_id: v })} placeholder="Selecione uma campanha existente" options={campanhas.map(c => ({ value: c.id, label: `${c.titulo}${c.ativo ? '' : ' (inativa)'}` }))} />
+          <Select size="sm" value={etapa.campanha_id} onChange={v => onPatch({ campanha_id: v })} placeholder="Selecione uma campanha existente" options={campanhas.map(c => ({ value: c.id, label: `${c.titulo}${c.status === 'RASCUNHO' ? ' (rascunho)' : c.status === 'INATIVA' ? ' (inativa)' : ''}` }))} />
           {campanhas.length === 0 && <p className="mt-1 text-label-sm text-outline">Nenhuma campanha cadastrada ainda.</p>}
         </div>
       )}

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { get, post } from '../../services/api'
+import { get, post, put } from '../../services/api'
 import type { Campanha, Criterio, ResultadoElegibilidade } from '../../types'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
-import { gerarEmbed, gerarEmbedParts, rotaEditarCampanha } from '../../utils/campanha'
+import { StatusBadge } from '../../components/ui/StatusBadge'
+import { gerarEmbed, gerarEmbedParts, getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { useAuth } from '../../hooks/useAuth'
+import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 
 // Esta página não busca a aparência por sistema (diferente de campanhas2,
@@ -38,6 +40,9 @@ export function CampanhaPreview() {
   const [copied, setCopied] = useState(false)
   const [telefone, setTelefone] = useState('')
   const [phoneDone, setPhoneDone] = useState(false)
+  const [publicando, setPublicando] = useState(false)
+  const [erroPublicar, setErroPublicar] = useState<string | null>(null)
+  const podeEscrever = podeGerenciarModulo(user, 'CAMPANHAS')
 
   // Eligibility test
   const [eligForm, setEligForm] = useState({
@@ -126,6 +131,23 @@ export function CampanhaPreview() {
     }
   }
 
+  // Ação explícita de publicar (Fase 2 dos 3 status) — RASCUNHO -> ATIVA é a
+  // única transição possível a partir daqui (o backend valida de novo, ver
+  // validarTransicaoStatusCampanha em server/src/controllers/campanhas.ts);
+  // nunca existe um caminho de volta pra RASCUNHO depois de publicada.
+  const publicarCampanha = async () => {
+    setPublicando(true)
+    setErroPublicar(null)
+    try {
+      const atualizada = await put<Campanha>(`/campanhas/${campanha.id}`, { status: 'ATIVA' })
+      setCampanha(prev => (prev ? { ...prev, ...atualizada } : atualizada))
+    } catch (err) {
+      setErroPublicar(err instanceof Error ? err.message : 'Erro ao publicar campanha.')
+    } finally {
+      setPublicando(false)
+    }
+  }
+
   const question = campanha.pergunta_feedback || 'Como podemos melhorar?'
   const embedCode = gerarEmbed(campanha, user?.tenant.public_key)
   const embedParts = gerarEmbedParts(campanha, user?.tenant.public_key)
@@ -147,7 +169,10 @@ export function CampanhaPreview() {
     <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
-          <h2 className="text-title-lg font-bold text-on-surface">{campanha.titulo}</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-title-lg font-bold text-on-surface">{campanha.titulo}</h2>
+            <StatusBadge status={getStatus(campanha)} />
+          </div>
           <p className="text-body-md text-on-surface-variant mt-0.5">Modo teste: nenhum feedback será registrado.</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
@@ -164,8 +189,25 @@ export function CampanhaPreview() {
           >
             Editar
           </Button>
+          {podeEscrever && campanha.status === 'RASCUNHO' && (
+            <Button
+              type="button"
+              variant="gradient"
+              onClick={publicarCampanha}
+              disabled={publicando}
+            >
+              {publicando ? 'Publicando...' : 'Publicar campanha'}
+            </Button>
+          )}
         </div>
       </div>
+
+      {erroPublicar && (
+        <div className="mb-5 p-4 bg-error-container text-on-error-container rounded-xl text-body-md flex items-center gap-2">
+          <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
+          {erroPublicar}
+        </div>
+      )}
 
       <div className={`relative min-h-[560px] rounded-xl border border-outline-variant bg-gradient-to-br from-surface-container-lowest to-surface-container shadow-sm${open ? '' : ' overflow-hidden'}`}>
         <div className={`absolute inset-0 p-8 transition-all ${open ? 'blur-sm scale-[0.99] opacity-70' : ''}`}>
