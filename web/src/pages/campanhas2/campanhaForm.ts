@@ -1,4 +1,4 @@
-import type { Campanha } from '../../types'
+import type { Campanha, StatusCampanha } from '../../types'
 
 // Lógica pura (sem React/JSX) do formulário de Campanhas 2 — hidratação
 // (GET Campanha -> FormState), geração de payload (FormState -> POST/PUT) e
@@ -31,6 +31,13 @@ export interface DestaqueFormItem {
   url_botao: string
 }
 
+// `status` de propósito NÃO é um campo de FormState (Fase 2 dos 3 status) —
+// o builder nunca decide status por um checkbox solto: criação sempre nasce
+// RASCUNHO (decidido só pelo backend, ver criar() em
+// server/src/controllers/campanhas.ts) e "Salvar alterações" preserva o
+// status atual (nenhuma chave `status` no payload = backend não mexe nele).
+// Publicar/desativar/reativar são ações explícitas à parte (ver
+// Campanhas2Index/campanhas/Index.tsx), nunca um campo deste formulário.
 export interface FormState {
   titulo: string
   // Eyebrow do modal; reutilizado como texto do badge quando
@@ -56,7 +63,6 @@ export interface FormState {
   mostrar_uma_vez: boolean
   prioridade: string
   ordem: string
-  ativo: boolean
   data_inicio: string
   data_fim: string
   pergunta_feedback: string
@@ -111,7 +117,6 @@ export const formInicial: FormState = {
   mostrar_uma_vez: true,
   prioridade: '0',
   ordem: '1',
-  ativo: true,
   data_inicio: '',
   data_fim: '',
   pergunta_feedback: '',
@@ -261,7 +266,6 @@ export function hidratarFormState(c: Campanha): FormState {
     mostrar_uma_vez: c.mostrar_uma_vez,
     prioridade: String(c.prioridade),
     ordem: String(c.ordem),
-    ativo: c.ativo,
     data_inicio: c.data_inicio ?? '',
     data_fim: c.data_fim ?? '',
     pergunta_feedback: c.pergunta_feedback ?? '',
@@ -325,6 +329,22 @@ export function hidratarFormState(c: Campanha): FormState {
 // continuar puro pra ser testável com node:test.
 export function rotaEditarCampanha(c: Pick<Campanha, 'id'>): string {
   return `/campanhas/${c.id}/editar`
+}
+
+// ─── Status de exibição (Fase 2 dos 3 status) ──────────────────────────────
+// `status` persistido é sempre a fonte de verdade: RASCUNHO e INATIVA nunca
+// viram "Agendada"/"Encerrada" — essas duas são só uma leitura de período
+// (data_inicio/data_fim) que só faz sentido pra uma campanha já ATIVA. Vive
+// aqui (não em utils/campanha.ts, que só reexporta) pelo mesmo motivo de
+// rotaEditarCampanha acima: utils/campanha.ts lê import.meta.env/window no
+// top-level e não pode ser importado fora do Vite.
+export function getStatus(c: Pick<Campanha, 'status' | 'data_inicio' | 'data_fim'>): StatusCampanha {
+  if (c.status === 'RASCUNHO') return 'rascunho'
+  if (c.status === 'INATIVA') return 'inativa'
+  const now = new Date()
+  if (c.data_inicio && new Date(c.data_inicio) > now) return 'agendada'
+  if (c.data_fim && new Date(c.data_fim) < now) return 'encerrada'
+  return 'ativa'
 }
 
 // ─── Payload: FormState -> POST/PUT ────────────────────────────────────────

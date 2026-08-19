@@ -11,6 +11,12 @@ import {
   sincronizarDestaques,
   paraCriacaoDestaqueItem,
   paraAtualizacaoDestaqueItem,
+  validarTransicaoStatusCampanha,
+  STATUS_INICIAL_CAMPANHA,
+  resolverRemocaoCampanha,
+  resolverEncerramentoCampanha,
+  motivoBloqueioReaberturaEncerrada,
+  motivoBloqueioPublicarComDataFimPassada,
   type DestaqueItemInput,
 } from './campanhas'
 
@@ -316,5 +322,191 @@ describe('paraCriacaoDestaqueItem', () => {
   test('ativo default true quando não informado; respeita false explícito', () => {
     assert.equal(paraCriacaoDestaqueItem({ data_cy: 'x', titulo: 'T' }, 't1', 1).ativo, true)
     assert.equal(paraCriacaoDestaqueItem({ data_cy: 'x', titulo: 'T', ativo: false }, 't1', 1).ativo, false)
+  })
+})
+
+// Fase 1 dos 3 status de Campanha — validarTransicaoStatusCampanha é a única
+// peça que decide se uma transição pode ser persistida (ver atualizar() em
+// campanhas.ts, que chama isso antes de qualquer prisma.campanha.update).
+// "Agendada"/"Encerrada" nunca entram aqui — são só uma leitura de período
+// (data_inicio/data_fim) calculada em cima de uma campanha já ATIVA, nunca
+// um status persistido; esta função só conhece RASCUNHO/ATIVA/INATIVA.
+describe('validarTransicaoStatusCampanha', () => {
+  test('RASCUNHO -> ATIVA: válida', () => {
+    assert.equal(validarTransicaoStatusCampanha('RASCUNHO', 'ATIVA'), null)
+  })
+
+  test('ATIVA -> INATIVA: válida', () => {
+    assert.equal(validarTransicaoStatusCampanha('ATIVA', 'INATIVA'), null)
+  })
+
+  test('INATIVA -> ATIVA: válida', () => {
+    assert.equal(validarTransicaoStatusCampanha('INATIVA', 'ATIVA'), null)
+  })
+
+  test('RASCUNHO -> INATIVA: bloqueada (nunca foi publicada, não existe o que desativar)', () => {
+    const erro = validarTransicaoStatusCampanha('RASCUNHO', 'INATIVA')
+    assert.notEqual(erro, null)
+  })
+
+  test('ATIVA -> RASCUNHO: bloqueada (campanha publicada nunca volta a rascunho)', () => {
+    const erro = validarTransicaoStatusCampanha('ATIVA', 'RASCUNHO')
+    assert.notEqual(erro, null)
+  })
+
+  test('INATIVA -> RASCUNHO: bloqueada (campanha publicada nunca volta a rascunho)', () => {
+    const erro = validarTransicaoStatusCampanha('INATIVA', 'RASCUNHO')
+    assert.notEqual(erro, null)
+  })
+
+  test('mesmo status (no-op) é sempre válido nos 3 casos', () => {
+    assert.equal(validarTransicaoStatusCampanha('RASCUNHO', 'RASCUNHO'), null)
+    assert.equal(validarTransicaoStatusCampanha('ATIVA', 'ATIVA'), null)
+    assert.equal(validarTransicaoStatusCampanha('INATIVA', 'INATIVA'), null)
+  })
+})
+
+// criar() e duplicar() (campanhas.ts) escrevem STATUS_INICIAL_CAMPANHA
+// direto no `data` do prisma.campanha.create — não há branch/decisão pra
+// testar isoladamente ali (não depende de nenhum input do request, é
+// sempre o mesmo valor), então a garantia de "toda campanha nova/duplicada
+// nasce em RASCUNHO" é esta constante compartilhada pelos dois pontos de
+// criação. O restante de criar()/atualizar()/duplicar() (Prisma/DB) segue o
+// padrão já estabelecido nesta suíte: integration-only, validado manualmente
+// contra um servidor local.
+describe('STATUS_INICIAL_CAMPANHA', () => {
+  test('é RASCUNHO — usado tanto por criar() quanto por duplicar()', () => {
+    assert.equal(STATUS_INICIAL_CAMPANHA, 'RASCUNHO')
+  })
+})
+
+// remover() (DELETE /:id) — semântica por status, nunca hard-delete.
+describe('resolverRemocaoCampanha', () => {
+  test('ATIVA -> DELETE: inativa', () => {
+    assert.deepEqual(resolverRemocaoCampanha('ATIVA'), { tipo: 'inativada' })
+  })
+
+  test('INATIVA -> DELETE: informa que já estava inativa, sem mudança', () => {
+    assert.deepEqual(resolverRemocaoCampanha('INATIVA'), { tipo: 'ja_inativa' })
+  })
+
+  test('RASCUNHO -> DELETE: erro — nunca vira INATIVA (RASCUNHO->INATIVA não existe no grafo)', () => {
+    assert.deepEqual(resolverRemocaoCampanha('RASCUNHO'), {
+      tipo: 'erro',
+      mensagem: 'Campanha em rascunho não pode ser inativada.',
+    })
+  })
+})
+
+// Encerrar (Fase 2) — ação própria, nunca reaproveita resolverRemocaoCampanha/
+// DELETE. Nunca decide `status` (sempre ATIVA nos casos que encerram de
+// verdade) — só o `data_fim` que faz getStatus (frontend) passar a ler
+// "Encerrada" por período.
+describe('resolverEncerramentoCampanha', () => {
+  const AGORA = new Date('2026-06-15T12:00:00.000Z')
+  const FUTURA = new Date('2026-07-01T00:00:00.000Z')
+  const PASSADA = new Date('2026-01-01T00:00:00.000Z')
+
+  test('ATIVA sem data_fim (null) -> encerra agora', () => {
+    assert.deepEqual(resolverEncerramentoCampanha('ATIVA', null, AGORA), { tipo: 'encerrada', data_fim: AGORA })
+  })
+
+  test('ATIVA com data_fim futura -> encerra agora (substitui a data futura, nunca preserva)', () => {
+    const resultado = resolverEncerramentoCampanha('ATIVA', FUTURA, AGORA)
+    assert.deepEqual(resultado, { tipo: 'encerrada', data_fim: AGORA })
+    // Explícito: o resultado é AGORA, não a data futura que já estava salva.
+    if (resultado.tipo === 'encerrada') assert.notEqual(resultado.data_fim, FUTURA)
+  })
+
+  test('ATIVA já encerrada (data_fim no passado) -> não encerra de novo', () => {
+    assert.deepEqual(resolverEncerramentoCampanha('ATIVA', PASSADA, AGORA), { tipo: 'ja_encerrada' })
+  })
+
+  test('RASCUNHO -> bloqueia, nunca encerra', () => {
+    assert.deepEqual(resolverEncerramentoCampanha('RASCUNHO', null, AGORA), {
+      tipo: 'erro',
+      mensagem: 'Só uma campanha ativa pode ser encerrada.',
+    })
+  })
+
+  test('INATIVA -> bloqueia, nunca encerra', () => {
+    assert.deepEqual(resolverEncerramentoCampanha('INATIVA', null, AGORA), {
+      tipo: 'erro',
+      mensagem: 'Só uma campanha ativa pode ser encerrada.',
+    })
+  })
+})
+
+// motivoBloqueioReaberturaEncerrada — campanha Encerrada (ATIVA + data_fim no
+// passado) nunca pode voltar a Ativa/Agendada por edição normal de data_fim
+// (só existe Encerrar, nunca existe Reabrir). Chamada por atualizar() só
+// quando `data_fim` vem no corpo — ver comentário em campanhas.ts; por isso
+// "alterar só o título" é coberto aqui como "data_fim resubmetida sem
+// mudança" (exatamente o que o formulário real faz: montarPayloadCampanha
+// sempre reenvia todos os campos, nunca um PATCH parcial).
+describe('motivoBloqueioReaberturaEncerrada', () => {
+  const AGORA = new Date('2026-06-15T12:00:00.000Z')
+  const FUTURA = new Date('2026-07-01T00:00:00.000Z')
+  const PASSADA = new Date('2026-01-01T00:00:00.000Z')
+  const PASSADA_2 = new Date('2026-02-01T00:00:00.000Z')
+
+  test('encerrada + alterar título (data_fim resubmetida sem mudança) -> permitido', () => {
+    assert.equal(motivoBloqueioReaberturaEncerrada('ATIVA', PASSADA, PASSADA, AGORA), null)
+  })
+
+  test('encerrada + data_fim futura -> bloqueado', () => {
+    const erro = motivoBloqueioReaberturaEncerrada('ATIVA', PASSADA, FUTURA, AGORA)
+    assert.equal(erro, 'Campanha encerrada não pode ser reaberta alterando a data de término. Para reabrir, crie uma nova campanha.')
+  })
+
+  test('encerrada + remover data_fim (null) -> bloqueado', () => {
+    const erro = motivoBloqueioReaberturaEncerrada('ATIVA', PASSADA, null, AGORA)
+    assert.notEqual(erro, null)
+  })
+
+  test('encerrada + trocar por outra data ainda no passado -> permitido (continua encerrada)', () => {
+    assert.equal(motivoBloqueioReaberturaEncerrada('ATIVA', PASSADA, PASSADA_2, AGORA), null)
+  })
+
+  test('ATIVA ainda não encerrada (data_fim futura) -> edição de data_fim livre, mesmo pra null', () => {
+    assert.equal(motivoBloqueioReaberturaEncerrada('ATIVA', FUTURA, null, AGORA), null)
+    assert.equal(motivoBloqueioReaberturaEncerrada('ATIVA', FUTURA, FUTURA, AGORA), null)
+  })
+
+  test('ATIVA sem data_fim (nunca esteve encerrada) -> edição de data_fim livre', () => {
+    assert.equal(motivoBloqueioReaberturaEncerrada('ATIVA', null, FUTURA, AGORA), null)
+    assert.equal(motivoBloqueioReaberturaEncerrada('ATIVA', null, null, AGORA), null)
+  })
+
+  test('RASCUNHO -> nunca bloqueia (regra só se aplica a campanha ATIVA encerrada)', () => {
+    assert.equal(motivoBloqueioReaberturaEncerrada('RASCUNHO', PASSADA, FUTURA, AGORA), null)
+  })
+
+  test('INATIVA -> nunca bloqueia (regra só se aplica a campanha ATIVA encerrada)', () => {
+    assert.equal(motivoBloqueioReaberturaEncerrada('INATIVA', PASSADA, null, AGORA), null)
+  })
+})
+
+// motivoBloqueioPublicarComDataFimPassada — publicar (RASCUNHO->ATIVA) ou
+// reativar (INATIVA->ATIVA) nunca pode terminar silenciosamente "Encerrada"
+// (data_fim já no passado). Cobre tanto o caso de data_fim já salva na
+// campanha (RASCUNHO com data_fim antiga, ex.: herdada de uma duplicação)
+// quanto uma data_fim passada enviada na MESMA requisição de publicar.
+describe('motivoBloqueioPublicarComDataFimPassada', () => {
+  const AGORA = new Date('2026-06-15T12:00:00.000Z')
+  const FUTURA = new Date('2026-07-01T00:00:00.000Z')
+  const PASSADA = new Date('2026-01-01T00:00:00.000Z')
+
+  test('publicar com data_fim no passado -> bloqueado', () => {
+    const erro = motivoBloqueioPublicarComDataFimPassada(PASSADA, AGORA)
+    assert.equal(erro, 'Não é possível publicar/reativar uma campanha com a data de término no passado. Ajuste o período (data_fim) antes de publicar.')
+  })
+
+  test('publicar sem data_fim (null) -> permitido', () => {
+    assert.equal(motivoBloqueioPublicarComDataFimPassada(null, AGORA), null)
+  })
+
+  test('publicar com data_fim futura -> permitido', () => {
+    assert.equal(motivoBloqueioPublicarComDataFimPassada(FUTURA, AGORA), null)
   })
 })

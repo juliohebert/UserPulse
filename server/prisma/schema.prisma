@@ -29,6 +29,20 @@ enum TenantStatus {
   CANCELED
 }
 
+// Fase 1 dos 3 status de Campanha — status vira a fonte única de verdade do
+// ciclo de vida (RASCUNHO nunca foi publicada -> nunca elegível no widget;
+// ATIVA publicada e elegível; INATIVA já publicada, desativada). Transições
+// permitidas: RASCUNHO->ATIVA, ATIVA->INATIVA, INATIVA->ATIVA (nunca volta
+// pra RASCUNHO — ver validarTransicaoStatusCampanha em campanhas.ts). Não
+// confundir com "agendada"/"encerrada", que continuam sendo só uma leitura
+// de período (data_inicio/data_fim) calculada em cima de uma campanha ATIVA,
+// nunca um status persistido à parte.
+enum CampanhaStatus {
+  RASCUNHO
+  ATIVA
+  INATIVA
+}
+
 enum AdminRole {
   SUPER_ADMIN
   ADMIN
@@ -440,7 +454,13 @@ model Campanha {
   mostrar_uma_vez           Boolean   @default(false)
   prioridade                Int       @default(0)
   ordem                     Int       @default(0)
+  // Fase 1 dos 3 status — `ativo` some de todo lugar que decide (elegibilidade
+  // pública, limite de plano, gating de escrita): fica só como espelho de
+  // compatibilidade de deploy (nunca lido por controller/widget, ver
+  // sincronizarAtivoComStatus em campanhas.ts), até uma fase futura remover a
+  // coluna de vez.
   ativo                     Boolean   @default(true)
+  status                    CampanhaStatus @default(RASCUNHO)
   data_inicio               DateTime?
   data_fim                  DateTime?
   pergunta_feedback         String?

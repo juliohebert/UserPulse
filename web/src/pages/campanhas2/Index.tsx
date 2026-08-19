@@ -707,8 +707,11 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
 
       {secao === 'exibicao' && (
         <div className="space-y-5">
-          <CampoBooleanoDock label="Campanha ativa" checked={form.ativo} onChange={valor => setCampo('ativo', valor)} />
-
+          {/* Fase 2 dos 3 status — sem checkbox de "ativa" aqui: toda campanha
+              nova nasce RASCUNHO (decidido só pelo backend) e salvar
+              alterações preserva o status atual. Publicar/desativar/reativar
+              são ações explícitas em Preview.tsx e na listagem, nunca um
+              campo deste formulário. */}
           <div>
             <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Formato de exibição</span>
             <div className="grid gap-2">

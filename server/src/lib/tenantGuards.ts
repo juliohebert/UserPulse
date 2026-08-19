@@ -191,7 +191,9 @@ export async function checarLimiteCampanhasAtivas(tenantId: string, plano: Plano
     const total = await prisma.campanha.count({ where: { tenant_id: tenantId, ...excluir } })
     return motivoLimiteTrialAtingido(plano.limite_campanhas_ativas, total, 'campanha')
   }
-  const total = await prisma.campanha.count({ where: { tenant_id: tenantId, ativo: true, ...excluir } })
+  // Fase 1 dos 3 status — conta por `status: 'ATIVA'` (fonte única de
+  // verdade), nunca por `ativo` (mantido só por compatibilidade de deploy).
+  const total = await prisma.campanha.count({ where: { tenant_id: tenantId, status: 'ATIVA', ...excluir } })
   return motivoLimiteAtivosAtingido(plano.limite_campanhas_ativas, total, 'campanha(s) ativa(s)')
 }
 
@@ -310,13 +312,15 @@ export interface UsoRecursosTenant {
 
 // Contagem de uso ATUAL — mesmos critérios de checarLimiteCampanhasAtivas/
 // checarLimiteToursAtivos/checarLimiteJornadasAtivas/checarLimiteUsuariosAdmin
-// acima (ativo:true; downgrade só se aplica a tenant já pago, nunca em
-// trial, então o branch eh_plano_trial daquelas funções não entra aqui).
+// acima (downgrade só se aplica a tenant já pago, nunca em trial, então o
+// branch eh_plano_trial daquelas funções não entra aqui). Campanha usa
+// `status: 'ATIVA'` (Fase 1 dos 3 status — fonte única de verdade); Tour/
+// Jornada/AdminUser continuam em `ativo:true` (fora do escopo desta fase).
 // Só a contagem em si — a decisão de encaixe fica em
 // avaliarEncaixeLimitesDowngrade (pura, testável sem banco).
 export async function contarUsoRecursosAtivos(tenantId: string): Promise<UsoRecursosTenant> {
   const [campanhas, tours, jornadas, admins] = await Promise.all([
-    prisma.campanha.count({ where: { tenant_id: tenantId, ativo: true } }),
+    prisma.campanha.count({ where: { tenant_id: tenantId, status: 'ATIVA' } }),
     prisma.tourGuiado.count({ where: { tenant_id: tenantId, ativo: true } }),
     prisma.jornada.count({ where: { tenant_id: tenantId, ativo: true } }),
     prisma.adminUser.count({ where: { tenant_id: tenantId, ativo: true } }),
