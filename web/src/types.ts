@@ -43,7 +43,6 @@ export interface Campanha {
   reexibir_apos_dias: number | null
   encerrar_apos_evento: boolean
   evento_conclusao: string | null
-  categoria: string | null
   // Fundação NPS/CSAT/utilidade_destaque (ver Feedback abaixo) — sempre
   // 'nps' por enquanto, nenhuma UI ainda escreve outro valor.
   tipo_avaliacao_feedback: string

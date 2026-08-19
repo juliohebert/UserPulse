@@ -13,7 +13,6 @@ import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueEl
 import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
-  CATEGORIAS,
   TIPOS_CAMPANHA,
   formInicial,
   converterVideoEmbed,
@@ -1486,7 +1485,6 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
           </div>
           <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
             <PillDropdown label="Tipo da campanha" value={form.tipo} options={TIPOS_CAMPANHA} onChange={valor => setCampo('tipo', valor)} />
-            <PillDropdown label="Categoria do badge" value={form.categoria} options={CATEGORIAS} onChange={valor => setCampo('categoria', valor)} />
             <PillDropdown
               label="Sistema do design"
               value={form.sistema}

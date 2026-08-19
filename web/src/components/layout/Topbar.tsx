@@ -124,7 +124,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
 
         const q = termo.toLowerCase()
         const campanhasFiltradas = campanhas
-          .filter(c => [c.titulo, c.subtitulo ?? '', c.slug, c.sistema, c.tela, c.categoria ?? '', c.tipo]
+          .filter(c => [c.titulo, c.subtitulo ?? '', c.slug, c.sistema, c.tela, c.tipo]
             .some(v => v.toLowerCase().includes(q)))
           .slice(0, 5)
           .map<ResultadoBusca>(c => ({
