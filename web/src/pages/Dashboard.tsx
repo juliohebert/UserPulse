@@ -523,7 +523,11 @@ export function Dashboard() {
       onCta: () => navigate("/campanhas"),
     });
   }
-  const campanhasInativas = campanhas.filter((c) => !c.ativo).length;
+  // Fase 2 dos 3 status — conta só INATIVA (publicada e depois desativada);
+  // RASCUNHO (nunca publicada) não entra aqui, senão o card confunde os dois
+  // conceitos (mesmo cuidado do getStatus: RASCUNHO nunca é "Agendada" nem
+  // se mistura com "Inativa").
+  const campanhasInativas = campanhas.filter((c) => c.status === "INATIVA").length;
   if (campanhasInativas > 0) {
     insights.push({
       id: "inativas",

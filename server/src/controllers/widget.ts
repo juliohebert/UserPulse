@@ -338,7 +338,10 @@ export async function buscarCampanha(req: Request, res: Response) {
     const campanha = await prisma.campanha.findFirst({
       where: {
         tenant_id: resolucao.tenantId,
-        ativo: true,
+        // Fase 1 dos 3 status — status é a fonte única de verdade de
+        // elegibilidade pública; `ativo` (mantido só por compatibilidade de
+        // deploy) nunca é lido aqui.
+        status: 'ATIVA',
         ...campanhaFilter,
         ...filtroData,
       },
@@ -420,7 +423,8 @@ export async function buscarCandidatas(req: Request, res: Response) {
     const campanhas = await prisma.campanha.findMany({
       where: {
         tenant_id: resolucao.tenantId,
-        ativo: true,
+        // Fase 1 dos 3 status — ver comentário equivalente em buscarCampanha.
+        status: 'ATIVA',
         ...construirFiltroCandidatas(sistema, tela, gatilho, evento),
         ...filtroData,
       },
@@ -879,8 +883,9 @@ export async function registrarConclusaoEvento(req: Request, res: Response) {
 
     // Limitation: only campaigns active at the time of track() are concluded here.
     // Campaigns created after this event fire are not retroactively blocked.
+    // Fase 1 dos 3 status — ver comentário equivalente em buscarCampanha.
     const campanhas = await prisma.campanha.findMany({
-      where: { tenant_id: resolucao.tenantId, ativo: true, sistema: sistemaStr, encerrar_apos_evento: true, evento_conclusao: eventoStr },
+      where: { tenant_id: resolucao.tenantId, status: 'ATIVA', sistema: sistemaStr, encerrar_apos_evento: true, evento_conclusao: eventoStr },
       select: {
         id: true,
         segmentar_cliente_ids: true,

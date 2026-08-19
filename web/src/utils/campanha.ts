@@ -1,16 +1,8 @@
-import type { Campanha, StatusCampanha } from '../types'
-// Reexportada daqui (não definida neste arquivo) — ver o comentário em
-// campanhaForm.ts sobre por que ela precisa viver num módulo sem
+import type { Campanha } from '../types'
+// Reexportadas daqui (não definidas neste arquivo) — ver o comentário em
+// campanhaForm.ts sobre por que elas precisam viver num módulo sem
 // import.meta.env/window no top-level.
-export { rotaEditarCampanha } from '../pages/campanhas2/campanhaForm'
-
-export function getStatus(c: Campanha): StatusCampanha {
-  if (!c.ativo) return 'inativa'
-  const now = new Date()
-  if (c.data_inicio && new Date(c.data_inicio) > now) return 'agendada'
-  if (c.data_fim && new Date(c.data_fim) < now) return 'encerrada'
-  return 'ativa'
-}
+export { rotaEditarCampanha, getStatus } from '../pages/campanhas2/campanhaForm'
 
 export function gerarSlug(titulo: string): string {
   return titulo

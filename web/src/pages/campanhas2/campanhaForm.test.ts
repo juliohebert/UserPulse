@@ -9,6 +9,7 @@ import {
   hidratarFormState,
   montarPayloadCampanha,
   rotaEditarCampanha,
+  getStatus,
   type FormState,
 } from './campanhaForm'
 
@@ -48,7 +49,7 @@ function campanhaAntiga(over: Partial<Campanha> = {}): Campanha {
     mostrar_uma_vez: true,
     prioridade: 5,
     ordem: 2,
-    ativo: true,
+    status: 'ATIVA',
     data_inicio: '2026-01-10',
     data_fim: '2026-02-10',
     pergunta_feedback: 'De 0 a 10, quanto você recomendaria?',
@@ -379,13 +380,22 @@ describe('round-trip: campanha antiga -> hidratar -> salvar sem alterações', (
     assert.equal(destaques[1].id, 'item-2')
   })
 
-  test('não zera ativo/prioridade/ordem/atraso_ms quando já tinham valores não-default', () => {
-    const original = campanhaAntiga({ ativo: false, prioridade: 7, ordem: 3, atraso_ms: 1500 })
+  test('não zera prioridade/ordem/atraso_ms quando já tinham valores não-default', () => {
+    const original = campanhaAntiga({ status: 'INATIVA', prioridade: 7, ordem: 3, atraso_ms: 1500 })
     const payload = montarPayloadCampanha(hidratarFormState(original))
-    assert.equal(payload.ativo, false)
     assert.equal(payload.prioridade, 7)
     assert.equal(payload.ordem, 3)
     assert.equal(payload.atraso_ms, 1500)
+  })
+
+  // Fase 2 dos 3 status — FormState nunca teve `status`, então o payload de
+  // "Salvar alterações" nunca inclui essa chave: o backend (atualizar() em
+  // server/src/controllers/campanhas.ts) só mexe em status quando a chave
+  // está presente no corpo, então editar preserva o status atual sempre.
+  test('payload de salvar/editar nunca inclui `status` — editar preserva o status atual', () => {
+    const original = campanhaAntiga({ status: 'ATIVA' })
+    const payload = montarPayloadCampanha(hidratarFormState(original))
+    assert.equal('status' in payload, false)
   })
 })
 
@@ -465,5 +475,48 @@ describe('round-trip: modo de segmentação restaurado ao editar', () => {
     assert.equal(resolverModoSegmentacao(formReaberto), 'perfil')
     assert.deepEqual(formReaberto.segmentar_perfis, ['gestor'])
     assert.deepEqual(formReaberto.segmentar_estados, ['SP', 'MG'])
+  })
+})
+
+// Fase 2 dos 3 status — status persistido é SEMPRE a fonte de verdade;
+// "agendada"/"encerrada" nunca existem para RASCUNHO/INATIVA, só para uma
+// campanha ATIVA (leitura de período). RASCUNHO nunca pode ser chamada de
+// "Agendada", mesmo com data_inicio no futuro.
+describe('getStatus — status persistido tem prioridade sobre período', () => {
+  test('RASCUNHO -> "rascunho", mesmo com data_inicio no futuro', () => {
+    const futura = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(getStatus({ status: 'RASCUNHO', data_inicio: futura, data_fim: null }), 'rascunho')
+  })
+
+  test('RASCUNHO -> "rascunho", mesmo sem nenhuma data', () => {
+    assert.equal(getStatus({ status: 'RASCUNHO', data_inicio: null, data_fim: null }), 'rascunho')
+  })
+
+  test('INATIVA -> "inativa", independente de período', () => {
+    const futura = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    const passada = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(getStatus({ status: 'INATIVA', data_inicio: null, data_fim: null }), 'inativa')
+    assert.equal(getStatus({ status: 'INATIVA', data_inicio: futura, data_fim: null }), 'inativa')
+    assert.equal(getStatus({ status: 'INATIVA', data_inicio: null, data_fim: passada }), 'inativa')
+  })
+
+  test('ATIVA + data_inicio no futuro -> "agendada"', () => {
+    const futura = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(getStatus({ status: 'ATIVA', data_inicio: futura, data_fim: null }), 'agendada')
+  })
+
+  test('ATIVA + data_fim no passado -> "encerrada"', () => {
+    const passada = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(getStatus({ status: 'ATIVA', data_inicio: null, data_fim: passada }), 'encerrada')
+  })
+
+  test('ATIVA + sem datas -> "ativa"', () => {
+    assert.equal(getStatus({ status: 'ATIVA', data_inicio: null, data_fim: null }), 'ativa')
+  })
+
+  test('ATIVA + período vigente (início passado, fim futuro) -> "ativa"', () => {
+    const inicioPassado = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const fimFuturo = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+    assert.equal(getStatus({ status: 'ATIVA', data_inicio: inicioPassado, data_fim: fimFuturo }), 'ativa')
   })
 })

@@ -29,6 +29,7 @@ const TIPOS = ['comunicado', 'melhoria', 'pesquisa']
 const CATEGORIAS = ['Novidade', 'Melhoria', 'Treinamento', 'Pesquisa', 'Comunicado', 'Obrigatório']
 const STATUS_FILTRO: Array<{ value: FiltroStatus; label: string }> = [
   { value: 'todas', label: 'Todas' },
+  { value: 'rascunho', label: 'Rascunhos' },
   { value: 'ativa', label: 'Ativas' },
   { value: 'inativa', label: 'Inativas' },
   { value: 'agendada', label: 'Agendadas' },
@@ -57,11 +58,18 @@ const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
 
 const COLLATOR = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' })
 
+// 'agendada'/'encerrada' NUNCA são status persistido (só existem
+// RASCUNHO/ATIVA/INATIVA no backend, ver CampanhaStatus em types.ts) — são
+// uma leitura de período por cima de uma campanha ATIVA (ver getStatus em
+// pages/campanhas2/campanhaForm.ts). O label deixa isso explícito ("Ativa ·
+// Agendada"/"Ativa · Encerrada") pra nunca parecer um 4º/5º status ao lado
+// de Rascunho/Ativa/Inativa.
 const STATUS_BADGE: Record<StatusCampanha, { label: string; color: string; dot: string }> = {
-  ativa:     { label: 'Ativa',     color: 'text-tertiary', dot: 'bg-tertiary' },
-  inativa:   { label: 'Inativa',   color: 'text-error',    dot: 'bg-error' },
-  agendada:  { label: 'Agendada',  color: 'text-primary',  dot: 'bg-primary' },
-  encerrada: { label: 'Encerrada', color: 'text-outline',  dot: 'bg-outline' },
+  rascunho:  { label: 'Rascunho',          color: 'text-secondary', dot: 'bg-secondary' },
+  ativa:     { label: 'Ativa',             color: 'text-tertiary',  dot: 'bg-tertiary' },
+  inativa:   { label: 'Inativa',           color: 'text-error',     dot: 'bg-error' },
+  agendada:  { label: 'Ativa · Agendada',  color: 'text-primary',   dot: 'bg-primary' },
+  encerrada: { label: 'Ativa · Encerrada', color: 'text-outline',   dot: 'bg-outline' },
 }
 
 function StatusInline({ status }: { status: StatusCampanha }) {
@@ -174,7 +182,7 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
 // Card de campanha para telas mobile (< md) — substitui a linha da tabela,
 // que fica ilegível e com ações apertadas em telas estreitas.
 function CampanhaCard({
-  c, status, active, duplicating, navigate, onOpen, onDuplicar, onInativar, onReativar, podeEscrever,
+  c, status, active, duplicating, navigate, onOpen, onDuplicar, onInativar, onAtivar, onEncerrar, podeEscrever,
 }: {
   c: Campanha
   status: StatusCampanha
@@ -184,14 +192,15 @@ function CampanhaCard({
   onOpen: (c: Campanha) => void
   onDuplicar: (c: Campanha) => void
   onInativar: (id: string) => void
-  onReativar: (id: string) => void
+  onAtivar: (id: string) => void
+  onEncerrar: (id: string) => void
   podeEscrever: boolean
 }) {
   const actionBtn = 'flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl active:scale-95 transition-all'
   return (
     <div
       onClick={() => onOpen(c)}
-      className={`p-4 cursor-pointer transition-colors ${!c.ativo ? 'opacity-60' : ''} ${
+      className={`p-4 cursor-pointer transition-colors ${c.status !== 'ATIVA' ? 'opacity-60' : ''} ${
         active ? 'bg-primary-fixed/60' : 'hover:bg-surface-container-low/60'
       }`}
     >
@@ -224,7 +233,7 @@ function CampanhaCard({
         </span>
       </div>
 
-      <div onClick={e => e.stopPropagation()} className={`grid ${podeEscrever ? 'grid-cols-5' : 'grid-cols-2'} gap-1 mt-3 pt-3 border-t border-outline-variant/20`}>
+      <div onClick={e => e.stopPropagation()} className="flex flex-wrap gap-1 mt-3 pt-3 border-t border-outline-variant/20 [&>button]:flex-1 [&>button]:min-w-[64px]">
         <button
           onClick={() => navigate(`/campanhas/${c.id}/preview`)}
           aria-label={`Abrir preview de ${c.titulo}`}
@@ -263,18 +272,39 @@ function CampanhaCard({
           </button>
         )}
         {podeEscrever && (
-          c.ativo ? (
+          c.status === 'RASCUNHO' ? (
             <button
-              onClick={() => onInativar(c.id)}
-              aria-label={`Inativar ${c.titulo}`}
-              className={`${actionBtn} text-on-surface-variant hover:text-error hover:bg-error-container`}
+              onClick={() => onAtivar(c.id)}
+              aria-label={`Publicar ${c.titulo}`}
+              className={`${actionBtn} text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10`}
             >
-              <span className="material-symbols-outlined text-[20px]">block</span>
-              <span className="text-[9px] font-semibold leading-none">Inativar</span>
+              <span className="material-symbols-outlined text-[20px]">publish</span>
+              <span className="text-[9px] font-semibold leading-none">Publicar</span>
             </button>
+          ) : c.status === 'ATIVA' ? (
+            <>
+              <button
+                onClick={() => onInativar(c.id)}
+                aria-label={`Desativar ${c.titulo}`}
+                className={`${actionBtn} text-on-surface-variant hover:text-error hover:bg-error-container`}
+              >
+                <span className="material-symbols-outlined text-[20px]">block</span>
+                <span className="text-[9px] font-semibold leading-none">Desativar</span>
+              </button>
+              {status !== 'encerrada' && (
+                <button
+                  onClick={() => onEncerrar(c.id)}
+                  aria-label={`Encerrar ${c.titulo}`}
+                  className={`${actionBtn} text-on-surface-variant hover:text-outline hover:bg-surface-container-high`}
+                >
+                  <span className="material-symbols-outlined text-[20px]">event_busy</span>
+                  <span className="text-[9px] font-semibold leading-none">Encerrar</span>
+                </button>
+              )}
+            </>
           ) : (
             <button
-              onClick={() => onReativar(c.id)}
+              onClick={() => onAtivar(c.id)}
               aria-label={`Reativar ${c.titulo}`}
               className={`${actionBtn} text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10`}
             >
@@ -303,6 +333,9 @@ export function CampanhasIndex() {
   const [inativandoId, setInativandoId] = useState<string | null>(null)
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [erroConfirmacao, setErroConfirmacao] = useState<string | null>(null)
+  const [campanhaEncerrar, setCampanhaEncerrar] = useState<Campanha | null>(null)
+  const [encerrandoId, setEncerrandoId] = useState<string | null>(null)
+  const [erroEncerramento, setErroEncerramento] = useState<string | null>(null)
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
   const [buscaAberta, setBuscaAberta] = useState(false)
   const [buscaNome, setBuscaNome] = useState('')
@@ -382,8 +415,9 @@ export function CampanhasIndex() {
   const mediaRespostas = campanhas.length > 0 ? totalRespostas / campanhas.length : 0
   const totalAtivas = campanhas.filter(c => getStatus(c) === 'ativa').length
   // Fase 6E — campanhas.length já é o TOTAL cadastrado do tenant (GET
-  // /campanhas não filtra por ativo, ver server/src/controllers/campanhas.ts
-  // listar()) — reaproveitado direto, sem endpoint novo.
+  // /campanhas não filtra por status — RASCUNHO/ATIVA/INATIVA todas voltam,
+  // ver server/src/controllers/campanhas.ts listar()) — reaproveitado
+  // direto, sem endpoint novo.
   const limiteCampanhas = limiteTrial(user?.tenant.plano, user?.tenant.plano?.limite_campanhas_ativas, campanhas.length, 'campanha')
   const totalColunasSelecionadas = TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).length
   const totalFiltrosAtivos = [
@@ -460,28 +494,64 @@ export function CampanhasIndex() {
     setErroConfirmacao(null)
     try {
       await del(`/campanhas/${id}`)
-      setCampanhas(prev => prev.map(c => c.id === id ? { ...c, ativo: false } : c))
-      if (quickView?.id === id) setQuickView(prev => prev ? { ...prev, ativo: false } : null)
+      setCampanhas(prev => prev.map(c => c.id === id ? { ...c, status: 'INATIVA' } : c))
+      if (quickView?.id === id) setQuickView(prev => prev ? { ...prev, status: 'INATIVA' } : null)
       setCampanhaInativar(null)
-    } catch {
-      setErroConfirmacao('Erro ao inativar campanha. Tente novamente.')
+    } catch (e) {
+      setErroConfirmacao(e instanceof Error ? e.message : 'Erro ao desativar campanha. Tente novamente.')
     } finally {
       setInativandoId(null)
     }
   }
 
-  const handleReativar = async (id: string) => {
+  // Publicar (RASCUNHO -> ATIVA) e Reativar (INATIVA -> ATIVA) são a mesma
+  // chamada — o backend decide se a transição é válida (ver
+  // validarTransicaoStatusCampanha em server/src/controllers/campanhas.ts);
+  // o botão certo já é escolhido por status na renderização abaixo.
+  const handleAtivar = async (id: string) => {
     try {
       // Mesmo cuidado de handleToggle: PUT não devolve _count, então precisa
       // preservar o _count.feedbacks já carregado em vez de aceitar a
       // resposta como o objeto completo.
       const atual = campanhas.find(x => x.id === id)
-      const updated = await put<Campanha>(`/campanhas/${id}`, { ativo: true })
+      const updated = await put<Campanha>(`/campanhas/${id}`, { status: 'ATIVA' })
       const merged: Campanha = atual ? { ...atual, ...updated, _count: atual._count } : updated
       setCampanhas(prev => prev.map(x => (x.id === id ? merged : x)))
       if (quickView?.id === id) setQuickView(merged)
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Erro ao reativar campanha.')
+      alert(e instanceof Error ? e.message : 'Erro ao ativar campanha.')
+    }
+  }
+
+  // Encerrar (Fase 2) — ação própria, endpoint dedicado (nunca reaproveita
+  // DELETE/handleAtivar). Só disponível pra ATIVA ainda não encerrada (botão
+  // já filtra isso na renderização); o backend valida de novo e devolve a
+  // campanha com data_fim atualizado (ver encerrar() em
+  // server/src/controllers/campanhas.ts).
+  const solicitarEncerramento = (id: string) => {
+    const campanha = campanhas.find(c => c.id === id)
+    if (campanha) {
+      setErroEncerramento(null)
+      setCampanhaEncerrar(campanha)
+    }
+  }
+
+  const confirmarEncerramento = async () => {
+    if (!campanhaEncerrar) return
+    const id = campanhaEncerrar.id
+    setEncerrandoId(id)
+    setErroEncerramento(null)
+    try {
+      const atual = campanhas.find(x => x.id === id)
+      const atualizada = await post<Campanha>(`/campanhas/${id}/encerrar`, {})
+      const merged: Campanha = atual ? { ...atual, ...atualizada, _count: atual._count } : atualizada
+      setCampanhas(prev => prev.map(c => (c.id === id ? merged : c)))
+      if (quickView?.id === id) setQuickView(merged)
+      setCampanhaEncerrar(null)
+    } catch (e) {
+      setErroEncerramento(e instanceof Error ? e.message : 'Erro ao encerrar campanha. Tente novamente.')
+    } finally {
+      setEncerrandoId(null)
     }
   }
 
@@ -780,7 +850,7 @@ export function CampanhasIndex() {
                         <tr
                           key={c.id}
                           onClick={() => setQuickView(c)}
-                          className={`group cursor-pointer transition-colors ${!c.ativo ? 'opacity-60' : ''} ${
+                          className={`group cursor-pointer transition-colors ${c.status !== 'ATIVA' ? 'opacity-60' : ''} ${
                             quickView?.id === c.id
                               ? 'bg-primary-fixed/60'
                               : 'hover:bg-surface-container-low/60'
@@ -907,19 +977,40 @@ export function CampanhasIndex() {
                                 </TooltipIconButton>
                               )}
                               {podeEscrever && (
-                                c.ativo ? (
+                                c.status === 'RASCUNHO' ? (
                                   <TooltipIconButton
-                                    label="Inativar"
-                                    onClick={() => solicitarInativacao(c.id)}
-                                    ariaLabel={`Inativar ${c.titulo}`}
-                                    className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-full transition-all"
+                                    label="Publicar"
+                                    onClick={() => handleAtivar(c.id)}
+                                    ariaLabel={`Publicar ${c.titulo}`}
+                                    className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-full transition-all"
                                   >
-                                    <span className="material-symbols-outlined text-[18px]">block</span>
+                                    <span className="material-symbols-outlined text-[18px]">publish</span>
                                   </TooltipIconButton>
+                                ) : c.status === 'ATIVA' ? (
+                                  <>
+                                    <TooltipIconButton
+                                      label="Desativar"
+                                      onClick={() => solicitarInativacao(c.id)}
+                                      ariaLabel={`Desativar ${c.titulo}`}
+                                      className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-full transition-all"
+                                    >
+                                      <span className="material-symbols-outlined text-[18px]">block</span>
+                                    </TooltipIconButton>
+                                    {status !== 'encerrada' && (
+                                      <TooltipIconButton
+                                        label="Encerrar"
+                                        onClick={() => solicitarEncerramento(c.id)}
+                                        ariaLabel={`Encerrar ${c.titulo}`}
+                                        className="p-2 text-on-surface-variant hover:text-outline hover:bg-surface-container-high rounded-full transition-all"
+                                      >
+                                        <span className="material-symbols-outlined text-[18px]">event_busy</span>
+                                      </TooltipIconButton>
+                                    )}
+                                  </>
                                 ) : (
                                   <TooltipIconButton
                                     label="Reativar"
-                                    onClick={() => handleReativar(c.id)}
+                                    onClick={() => handleAtivar(c.id)}
                                     ariaLabel={`Reativar ${c.titulo}`}
                                     className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-full transition-all"
                                   >
@@ -952,7 +1043,8 @@ export function CampanhasIndex() {
                     onOpen={setQuickView}
                     onDuplicar={duplicarCampanha}
                     onInativar={solicitarInativacao}
-                    onReativar={handleReativar}
+                    onAtivar={handleAtivar}
+                    onEncerrar={solicitarEncerramento}
                     podeEscrever={podeEscrever}
                   />
                 )
@@ -975,14 +1067,27 @@ export function CampanhasIndex() {
 
       {campanhaInativar && (
         <ConfirmDialog
-          title={`Inativar "${campanhaInativar.titulo}"?`}
+          title={`Desativar "${campanhaInativar.titulo}"?`}
           description="Ela deixará de ser exibida para os usuários, mas o histórico de respostas será preservado."
-          confirmLabel="Inativar campanha"
+          confirmLabel="Desativar campanha"
           variant="danger"
           loading={inativandoId === campanhaInativar.id}
           erro={erroConfirmacao}
           onConfirm={confirmarInativacao}
           onCancel={() => { setCampanhaInativar(null); setErroConfirmacao(null) }}
+        />
+      )}
+
+      {campanhaEncerrar && (
+        <ConfirmDialog
+          title={`Encerrar "${campanhaEncerrar.titulo}"?`}
+          description="A vigência termina agora — ela para de ser exibida para os usuários, mas continua ATIVA (diferente de desativar) e o histórico de respostas é preservado."
+          confirmLabel="Encerrar campanha"
+          variant="danger"
+          loading={encerrandoId === campanhaEncerrar.id}
+          erro={erroEncerramento}
+          onConfirm={confirmarEncerramento}
+          onCancel={() => { setCampanhaEncerrar(null); setErroEncerramento(null) }}
         />
       )}
     </section>
