@@ -16,7 +16,6 @@ O painel de administração permite criar campanhas, acompanhar visualizações,
 
 - **CRUD de campanhas** com suporte a título, subtítulo, descrição, imagem, vídeo, botão CTA
 - **Tipos de campanha:** NPS, comunicado, novidade, treinamento, obrigatória
-- **Categorias:** Novidade, Melhoria, Treinamento, Pesquisa, Comunicado, Obrigatório
 - **Templates** pré-configurados para acelerar a criação
 - **Widget embarcável** (`widget.js`) — modal automática no sistema hospedeiro
 - **Embed por slug** — campanha específica independente de tela
@@ -26,7 +25,7 @@ O painel de administração permite criar campanhas, acompanhar visualizações,
 - **Reexibição periódica** configurável por dias
 - **Controle de exibição única** por usuário (localStorage)
 - **Dashboard** com métricas de visualizações, cliques CTA, taxa de clique e NPS médio
-- **Filtros de listagem** por tipo, status, sistema, tela e categoria
+- **Filtros de listagem** por tipo, status, sistema e tela
 - **Login admin** com sessão JWT em cookie httpOnly — protege as rotas de campanhas, tours, jornadas e dashboard
 - **CORS configurável** por origens para rotas admin
 - **7 migrations Prisma** com histórico completo

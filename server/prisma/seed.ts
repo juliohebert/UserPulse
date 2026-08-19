@@ -12,7 +12,6 @@ type CampanhaSeed = {
   tela: string
   texto_botao?: string
   url_botao?: string
-  categoria: string
   prioridade: number
   ativo: boolean
   feedback_habilitado?: boolean
@@ -107,7 +106,6 @@ const campanhasSeed: CampanhaSeed[] = [
     tela: 'agenda',
     texto_botao: 'Ver novidades',
     url_botao: 'https://quarkclinic.com/novidades',
-    categoria: 'Melhoria',
     prioridade: 1,
     ativo: true,
     pergunta_feedback: 'O que você achou das melhorias?',
@@ -122,7 +120,6 @@ const campanhasSeed: CampanhaSeed[] = [
     tela: 'prontuario',
     texto_botao: 'Abrir prontuário',
     url_botao: '/app/prontuario',
-    categoria: 'Novidade',
     prioridade: 2,
     ativo: true,
     exige_confirmacao_leitura: true,
@@ -135,7 +132,6 @@ const campanhasSeed: CampanhaSeed[] = [
     tipo: 'pesquisa',
     sistema: 'QuarkClinic',
     tela: 'atendimento',
-    categoria: 'Pesquisa',
     prioridade: 0,
     ativo: true,
     pergunta_feedback: 'Como você avalia o fluxo atual?',
@@ -150,7 +146,6 @@ const campanhasSeed: CampanhaSeed[] = [
     tela: 'faturamento',
     texto_botao: 'Conhecer recursos',
     url_botao: '/app/faturamento',
-    categoria: 'Melhoria',
     prioridade: 1,
     ativo: true,
   },
@@ -162,7 +157,6 @@ const campanhasSeed: CampanhaSeed[] = [
     tipo: 'comunicado',
     sistema: 'QuarkClinic',
     tela: 'estoque',
-    categoria: 'Treinamento',
     prioridade: 0,
     ativo: true,
   },
@@ -176,7 +170,6 @@ const campanhasSeed: CampanhaSeed[] = [
     tela: 'integracao',
     texto_botao: 'Abrir integração',
     url_botao: '/integracao',
-    categoria: 'Obrigatório',
     prioridade: 3,
     ativo: true,
     exige_confirmacao_leitura: true,
@@ -191,7 +184,6 @@ const campanhasSeed: CampanhaSeed[] = [
     tipo: 'melhoria',
     sistema: 'UserPulse',
     tela: 'campanhas',
-    categoria: 'Treinamento',
     prioridade: 0,
     ativo: false,
   },
@@ -203,7 +195,6 @@ const campanhasSeed: CampanhaSeed[] = [
     tipo: 'pesquisa',
     sistema: 'UserPulse',
     tela: 'dashboard',
-    categoria: 'Pesquisa',
     prioridade: 0,
     ativo: false,
     pergunta_feedback: 'O quanto essa mudança ajudou sua rotina?',
@@ -650,7 +641,6 @@ async function seedCampanhas(tenant_id: string) {
       ativo: item.ativo,
       exige_confirmacao_leitura: item.exige_confirmacao_leitura ?? false,
       permitir_fechar_modal: true,
-      categoria: item.categoria,
     }
     const campanha = await prisma.campanha.upsert({
       where: { tenant_id_slug: { tenant_id, slug: item.slug } },
