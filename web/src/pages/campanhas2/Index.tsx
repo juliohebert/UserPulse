@@ -29,6 +29,28 @@ type PosicaoMidia = 'topo' | 'antes_cta'
 type FrequenciaExibicao = 'uma_vez' | 'ate_responder' | 'reexibir_depois'
 type AcaoFinalCampanha = 'feedback' | 'confirmacao' | 'visualizacao'
 
+// Copy contextual de "Reexibir periodicamente" (politica_reexibicao=
+// 'reexibir_apos_dias', nome interno inalterado) — só texto/UX, nunca a
+// regra: o intervalo sempre conta a partir da AÇÃO final da campanha
+// (resposta/confirmação), nunca da mera visualização, quando ela existe
+// (ver fonteReferenciaReexibicao em server/src/controllers/widget.ts). Os
+// 3 mapas abaixo deixam essa prioridade explícita na interface.
+const DESCRICAO_REEXIBIR_PERIODICAMENTE: Record<AcaoFinalCampanha, string> = {
+  feedback: 'Após o usuário responder, esta campanha poderá aparecer novamente depois do intervalo definido.',
+  confirmacao: 'Após o usuário confirmar, esta campanha poderá aparecer novamente depois do intervalo definido.',
+  visualizacao: 'Após a visualização, esta campanha poderá aparecer novamente depois do intervalo definido.',
+}
+const LABEL_INTERVALO_REEXIBICAO: Record<AcaoFinalCampanha, string> = {
+  feedback: 'Intervalo entre respostas (dias)',
+  confirmacao: 'Intervalo entre confirmações (dias)',
+  visualizacao: 'Intervalo entre exibições (dias)',
+}
+const VERBO_REEXIBICAO: Record<AcaoFinalCampanha, { acao: string; substantivo: string }> = {
+  feedback: { acao: 'responder', substantivo: 'resposta' },
+  confirmacao: { acao: 'confirmar', substantivo: 'confirmação' },
+  visualizacao: { acao: 'visualizar', substantivo: 'visualização' },
+}
+
 type AparenciaCard = Pick<AparenciaWidget, 'cor_principal' | 'logo_url'>
 
 const ICONES_TIPO_CAMPANHA: Record<string, string> = {
@@ -840,8 +862,8 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
                 formatoExibicao === FORMATO_DESTAQUE_ELEMENTO
                   ? { id: 'uma_vez' as const, icon: 'touch_app', titulo: 'Até interagir', desc: 'Continua destacando a novidade até o usuário interagir ou dispensá-la.' }
                   : { id: 'uma_vez' as const, icon: 'looks_one', titulo: 'Uma vez', desc: 'Mostra uma única vez para cada usuário.' },
-                { id: 'ate_responder' as const, icon: 'repeat', titulo: 'Até responder', desc: 'Continua aparecendo até o usuário responder ou confirmar.' },
-                { id: 'reexibir_depois' as const, icon: 'event_repeat', titulo: 'Reexibir depois', desc: 'Mostra novamente após um intervalo definido em dias.' },
+                { id: 'ate_responder' as const, icon: 'repeat', titulo: 'Até responder ou confirmar', desc: 'Continua aparecendo até o usuário responder ou confirmar.' },
+                { id: 'reexibir_depois' as const, icon: 'event_repeat', titulo: 'Reexibir periodicamente', desc: DESCRICAO_REEXIBIR_PERIODICAMENTE[acaoFinal] },
               ].map(opcao => {
                 const desabilitado = opcao.id === 'ate_responder' && !form.feedback_habilitado && !form.exige_confirmacao_leitura
                 const selecionado = frequenciaExibicao === opcao.id
@@ -867,9 +889,22 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
             </div>
           </div>
 
-          {frequenciaExibicao === 'reexibir_depois' && (
-            <CampoDock label="Reexibir após quantos dias?" value={form.reexibir_apos_dias} onChange={valor => setCampo('reexibir_apos_dias', valor)} type="number" />
-          )}
+          {frequenciaExibicao === 'reexibir_depois' && (() => {
+            const dias = Number(form.reexibir_apos_dias)
+            const diasValido = form.reexibir_apos_dias.trim() !== '' && Number.isFinite(dias) && dias > 0
+            const { acao, substantivo } = VERBO_REEXIBICAO[acaoFinal]
+            return (
+              <CampoDock
+                label={LABEL_INTERVALO_REEXIBICAO[acaoFinal]}
+                value={form.reexibir_apos_dias}
+                onChange={valor => setCampo('reexibir_apos_dias', valor)}
+                type="number"
+                hint={diasValido
+                  ? `Exemplo: se o usuário ${acao} hoje, poderá receber esta campanha novamente em ${dias} dia(s). Cada nova ${substantivo} reinicia a contagem.`
+                  : undefined}
+              />
+            )
+          })()}
 
           <div className="grid gap-3 sm:grid-cols-2">
             <CampoDock label="Tempo antes de aparecer (ms)" value={form.atraso_ms} onChange={valor => setCampo('atraso_ms', valor)} type="number" />
