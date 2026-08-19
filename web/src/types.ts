@@ -24,7 +24,14 @@ export interface Campanha {
   mostrar_uma_vez: boolean
   prioridade: number
   ordem: number
-  ativo: boolean
+  // Fonte única de verdade do ciclo de vida (Fase 2 dos 3 status) — RASCUNHO
+  // nunca foi publicada, ATIVA publicada e elegível, INATIVA já publicada e
+  // desativada. "Agendada"/"Encerrada" NUNCA são status: são só uma leitura
+  // de período (data_inicio/data_fim) calculada em cima de uma campanha
+  // ATIVA — ver getStatus em pages/campanhas2/campanhaForm.ts. O backend
+  // ainda manda `ativo` (compat de deploy), mas nada no frontend lê mais
+  // esse campo.
+  status: CampanhaStatus
   data_inicio: string | null
   data_fim: string | null
   pergunta_feedback: string | null
@@ -216,7 +223,16 @@ export interface AparenciaWidget {
   atualizado_em?: string
 }
 
-export type StatusCampanha = 'ativa' | 'inativa' | 'agendada' | 'encerrada'
+// Status persistido no backend (server/prisma/schema.prisma, enum
+// CampanhaStatus) — nunca confundir com StatusCampanha abaixo, que é só uma
+// lente de EXIBIÇÃO derivada disto + período (ver getStatus).
+export type CampanhaStatus = 'RASCUNHO' | 'ATIVA' | 'INATIVA'
+
+// Status de EXIBIÇÃO — 'rascunho'/'inativa' espelham 1:1 o status
+// persistido; 'agendada'/'ativa'/'encerrada' só existem para uma campanha
+// ATIVA e vêm da janela de período (data_inicio/data_fim), nunca são
+// persistidos à parte. Ver getStatus em pages/campanhas2/campanhaForm.ts.
+export type StatusCampanha = 'rascunho' | 'ativa' | 'inativa' | 'agendada' | 'encerrada'
 
 export interface TourPasso {
   id: string

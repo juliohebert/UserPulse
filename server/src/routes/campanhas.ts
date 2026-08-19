@@ -20,6 +20,11 @@ router.put('/:id', requireEscritaConteudo('CAMPANHAS'), campanhas.atualizar)
 // ação de ativar/inativar do PUT — por isso fica em requireEscritaConteudo
 // (EDITOR pode), não na exclusão reservada a ADMIN usada por tours/jornadas.
 router.delete('/:id', requireEscritaConteudo('CAMPANHAS'), campanhas.remover)
+// Encerrar (Fase 2) é uma ação própria, nunca reaproveita o DELETE acima —
+// só mexe em data_fim (nunca em status), ver encerrar()/
+// resolverEncerramentoCampanha em controllers/campanhas.ts. Mesmo guard do
+// resto da escrita de conteúdo (EDITOR pode).
+router.post('/:id/encerrar', requireEscritaConteudo('CAMPANHAS'), campanhas.encerrar)
 // testar-elegibilidade é só simulação (nunca escreve no banco, ver
 // controller) — POST por histórico da API, não por escrita real, por isso
 // exige só VISUALIZAR (ajuste pós-revisão), igual a qualquer outra leitura

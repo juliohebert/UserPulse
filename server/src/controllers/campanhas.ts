@@ -1,7 +1,137 @@
 import { Request, Response } from 'express'
+import { CampanhaStatus } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { checarLimiteCampanhasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, planoEfetivoParaLimite } from '../lib/tenantGuards'
 import { filtroFeedbackGeralReexibicao } from './widget'
+
+// ─── Fase 1 dos 3 status de Campanha ───────────────────────────────────────
+// status é a fonte única de verdade do ciclo de vida (RASCUNHO nunca foi
+// publicada; ATIVA publicada e elegível; INATIVA já publicada, desativada).
+// `ativo` (coluna legada) continua sendo escrito em paralelo só por
+// compatibilidade de deploy (nada aqui LÊ `ativo` pra decidir elegibilidade/
+// limite/gating — só widget.ts/tenantGuards.ts, que agora leem `status`) —
+// ver sincronizarAtivoComStatus.
+export const TRANSICOES_STATUS_CAMPANHA: Record<CampanhaStatus, CampanhaStatus[]> = {
+  RASCUNHO: ['ATIVA'],
+  ATIVA: ['INATIVA'],
+  INATIVA: ['ATIVA'],
+}
+
+// Função pura — só compara os dois valores contra o grafo de transições
+// permitido, nunca toca no banco. Reenviar o mesmo status (no-op, ex.: salvar
+// outros campos de uma campanha já ATIVA sem mexer no status) é sempre
+// válido; qualquer transição fora do grafo (incluindo qualquer caminho de
+// volta pra RASCUNHO) é bloqueada com uma mensagem pronta pra virar erro 400.
+export function validarTransicaoStatusCampanha(atual: CampanhaStatus, novo: CampanhaStatus): string | null {
+  if (atual === novo) return null
+  if (TRANSICOES_STATUS_CAMPANHA[atual].includes(novo)) return null
+  return `Transição de status inválida: ${atual} -> ${novo}.`
+}
+
+// Único ponto que decide o valor de `ativo` a partir de `status` — chamado em
+// toda escrita (criar/atualizar/duplicar/remover) pra `ativo` nunca divergir
+// de `status`. Fase 1: `ativo` ainda é gravado, mas deixou de ser lido por
+// qualquer decisão de negócio.
+function sincronizarAtivoComStatus(status: CampanhaStatus): boolean {
+  return status === 'ATIVA'
+}
+
+// Status com que TODA campanha nova nasce — usado tanto por criar() quanto
+// por duplicar() (ver "Nova campanha e duplicações -> RASCUNHO" na regra),
+// numa constante só pra nunca divergir entre os dois pontos de criação.
+export const STATUS_INICIAL_CAMPANHA: CampanhaStatus = 'RASCUNHO'
+
+// Decisão pura de remover() (DELETE /:id, sempre foi "inativar", nunca um
+// hard-delete de verdade — ver comentário na rota) — nunca toca no banco.
+// Reflete o mesmo grafo de TRANSICOES_STATUS_CAMPANHA (ATIVA->INATIVA é a
+// única transição real aqui; RASCUNHO->INATIVA continua fora do grafo, então
+// vira erro em vez de silenciosamente virar INATIVA), só com mensagens
+// específicas de DELETE em vez do texto genérico de validarTransicaoStatusCampanha.
+export type ResultadoRemoverCampanha =
+  | { tipo: 'inativada' }
+  | { tipo: 'ja_inativa' }
+  | { tipo: 'erro'; mensagem: string }
+
+export function resolverRemocaoCampanha(statusAtual: CampanhaStatus): ResultadoRemoverCampanha {
+  if (statusAtual === 'RASCUNHO') {
+    return { tipo: 'erro', mensagem: 'Campanha em rascunho não pode ser inativada.' }
+  }
+  if (statusAtual === 'INATIVA') {
+    return { tipo: 'ja_inativa' }
+  }
+  return { tipo: 'inativada' }
+}
+
+// Encerrar (Fase 2 — ação explícita própria, NUNCA reaproveita DELETE/
+// resolverRemocaoCampanha) — disponível só pra campanha ATIVA ainda não
+// encerrada. Nunca cria um 4º status: "Encerrada" continua sendo só uma
+// leitura de período (data_fim no passado) por cima de status=ATIVA, igual
+// getStatus no frontend (web/src/pages/campanhas2/campanhaForm.ts) já fazia
+// antes desta ação existir — aqui só define o `data_fim` que faz essa
+// leitura passar a valer. Função pura — decide o QUE fazer a partir de
+// status/data_fim atuais + `agora` (sempre injetado pelo caller, nunca
+// `new Date()` direto aqui dentro, pra ser 100% determinística em teste).
+export type ResultadoEncerrarCampanha =
+  | { tipo: 'encerrada'; data_fim: Date }
+  | { tipo: 'ja_encerrada' }
+  | { tipo: 'erro'; mensagem: string }
+
+export function resolverEncerramentoCampanha(
+  statusAtual: CampanhaStatus,
+  dataFimAtual: Date | null,
+  agora: Date
+): ResultadoEncerrarCampanha {
+  if (statusAtual !== 'ATIVA') {
+    return { tipo: 'erro', mensagem: 'Só uma campanha ativa pode ser encerrada.' }
+  }
+  // Mesmo critério de "encerrada" usado por getStatus (data_fim < agora) —
+  // nulo ou no futuro (ainda não passou) sempre encerra AGORA, sobrescrevendo
+  // qualquer data_fim futura já configurada (regra explícita: substituir por
+  // agora, nunca preservar uma data futura antiga).
+  if (dataFimAtual !== null && dataFimAtual < agora) {
+    return { tipo: 'ja_encerrada' }
+  }
+  return { tipo: 'encerrada', data_fim: agora }
+}
+
+// Campanha "Encerrada" (mesmo critério de getStatus no frontend: status=ATIVA
+// + data_fim no passado) nunca pode voltar a Ativa/Agendada por uma edição
+// normal — regra explícita: só existe Encerrar, não existe Reabrir. Chamada
+// por atualizar() sempre que `data_fim` vem no corpo, ANTES de qualquer
+// escrita; bloqueia tanto remover data_fim (null) quanto empurrá-la pro
+// futuro/presente. Editar data_fim pra outra data ainda no passado continua
+// permitido (a campanha segue encerrada, só muda QUANDO ela terminou) — e
+// qualquer outro campo (título, descrição, etc.) nunca passa por aqui, só
+// `data_fim` é bloqueado. Função pura — `agora` sempre injetado pelo caller.
+export function motivoBloqueioReaberturaEncerrada(
+  statusAtual: CampanhaStatus,
+  dataFimAtual: Date | null,
+  novoDataFim: Date | null,
+  agora: Date
+): string | null {
+  const estaEncerrada = statusAtual === 'ATIVA' && dataFimAtual !== null && dataFimAtual < agora
+  if (!estaEncerrada) return null
+  const continuaEncerrada = novoDataFim !== null && novoDataFim < agora
+  if (continuaEncerrada) return null
+  return 'Campanha encerrada não pode ser reaberta alterando a data de término. Para reabrir, crie uma nova campanha.'
+}
+
+// Publicar (RASCUNHO->ATIVA) ou reativar (INATIVA->ATIVA) com `data_fim` já
+// no passado terminaria silenciosamente "Encerrada" na hora (mesmo critério
+// de getStatus: status=ATIVA + data_fim no passado) — a ação deveria deixar
+// a campanha visível, nunca escondida atrás de um período já vencido.
+// Bloqueia e orienta a ajustar o período em vez de publicar silenciosamente
+// encerrada (regra explícita — nunca um efeito colateral silencioso).
+// `dataFimEfetivo` é o valor que VAI ficar persistido depois desta escrita
+// (novo valor do corpo, se enviado; senão o que já existia na campanha) —
+// quem chama decide isso, esta função só julga o valor final. Função pura —
+// `agora` sempre injetado pelo caller.
+export function motivoBloqueioPublicarComDataFimPassada(dataFimEfetivo: Date | null, agora: Date): string | null {
+  if (dataFimEfetivo !== null && dataFimEfetivo < agora) {
+    return 'Não é possível publicar/reativar uma campanha com a data de término no passado. Ajuste o período (data_fim) antes de publicar.'
+  }
+  return null
+}
 
 // ─── Respostas helpers ────────────────────────────────────────────────────────
 
@@ -665,7 +795,7 @@ export async function criar(req: Request, res: Response) {
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
-      ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
+      data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
       politica_reexibicao, reexibir_apos_dias,
       encerrar_apos_evento, evento_conclusao,
@@ -694,14 +824,16 @@ export async function criar(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Informe o nome do evento de conclusão (evento_conclusao).' })
     }
 
-    const ativoBool = ativo !== undefined ? Boolean(ativo) : true
-    if (ativoBool) {
-      const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
-      if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
-    }
+    // Fase 1 dos 3 status — toda campanha nova nasce RASCUNHO, sem exceção:
+    // nunca é elegível no widget nem conta como "ativa" pro limite do plano.
+    // `status`/`ativo` enviados no corpo são ignorados de propósito (nunca
+    // confia no cliente pra publicar direto na criação — mesmo raciocínio de
+    // duplicar() logo abaixo, que também força RASCUNHO). Por isso nunca
+    // precisa checar motivoBloqueioAtivacao aqui: nada está sendo ativado.
+    const statusInicial: CampanhaStatus = STATUS_INICIAL_CAMPANHA
     // Fase 6D — em trial, o limite conta TOTAL cadastrado, então precisa
-    // checar mesmo criando com ativo:false (ver deveChecarLimiteCadastro).
-    if (deveChecarLimiteCadastro(ativoBool, tenant.plano)) {
+    // checar mesmo criando em RASCUNHO (ver deveChecarLimiteCadastro).
+    if (deveChecarLimiteCadastro(false, tenant.plano)) {
       const limite = await checarLimiteCampanhasAtivas(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
     }
@@ -733,7 +865,8 @@ export async function criar(req: Request, res: Response) {
         mostrar_uma_vez: Boolean(mostrar_uma_vez),
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
         ordem: ordem !== undefined ? Number(ordem) : 0,
-        ativo: ativoBool,
+        status: statusInicial,
+        ativo: sincronizarAtivoComStatus(statusInicial),
         data_inicio: data_inicio ? new Date(data_inicio) : null,
         data_fim: data_fim ? new Date(data_fim) : null,
         pergunta_feedback: pergunta_feedback?.trim() || null,
@@ -834,7 +967,7 @@ export async function atualizar(req: Request, res: Response) {
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
-      ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
+      status, ativo, data_inicio, data_fim, pergunta_feedback, observacao_obrigatoria,
       exige_confirmacao_leitura, permitir_fechar_modal, intervalo_reexibicao_dias,
       politica_reexibicao, reexibir_apos_dias,
       encerrar_apos_evento, evento_conclusao,
@@ -843,6 +976,28 @@ export async function atualizar(req: Request, res: Response) {
     } = req.body
 
     const dataCyNormalizado = data_cy !== undefined ? normalizarDataCy(data_cy) : normalizarDataCy(existente.data_cy)
+
+    // Fase 1 dos 3 status — `status` é a entrada preferida. `ativo` (boolean)
+    // continua aceito no corpo só por compatibilidade com o frontend ainda
+    // não atualizado (toggle Ativar/Inativar da listagem, PUT {ativo:true/
+    // false}), traduzido pra ATIVA/INATIVA; se os dois vierem juntos, `status`
+    // vence. Nenhum dos dois no corpo = status intocado (mesmo comportamento
+    // de sempre pra um update parcial).
+    const STATUS_VALIDOS: CampanhaStatus[] = ['RASCUNHO', 'ATIVA', 'INATIVA']
+    let statusDesejado: CampanhaStatus | undefined
+    if (status !== undefined) {
+      const statusBruto = typeof status === 'string' ? status.trim().toUpperCase() : ''
+      if (!STATUS_VALIDOS.includes(statusBruto as CampanhaStatus)) {
+        return res.status(400).json({ erro: `status inválido: ${String(status)}.` })
+      }
+      statusDesejado = statusBruto as CampanhaStatus
+    } else if (ativo !== undefined) {
+      statusDesejado = Boolean(ativo) ? 'ATIVA' : 'INATIVA'
+    }
+    if (statusDesejado !== undefined) {
+      const erroTransicao = validarTransicaoStatusCampanha(existente.status, statusDesejado)
+      if (erroTransicao) return res.status(400).json({ erro: erroTransicao })
+    }
 
     // Merge incoming values with existing to validate even on partial update
     const pfm = permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : existente.permitir_fechar_modal
@@ -870,17 +1025,37 @@ export async function atualizar(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Informe o nome do evento de conclusão (evento_conclusao).' })
     }
 
-    // Só checa bloqueio/limite quando a requisição está de fato LIGANDO a
-    // campanha (false -> true) — reeditar uma campanha já ativa não deve
-    // falhar por causa de um limite reduzido depois que ela já estava ativa.
-    const ativandoAgora = ativo !== undefined && Boolean(ativo) && !existente.ativo
-    if (ativandoAgora) {
+    // Só checa bloqueio/limite quando a requisição está de fato PUBLICANDO a
+    // campanha agora (RASCUNHO/INATIVA -> ATIVA) — reeditar uma campanha já
+    // ATIVA não deve falhar por causa de um limite reduzido depois que ela já
+    // estava ativa.
+    const publicandoAgora = statusDesejado === 'ATIVA' && existente.status !== 'ATIVA'
+    if (publicandoAgora) {
       const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
       // excluirId: a própria campanha já existe (só está inativa) — não pode
       // contar contra si mesma na contagem de trial (ver checarLimiteCampanhasAtivas).
       const limite = await checarLimiteCampanhasAtivas(tenantId, planoEfetivoParaLimite(tenant), existente.id)
       if (limite) return res.status(403).json({ erro: limite })
+      // Publicar/reativar nunca pode terminar silenciosamente "Encerrada" (ver
+      // motivoBloqueioPublicarComDataFimPassada) — dataFimEfetivo é o valor
+      // que este mesmo PUT vai persistir: o novo, se `data_fim` veio no
+      // corpo, senão o que a campanha já tinha (RASCUNHO/INATIVA sempre
+      // passam por aqui, então não colide com motivoBloqueioReaberturaEncerrada
+      // acima, que só se aplica a quem já estava ATIVA).
+      const dataFimEfetivo = data_fim !== undefined ? (data_fim ? new Date(data_fim) : null) : existente.data_fim
+      const erroDataFimPassada = motivoBloqueioPublicarComDataFimPassada(dataFimEfetivo, new Date())
+      if (erroDataFimPassada) return res.status(400).json({ erro: erroDataFimPassada })
+    }
+
+    // Campanha encerrada nunca reabre por edição normal (ver
+    // motivoBloqueioReaberturaEncerrada) — só quando `data_fim` de fato vem
+    // no corpo; qualquer outro campo (título, descrição, etc.) segue editável
+    // normalmente numa campanha encerrada.
+    if (data_fim !== undefined) {
+      const novoDataFim = data_fim ? new Date(data_fim) : null
+      const erroReabertura = motivoBloqueioReaberturaEncerrada(existente.status, existente.data_fim, novoDataFim, new Date())
+      if (erroReabertura) return res.status(400).json({ erro: erroReabertura })
     }
 
     let slug = existente.slug
@@ -929,7 +1104,7 @@ export async function atualizar(req: Request, res: Response) {
         ...(mostrar_uma_vez !== undefined && { mostrar_uma_vez: Boolean(mostrar_uma_vez) }),
         ...(prioridade !== undefined && { prioridade: Number(prioridade) }),
         ...(ordem !== undefined && { ordem: Number(ordem) }),
-        ...(ativo !== undefined && { ativo: Boolean(ativo) }),
+        ...(statusDesejado !== undefined && { status: statusDesejado, ativo: sincronizarAtivoComStatus(statusDesejado) }),
         ...(data_inicio !== undefined && { data_inicio: data_inicio ? new Date(data_inicio) : null }),
         ...(data_fim !== undefined && { data_fim: data_fim ? new Date(data_fim) : null }),
         ...(pergunta_feedback !== undefined && { pergunta_feedback: pergunta_feedback?.trim() || null }),
@@ -986,11 +1161,50 @@ export async function remover(req: Request, res: Response) {
     const existente = await prisma.campanha.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
     if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
-    await prisma.campanha.update({ where: { id }, data: { ativo: false } })
+    // Semântica de DELETE por status (ver resolverRemocaoCampanha) — nunca um
+    // hard-delete de verdade, e RASCUNHO nunca vira INATIVA (transição fora
+    // do grafo, ver TRANSICOES_STATUS_CAMPANHA).
+    const resultado = resolverRemocaoCampanha(existente.status)
+    if (resultado.tipo === 'erro') {
+      return res.status(400).json({ erro: resultado.mensagem })
+    }
+    if (resultado.tipo === 'ja_inativa') {
+      return res.json({ mensagem: 'Campanha já estava inativa.' })
+    }
+    await prisma.campanha.update({ where: { id }, data: { status: 'INATIVA', ativo: sincronizarAtivoComStatus('INATIVA') } })
     res.json({ mensagem: 'Campanha inativada com sucesso.' })
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao inativar campanha.' })
+  }
+}
+
+// Ação explícita própria (ver resolverEncerramentoCampanha) — nunca reaproveita
+// remover()/DELETE. Só muda `data_fim`; `status` nunca é tocado aqui (uma
+// campanha encerrada continua ATIVA no banco, só fora do período — ver
+// comentário da função pura).
+export async function encerrar(req: Request, res: Response) {
+  try {
+    const tenant = req.adminUser!.tenant
+    const bloqueioEscrita = motivoBloqueioEscrita(tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+
+    const id = req.params.id as string
+    const existente = await prisma.campanha.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
+    if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
+
+    const resultado = resolverEncerramentoCampanha(existente.status, existente.data_fim, new Date())
+    if (resultado.tipo === 'erro') {
+      return res.status(400).json({ erro: resultado.mensagem })
+    }
+    if (resultado.tipo === 'ja_encerrada') {
+      return res.json(existente)
+    }
+    const campanha = await prisma.campanha.update({ where: { id }, data: { data_fim: resultado.data_fim } })
+    res.json(campanha)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao encerrar campanha.' })
   }
 }
 
@@ -1009,11 +1223,11 @@ export async function duplicar(req: Request, res: Response) {
     const original = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId }, include: { destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } } } })
     if (!original) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
-    // Fase 6D — a cópia nasce sempre inativa (ver `ativo: false` abaixo), mas
-    // em trial o limite conta TOTAL cadastrado: sem esta checagem, duplicar
-    // seria um jeito de contornar o limite (nunca dispara o bloqueio de
-    // "ativação", já que a cópia nunca nasce ativa). Planos pagos continuam
-    // podendo duplicar livremente (deveChecarLimiteCadastro(false, plano)).
+    // Fase 6D — a cópia nasce sempre em RASCUNHO (ver `status`/`ativo` abaixo),
+    // mas em trial o limite conta TOTAL cadastrado: sem esta checagem,
+    // duplicar seria um jeito de contornar o limite (nunca dispara o bloqueio
+    // de "ativação", já que a cópia nunca nasce ATIVA). Planos pagos
+    // continuam podendo duplicar livremente (deveChecarLimiteCadastro(false, plano)).
     if (deveChecarLimiteCadastro(false, tenant.plano)) {
       const limite = await checarLimiteCampanhasAtivas(tenantId, planoEfetivoParaLimite(tenant))
       if (limite) return res.status(403).json({ erro: limite })
@@ -1022,7 +1236,7 @@ export async function duplicar(req: Request, res: Response) {
     const tituloCopia = `Cópia de ${original.titulo}`
     const slug = await slugUnico(tenantId, gerarSlugBase(tituloCopia))
 
-    // A cópia nasce inativa para não publicar automaticamente e não herda
+    // A cópia nasce em RASCUNHO para não publicar automaticamente e não herda
     // feedbacks, eventos, confirmações nem etapas de jornada da campanha original.
     const copia = await prisma.campanha.create({
       data: {
@@ -1049,7 +1263,8 @@ export async function duplicar(req: Request, res: Response) {
         mostrar_uma_vez: original.mostrar_uma_vez,
         prioridade: original.prioridade,
         ordem: original.ordem,
-        ativo: false,
+        status: STATUS_INICIAL_CAMPANHA,
+        ativo: sincronizarAtivoComStatus(STATUS_INICIAL_CAMPANHA),
         data_inicio: original.data_inicio,
         data_fim: original.data_fim,
         pergunta_feedback: original.pergunta_feedback,
@@ -1121,8 +1336,13 @@ export async function testarElegibilidade(req: Request, res: Response) {
       return d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
     }
 
-    // 1. Campanha ativa
-    if (!campanha.ativo) {
+    // 1. Campanha ativa — Fase 1 dos 3 status: RASCUNHO e INATIVA bloqueiam
+    // igualmente a elegibilidade pública, mas com mensagens diferentes (uma
+    // nunca foi publicada, a outra já foi e foi desativada), pra quem está
+    // simulando a elegibilidade conseguir distinguir os dois motivos.
+    if (campanha.status === 'RASCUNHO') {
+      block('Campanha ativa', 'A campanha está em rascunho e nunca foi publicada.')
+    } else if (campanha.status === 'INATIVA') {
       block('Campanha ativa', 'A campanha está inativa.')
     } else {
       ok('Campanha ativa')
