@@ -4,7 +4,9 @@ import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
-import { get, post, put } from '../../services/api'
+import { StatusBadge } from '../../components/ui/StatusBadge'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { del, get, post, put } from '../../services/api'
 import type { AparenciaWidget, Campanha, Sistema, TelaCatalogo } from '../../types'
 import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
 import { useAuth } from '../../hooks/useAuth'
@@ -21,6 +23,7 @@ import {
   resolverModoSegmentacao,
   hidratarFormState,
   montarPayloadCampanha,
+  getStatus,
 } from './campanhaForm'
 
 type SecaoDock = 'destino' | 'exibicao' | 'feedback' | 'segmentacao'
@@ -1806,6 +1809,27 @@ export function Campanhas2Index() {
   const [erroNovaTela, setErroNovaTela] = useState<string | null>(null)
   const [secaoDock, setSecaoDock] = useState<SecaoDock>('destino')
 
+  // Ações de status (Fase 2 dos 3 status) — fora do FormState de propósito
+  // (ver comentário no topo de campanhaForm.ts: status nunca viaja no
+  // payload de Salvar alterações). `campanhaAtual` guarda o registro cru
+  // carregado do backend só pra saber o status/vigência atual e reagir às
+  // ações abaixo, nunca é usado pra hidratar o formulário.
+  const [campanhaAtual, setCampanhaAtual] = useState<Campanha | null>(null)
+  const [publicando, setPublicando] = useState(false)
+  const [erroPublicar, setErroPublicar] = useState<string | null>(null)
+  const [sucessoStatus, setSucessoStatus] = useState<string | null>(null)
+  const [confirmarDesativar, setConfirmarDesativar] = useState(false)
+  const [desativando, setDesativando] = useState(false)
+  const [erroDesativar, setErroDesativar] = useState<string | null>(null)
+  const [confirmarEncerrar, setConfirmarEncerrar] = useState(false)
+  const [encerrando, setEncerrando] = useState(false)
+  const [erroEncerrar, setErroEncerrar] = useState<string | null>(null)
+  // Snapshot do form logo após hidratar a campanha carregada — comparado
+  // contra o form atual pra saber se há alterações não salvas antes de
+  // permitir qualquer ação de status (ver possuiAlteracoesNaoSalvas). Não
+  // existia um mecanismo de dirty genérico no projeto pra reaproveitar.
+  const formCarregadoRef = useRef<FormState | null>(null)
+
   const embedUrl = useMemo(() => converterVideoEmbed(form.video_url), [form.video_url])
   const aparenciaAtual = useMemo(() => {
     const chave = form.sistema.trim()
@@ -1882,16 +1906,23 @@ export function Campanhas2Index() {
       setMediaPosition('topo')
       setCarregandoCampanha(false)
       setErroCarregarCampanha(null)
+      setCampanhaAtual(null)
+      formCarregadoRef.current = null
       return
     }
     let cancelado = false
     setCarregandoCampanha(true)
     setErroCarregarCampanha(null)
+    setErroPublicar(null)
+    setSucessoStatus(null)
 
     get<Campanha>(`/campanhas/${id}`)
       .then(c => {
         if (cancelado) return
-        setForm(hidratarFormState(c))
+        const hidratado = hidratarFormState(c)
+        setForm(hidratado)
+        setCampanhaAtual(c)
+        formCarregadoRef.current = hidratado
       })
       .catch(err => {
         if (!cancelado) setErroCarregarCampanha(err instanceof Error ? err.message : 'Erro ao carregar campanha.')
@@ -2024,6 +2055,91 @@ export function Campanhas2Index() {
     }
   }
 
+  const AVISO_ALTERACOES_PENDENTES = 'Salve as alterações antes de alterar o status da campanha.'
+
+  // O form pode divergir do que está persistido (usuário editou e não
+  // salvou) no momento em que ele clica numa ação de status — essa ação
+  // valeria sobre os dados antigos, não sobre o que está na tela. Guarda
+  // cada ação de status contra isso (não existia mecanismo de dirty prévio
+  // no projeto pra reaproveitar, ver formCarregadoRef acima).
+  function possuiAlteracoesNaoSalvas(): boolean {
+    return formCarregadoRef.current !== null && JSON.stringify(form) !== JSON.stringify(formCarregadoRef.current)
+  }
+
+  // Publicar (RASCUNHO -> ATIVA) e Reativar (INATIVA -> ATIVA) são a mesma
+  // chamada — mesmo endpoint/regra de campanhas/Index.tsx e Preview.tsx (o
+  // backend decide se a transição é válida, ver
+  // validarTransicaoStatusCampanha em server/src/controllers/campanhas.ts).
+  // Nunca envia o resto do `form` junto: só o status muda, edições ainda não
+  // salvas no builder continuam intactas na tela.
+  async function publicarOuReativarCampanha() {
+    if (!campanhaAtual) return
+    if (possuiAlteracoesNaoSalvas()) {
+      setErroPublicar(AVISO_ALTERACOES_PENDENTES)
+      setSucessoStatus(null)
+      return
+    }
+    const eraRascunho = campanhaAtual.status === 'RASCUNHO'
+    setPublicando(true)
+    setErroPublicar(null)
+    setSucessoStatus(null)
+    try {
+      const atualizada = await put<Campanha>(`/campanhas/${campanhaAtual.id}`, { status: 'ATIVA' })
+      setCampanhaAtual(prev => (prev ? { ...prev, ...atualizada } : atualizada))
+      setSucessoStatus(eraRascunho ? 'Campanha publicada com sucesso.' : 'Campanha reativada com sucesso.')
+    } catch (err) {
+      setErroPublicar(err instanceof Error ? err.message : 'Erro ao atualizar status da campanha.')
+    } finally {
+      setPublicando(false)
+    }
+  }
+
+  // Desativar — mesmo endpoint de campanhas/Index.tsx (DELETE /campanhas/:id
+  // não é exclusão real, só marca INATIVA, ver comentário em
+  // routes/campanhas.ts).
+  async function desativarCampanha() {
+    if (!campanhaAtual) return
+    if (possuiAlteracoesNaoSalvas()) {
+      setErroDesativar(AVISO_ALTERACOES_PENDENTES)
+      return
+    }
+    setDesativando(true)
+    setErroDesativar(null)
+    try {
+      await del(`/campanhas/${campanhaAtual.id}`)
+      setCampanhaAtual(prev => (prev ? { ...prev, status: 'INATIVA' } : prev))
+      setSucessoStatus('Campanha desativada com sucesso.')
+      setConfirmarDesativar(false)
+    } catch (err) {
+      setErroDesativar(err instanceof Error ? err.message : 'Erro ao desativar campanha. Tente novamente.')
+    } finally {
+      setDesativando(false)
+    }
+  }
+
+  // Encerrar — ação própria com endpoint dedicado, mesma regra de
+  // campanhas/Index.tsx (só disponível pra ATIVA ainda não encerrada; o
+  // backend valida de novo e devolve a campanha com data_fim atualizado).
+  async function encerrarCampanha() {
+    if (!campanhaAtual) return
+    if (possuiAlteracoesNaoSalvas()) {
+      setErroEncerrar(AVISO_ALTERACOES_PENDENTES)
+      return
+    }
+    setEncerrando(true)
+    setErroEncerrar(null)
+    try {
+      const atualizada = await post<Campanha>(`/campanhas/${campanhaAtual.id}/encerrar`, {})
+      setCampanhaAtual(prev => (prev ? { ...prev, ...atualizada } : atualizada))
+      setSucessoStatus('Campanha encerrada com sucesso.')
+      setConfirmarEncerrar(false)
+    } catch (err) {
+      setErroEncerrar(err instanceof Error ? err.message : 'Erro ao encerrar campanha. Tente novamente.')
+    } finally {
+      setEncerrando(false)
+    }
+  }
+
   if (carregandoCampanha) return <div className="px-4 py-8"><LoadingSpinner /></div>
   if (erroCarregarCampanha) {
     return (
@@ -2038,13 +2154,52 @@ export function Campanhas2Index() {
       <div className="mx-auto w-full max-w-[1128px] rounded-3xl border border-[#dee3e9] bg-white px-6 py-5">
         <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
           <div className="max-w-[680px]">
-            <h1 className="text-[24px] font-semibold leading-tight text-[#0a1317]">{id ? 'Editar campanha in-app' : 'Crie uma campanha in-app'}</h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-[24px] font-semibold leading-tight text-[#0a1317]">{id ? 'Editar campanha in-app' : 'Crie uma campanha in-app'}</h1>
+              {campanhaAtual && <StatusBadge status={getStatus(campanhaAtual)} />}
+            </div>
             <p className="mt-1.5 text-[14px] font-normal leading-5 text-[#5d6c7b]">Monte o card, escolha o momento de exibição e valide a experiência antes de publicar.</p>
           </div>
-          <Button type="button" variant="primary" onClick={() => navigate('/campanhas')} className="shadow-[0_10px_24px_rgba(0,100,224,0.18)]">
-            Ver outras campanhas
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {/* Ações explícitas de status (Fase 2 dos 3 status) — nunca um
+                checkbox no formulário, ver comentário no topo de
+                campanhaForm.ts. Mesmas regras/endpoints de campanhas/
+                Index.tsx e Preview.tsx: RASCUNHO->Publicar e INATIVA->
+                Reativar chamam o mesmo PUT status=ATIVA; Encerrar some
+                quando a vigência (data_fim) já passou. */}
+            {campanhaAtual?.status === 'RASCUNHO' && (
+              <Button type="button" variant="gradient" onClick={publicarOuReativarCampanha} disabled={publicando}>
+                {publicando ? 'Publicando...' : 'Publicar campanha'}
+              </Button>
+            )}
+            {campanhaAtual?.status === 'ATIVA' && (
+              <>
+                <Button type="button" variant="ghost" onClick={() => setConfirmarDesativar(true)} disabled={desativando}>
+                  Desativar campanha
+                </Button>
+                {getStatus(campanhaAtual) !== 'encerrada' && (
+                  <Button type="button" variant="ghost" onClick={() => setConfirmarEncerrar(true)} disabled={encerrando}>
+                    Encerrar campanha
+                  </Button>
+                )}
+              </>
+            )}
+            {campanhaAtual?.status === 'INATIVA' && (
+              <Button type="button" variant="gradient" onClick={publicarOuReativarCampanha} disabled={publicando}>
+                {publicando ? 'Reativando...' : 'Reativar campanha'}
+              </Button>
+            )}
+            <Button type="button" variant="primary" onClick={() => navigate('/campanhas')} className="shadow-[0_10px_24px_rgba(0,100,224,0.18)]">
+              Ver outras campanhas
+            </Button>
+          </div>
         </div>
+        {(erroPublicar || sucessoStatus) && (
+          <div className={`mt-4 flex items-center gap-2 rounded-xl px-4 py-3 text-[14px] font-semibold ${erroPublicar ? 'bg-[#fdecef] text-[#e41e3f]' : 'bg-[#e9f7ee] text-[#1e7e34]'}`}>
+            <span className="material-symbols-outlined text-[18px] shrink-0">{erroPublicar ? 'error' : 'check_circle'}</span>
+            {erroPublicar || sucessoStatus}
+          </div>
+        )}
       </div>
 
       <form onSubmit={salvar} className="grid items-start gap-8 xl:grid-cols-[minmax(0,580px)_minmax(460px,520px)] xl:justify-center">
@@ -2113,6 +2268,32 @@ export function Campanhas2Index() {
           aparencia={aparenciaAtual}
           embedUrl={embedUrl}
           onClose={() => setPreviewAberto(false)}
+        />
+      )}
+
+      {confirmarDesativar && campanhaAtual && (
+        <ConfirmDialog
+          title={`Desativar "${campanhaAtual.titulo}"?`}
+          description="Ela deixará de ser exibida para os usuários, mas o histórico de respostas será preservado."
+          confirmLabel="Desativar campanha"
+          variant="danger"
+          loading={desativando}
+          erro={erroDesativar}
+          onConfirm={desativarCampanha}
+          onCancel={() => { setConfirmarDesativar(false); setErroDesativar(null) }}
+        />
+      )}
+
+      {confirmarEncerrar && campanhaAtual && (
+        <ConfirmDialog
+          title={`Encerrar "${campanhaAtual.titulo}"?`}
+          description="A vigência termina agora — ela para de ser exibida para os usuários, mas continua ATIVA (diferente de desativar) e o histórico de respostas é preservado."
+          confirmLabel="Encerrar campanha"
+          variant="danger"
+          loading={encerrando}
+          erro={erroEncerrar}
+          onConfirm={encerrarCampanha}
+          onCancel={() => { setConfirmarEncerrar(false); setErroEncerrar(null) }}
         />
       )}
     </div>
