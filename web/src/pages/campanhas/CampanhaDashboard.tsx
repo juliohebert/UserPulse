@@ -892,7 +892,7 @@ export function CampanhaDashboard() {
             <div className="w-full max-w-full min-w-0 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm mb-6">
               <h4 className="text-title-md font-bold text-on-surface mb-4 sm:mb-5">Distribuição de notas</h4>
               <div className="overflow-x-auto">
-                <div className="flex items-end gap-1.5 sm:gap-2 h-28 sm:h-32 min-w-[380px] sm:min-w-0">
+                <div className="flex items-end gap-1.5 sm:gap-2 min-w-[380px] sm:min-w-0">
                   {Array.from({ length: 11 }, (_, i) => {
                     const count = kpiDistribuicao[String(i)] ?? 0
                     const height = Math.round((count / maxDist) * 100)
