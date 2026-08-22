@@ -630,7 +630,6 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
               {[
                 { id: 'tela' as const, icon: 'web_asset', titulo: 'Ao abrir uma tela', desc: 'Use uma tela cadastrada ou adicione uma nova ao catálogo.' },
                 { id: 'data_cy' as const, icon: 'ads_click', titulo: 'Ao encontrar um elemento', desc: 'Mostra quando um elemento específico estiver disponível na página.' },
-                { id: 'url' as const, icon: 'link', titulo: 'Ao acessar uma URL', desc: 'Mostra quando o caminho da URL corresponder ao valor informado.' },
                 { id: 'acao' as const, icon: 'bolt', titulo: 'Depois de uma ação', desc: 'Mostra somente quando o sistema disparar um evento pelo widget.' },
               ].map(opcao => {
                 // Destaque em elemento só existe ancorado por data-cy — as
