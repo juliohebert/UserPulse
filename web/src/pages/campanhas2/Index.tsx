@@ -12,7 +12,7 @@ import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrl
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
-import { criarResolvedorIdDestaque } from '../../components/campanhas/DestaqueElementoSimulacao.logic'
+import { criarResolvedorIdDestaque, urlHttpValida } from '../../components/campanhas/DestaqueElementoSimulacao.logic'
 import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
@@ -158,7 +158,7 @@ function PillDropdown({ label, value, options, onChange, placeholder = 'Selecion
   )
 }
 
-function CampoDock({ label, hint, tooltip, value, onChange, placeholder, type = 'text' }: {
+function CampoDock({ label, hint, tooltip, value, onChange, placeholder, type = 'text', error }: {
   label: string
   hint?: string
   tooltip?: string
@@ -166,6 +166,7 @@ function CampoDock({ label, hint, tooltip, value, onChange, placeholder, type = 
   onChange: (value: string) => void
   placeholder?: string
   type?: string
+  error?: string
 }) {
   return (
     <label className="block">
@@ -185,8 +186,10 @@ function CampoDock({ label, hint, tooltip, value, onChange, placeholder, type = 
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
+        aria-invalid={Boolean(error)}
+        className={`h-11 w-full rounded-lg border bg-white px-3 text-[16px] text-[#1c1e21] outline-none transition focus:ring-1 ${error ? 'border-[#e41e3f] focus:border-[#e41e3f] focus:ring-[#e41e3f]' : 'border-[#ced0d4] focus:border-[#0064e0] focus:ring-[#0064e0]'}`}
       />
+      {error && <span className="mt-2 flex items-center gap-1 text-[12px] font-semibold leading-4 text-[#c21837]" role="alert"><span className="material-symbols-outlined text-[16px]">error</span>{error}</span>}
       {hint && <span className="mt-2 block text-[12px] leading-4 text-[#8595a4]">{hint}</span>}
     </label>
   )
@@ -838,7 +841,13 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
                         {item.cta_habilitado && (
                           <div className="grid gap-3 sm:grid-cols-2">
                             <CampoDock label="Texto do botão" value={item.texto_botao} onChange={valor => atualizarDestaque(indice, 'texto_botao', valor)} placeholder="Saiba mais" />
-                            <CampoDock label="Link do botão" value={item.url_botao} onChange={valor => atualizarDestaque(indice, 'url_botao', valor)} placeholder="https://" />
+                            <CampoDock
+                              label="Link do botão"
+                              value={item.url_botao}
+                              onChange={valor => atualizarDestaque(indice, 'url_botao', valor)}
+                              placeholder="https://"
+                              error={!urlHttpValida(item.url_botao) ? 'Informe uma URL válida iniciando com http:// ou https://.' : undefined}
+                            />
                           </div>
                         )}
                       </div>

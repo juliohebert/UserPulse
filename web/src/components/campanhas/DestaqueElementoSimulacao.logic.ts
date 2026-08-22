@@ -25,8 +25,8 @@ export function criarEstadoUtilidadeSimulada(itemId: string): EstadoUtilidadeSim
   return { itemId, utilidade: null, observacao: '', enviado: false }
 }
 
-export function deveRenderizarCtaSimulado(texto: string | null, url: string | null): boolean {
-  if (!texto?.trim() || !url?.trim()) return false
+export function urlHttpValida(url: string | null | undefined): boolean {
+  if (!url?.trim()) return false
 
   try {
     const protocolo = new URL(url.trim()).protocol
@@ -34,4 +34,8 @@ export function deveRenderizarCtaSimulado(texto: string | null, url: string | nu
   } catch {
     return false
   }
+}
+
+export function deveRenderizarCtaSimulado(texto: string | null, url: string | null): boolean {
+  return Boolean(texto?.trim()) && urlHttpValida(url)
 }

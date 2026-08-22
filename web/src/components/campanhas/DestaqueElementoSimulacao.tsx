@@ -97,23 +97,17 @@ export function DestaqueElementoSimulacao({
     setEstado(criarEstadoUtilidadeSimulada(itemId))
   }, [itemId])
 
-  if (!dataCyLabel) {
-    return (
-      <span className="max-w-[220px] text-center text-[12px] font-semibold leading-5 text-[#8595a4]">
-        {placeholderSemAlvo ?? 'Nenhum elemento alvo (data-cy) configurado.'}
-      </span>
-    )
-  }
-
   return (
     <div className="relative inline-flex items-center rounded-lg border border-[#ced0d4] bg-white px-3 py-2 text-[12px] font-bold text-[#1c1e21]">
-      <span className="rounded-md border border-[#ced0d4] bg-[#f8f9ff] px-3 py-2">Elemento</span>
+      <span className="max-w-[220px] rounded-md border border-[#ced0d4] bg-[#f8f9ff] px-3 py-2 text-center leading-5">
+        {dataCyLabel ? 'Elemento' : (placeholderSemAlvo ?? 'Nenhum elemento alvo (data-cy) configurado.')}
+      </span>
 
       {/* Badge — ancorado FORA do alvo (acima, alinhado à direita, gap de
           8px), nunca sobre a caixa do alvo. Mesmo padrão de
           destaqueElementoCalcularPosicao em widget.js. */}
       <span
-        className="absolute bottom-[calc(100%+8px)] right-0 inline-flex origin-right scale-x-[1.15] items-center rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide text-white"
+        className="absolute bottom-[calc(100%+8px)] right-0 inline-flex items-center rounded-full px-4 py-1 text-[11px] font-bold tracking-wide text-white"
         style={{ backgroundColor: corAcao }}
       >
         {badgeTexto}
