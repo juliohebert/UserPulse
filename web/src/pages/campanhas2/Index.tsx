@@ -11,7 +11,7 @@ import type { AparenciaWidget, Campanha, Sistema, TelaCatalogo } from '../../typ
 import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
-import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
+import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 import { criarResolvedorIdDestaque } from '../../components/campanhas/DestaqueElementoSimulacao.logic'
 import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm'
 import {
@@ -1086,16 +1086,11 @@ function DestaqueElementoCard({ form, sistemas, sistemaPadraoIdentificador, apar
         <div className="flex flex-wrap items-center justify-end gap-2">
           <PillDropdown label="Sistema do design" value={form.sistema} options={sistemas} onChange={valor => setCampo('sistema', valor)} placeholder="Sistema" highlightValue={sistemaPadraoIdentificador} emptyMessage="Nenhum sistema cadastrado" manageLabel="Gerenciar sistemas" onManage={onGerenciarSistemas} />
           {itens.length > 1 && (
-            <select
-              value={indice}
-              onChange={event => setIndicePreview(Number(event.target.value))}
-              aria-label="Escolher qual destaque visualizar"
-              className="max-w-[220px] rounded-lg border border-[#ced0d4] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
-            >
-              {itens.map((it, i) => (
-                <option key={i} value={i}>{it.titulo.trim() || `Destaque ${i + 1}`}</option>
-              ))}
-            </select>
+            <SeletorDestaqueSimulacao
+              valor={indice}
+              onChange={setIndicePreview}
+              opcoes={itens.map((it, i) => ({ valor: i, rotulo: it.titulo.trim() || `Destaque ${i + 1}` }))}
+            />
           )}
         </div>
       </div>
@@ -1652,16 +1647,11 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Preview do destaque em elemento" onClick={onClose}>
         <div className="flex max-h-[calc(100vh-32px)] w-full flex-col items-center gap-3 overflow-y-auto py-2" onClick={event => event.stopPropagation()}>
           {itens.length > 1 && (
-            <select
-              value={indice}
-              onChange={event => setIndicePreviewDestaque(Number(event.target.value))}
-              aria-label="Escolher qual destaque visualizar"
-              className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[12px] font-bold text-white outline-none backdrop-blur"
-            >
-              {itens.map((it, i) => (
-                <option key={i} value={i} className="text-[#1c1e21]">{it.titulo.trim() || `Destaque ${i + 1}`}</option>
-              ))}
-            </select>
+            <SeletorDestaqueSimulacao
+              valor={indice}
+              onChange={setIndicePreviewDestaque}
+              opcoes={itens.map((it, i) => ({ valor: i, rotulo: it.titulo.trim() || `Destaque ${i + 1}` }))}
+            />
           )}
           <DestaqueElementoSimulacao
             corAcao={corAcao}

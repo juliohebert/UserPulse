@@ -9,7 +9,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge'
 import { gerarEmbed, gerarEmbedParts, getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
-import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
+import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 
 // Esta página não busca a aparência por sistema (diferente de campanhas2,
 // que usa a cor do tenant) — cobalto fixo, mesmo tom de {colors.primary} no
@@ -40,6 +40,7 @@ export function CampanhaPreview() {
   const [copied, setCopied] = useState(false)
   const [telefone, setTelefone] = useState('')
   const [phoneDone, setPhoneDone] = useState(false)
+  const [indiceDestaque, setIndiceDestaque] = useState(0)
   const [publicando, setPublicando] = useState(false)
   const [erroPublicar, setErroPublicar] = useState<string | null>(null)
   const podeEscrever = podeGerenciarModulo(user, 'CAMPANHAS')
@@ -149,6 +150,9 @@ export function CampanhaPreview() {
   }
 
   const question = campanha.pergunta_feedback || 'Como podemos melhorar?'
+  const destaques = campanha.destaques && campanha.destaques.length > 0 ? campanha.destaques : null
+  const indiceDestaqueSeguro = destaques ? Math.min(indiceDestaque, destaques.length - 1) : 0
+  const destaqueSelecionado = destaques?.[indiceDestaqueSeguro]
   const embedCode = gerarEmbed(campanha, user?.tenant.public_key)
   const embedParts = gerarEmbedParts(campanha, user?.tenant.public_key)
   const initSection = [
@@ -232,19 +236,28 @@ export function CampanhaPreview() {
             <div className="absolute inset-0 z-10 bg-black/40" onClick={() => setOpen(false)} />
             <div className="relative z-20 flex min-h-[560px] items-center justify-center p-6">
             {campanha.modo_exibicao === 'destaque_elemento' ? (
-              <DestaqueElementoSimulacao
-                corAcao={CORACAO_SIMULACAO}
-                dataCyLabel={campanha.data_cy?.trim() ?? ''}
-                itemId={`campaign-${campanha.id}`}
-                placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
-                badgeTexto={campanha.subtitulo?.trim() || 'Novo'}
-                titulo={campanha.titulo}
-                descricao={campanha.descricao}
-                ctaTexto={campanha.texto_botao && campanha.url_botao ? campanha.texto_botao : null}
-                ctaUrl={campanha.texto_botao && campanha.url_botao ? campanha.url_botao : null}
-                permitirDispensar={campanha.permitir_fechar_modal !== false}
-                onFechar={() => setOpen(false)}
-              />
+              <div className="flex flex-col items-center gap-3">
+                {destaques && destaques.length > 1 && (
+                  <SeletorDestaqueSimulacao
+                    valor={indiceDestaqueSeguro}
+                    onChange={setIndiceDestaque}
+                    opcoes={destaques.map((item, indice) => ({ valor: indice, rotulo: item.titulo.trim() || `Destaque ${indice + 1}` }))}
+                  />
+                )}
+                <DestaqueElementoSimulacao
+                  corAcao={CORACAO_SIMULACAO}
+                  dataCyLabel={(destaqueSelecionado?.data_cy ?? campanha.data_cy ?? '').trim()}
+                  itemId={destaqueSelecionado?.id ?? `campaign-${campanha.id}`}
+                  placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
+                  badgeTexto={destaqueSelecionado?.texto_badge?.trim() || campanha.subtitulo?.trim() || 'Novo'}
+                  titulo={destaqueSelecionado?.titulo ?? campanha.titulo}
+                  descricao={destaqueSelecionado?.descricao ?? campanha.descricao}
+                  ctaTexto={destaqueSelecionado?.texto_botao ?? campanha.texto_botao}
+                  ctaUrl={destaqueSelecionado?.url_botao ?? campanha.url_botao}
+                  permitirDispensar={campanha.permitir_fechar_modal !== false}
+                  onFechar={() => setOpen(false)}
+                />
+              </div>
             ) : (
             <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-2xl">
             {submitted ? (

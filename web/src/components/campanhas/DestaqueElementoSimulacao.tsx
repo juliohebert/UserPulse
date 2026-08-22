@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { criarEstadoUtilidadeSimulada, deveRenderizarCtaSimulado } from './DestaqueElementoSimulacao.logic'
 
 // Representação visual do formato "Destaque em elemento" — elemento alvo
@@ -27,6 +27,55 @@ interface DestaqueElementoSimulacaoProps {
   // Ausente => X só decorativo (builder canvas, sem interação real).
   // Presente => X fecha de verdade (usado em simulações reais).
   onFechar?: () => void
+}
+
+export interface OpcaoSeletorDestaque {
+  valor: number
+  rotulo: string
+}
+
+export function SeletorDestaqueSimulacao({ opcoes, valor, onChange }: {
+  opcoes: OpcaoSeletorDestaque[]
+  valor: number
+  onChange: (valor: number) => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const selecionada = opcoes.find(opcao => opcao.valor === valor) ?? opcoes[0]
+
+  useEffect(() => {
+    if (!aberto) return
+    const fechar = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setAberto(false)
+    }
+    const fecharComEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setAberto(false) }
+    document.addEventListener('mousedown', fechar)
+    document.addEventListener('keydown', fecharComEscape)
+    return () => {
+      document.removeEventListener('mousedown', fechar)
+      document.removeEventListener('keydown', fecharComEscape)
+    }
+  }, [aberto])
+
+  if (!selecionada) return null
+
+  return (
+    <div className="relative inline-flex" ref={ref}>
+      <button type="button" onClick={() => setAberto(previous => !previous)} className="inline-flex items-center gap-1.5 rounded-full border border-[#ced0d4] bg-white px-3 py-1.5 text-[12px] font-semibold text-[#1c1e21] transition hover:border-[#0064e0] focus:border-[#0064e0] focus:outline-none focus:ring-1 focus:ring-[#0064e0]" aria-haspopup="listbox" aria-expanded={aberto} aria-label="Escolher qual destaque visualizar">
+        <span className="max-w-[180px] truncate">{selecionada.rotulo}</span>
+        <span className="material-symbols-outlined text-[18px] text-[#444950]">expand_more</span>
+      </button>
+      {aberto && (
+        <div className="absolute right-0 top-[calc(100%+8px)] z-30 min-w-full rounded-2xl border border-[#dee3e9] bg-white p-2 shadow-[0_1px_4px_rgba(20,22,26,0.18)]" role="listbox">
+          {opcoes.map(opcao => (
+            <button key={opcao.valor} type="button" onMouseDown={event => event.preventDefault()} onClick={() => { onChange(opcao.valor); setAberto(false) }} className={`block w-full whitespace-nowrap rounded-xl px-3 py-2 text-left text-[14px] font-semibold transition ${opcao.valor === valor ? 'bg-[#0064e0] text-white' : 'text-[#1c1e21] hover:bg-[#eff4ff] hover:text-[#0064e0]'}`} role="option" aria-selected={opcao.valor === valor}>
+              {opcao.rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function DestaqueElementoSimulacao({
@@ -64,7 +113,7 @@ export function DestaqueElementoSimulacao({
           8px), nunca sobre a caixa do alvo. Mesmo padrão de
           destaqueElementoCalcularPosicao em widget.js. */}
       <span
-        className="absolute bottom-[calc(100%+8px)] right-0 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide text-white"
+        className="absolute bottom-[calc(100%+8px)] right-0 inline-flex origin-right scale-x-[1.15] items-center rounded-full px-2.5 py-1 text-[11px] font-bold tracking-wide text-white"
         style={{ backgroundColor: corAcao }}
       >
         {badgeTexto}
