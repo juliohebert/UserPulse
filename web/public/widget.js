@@ -984,7 +984,7 @@
       // (fora/acima ou fora/abaixo do alvo, nunca sobre ele) — sem transform de
       // centralização aqui: root já nasce com o canto exato do badge.
       '.up-destaque-root{position:fixed;z-index:2147483200;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif}',
-      '.up-destaque-badge{position:relative;display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;background:var(--up-primary, #0058be);color:#fff;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;cursor:pointer;border:2px solid #fff;box-shadow:0 6px 16px rgba(11,28,48,.28)}',
+      '.up-destaque-badge{position:relative;display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;background:var(--up-primary, #0058be);color:#fff;font-size:11px;font-weight:700;letter-spacing:.02em;white-space:nowrap;cursor:pointer;border:2px solid #fff;box-shadow:0 6px 16px rgba(11,28,48,.28)}',
       // Beacon fica FORA do badge (irmão, position:absolute) no gap entre
       // badge e alvo — acima do badge quando o badge está abaixo do alvo,
       // abaixo do badge quando o badge está acima (data-up-pos no root).

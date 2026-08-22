@@ -235,11 +235,13 @@ export function CampanhaPreview() {
               <DestaqueElementoSimulacao
                 corAcao={CORACAO_SIMULACAO}
                 dataCyLabel={campanha.data_cy?.trim() ?? ''}
+                itemId={`campaign-${campanha.id}`}
                 placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
                 badgeTexto={campanha.subtitulo?.trim() || 'Novo'}
                 titulo={campanha.titulo}
                 descricao={campanha.descricao}
                 ctaTexto={campanha.texto_botao && campanha.url_botao ? campanha.texto_botao : null}
+                ctaUrl={campanha.texto_botao && campanha.url_botao ? campanha.url_botao : null}
                 permitirDispensar={campanha.permitir_fechar_modal !== false}
                 onFechar={() => setOpen(false)}
               />

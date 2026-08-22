@@ -12,6 +12,7 @@ import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrl
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
+import { criarResolvedorIdDestaque } from '../../components/campanhas/DestaqueElementoSimulacao.logic'
 import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
@@ -361,6 +362,7 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
   // Índice do destaque com os campos abertos pra edição — só 1 por vez
   // (mesmo padrão de "editar" expansível usado em outras listas do dock).
   const [destaqueExpandido, setDestaqueExpandido] = useState<number | null>(0)
+  const resolverIdDestaque = useRef(criarResolvedorIdDestaque()).current
   const formatoExibicao: FormatoExibicao = form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
     ? FORMATO_DESTAQUE_ELEMENTO
     : 'modal_automatica'
@@ -630,7 +632,6 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
               {[
                 { id: 'tela' as const, icon: 'web_asset', titulo: 'Ao abrir uma tela', desc: 'Use uma tela cadastrada ou adicione uma nova ao catálogo.' },
                 { id: 'data_cy' as const, icon: 'ads_click', titulo: 'Ao encontrar um elemento', desc: 'Mostra quando um elemento específico estiver disponível na página.' },
-                { id: 'url' as const, icon: 'link', titulo: 'Ao acessar uma URL', desc: 'Mostra quando o caminho da URL corresponder ao valor informado.' },
                 { id: 'acao' as const, icon: 'bolt', titulo: 'Depois de uma ação', desc: 'Mostra somente quando o sistema disparar um evento pelo widget.' },
               ].map(opcao => {
                 // Destaque em elemento só existe ancorado por data-cy — as
@@ -776,13 +777,7 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
               {form.destaques.map((item, indice) => {
                 const expandido = destaqueExpandido === indice
                 return (
-                  <div
-                    // Itens novos ainda não têm id persistido. O índice é o
-                    // fallback estável: editar cria um novo objeto imutável,
-                    // então a chave não pode depender da identidade do objeto.
-                    key={item.id ?? indice}
-                    className="rounded-xl border border-[#dee3e9] bg-white p-3"
-                  >
+                  <div key={item.id ?? resolverIdDestaque(item)} className="rounded-xl border border-[#dee3e9] bg-white p-3">
                     <div className="flex items-center justify-between gap-2">
                       <button
                         type="button"
@@ -1069,7 +1064,8 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
 // (aba Exibição) — este card é só a representação visual, igual ao papel do
 // CardEditavel pros outros formatos, mas sem os campos de edição inline
 // (media, arrastar, etc. não se aplicam a este formato).
-function DestaqueElementoCard({ form, aparencia }: { form: FormState; aparencia: AparenciaCard | null }) {
+function DestaqueElementoCard({ form, sistemas, sistemaPadraoIdentificador, aparencia, setCampo, onGerenciarSistemas }: { form: FormState; sistemas: string[]; sistemaPadraoIdentificador?: string; aparencia: AparenciaCard | null; setCampo: <K extends keyof FormState>(campo: K, valor: FormState[K]) => void; onGerenciarSistemas?: () => void }) {
+  const resolverIdDestaque = useRef(criarResolvedorIdDestaque()).current
   const corAcao = corSistemaValida(aparencia?.cor_principal)
   const [indicePreview, setIndicePreview] = useState(0)
   const itens = form.destaques
@@ -1080,28 +1076,31 @@ function DestaqueElementoCard({ form, aparencia }: { form: FormState; aparencia:
 
   return (
     <article className="mx-auto w-full max-w-[580px] rounded-2xl border border-[#dee3e9] bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-[#eff4ff] text-[#0064e0]">
             <span className="material-symbols-outlined text-[19px]">new_releases</span>
           </span>
           <p className="text-[22px] font-semibold leading-tight text-[#0a1317]">Preview</p>
         </div>
-        {itens.length > 1 && (
-          <select
-            value={indice}
-            onChange={event => setIndicePreview(Number(event.target.value))}
-            aria-label="Escolher qual destaque visualizar"
-            className="max-w-[220px] rounded-lg border border-[#ced0d4] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
-          >
-            {itens.map((it, i) => (
-              <option key={i} value={i}>{it.titulo.trim() || `Destaque ${i + 1}`}</option>
-            ))}
-          </select>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <PillDropdown label="Sistema do design" value={form.sistema} options={sistemas} onChange={valor => setCampo('sistema', valor)} placeholder="Sistema" highlightValue={sistemaPadraoIdentificador} emptyMessage="Nenhum sistema cadastrado" manageLabel="Gerenciar sistemas" onManage={onGerenciarSistemas} />
+          {itens.length > 1 && (
+            <select
+              value={indice}
+              onChange={event => setIndicePreview(Number(event.target.value))}
+              aria-label="Escolher qual destaque visualizar"
+              className="max-w-[220px] rounded-lg border border-[#ced0d4] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
+            >
+              {itens.map((it, i) => (
+                <option key={i} value={i}>{it.titulo.trim() || `Destaque ${i + 1}`}</option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-outline-variant">
+      <div className="overflow-visible rounded-xl border border-outline-variant">
         <div className="flex items-center gap-2 border-b border-outline-variant/40 bg-surface-container-low px-4 py-2.5 text-[11px] font-semibold text-outline">
           <span className="material-symbols-outlined text-[15px]">public</span>
           Simulação da tela do cliente
@@ -1115,15 +1114,17 @@ function DestaqueElementoCard({ form, aparencia }: { form: FormState; aparencia:
             verticalmente (como antes) desperdiçava metade da folga do lado
             do badge, que precisa de bem menos espaço — sobrava pouco pro
             tooltip e ele cortava no overflow-hidden do wrapper acima. */}
-        <div className="relative flex min-h-[320px] items-start justify-center bg-[#f1f4f7] px-6 pb-10 pt-12">
+        <div className="relative flex min-h-[520px] items-start justify-center bg-[#f1f4f7] px-6 pb-12 pt-12">
           <DestaqueElementoSimulacao
             corAcao={corAcao}
             dataCyLabel={(item?.data_cy ?? '').trim()}
+            itemId={item ? resolverIdDestaque(item) : 'builder-sem-destaque'}
             placeholderSemAlvo="Informe o data-cy do elemento alvo no dock ao lado para ver o destaque posicionado aqui."
             badgeTexto={item?.texto_badge.trim() || 'Novo'}
             titulo={item?.titulo.trim() || 'Título da novidade'}
             descricao={item?.descricao.trim() || 'Explique brevemente a novidade para o usuário.'}
             ctaTexto={item?.cta_habilitado ? (item.texto_botao.trim() || 'Saiba mais') : null}
+            ctaUrl={item?.cta_habilitado ? (item.url_botao.trim() || null) : null}
             permitirDispensar
           />
         </div>
@@ -1608,6 +1609,7 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
   const [erro, setErro] = useState('')
   const [enviado, setEnviado] = useState(false)
   const [indicePreviewDestaque, setIndicePreviewDestaque] = useState(0)
+  const resolverIdDestaque = useRef(criarResolvedorIdDestaque()).current
   const corAcao = corSistemaValida(aparencia?.cor_principal)
   const pergunta = form.pergunta_feedback.trim() || 'Como podemos melhorar?'
   const descricao = form.descricao.trim()
@@ -1648,7 +1650,7 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
     const item = itens[indice]
     return createPortal(
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Preview do destaque em elemento" onClick={onClose}>
-        <div className="flex flex-col items-center gap-3" onClick={event => event.stopPropagation()}>
+        <div className="flex max-h-[calc(100vh-32px)] w-full flex-col items-center gap-3 overflow-y-auto py-2" onClick={event => event.stopPropagation()}>
           {itens.length > 1 && (
             <select
               value={indice}
@@ -1664,11 +1666,13 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
           <DestaqueElementoSimulacao
             corAcao={corAcao}
             dataCyLabel={(item?.data_cy ?? '').trim()}
+            itemId={item ? resolverIdDestaque(item) : 'modal-sem-destaque'}
             placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
             badgeTexto={item?.texto_badge.trim() || 'Novo'}
             titulo={item?.titulo.trim() || titulo}
             descricao={item?.descricao.trim() || descricao}
             ctaTexto={item?.cta_habilitado ? (item.texto_botao.trim() || null) : null}
+            ctaUrl={item?.cta_habilitado ? (item.url_botao.trim() || null) : null}
             permitirDispensar={form.permitir_fechar_modal !== false}
             onFechar={onClose}
           />
@@ -2214,7 +2218,7 @@ export function Campanhas2Index() {
 
           <div className="flex justify-center" onDragEnd={() => setArrastandoMidia(false)}>
             {form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO ? (
-              <DestaqueElementoCard form={form} aparencia={aparenciaAtual} />
+              <DestaqueElementoCard form={form} sistemas={sistemas} sistemaPadraoIdentificador={sistemaPadraoIdentificador} aparencia={aparenciaAtual} setCampo={setCampo} onGerenciarSistemas={podeGerenciarConfiguracoes ? () => navigate('/configuracoes/sistemas') : undefined} />
             ) : (
               <CardEditavel
                 form={form}
