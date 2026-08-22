@@ -1654,7 +1654,7 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
     const item = itens[indice]
     return createPortal(
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Preview do destaque em elemento" onClick={onClose}>
-        <div className="flex max-h-[calc(100vh-32px)] w-full flex-col items-center gap-3 overflow-y-auto py-2" onClick={event => event.stopPropagation()}>
+        <div className="flex max-h-[calc(100vh-32px)] w-full flex-col items-center gap-3 overflow-y-auto pb-[360px] pt-[52px]" onClick={event => event.stopPropagation()}>
           {itens.length > 1 && (
             <SeletorDestaqueSimulacao
               valor={indice}
