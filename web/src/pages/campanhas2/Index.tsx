@@ -776,7 +776,13 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
               {form.destaques.map((item, indice) => {
                 const expandido = destaqueExpandido === indice
                 return (
-                  <div key={indice} className="rounded-xl border border-[#dee3e9] bg-white p-3">
+                  <div
+                    // Itens novos ainda não têm id persistido. O índice é o
+                    // fallback estável: editar cria um novo objeto imutável,
+                    // então a chave não pode depender da identidade do objeto.
+                    key={item.id ?? indice}
+                    className="rounded-xl border border-[#dee3e9] bg-white p-3"
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <button
                         type="button"
