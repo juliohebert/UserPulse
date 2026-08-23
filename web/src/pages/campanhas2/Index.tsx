@@ -916,10 +916,14 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
             )
           })()}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <CampoDock label="Tempo antes de aparecer (ms)" value={form.atraso_ms} onChange={valor => setCampo('atraso_ms', valor)} type="number" />
-            <CampoDock label="Prioridade" value={form.prioridade} onChange={valor => setCampo('prioridade', valor)} type="number" />
-          </div>
+          <CampoDock label="Tempo antes de aparecer (ms)" value={form.atraso_ms} onChange={valor => setCampo('atraso_ms', valor)} type="number" />
+          {/* Prioridade não é mais digitada aqui — ordenação visual (setas
+              ↑/↓, ver ReordenarPrioridade.tsx) na listagem de Campanhas
+              define a prioridade de exibição entre campanhas concorrentes
+              (mesmo grupo: sistema/tela ou url_contem + gatilho). O valor atual de
+              form.prioridade continua sendo carregado/reenviado sem alteração
+              (ver hidratarFormState/montarPayloadCampanha), só não é mais
+              editável por aqui. */}
         </div>
       )}
 

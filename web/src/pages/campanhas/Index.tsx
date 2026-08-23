@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { get, del, post, put } from '../../services/api'
@@ -14,6 +14,8 @@ import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
 import { CampanhaQuickView } from './CampanhaQuickView'
+import { ReordenarPrioridade } from './ReordenarPrioridade'
+import { agruparCampanhasConcorrentes } from './grupoConcorrente'
 
 const PER_PAGE = 10
 
@@ -328,6 +330,7 @@ export function CampanhasIndex() {
   const [campanhaEncerrar, setCampanhaEncerrar] = useState<Campanha | null>(null)
   const [encerrandoId, setEncerrandoId] = useState<string | null>(null)
   const [erroEncerramento, setErroEncerramento] = useState<string | null>(null)
+  const [reordenarAberto, setReordenarAberto] = useState(false)
   const [sort, setSort] = useState<{ key: SortKey; direction: SortDirection } | null>(null)
   const [buscaAberta, setBuscaAberta] = useState(false)
   const [buscaNome, setBuscaNome] = useState('')
@@ -385,6 +388,11 @@ export function CampanhasIndex() {
       document.removeEventListener('keydown', onKeyDown)
     }
   }, [filtrosAberto])
+
+  // Só grupos com 2+ campanhas concorrentes (mesma sistema/tela ou
+  // url_contem + gatilho, ver grupoConcorrente.ts) fazem sentido pra
+  // reordenar — sem nenhum, a opção nem aparece na listagem.
+  const gruposConcorrentes = useMemo(() => agruparCampanhasConcorrentes(campanhas), [campanhas])
 
   const termoBusca = buscaNome.trim().toLowerCase()
   const sistemas = [...new Set(campanhas.map(c => c.sistema).filter(Boolean))]
@@ -554,22 +562,33 @@ export function CampanhasIndex() {
             </div>
           </div>
           {podeEscrever && (
-            <Button
-              onClick={() => {
-                // Fase 6E — trial no limite: nem navega pro formulário, só
-                // avisa (mesma mensagem do backend). Continua permitido
-                // editar/desativar/excluir campanhas existentes — só a
-                // criação de uma nova é impedida aqui.
-                if (limiteCampanhas.atingido) { alert(limiteCampanhas.mensagem!); return }
-                navigate('/campanhas/nova')
-              }}
-              variant="gradient"
-              size="lg"
-              className="shrink-0"
-              iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
-            >
-              Nova Campanha
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              {gruposConcorrentes.length > 0 && (
+                <Button
+                  onClick={() => setReordenarAberto(true)}
+                  variant="ghost"
+                  size="lg"
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">swap_vert</span>}
+                >
+                  Reordenar prioridade
+                </Button>
+              )}
+              <Button
+                onClick={() => {
+                  // Fase 6E — trial no limite: nem navega pro formulário, só
+                  // avisa (mesma mensagem do backend). Continua permitido
+                  // editar/desativar/excluir campanhas existentes — só a
+                  // criação de uma nova é impedida aqui.
+                  if (limiteCampanhas.atingido) { alert(limiteCampanhas.mensagem!); return }
+                  navigate('/campanhas/nova')
+                }}
+                variant="gradient"
+                size="lg"
+                iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
+              >
+                Nova Campanha
+              </Button>
+            </div>
           )}
         </div>
 
@@ -1040,6 +1059,14 @@ export function CampanhasIndex() {
           erro={erroConfirmacao}
           onConfirm={confirmarInativacao}
           onCancel={() => { setCampanhaInativar(null); setErroConfirmacao(null) }}
+        />
+      )}
+
+      {reordenarAberto && (
+        <ReordenarPrioridade
+          grupos={gruposConcorrentes}
+          onClose={() => setReordenarAberto(false)}
+          onSaved={() => { setReordenarAberto(false); load() }}
         />
       )}
 

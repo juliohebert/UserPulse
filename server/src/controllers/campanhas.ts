@@ -1147,6 +1147,126 @@ export async function atualizar(req: Request, res: Response) {
   }
 }
 
+// ─── Reordenação visual de prioridade ──────────────────────────────────────
+// Campanha não tem um "pai" comum pra agrupar um reindex-por-posição dentro
+// de um PUT único (diferente de TourPasso/EtapaJornada/CampanhaDestaqueItem),
+// por isso é um endpoint dedicado. `prioridade` só importa comparada dentro
+// do mesmo "grupo concorrente" (ver ranksFirst/competidores em
+// testarElegibilidade acima), então reordenar opera por grupo, nunca pelo
+// tenant inteiro — reindexar campanhas de grupos diferentes juntas não muda
+// elegibilidade nenhuma, só confunde a UI. Corpo sempre traz a lista INTEIRA
+// de ids do grupo na nova ordem (nunca um subconjunto), e `prioridade` é
+// sempre derivada da posição no array — nunca aceita valor explícito do
+// cliente. Primeiro id da lista = maior prioridade.
+export interface CampanhaGrupoInput {
+  id: string
+  sistema: string
+  tela: string | null
+  modo_identificacao: string
+  url_contem: string | null
+  gatilho: string
+  evento: string | null
+}
+
+// Mesma chave de "quem compete com quem" usada em testarElegibilidade/
+// competidores acima: sistema + (tela, se modo_identificacao=sistema_tela)
+// ou (url_contem, se modo_identificacao=url_contem) + gatilho(+evento, se
+// apos_evento). Campanha em modo data_cy nunca forma grupo — mesma limitação
+// documentada lá ("data_cy: can't verify remotely") — retorna null.
+export function chaveGrupoConcorrente(c: CampanhaGrupoInput): string | null {
+  const gatilhoParte = c.gatilho === 'apos_evento' && c.evento ? `apos_evento:${c.evento}` : 'ao_abrir_tela'
+  if (c.modo_identificacao === 'sistema_tela') {
+    return `${c.sistema}::tela::${c.tela ?? ''}::${gatilhoParte}`
+  }
+  if (c.modo_identificacao === 'url_contem' && c.url_contem) {
+    return `${c.sistema}::url::${c.url_contem}::${gatilhoParte}`
+  }
+  return null
+}
+
+// `idsDoGrupo` é o subconjunto (calculado pelo controller via
+// chaveGrupoConcorrente, tenant-scoped) que o corpo precisa bater
+// exatamente — nunca o total de campanhas do tenant.
+export function validarIdsReordenacao(idsBrutos: unknown, idsDoGrupo: string[]): { erro: string | null; ids: string[] } {
+  if (!Array.isArray(idsBrutos) || idsBrutos.length === 0) {
+    return { erro: 'Informe a lista de campanhas na nova ordem.', ids: [] }
+  }
+  const ids: string[] = []
+  for (const idBruto of idsBrutos) {
+    if (typeof idBruto !== 'string' || !idBruto.trim()) {
+      return { erro: 'Lista de campanhas inválida.', ids: [] }
+    }
+    ids.push(idBruto)
+  }
+  if (new Set(ids).size !== ids.length) {
+    return { erro: 'Lista de campanhas contém ids duplicados.', ids: [] }
+  }
+  const doGrupoSet = new Set(idsDoGrupo)
+  if (ids.length !== idsDoGrupo.length || ids.some(id => !doGrupoSet.has(id))) {
+    return { erro: 'A lista precisa conter exatamente todas as campanhas do grupo de prioridade selecionado.', ids: [] }
+  }
+  return { erro: null, ids }
+}
+
+export function calcularPrioridadesReordenadas(ids: string[]): Array<{ id: string; prioridade: number }> {
+  const total = ids.length
+  return ids.map((id, i) => ({ id, prioridade: total - i }))
+}
+
+const SELECT_GRUPO_CONCORRENTE = { id: true, sistema: true, tela: true, modo_identificacao: true, url_contem: true, gatilho: true, evento: true } as const
+
+export async function reordenar(req: Request, res: Response) {
+  try {
+    const tenantId = req.adminUser!.tenant_id
+    const tenant = req.adminUser!.tenant
+
+    const bloqueioEscrita = motivoBloqueioEscrita(tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+
+    const idsBrutos = req.body.ids
+    if (!Array.isArray(idsBrutos) || idsBrutos.length === 0) {
+      return res.status(400).json({ erro: 'Informe a lista de campanhas na nova ordem.' })
+    }
+    const idsSolicitados = idsBrutos.filter((id): id is string => typeof id === 'string' && !!id.trim())
+    if (idsSolicitados.length !== idsBrutos.length) {
+      return res.status(400).json({ erro: 'Lista de campanhas inválida.' })
+    }
+
+    const campanhasSolicitadas = await prisma.campanha.findMany({
+      where: { id: { in: idsSolicitados }, tenant_id: tenantId },
+      select: SELECT_GRUPO_CONCORRENTE,
+    })
+    if (campanhasSolicitadas.length !== idsSolicitados.length) {
+      return res.status(400).json({ erro: 'Lista de campanhas inválida.' })
+    }
+
+    const chaves = new Set(campanhasSolicitadas.map(chaveGrupoConcorrente))
+    if (chaves.size !== 1 || chaves.has(null)) {
+      return res.status(400).json({ erro: 'As campanhas informadas não formam um grupo de prioridade válido.' })
+    }
+    const chave = campanhasSolicitadas.map(chaveGrupoConcorrente)[0] as string
+
+    const candidatosDoGrupo = await prisma.campanha.findMany({
+      where: { tenant_id: tenantId, sistema: campanhasSolicitadas[0].sistema },
+      select: SELECT_GRUPO_CONCORRENTE,
+    })
+    const idsDoGrupo = candidatosDoGrupo.filter(c => chaveGrupoConcorrente(c) === chave).map(c => c.id)
+
+    const { erro, ids } = validarIdsReordenacao(idsSolicitados, idsDoGrupo)
+    if (erro) return res.status(400).json({ erro })
+
+    const prioridades = calcularPrioridadesReordenadas(ids)
+    await prisma.$transaction(
+      prioridades.map(({ id, prioridade }) => prisma.campanha.update({ where: { id }, data: { prioridade } }))
+    )
+
+    res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao reordenar campanhas.' })
+  }
+}
+
 export async function remover(req: Request, res: Response) {
   try {
     const tenant = req.adminUser!.tenant
