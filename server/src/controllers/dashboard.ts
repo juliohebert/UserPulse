@@ -243,6 +243,9 @@ export async function buscarDashboard(req: Request, res: Response) {
     // entram no Promise.all quando o formato não é esse.
     const ehDestaqueElemento = campanha.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
     const range = intervalo(req.query)
+    // Filtros da tabela nunca podem alterar os KPIs, distribuição ou NPS.
+    // Mantemos dois universos: período para o resumo e filtros para a lista.
+    const feedbackPeriodoWhere: Prisma.FeedbackWhereInput = { ...whereFeedbackNps(id), criado_em: range }
     const feedbackWhere = filtrosFeedback(req.query, id)
     const eventosWhere = filtrosEventos(req.query, id)
     const respPag = pagina({ page: req.query.res_page, per_page: req.query.res_per_page }, 10)
@@ -274,16 +277,20 @@ export async function buscarDashboard(req: Request, res: Response) {
       avaliacoes_destaques, avaliacoes_total,
       serie_impressao,
       atividade_semana,
+      destaqueEventosPeriodo,
+      destaqueAvaliacoesPeriodo,
+      quotePromotor,
+      quoteDetrator,
     ] = await Promise.all([
       prisma.feedback.aggregate({
-        where: feedbackWhere,
+        where: feedbackPeriodoWhere,
         _avg: { nota: true },
         _count: { id: true },
       }),
 
       prisma.feedback.groupBy({
         by: ['nota'],
-        where: feedbackWhere,
+        where: feedbackPeriodoWhere,
         _count: { nota: true },
       }),
 
@@ -321,7 +328,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       }),
       prisma.feedback.groupBy({
         by: ['usuario_id'],
-        where: { ...feedbackWhere, usuario_id: { not: null } },
+        where: { ...feedbackPeriodoWhere, usuario_id: { not: null } },
       }),
 
       // Sem filtro de ativo, de propósito — "Desempenho dos destaques"
@@ -394,6 +401,26 @@ export async function buscarDashboard(req: Request, res: Response) {
         GROUP BY EXTRACT(DOW FROM criado_em)
         ORDER BY dia ASC
       `,
+      prisma.eventoCampanha.groupBy({
+        by: ['tipo_evento'],
+        where: eventosPeriodoWhere,
+        _count: { id: true },
+      }),
+      ehDestaqueElemento
+        ? prisma.feedback.groupBy({
+            by: ['util'],
+            where: { ...whereUtilidadeDestaque(id), criado_em: range },
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
+      prisma.feedback.findFirst({
+        where: { ...feedbackPeriodoWhere, nota: { gte: 9 }, observacao: { not: '' } },
+        orderBy: { criado_em: 'desc' },
+      }),
+      prisma.feedback.findFirst({
+        where: { ...feedbackPeriodoWhere, nota: { lte: 6 }, observacao: { not: '' } },
+        orderBy: { criado_em: 'desc' },
+      }),
     ])
 
     const distribuicao: Record<string, number> = {}
@@ -417,11 +444,18 @@ export async function buscarDashboard(req: Request, res: Response) {
     const desempenho_destaques = ehDestaqueElemento
       ? montarDesempenhoDestaques(itensDestaque, totaisPorItem, unicosPorItem, utilidadePorItem)
       : []
+    const destaqueResumoPeriodo = {
+      interacoes: destaqueEventosPeriodo.find(item => item.tipo_evento === 'interacao_badge')?._count.id ?? 0,
+      dispensas: destaqueEventosPeriodo.find(item => item.tipo_evento === 'dispensa')?._count.id ?? 0,
+      avaliacoes: destaqueAvaliacoesPeriodo.reduce((sum, item) => sum + item._count.id, 0),
+      sim: destaqueAvaliacoesPeriodo.find(item => item.util === true)?._count.id ?? 0,
+    }
 
     res.json({
       campanha,
       media,
       total: feedbacks_total,
+      total_periodo: agregado._count.id,
       distribuicao,
       feedbacks_recentes,
       visualizacoes,
@@ -437,6 +471,8 @@ export async function buscarDashboard(req: Request, res: Response) {
       cliques_unicos,
       respondentes_unicos,
       desempenho_destaques,
+      destaque_resumo_periodo: destaqueResumoPeriodo,
+      quotes_nps: [quotePromotor, quoteDetrator].filter(Boolean),
       // Só não-vazio pra campanhas destaque_elemento — ver ehDestaqueElemento.
       avaliacoes_destaques: ehDestaqueElemento ? avaliacoes_destaques : [],
       avaliacoes_total: ehDestaqueElemento ? avaliacoes_total : 0,

@@ -148,13 +148,6 @@ function npsZona(score: number): { nome: string; bg: string; text: string; borde
   return                   { nome: 'Zona Crítica',              bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200'     }
 }
 
-function inPeriodo(criado_em: string, inicio: Date | null, fim: Date | null): boolean {
-  if (!inicio && !fim) return true
-  const d = new Date(criado_em)
-  if (inicio && d < inicio) return false
-  if (fim    && d > fim)    return false
-  return true
-}
 
 function npsLabel(nota: number): 'Promotor' | 'Neutro' | 'Detrator' {
   if (nota >= 9) return 'Promotor'
@@ -341,52 +334,23 @@ export function CampanhaDashboard() {
   const periodoAtivo = periodoRangeValue.inicio !== null || periodoRangeValue.fim !== null
 
   const feedbacksPeriodo = useMemo(() => {
-    const { inicio, fim } = periodoRangeValue
-    if (!inicio && !fim) return data?.feedbacks_recentes ?? []
-    return (data?.feedbacks_recentes ?? []).filter(f => inPeriodo(f.criado_em, inicio, fim))
-  }, [data, periodoRangeValue])
+    return data?.feedbacks_recentes ?? []
+  }, [data])
+  // A lista já vem filtrada e paginada pelo servidor; nunca aplicar uma
+  // segunda filtragem local sobre uma página parcial.
+  const feedbacksFiltrados = feedbacksPeriodo
 
   const eventosPeriodo = useMemo(() => {
-    const { inicio, fim } = periodoRangeValue
-    if (!inicio && !fim) return data?.eventos_recentes ?? []
-    return (data?.eventos_recentes ?? []).filter(e => inPeriodo(e.criado_em, inicio, fim))
-  }, [data, periodoRangeValue])
-
-  const feedbacksFiltrados = useMemo(() => {
-    return feedbacksPeriodo.filter(f => {
-      const c = ctx(f)
-      if (filtros.nps !== 'Todos' && npsLabel(f.nota) !== filtros.nps) return false
-      if (filtros.nota !== '' && f.nota !== Number(filtros.nota)) return false
-      if (filtros.cliente !== '' && (c.cliente_nome || NI) !== filtros.cliente) return false
-      if (filtros.unidade !== '' && (c.unidade_nome || c.clinica_nome || NI) !== filtros.unidade) return false
-      if (filtros.perfil !== '' && (c.usuario_tipo || NI) !== filtros.perfil) return false
-      if (filtros.estado !== '' && (c.Estado || NI) !== filtros.estado) return false
-      if (filtros.telefone === 'Informado' && !f.telefone_contato?.trim()) return false
-      if (filtros.telefone === 'Não informado' && !!f.telefone_contato?.trim()) return false
-      if (filtros.busca) {
-        const q = filtros.busca.toLowerCase()
-        const hay = [
-          f.usuario_nome, f.usuario_email, c.usuario_nome, c.usuario_email,
-          f.observacao, f.telefone_contato,
-        ].filter(Boolean).join(' ').toLowerCase()
-        if (!hay.includes(q)) return false
-      }
-      return true
-    })
-  }, [feedbacksPeriodo, filtros])
+    return data?.eventos_recentes ?? []
+  }, [data])
 
   // paginação respostas
   const feedbacksPaginados = useMemo(() => {
-    return feedbacksFiltrados
-  }, [feedbacksFiltrados])
+    return feedbacksPeriodo
+  }, [feedbacksPeriodo])
   const totalPagResp = Math.ceil((data?.total ?? 0) / tamPagResp)
 
-  const totalFiltrado = feedbacksFiltrados.length
-  const mediaFiltrada = totalFiltrado > 0
-    ? Math.round(feedbacksFiltrados.reduce((s, f) => s + f.nota, 0) / totalFiltrado * 10) / 10
-    : null
-  const detraComTel = feedbacksFiltrados.filter(f => npsLabel(f.nota) === 'Detrator' && !!f.telefone_contato?.trim()).length
-  const detraSemTel = feedbacksFiltrados.filter(f => npsLabel(f.nota) === 'Detrator' && !f.telefone_contato?.trim()).length
+
 
   const temFiltrosAvancados = filtros.nps !== 'Todos' || filtros.nota !== '' || filtros.cliente !== '' ||
     filtros.unidade !== '' || filtros.perfil !== '' || filtros.estado !== '' || filtros.telefone !== 'Todos'
@@ -397,34 +361,10 @@ export function CampanhaDashboard() {
     filtros.unidade !== '', filtros.perfil !== '', filtros.estado !== '', filtros.telefone !== 'Todos',
   ].filter(Boolean).length
 
-  const TIPO_EVENTO_POR_FILTRO: Record<string, string> = {
-    Visualização: 'visualizacao',
-    Clique: 'clique_cta',
-    Interação: 'interacao_badge',
-    Dispensa: 'dispensa',
-  }
 
   const eventosFiltrados = useMemo(() => {
-    let list = eventosPeriodo
-    if (filtroEvento !== 'Todos') {
-      const tipo = TIPO_EVENTO_POR_FILTRO[filtroEvento]
-      list = list.filter(e => e.tipo_evento === tipo)
-    }
-    if (filtroDestaque) {
-      list = list.filter(e => e.destaque_item_id === filtroDestaque)
-    }
-    if (buscaEvento.trim()) {
-      const q = buscaEvento.toLowerCase()
-      list = list.filter(e => {
-        const c = (e.contexto ?? {}) as Record<string, string>
-        return [
-          e.usuario_id, c.usuario_nome, c.usuario_email,
-          c.usuario_tipo, c.cliente_nome, c.unidade_nome, c.clinica_nome, e.tipo_evento,
-        ].filter(Boolean).join(' ').toLowerCase().includes(q)
-      })
-    }
-    return list
-  }, [eventosPeriodo, filtroEvento, filtroDestaque, buscaEvento])
+    return eventosPeriodo
+  }, [eventosPeriodo])
 
   // paginação interações
   const eventosPaginados = useMemo(() => {
@@ -454,65 +394,27 @@ export function CampanhaDashboard() {
   const avaliacoesDestaques = data?.avaliacoes_destaques ?? []
 
   const avaliacoesPeriodo = useMemo(() => {
-    const { inicio, fim } = periodoRangeValue
-    if (!inicio && !fim) return avaliacoesDestaques
-    return avaliacoesDestaques.filter(a => inPeriodo(a.criado_em, inicio, fim))
-  }, [avaliacoesDestaques, periodoRangeValue])
-
-  const avaliacoesFiltradas = useMemo(() => {
-    let list = avaliacoesPeriodo
-    if (filtroDestaqueAvaliacao) {
-      list = list.filter(a => a.destaque_item_id === filtroDestaqueAvaliacao)
-    }
-    if (filtroUtilAvaliacao !== 'Todos') {
-      const alvo = filtroUtilAvaliacao === 'Sim'
-      list = list.filter(a => a.util === alvo)
-    }
-    if (buscaAvaliacao.trim()) {
-      const q = buscaAvaliacao.toLowerCase()
-      list = list.filter(a => {
-        const c = (a.contexto ?? {}) as Record<string, string>
-        return [
-          a.usuario_id, a.usuario_nome, a.usuario_email, c.usuario_nome, c.usuario_email, a.observacao,
-        ].filter(Boolean).join(' ').toLowerCase().includes(q)
-      })
-    }
-    return list
-  }, [avaliacoesPeriodo, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
+    return avaliacoesDestaques
+  }, [avaliacoesDestaques])
+  const avaliacoesFiltradas = avaliacoesPeriodo
 
   const avaliacoesPaginadas = useMemo(() => {
-    return avaliacoesFiltradas
-  }, [avaliacoesFiltradas])
+    return avaliacoesPeriodo
+  }, [avaliacoesPeriodo])
   const totalPagAvaliacao = Math.ceil((data?.avaliacoes_total ?? 0) / tamPagAvaliacao)
 
   const temFiltroAvaliacao = filtroDestaqueAvaliacao !== '' || filtroUtilAvaliacao !== 'Todos' || buscaAvaliacao !== ''
 
   // ── KPI metrics — período-aware ──────────────────────────────────────────
-  const kpiVisualizacoes = periodoAtivo
-    ? eventosPeriodo.filter(e => e.tipo_evento === 'visualizacao').length
-    : (data?.visualizacoes ?? 0)
-  const kpiVisualizacoesUnicas = periodoAtivo
-    ? new Set(eventosPeriodo.filter(e => e.tipo_evento === 'visualizacao' && e.usuario_id).map(e => e.usuario_id)).size
-    : (data?.visualizacoes_unicas ?? 0)
-  const kpiCliques = periodoAtivo
-    ? eventosPeriodo.filter(e => e.tipo_evento === 'clique_cta').length
-    : (data?.cliques_cta ?? 0)
-  const kpiCliquesUnicos = periodoAtivo
-    ? new Set(eventosPeriodo.filter(e => e.tipo_evento === 'clique_cta' && e.usuario_id).map(e => e.usuario_id)).size
-    : (data?.cliques_unicos ?? 0)
-  const kpiTotal = periodoAtivo ? feedbacksPeriodo.length : (data?.total ?? 0)
-  const kpiMedia: number | null = periodoAtivo
-    ? (feedbacksPeriodo.length > 0 ? feedbacksPeriodo.reduce((s, f) => s + f.nota, 0) / feedbacksPeriodo.length : null)
-    : (data?.media ?? null)
-  const kpiDistribuicao: Record<string, number> = periodoAtivo
-    ? feedbacksPeriodo.reduce<Record<string, number>>((acc, f) => {
-        const k = String(f.nota); acc[k] = (acc[k] ?? 0) + 1; return acc
-      }, {})
-    : (data?.distribuicao ?? {})
+  const kpiVisualizacoes = data?.visualizacoes ?? 0
+  const kpiVisualizacoesUnicas = data?.visualizacoes_unicas ?? 0
+  const kpiCliques = data?.cliques_cta ?? 0
+  const kpiCliquesUnicos = data?.cliques_unicos ?? 0
+  const kpiTotal = data?.total_periodo ?? data?.total ?? 0
+  const kpiMedia: number | null = data?.media ?? null
+  const kpiDistribuicao: Record<string, number> = data?.distribuicao ?? {}
   const kpiTaxaClique = kpiVisualizacoes > 0 ? Math.round((kpiCliques / kpiVisualizacoes) * 1000) / 10 : 0
-  const kpiRespondentesUnicos = periodoAtivo
-    ? new Set(feedbacksPeriodo.filter(f => f.usuario_id).map(f => f.usuario_id)).size
-    : (data?.respondentes_unicos ?? 0)
+  const kpiRespondentesUnicos = data?.respondentes_unicos ?? 0
   // total real de interações no período (visualizações + cliques, contagens completas do backend)
   const totalEventosPeriodo = kpiVisualizacoes + kpiCliques
 
@@ -524,17 +426,17 @@ export function CampanhaDashboard() {
   // vêm prontos em desempenho_destaques (nunca capados em 100 como
   // eventos_recentes).
   const kpiInteracoes = periodoAtivo
-    ? eventosPeriodo.filter(e => e.tipo_evento === 'interacao_badge').length
+    ? (data?.destaque_resumo_periodo.interacoes ?? 0)
     : desempenhoDestaques.reduce((s, i) => s + i.interacoes, 0)
   const kpiTaxaInteracao = kpiVisualizacoes > 0 ? Math.round((kpiInteracoes / kpiVisualizacoes) * 1000) / 10 : 0
   const kpiDispensas = periodoAtivo
-    ? eventosPeriodo.filter(e => e.tipo_evento === 'dispensa').length
+    ? (data?.destaque_resumo_periodo.dispensas ?? 0)
     : desempenhoDestaques.reduce((s, i) => s + i.dispensas, 0)
   const kpiAvaliacoesTotal = periodoAtivo
-    ? avaliacoesPeriodo.length
+    ? (data?.destaque_resumo_periodo.avaliacoes ?? 0)
     : desempenhoDestaques.reduce((s, i) => s + i.avaliacoes, 0)
   const kpiSimTotal = periodoAtivo
-    ? avaliacoesPeriodo.filter(a => a.util === true).length
+    ? (data?.destaque_resumo_periodo.sim ?? 0)
     : desempenhoDestaques.reduce((s, i) => s + i.sim, 0)
   const kpiPercentualUtil = kpiAvaliacoesTotal > 0 ? Math.round((kpiSimTotal / kpiAvaliacoesTotal) * 1000) / 10 : null
 
@@ -610,10 +512,7 @@ export function CampanhaDashboard() {
   )
   const nomesDias = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
   const totalAtividade = atividadeSemana.reduce((s, d) => s + d.visualizacoes, 0)
-  const quotes = feedbacksPeriodo.filter(f => f.observacao?.trim()).filter((f, i, lista) => {
-    const perfil = npsLabel(f.nota)
-    return (perfil === 'Promotor' || perfil === 'Detrator') && lista.findIndex(x => npsLabel(x.nota) === perfil && x.observacao?.trim()) === i
-  })
+  const quotes = data?.quotes_nps ?? []
 
   // % de visualizações que resultaram em resposta — usado no funil (Visualizações → Respostas)
   const taxaRespostaPorVisualizacao = kpiVisualizacoes > 0
@@ -996,7 +895,7 @@ export function CampanhaDashboard() {
                   {feedbacksPeriodo.length < kpiTotal && (
                     <span
                       className="material-symbols-outlined text-[13px] text-outline/50 cursor-help"
-                      title={`A tabela e os filtros abaixo trabalham sobre as ${feedbacksPeriodo.length.toLocaleString('pt-BR')} respostas mais recentes carregadas.`}
+                      title={`A tabela mostra a página ${pagResp} de ${totalPagResp}; os KPIs usam as ${kpiTotal.toLocaleString('pt-BR')} respostas do período.`}
                     >
                       info
                     </span>
@@ -1004,24 +903,10 @@ export function CampanhaDashboard() {
                 </span>
                 {temFiltros && (
                   <span className="text-label-md text-outline">
-                    · {totalFiltrado.toLocaleString('pt-BR')} {totalFiltrado === 1 ? 'filtrada' : 'filtradas'} de {feedbacksPeriodo.length.toLocaleString('pt-BR')} carregadas
+                    · {data.total.toLocaleString('pt-BR')} {data.total === 1 ? 'filtrada' : 'filtradas'} no universo filtrado
                   </span>
                 )}
-                {temFiltros && mediaFiltrada !== null && (
-                  <span className="text-label-md text-outline">· Média {mediaFiltrada.toFixed(1)}</span>
-                )}
-                {detraComTel > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-error/10 text-error border border-error/20">
-                    <span className="material-symbols-outlined text-[12px]">phone</span>
-                    {detraComTel} detrator{detraComTel > 1 ? 'es' : ''} com telefone
-                  </span>
-                )}
-                {detraSemTel > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                    <span className="material-symbols-outlined text-[12px]">phone_disabled</span>
-                    {detraSemTel} detrator{detraSemTel > 1 ? 'es' : ''} sem telefone
-                  </span>
-                )}
+
               </div>
 
               <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -1209,7 +1094,7 @@ export function CampanhaDashboard() {
                 title="Nenhuma resposta ainda"
                 message="As respostas aparecerão aqui assim que os usuários interagirem com a campanha."
               />
-            ) : feedbacksPeriodo.length === 0 ? (
+            ) : data.total === 0 ? (
               <EmptySection
                 icon="event_busy"
                 title="Nenhuma resposta neste período"
@@ -1292,7 +1177,7 @@ export function CampanhaDashboard() {
 
                 {totalPagResp > 1 && (
                   <Paginacao
-                    total={feedbacksFiltrados.length}
+                    total={data.total}
                     pagina={pagResp}
                     tamPagina={tamPagResp}
                     onChange={setPagResp}
@@ -1377,14 +1262,14 @@ export function CampanhaDashboard() {
                 <div className="px-4 sm:px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-title-md font-bold text-on-surface">
-                      {avaliacoesPeriodo.length.toLocaleString('pt-BR')}
+                      {data.avaliacoes_total.toLocaleString('pt-BR')}
                     </span>
                     <span className="text-label-md text-outline">
-                      {avaliacoesPeriodo.length === 1 ? 'avaliação no período' : 'avaliações no período'}
+                      {data.avaliacoes_total === 1 ? 'avaliação no período' : 'avaliações no período'}
                     </span>
                     {temFiltroAvaliacao && (
                       <span className="text-label-md text-outline">
-                        · {avaliacoesFiltradas.length.toLocaleString('pt-BR')} {avaliacoesFiltradas.length === 1 ? 'filtrada' : 'filtradas'} de {avaliacoesPeriodo.length.toLocaleString('pt-BR')} carregadas
+                        · {data.avaliacoes_total.toLocaleString('pt-BR')} {data.avaliacoes_total === 1 ? 'filtrada' : 'filtradas'} no universo filtrado
                       </span>
                     )}
                   </div>
@@ -1435,7 +1320,7 @@ export function CampanhaDashboard() {
                 </div>
 
                 {/* Tabela ou estado vazio */}
-                {avaliacoesDestaques.length === 0 ? (
+                {data.avaliacoes_total === 0 ? (
                   <EmptySection
                     icon="thumbs_up_down"
                     title="Nenhuma avaliação recebida ainda."
@@ -1538,7 +1423,7 @@ export function CampanhaDashboard() {
 
                     {totalPagAvaliacao > 1 && (
                       <Paginacao
-                        total={avaliacoesFiltradas.length}
+                        total={data.avaliacoes_total}
                         pagina={pagAvaliacao}
                         tamPagina={tamPagAvaliacao}
                         onChange={setPagAvaliacao}
@@ -1573,7 +1458,7 @@ export function CampanhaDashboard() {
                   {eventosPeriodo.length < totalEventosPeriodo && (
                     <span
                       className="material-symbols-outlined text-[13px] text-outline/50 cursor-help"
-                      title={`A tabela e os filtros abaixo trabalham sobre as ${eventosPeriodo.length.toLocaleString('pt-BR')} interações mais recentes carregadas.`}
+                      title={`A tabela mostra a página ${pagInter} de ${totalPagInter}; os KPIs usam todas as interações do período.`}
                     >
                       info
                     </span>
@@ -1581,7 +1466,7 @@ export function CampanhaDashboard() {
                 </span>
                 {temFiltroEvento && (
                   <span className="text-label-md text-outline">
-                    · {eventosFiltrados.length.toLocaleString('pt-BR')} {eventosFiltrados.length === 1 ? 'filtrada' : 'filtradas'} de {eventosPeriodo.length.toLocaleString('pt-BR')} carregadas
+                    · {data.eventos_total.toLocaleString('pt-BR')} {data.eventos_total === 1 ? 'filtrada' : 'filtradas'} no universo filtrado
                   </span>
                 )}
               </div>

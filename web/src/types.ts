@@ -165,6 +165,7 @@ export interface DashboardData {
   campanha: Campanha
   media: number | null
   total: number
+  total_periodo: number
   distribuicao: Record<string, number>
   feedbacks_recentes: Feedback[]
   visualizacoes: number
@@ -178,6 +179,13 @@ export interface DashboardData {
   respondentes_unicos: number
   // Só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   desempenho_destaques: DesempenhoDestaqueItem[]
+  destaque_resumo_periodo: {
+    interacoes: number
+    dispensas: number
+    avaliacoes: number
+    sim: number
+  }
+  quotes_nps: Feedback[]
   // Idem — só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   avaliacoes_destaques: AvaliacaoDestaqueItem[]
   avaliacoes_total: number
