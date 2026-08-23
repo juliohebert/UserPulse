@@ -37,7 +37,7 @@ export interface DestaqueFormItem {
 // server/src/controllers/campanhas.ts) e "Salvar alterações" preserva o
 // status atual (nenhuma chave `status` no payload = backend não mexe nele).
 // Publicar/desativar/reativar são ações explícitas à parte (ver
-// Campanhas2Index/campanhas/Index.tsx), nunca um campo deste formulário.
+// CampanhaFormIndex/CampanhasIndex.tsx), nunca um campo deste formulário.
 export interface FormState {
   titulo: string
   // Eyebrow do modal; reutilizado como texto do badge quando
@@ -316,10 +316,9 @@ export function hidratarFormState(c: Campanha): FormState {
 // Form.tsx legado suportava (comunicado/modal, NPS, gatilho por tela/evento,
 // destino por data-cy/URL, feedback, segmentação, reexibição, vigência, CTA,
 // múltiplos destaques), então toda campanha edita por lá agora. Form.tsx já
-// foi removido do repositório (App.tsx aposentou a rota antiga em favor de
-// Campanhas2Index) — /campanhas/:id/editar e /campanhas2/:id/editar
-// renderizam o mesmo componente, esta função usa a primeira por já ser a
-// canônica em App.tsx. Vive neste módulo (e não em utils/campanha.ts, que
+// foi removido do repositório; App.tsx usa CampanhaFormIndex nas rotas
+// canônicas e no alias /campanhas2/:id/editar. Esta função usa a primeira
+// por já ser a canônica em App.tsx. Vive neste módulo (e não em utils/campanha.ts, que
 // reexporta) porque utils/campanha.ts lê `import.meta.env`/`window` no
 // top-level e não pode ser importado fora do Vite — este arquivo precisa
 // continuar puro pra ser testável com node:test.

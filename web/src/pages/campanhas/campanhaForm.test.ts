@@ -72,9 +72,9 @@ function campanhaAntiga(over: Partial<Campanha> = {}): Campanha {
   }
 }
 
-describe('rotaEditarCampanha — sempre Campanhas 2', () => {
+describe('rotaEditarCampanha — sempre o formulário canônico', () => {
   // /campanhas/:id/editar e /campanhas2/:id/editar renderizam o mesmo
-  // Campanhas2Index (App.tsx) — Form.tsx já foi removido do repositório.
+  // CampanhaFormIndex (App.tsx) — Form.tsx já foi removido do repositório.
   test('modo_exibicao modal_automatica -> /campanhas/:id/editar', () => {
     assert.equal(rotaEditarCampanha(campanhaAntiga({ id: 'c1', modo_exibicao: 'modal_automatica' })), '/campanhas/c1/editar')
   })

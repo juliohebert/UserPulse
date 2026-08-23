@@ -7,7 +7,7 @@
 // um do outro) justamente pra nunca cobrir a caixa do alvo, mesma regra
 // obrigatória de web/public/widget.js (destaqueElementoCalcularPosicao /
 // destaqueElementoCalcularPosicaoTooltip: preferência abaixo do alvo).
-// Extraído do preview de campanhas2/Index.tsx pra evitar reimplementar o
+// Extraído do preview do formulário de campanhas pra evitar reimplementar o
 // mesmo mock em cada lugar que precisa simular este formato (builder
 // canvas, "Simular" e /campanhas/:id/preview).
 interface DestaqueElementoSimulacaoProps {
