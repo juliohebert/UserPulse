@@ -3019,6 +3019,11 @@
     // a resposta dela nunca pode agir sobre o contexto deste init() novo.
     destaqueElementoDesmontarTodos();
     evaluateCampaignsToken++;
+    // A busca inicial também é assíncrona. Se updateContext() ou outro
+    // init() iniciar uma avaliação depois desta, a resposta antiga não pode
+    // remontar a campanha por cima da seleção mais recente (em especial um
+    // destaque_elemento, que não usa o root da modal).
+    var meuTokenInicial = evaluateCampaignsToken;
 
     // Restaurar overflow do body caso a modal estivesse aberta ao re-inicializar
     document.body.style.overflow = state.bodyOverflow || '';
@@ -3187,6 +3192,7 @@
         resolveContexto(); // atualiza normalized.contexto via provider, se existir
         fetchCampaign(normalized)
           .then(function (campanha) {
+            if (meuTokenInicial !== evaluateCampaignsToken) return;
             if (debugState.enabled) {
               debugLog('Campanha por slug', {
                 slug: normalized.slug,
@@ -3204,7 +3210,7 @@
         var contextoInit = resolveContexto();
         fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id, contextoInit)
           .then(function (candidatos) {
-            var linhasDebug = [];
+            if (meuTokenInicial !== evaluateCampaignsToken) return;
             var selecionada = null;
             for (var i = 0; i < candidatos.length; i++) {
               var c = candidatos[i];
