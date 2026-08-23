@@ -42,7 +42,7 @@ function filtroData(inicio: Date | null, fim: Date | null) {
   return inicio || fim ? { criado_em: { ...(inicio ? { gte: inicio } : {}), ...(fim ? { lte: fim } : {}) } } : {}
 }
 
-function construirSerieDiaria(inicio: string, fim: string, rows: Array<{ data: Date; visualizacoes: bigint; respostas: bigint; cliques_cta: bigint }>): SerieDiariaItem[] {
+export function construirSerieDiaria(inicio: string, fim: string, rows: Array<{ data: Date; visualizacoes: bigint | number | string; respostas: bigint | number | string; cliques_cta: bigint | number | string }>): SerieDiariaItem[] {
   const mapa = new Map(rows.map(row => [row.data.toISOString().slice(0, 10), row]))
   const resultado: SerieDiariaItem[] = []
   for (let cursor = new Date(`${inicio}T00:00:00Z`), limite = new Date(`${fim}T00:00:00Z`); cursor <= limite; cursor.setUTCDate(cursor.getUTCDate() + 1)) {

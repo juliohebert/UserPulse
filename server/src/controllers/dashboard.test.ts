@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { montarDesempenhoDestaques, whereFeedbackNps, whereUtilidadeDestaque, normalizarDataDashboard, calcularPeriodoAnterior } from './dashboard'
+import { montarDesempenhoDestaques, whereFeedbackNps, whereUtilidadeDestaque, normalizarDataDashboard, calcularPeriodoAnterior, construirSerieDiaria } from './dashboard'
 
 describe('períodos do dashboard', () => {
   test('normaliza somente datas ISO reais; entradas inválidas são ignoradas', () => {
@@ -18,6 +18,29 @@ describe('períodos do dashboard', () => {
   test('período todo ou incompleto não tem comparação objetiva', () => {
     assert.equal(calcularPeriodoAnterior({ inicio: null, fim: null }), null)
     assert.equal(calcularPeriodoAnterior({ inicio: '2026-02-10', fim: null }), null)
+  })
+
+  test('série diária inclui dias vazios, converte contagens e preserva ordem cronológica', () => {
+    const serie = construirSerieDiaria('2026-02-01', '2026-02-03', [
+      { data: new Date('2026-02-03T00:00:00Z'), visualizacoes: 2n, respostas: '1', cliques_cta: 0 },
+      { data: new Date('2026-02-01T00:00:00Z'), visualizacoes: 5n, respostas: 0n, cliques_cta: 1n },
+    ])
+    assert.deepEqual(serie, [
+      { data: '2026-02-01', visualizacoes: 5, respostas: 0, cliques_cta: 1 },
+      { data: '2026-02-02', visualizacoes: 0, respostas: 0, cliques_cta: 0 },
+      { data: '2026-02-03', visualizacoes: 2, respostas: 1, cliques_cta: 0 },
+    ])
+  })
+
+  test('série vazia e linha com contagens zero permanecem zeradas', () => {
+    assert.deepEqual(construirSerieDiaria('2026-02-01', '2026-02-01', []), [
+      { data: '2026-02-01', visualizacoes: 0, respostas: 0, cliques_cta: 0 },
+    ])
+    assert.deepEqual(construirSerieDiaria('2026-02-01', '2026-02-01', [
+      { data: new Date('2026-02-01T00:00:00Z'), visualizacoes: 0n, respostas: 0n, cliques_cta: 0n },
+    ]), [
+      { data: '2026-02-01', visualizacoes: 0, respostas: 0, cliques_cta: 0 },
+    ])
   })
 })
 

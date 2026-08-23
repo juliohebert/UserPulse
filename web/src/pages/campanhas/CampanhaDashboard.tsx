@@ -761,6 +761,7 @@ export function CampanhaDashboard() {
                 label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
                 sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
                 subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram os destaques no período selecionado."
+                subExtra={variacaoVisualizacoes && <span className="text-[11px] text-outline">{variacaoVisualizacoes}</span>}
               />
               <KpiCard
                 icon="touch_app" iconColor="text-secondary" iconBg="bg-secondary/10"
@@ -773,6 +774,7 @@ export function CampanhaDashboard() {
                 label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
                 sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
                 subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais dos destaques (não por usuários únicos). O cálculo respeita o período selecionado."
+                subExtra={variacaoCliques && <span className="text-[11px] text-outline">{variacaoCliques}</span>}
               />
               <KpiCard
                 icon="thumbs_up_down" iconColor="text-primary" iconBg="bg-primary/10"
