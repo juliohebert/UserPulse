@@ -3211,6 +3211,7 @@
         fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id, contextoInit)
           .then(function (candidatos) {
             if (meuTokenInicial !== evaluateCampaignsToken) return;
+            var linhasDebug = [];
             var selecionada = null;
             for (var i = 0; i < candidatos.length; i++) {
               var c = candidatos[i];
