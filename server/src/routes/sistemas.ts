@@ -6,7 +6,7 @@ const router = Router()
 
 // Ajuste pós-revisão da Fase 4 — mesmo raciocínio de catalogoTelas.ts: GET
 // fica sem guard de módulo, de propósito. O seletor de sistema usado ao
-// criar campanha/tela (web/src/pages/campanhas2/Index.tsx,
+// criar campanha/tela (web/src/pages/campanhas/CampanhaForm.tsx,
 // pages/catalogo/Index.tsx) depende deste endpoint fora da tela de
 // Configurações; gatear por CONFIGURACOES quebraria esses fluxos agora que
 // o padrão de EDITOR/VIEWER em CONFIGURACOES é NENHUM (ver

@@ -11,9 +11,9 @@ import vm from 'node:vm'
 // pra este teste.
 //
 // Bug original: o ícone do cabeçalho do widget não batia com o preview do
-// Campanhas 2. A REGRA de seleção (tipo -> nome do ícone) já era idêntica
+// Formulário de campanhas. A REGRA de seleção (tipo -> nome do ícone) já era idêntica
 // nos dois lados (campaignIconName aqui e iconeTipoCampanha/
-// ICONES_TIPO_CAMPANHA em campanhas2/Index.tsx) — a divergência real estava
+// ICONES_TIPO_CAMPANHA em CampanhaForm.tsx) — a divergência real estava
 // na EXIBIÇÃO em widget.js: faltava `.up-brand-icon svg{width/height/fill}`
 // (ícone saía estourado/com cor errada) e o desenho de icon('campaign') não
 // era o path oficial do Material Symbols Outlined (formato errado). Ambos
@@ -57,7 +57,7 @@ before(() => {
   campaignIconName = fn as CampaignIconName
 })
 
-// Mesma tabela de campanhas2/Index.tsx (ICONES_TIPO_CAMPANHA/iconeTipoCampanha)
+// Mesma tabela de CampanhaForm.tsx (ICONES_TIPO_CAMPANHA/iconeTipoCampanha)
 // — se um dos dois lados mudar sem o outro, este teste quebra.
 const ICONES_TIPO_CAMPANHA_ADMIN: Record<string, string> = {
   comunicado: 'campaign',
@@ -65,7 +65,7 @@ const ICONES_TIPO_CAMPANHA_ADMIN: Record<string, string> = {
   pesquisa: 'quiz',
 }
 
-describe('campaignIconName (widget.js) — paridade com o preview do Campanhas 2', () => {
+describe('campaignIconName (widget.js) — paridade com o preview de campanhas', () => {
   for (const [tipo, iconeEsperado] of Object.entries(ICONES_TIPO_CAMPANHA_ADMIN)) {
     test(`tipo "${tipo}" -> mesmo ícone do preview ("${iconeEsperado}")`, () => {
       assert.equal(campaignIconName({ tipo }), iconeEsperado)
