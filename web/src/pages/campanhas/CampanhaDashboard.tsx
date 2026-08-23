@@ -140,11 +140,6 @@ function periodoRange(p: Periodo): { inicio: Date | null; fim: Date | null } {
   }
 }
 
-function dataQuery(date: Date | null): string | null {
-  if (!date) return null
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
 function npsZona(score: number): { nome: string; bg: string; text: string; border: string } {
   if (score >= 91) return { nome: 'Zona de Encantamento',      bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200'    }
   if (score >= 76) return { nome: 'Zona de Excelência',        bg: 'bg-green-50',   text: 'text-green-700',   border: 'border-green-200'   }
@@ -153,13 +148,6 @@ function npsZona(score: number): { nome: string; bg: string; text: string; borde
   return                   { nome: 'Zona Crítica',              bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200'     }
 }
 
-function inPeriodo(criado_em: string, inicio: Date | null, fim: Date | null): boolean {
-  if (!inicio && !fim) return true
-  const d = new Date(criado_em)
-  if (inicio && d < inicio) return false
-  if (fim    && d > fim)    return false
-  return true
-}
 
 function npsLabel(nota: number): 'Promotor' | 'Neutro' | 'Detrator' {
   if (nota >= 9) return 'Promotor'
@@ -208,50 +196,6 @@ function getCellValue(f: Feedback, colId: string): string {
 
 // ─── component ────────────────────────────────────────────────────────────────
 
-function DailyImpressionsChart({ serie, serieAnterior, mostrarComparacao }: {
-  serie: DashboardData['serie_diaria']
-  serieAnterior: DashboardData['serie_diaria_anterior']
-  mostrarComparacao: boolean
-}) {
-  if (serie.length === 0) {
-    return <div className="h-48 flex items-center justify-center text-label-md text-outline">Sem visualizações no período selecionado.</div>
-  }
-  const largura = 720
-  const altura = 220
-  const margem = 28
-  const max = Math.max(...serie.map(item => item.visualizacoes), ...(mostrarComparacao ? serieAnterior.map(item => item.visualizacoes) : []), 1)
-  const pontos = serie.map((item, index) => {
-    const x = margem + (index / Math.max(serie.length - 1, 1)) * (largura - margem * 2)
-    const y = altura - margem - (item.visualizacoes / max) * (altura - margem * 2)
-    return `${x},${y}`
-  }).join(' ')
-  const pontosAnteriores = mostrarComparacao && serieAnterior.length === serie.length
-    ? serieAnterior.map((item, index) => {
-        const x = margem + (index / Math.max(serie.length - 1, 1)) * (largura - margem * 2)
-        const y = altura - margem - (item.visualizacoes / max) * (altura - margem * 2)
-        return `${x},${y}`
-      }).join(' ')
-    : null
-  return (
-    <div role="img" aria-label="Impressões da campanha por dia" className="w-full overflow-hidden">
-      <svg viewBox={`0 0 ${largura} ${altura}`} className="w-full h-48" preserveAspectRatio="none">
-        <line x1={margem} y1={altura - margem} x2={largura - margem} y2={altura - margem} stroke="currentColor" className="text-outline-variant" />
-        {pontosAnteriores && <polyline points={pontosAnteriores} fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="6 4" className="text-outline" strokeLinecap="round" strokeLinejoin="round" />}
-        <polyline points={pontos} fill="none" stroke="currentColor" strokeWidth="3" className="text-primary" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-      <div className="flex justify-between text-[11px] text-outline px-1">
-        <span>{serie[0].data}</span><span>{serie[serie.length - 1].data}</span>
-      </div>
-    </div>
-  )
-}
-
-function variacaoComparacao(atual: number, anterior: number): string | null {
-  if (anterior === 0) return null
-  const percentual = ((atual - anterior) / anterior) * 100
-  return `${percentual >= 0 ? '+' : ''}${percentual.toFixed(1)}% vs. período anterior`
-}
-
 export function CampanhaDashboard() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -291,19 +235,34 @@ export function CampanhaDashboard() {
   const load = () => {
     setLoading(true)
     setError(null)
-    const range = periodoRange(periodo)
     const params = new URLSearchParams()
-    const inicio = dataQuery(range.inicio)
-    const fim = dataQuery(range.fim)
-    if (inicio) params.set('data_inicio', inicio)
-    if (fim) params.set('data_fim', fim)
-    get<DashboardData>(`/dashboard/campanhas/${id}${params.size ? `?${params}` : ''}`)
+    const { inicio, fim } = periodoRange(periodo)
+    if (inicio) params.set('data_inicio', inicio.toISOString())
+    if (fim) params.set('data_fim', fim.toISOString())
+    params.set('res_page', String(pagResp)); params.set('res_per_page', String(tamPagResp))
+    params.set('event_page', String(pagInter)); params.set('event_per_page', String(tamPagInter))
+    params.set('avaliacao_page', String(pagAvaliacao)); params.set('avaliacao_per_page', String(tamPagAvaliacao))
+    if (filtros.nps !== 'Todos') params.set('nps', filtros.nps)
+    if (filtros.nota) params.set('nota', filtros.nota)
+    if (filtros.cliente) params.set('cliente_nome', filtros.cliente)
+    if (filtros.unidade) params.set('unidade_nome', filtros.unidade)
+    if (filtros.perfil) params.set('usuario_tipo', filtros.perfil)
+    if (filtros.estado) params.set('estado', filtros.estado)
+    if (filtros.telefone !== 'Todos') params.set('tem_telefone', filtros.telefone === 'Informado' ? 'sim' : 'nao')
+    if (filtros.busca.trim()) params.set('busca', filtros.busca.trim())
+    if (filtroEvento !== 'Todos') params.set('tipo', filtroEvento)
+    if (filtroDestaque) params.set('destaque_id', filtroDestaque)
+    if (buscaEvento.trim()) params.set('busca_evento', buscaEvento.trim())
+    if (filtroDestaqueAvaliacao) params.set('avaliacao_destaque_id', filtroDestaqueAvaliacao)
+    if (filtroUtilAvaliacao !== 'Todos') params.set('avaliacao_util', filtroUtilAvaliacao === 'Sim' ? 'sim' : 'nao')
+    if (buscaAvaliacao.trim()) params.set('busca_avaliacao', buscaAvaliacao.trim())
+    get<DashboardData>(`/dashboard/campanhas/${id}?${params}`)
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [id, periodo])
+  useEffect(() => { load() }, [id, periodo, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
 
   useEffect(() => {
     if (!showColMenu) return
@@ -375,53 +334,23 @@ export function CampanhaDashboard() {
   const periodoAtivo = periodoRangeValue.inicio !== null || periodoRangeValue.fim !== null
 
   const feedbacksPeriodo = useMemo(() => {
-    const { inicio, fim } = periodoRangeValue
-    if (!inicio && !fim) return data?.feedbacks_recentes ?? []
-    return (data?.feedbacks_recentes ?? []).filter(f => inPeriodo(f.criado_em, inicio, fim))
-  }, [data, periodoRangeValue])
+    return data?.feedbacks_recentes ?? []
+  }, [data])
+  // A lista já vem filtrada e paginada pelo servidor; nunca aplicar uma
+  // segunda filtragem local sobre uma página parcial.
+  const feedbacksFiltrados = feedbacksPeriodo
 
   const eventosPeriodo = useMemo(() => {
-    const { inicio, fim } = periodoRangeValue
-    if (!inicio && !fim) return data?.eventos_recentes ?? []
-    return (data?.eventos_recentes ?? []).filter(e => inPeriodo(e.criado_em, inicio, fim))
-  }, [data, periodoRangeValue])
-
-  const feedbacksFiltrados = useMemo(() => {
-    return feedbacksPeriodo.filter(f => {
-      const c = ctx(f)
-      if (filtros.nps !== 'Todos' && npsLabel(f.nota) !== filtros.nps) return false
-      if (filtros.nota !== '' && f.nota !== Number(filtros.nota)) return false
-      if (filtros.cliente !== '' && (c.cliente_nome || NI) !== filtros.cliente) return false
-      if (filtros.unidade !== '' && (c.unidade_nome || c.clinica_nome || NI) !== filtros.unidade) return false
-      if (filtros.perfil !== '' && (c.usuario_tipo || NI) !== filtros.perfil) return false
-      if (filtros.estado !== '' && (c.Estado || NI) !== filtros.estado) return false
-      if (filtros.telefone === 'Informado' && !f.telefone_contato?.trim()) return false
-      if (filtros.telefone === 'Não informado' && !!f.telefone_contato?.trim()) return false
-      if (filtros.busca) {
-        const q = filtros.busca.toLowerCase()
-        const hay = [
-          f.usuario_nome, f.usuario_email, c.usuario_nome, c.usuario_email,
-          f.observacao, f.telefone_contato,
-        ].filter(Boolean).join(' ').toLowerCase()
-        if (!hay.includes(q)) return false
-      }
-      return true
-    })
-  }, [feedbacksPeriodo, filtros])
+    return data?.eventos_recentes ?? []
+  }, [data])
 
   // paginação respostas
   const feedbacksPaginados = useMemo(() => {
-    const start = (pagResp - 1) * tamPagResp
-    return feedbacksFiltrados.slice(start, start + tamPagResp)
-  }, [feedbacksFiltrados, pagResp, tamPagResp])
-  const totalPagResp = Math.ceil(feedbacksFiltrados.length / tamPagResp)
+    return feedbacksPeriodo
+  }, [feedbacksPeriodo])
+  const totalPagResp = Math.ceil((data?.total ?? 0) / tamPagResp)
 
-  const totalFiltrado = feedbacksFiltrados.length
-  const mediaFiltrada = totalFiltrado > 0
-    ? Math.round(feedbacksFiltrados.reduce((s, f) => s + f.nota, 0) / totalFiltrado * 10) / 10
-    : null
-  const detraComTel = feedbacksFiltrados.filter(f => npsLabel(f.nota) === 'Detrator' && !!f.telefone_contato?.trim()).length
-  const detraSemTel = feedbacksFiltrados.filter(f => npsLabel(f.nota) === 'Detrator' && !f.telefone_contato?.trim()).length
+
 
   const temFiltrosAvancados = filtros.nps !== 'Todos' || filtros.nota !== '' || filtros.cliente !== '' ||
     filtros.unidade !== '' || filtros.perfil !== '' || filtros.estado !== '' || filtros.telefone !== 'Todos'
@@ -432,41 +361,16 @@ export function CampanhaDashboard() {
     filtros.unidade !== '', filtros.perfil !== '', filtros.estado !== '', filtros.telefone !== 'Todos',
   ].filter(Boolean).length
 
-  const TIPO_EVENTO_POR_FILTRO: Record<string, string> = {
-    Visualização: 'visualizacao',
-    Clique: 'clique_cta',
-    Interação: 'interacao_badge',
-    Dispensa: 'dispensa',
-  }
 
   const eventosFiltrados = useMemo(() => {
-    let list = eventosPeriodo
-    if (filtroEvento !== 'Todos') {
-      const tipo = TIPO_EVENTO_POR_FILTRO[filtroEvento]
-      list = list.filter(e => e.tipo_evento === tipo)
-    }
-    if (filtroDestaque) {
-      list = list.filter(e => e.destaque_item_id === filtroDestaque)
-    }
-    if (buscaEvento.trim()) {
-      const q = buscaEvento.toLowerCase()
-      list = list.filter(e => {
-        const c = (e.contexto ?? {}) as Record<string, string>
-        return [
-          e.usuario_id, c.usuario_nome, c.usuario_email,
-          c.usuario_tipo, c.cliente_nome, c.unidade_nome, c.clinica_nome, e.tipo_evento,
-        ].filter(Boolean).join(' ').toLowerCase().includes(q)
-      })
-    }
-    return list
-  }, [eventosPeriodo, filtroEvento, filtroDestaque, buscaEvento])
+    return eventosPeriodo
+  }, [eventosPeriodo])
 
   // paginação interações
   const eventosPaginados = useMemo(() => {
-    const start = (pagInter - 1) * tamPagInter
-    return eventosFiltrados.slice(start, start + tamPagInter)
-  }, [eventosFiltrados, pagInter, tamPagInter])
-  const totalPagInter = Math.ceil(eventosFiltrados.length / tamPagInter)
+    return eventosFiltrados
+  }, [eventosFiltrados])
+  const totalPagInter = Math.ceil((data?.eventos_total ?? 0) / tamPagInter)
 
   const temFiltroEvento = filtroEvento !== 'Todos' || filtroDestaque !== '' || buscaEvento !== ''
 
@@ -490,37 +394,14 @@ export function CampanhaDashboard() {
   const avaliacoesDestaques = data?.avaliacoes_destaques ?? []
 
   const avaliacoesPeriodo = useMemo(() => {
-    const { inicio, fim } = periodoRangeValue
-    if (!inicio && !fim) return avaliacoesDestaques
-    return avaliacoesDestaques.filter(a => inPeriodo(a.criado_em, inicio, fim))
-  }, [avaliacoesDestaques, periodoRangeValue])
-
-  const avaliacoesFiltradas = useMemo(() => {
-    let list = avaliacoesPeriodo
-    if (filtroDestaqueAvaliacao) {
-      list = list.filter(a => a.destaque_item_id === filtroDestaqueAvaliacao)
-    }
-    if (filtroUtilAvaliacao !== 'Todos') {
-      const alvo = filtroUtilAvaliacao === 'Sim'
-      list = list.filter(a => a.util === alvo)
-    }
-    if (buscaAvaliacao.trim()) {
-      const q = buscaAvaliacao.toLowerCase()
-      list = list.filter(a => {
-        const c = (a.contexto ?? {}) as Record<string, string>
-        return [
-          a.usuario_id, a.usuario_nome, a.usuario_email, c.usuario_nome, c.usuario_email, a.observacao,
-        ].filter(Boolean).join(' ').toLowerCase().includes(q)
-      })
-    }
-    return list
-  }, [avaliacoesPeriodo, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
+    return avaliacoesDestaques
+  }, [avaliacoesDestaques])
+  const avaliacoesFiltradas = avaliacoesPeriodo
 
   const avaliacoesPaginadas = useMemo(() => {
-    const start = (pagAvaliacao - 1) * tamPagAvaliacao
-    return avaliacoesFiltradas.slice(start, start + tamPagAvaliacao)
-  }, [avaliacoesFiltradas, pagAvaliacao, tamPagAvaliacao])
-  const totalPagAvaliacao = Math.ceil(avaliacoesFiltradas.length / tamPagAvaliacao)
+    return avaliacoesPeriodo
+  }, [avaliacoesPeriodo])
+  const totalPagAvaliacao = Math.ceil((data?.avaliacoes_total ?? 0) / tamPagAvaliacao)
 
   const temFiltroAvaliacao = filtroDestaqueAvaliacao !== '' || filtroUtilAvaliacao !== 'Todos' || buscaAvaliacao !== ''
 
@@ -529,7 +410,7 @@ export function CampanhaDashboard() {
   const kpiVisualizacoesUnicas = data?.visualizacoes_unicas ?? 0
   const kpiCliques = data?.cliques_cta ?? 0
   const kpiCliquesUnicos = data?.cliques_unicos ?? 0
-  const kpiTotal = data?.total ?? 0
+  const kpiTotal = data?.total_periodo ?? data?.total ?? 0
   const kpiMedia: number | null = data?.media ?? null
   const kpiDistribuicao: Record<string, number> = data?.distribuicao ?? {}
   const kpiTaxaClique = kpiVisualizacoes > 0 ? Math.round((kpiCliques / kpiVisualizacoes) * 1000) / 10 : 0
@@ -544,13 +425,20 @@ export function CampanhaDashboard() {
   // filtra a lista já carregada; sem período, usa os totais exatos que já
   // vêm prontos em desempenho_destaques (nunca capados em 100 como
   // eventos_recentes).
-  const kpiInteracoes = desempenhoDestaques.reduce((s, i) => s + i.interacoes, 0)
+  const kpiInteracoes = periodoAtivo
+    ? (data?.destaque_resumo_periodo.interacoes ?? 0)
+    : desempenhoDestaques.reduce((s, i) => s + i.interacoes, 0)
   const kpiTaxaInteracao = kpiVisualizacoes > 0 ? Math.round((kpiInteracoes / kpiVisualizacoes) * 1000) / 10 : 0
-  const kpiDispensas = desempenhoDestaques.reduce((s, i) => s + i.dispensas, 0)
-  const kpiAvaliacoesTotal = desempenhoDestaques.reduce((s, i) => s + i.avaliacoes, 0)
-  const kpiSimTotal = desempenhoDestaques.reduce((s, i) => s + i.sim, 0)
+  const kpiDispensas = periodoAtivo
+    ? (data?.destaque_resumo_periodo.dispensas ?? 0)
+    : desempenhoDestaques.reduce((s, i) => s + i.dispensas, 0)
+  const kpiAvaliacoesTotal = periodoAtivo
+    ? (data?.destaque_resumo_periodo.avaliacoes ?? 0)
+    : desempenhoDestaques.reduce((s, i) => s + i.avaliacoes, 0)
+  const kpiSimTotal = periodoAtivo
+    ? (data?.destaque_resumo_periodo.sim ?? 0)
+    : desempenhoDestaques.reduce((s, i) => s + i.sim, 0)
   const kpiPercentualUtil = kpiAvaliacoesTotal > 0 ? Math.round((kpiSimTotal / kpiAvaliacoesTotal) * 1000) / 10 : null
-
 
   // Valores dos chips-resumo da seção Interações — QUAIS chips aparecem
   // (e com que rótulo) vem de blocos.indicadoresInteracoes (dashboardBlocos.ts);
@@ -610,13 +498,21 @@ export function CampanhaDashboard() {
   const pctNeut    = totalNps > 0 ? Math.round((neutros    / totalNps) * 100) : 0
   const pctDetr    = totalNps > 0 ? Math.round((detratores / totalNps) * 100) : 0
   const npsScore   = pctProm - pctDetr
-  const comparacao = data?.comparacao
-  const variacaoVisualizacoes = comparacao ? variacaoComparacao(kpiVisualizacoes, comparacao.visualizacoes) : null
-  const variacaoRespostas = comparacao ? variacaoComparacao(kpiTotal, comparacao.respostas) : null
-  const variacaoCliques = comparacao ? variacaoComparacao(kpiCliques, comparacao.cliques_cta) : null
-  const variacaoNps = comparacao?.nps !== null && comparacao?.nps !== undefined
-    ? `${npsScore >= comparacao.nps ? '+' : ''}${npsScore - comparacao.nps} pts vs. período anterior`
-    : null
+
+  const serieImpressao = data?.serie_impressao ?? []
+  const maxImpressao = Math.max(1, ...serieImpressao.map(p => p.visualizacoes))
+  const pontosImpressao = serieImpressao.map((p, i) => {
+    const x = serieImpressao.length > 1 ? (i / (serieImpressao.length - 1)) * 100 : 50
+    const y = 96 - (p.visualizacoes / maxImpressao) * 88
+    return `${x},${y}`
+  }).join(' ')
+  const atividadeSemana = data?.atividade_semana ?? []
+  const maiorDia = atividadeSemana.reduce<{ dia: number; visualizacoes: number } | null>(
+    (maior, atual) => !maior || atual.visualizacoes > maior.visualizacoes ? atual : maior, null,
+  )
+  const nomesDias = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+  const totalAtividade = atividadeSemana.reduce((s, d) => s + d.visualizacoes, 0)
+  const quotes = data?.quotes_nps ?? []
 
   // % de visualizações que resultaram em resposta — usado no funil (Visualizações → Respostas)
   const taxaRespostaPorVisualizacao = kpiVisualizacoes > 0
@@ -747,6 +643,27 @@ export function CampanhaDashboard() {
             )}
           </div>
 
+          {/* Dados agregados no servidor — a tabela recente não é usada para
+              desenhar tendências ou identificar dias mais ativos. */}
+          {blocos.funilEngajamento && (
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.75fr)] gap-4 mb-6">
+              <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-3 mb-4"><div><h3 className="text-title-md font-bold text-on-surface">Impressões da campanha</h3><p className="text-label-md text-outline mt-1">Evolução diária de visualizações</p></div><span className="text-label-md text-outline">{serieImpressao.length} dias</span></div>
+                {serieImpressao.length === 0 ? <EmptySection icon="show_chart" title="Sem impressões ainda" message="O gráfico aparecerá quando a campanha for visualizada." /> : <>
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-52 rounded-xl bg-surface-container-low p-2" role="img" aria-label="Gráfico de impressões"><polyline points={pontosImpressao} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className="text-primary" /></svg>
+                  <div className="flex justify-between text-[11px] text-outline mt-2"><span>{serieImpressao[0]?.data}</span><span>Pico: {maxImpressao.toLocaleString('pt-BR')}</span><span>{serieImpressao.length > 0 ? serieImpressao[serieImpressao.length - 1].data : ''}</span></div>
+                </>}
+              </div>
+              <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-4 sm:p-5">
+                <h3 className="text-title-md font-bold text-on-surface">Dias mais ativos</h3><p className="text-label-md text-outline mt-1 mb-5">Visualizações por dia da semana</p>
+                {totalAtividade === 0 ? <EmptySection icon="bar_chart" title="Sem dados de atividade" message="Os dias mais ativos aparecerão com as primeiras visualizações." /> : <>
+                  <div className="flex items-end justify-between gap-1 h-36">{atividadeSemana.map(({ dia, visualizacoes: valor }) => { const nome = nomesDias[dia] ?? `Dia ${dia}`; const altura = Math.max(valor ? 8 : 0, Math.round((valor / Math.max(1, ...atividadeSemana.map(x => x.visualizacoes))) * 100)); return <div key={dia} className="flex-1 h-full flex flex-col items-center justify-end gap-1"><span className="text-[10px] text-outline">{valor || ''}</span><div className={`w-full max-w-8 rounded-t ${maiorDia?.dia === dia ? 'bg-primary' : 'bg-primary/25'}`} style={{ height: `${altura}%` }} /><span className="text-[11px] text-outline">{nome}</span></div> })}</div>
+                  {maiorDia && <p className="text-label-md text-outline mt-4">Maior movimento: <strong className="text-on-surface">{nomesDias[maiorDia.dia]}</strong> ({maiorDia.visualizacoes.toLocaleString('pt-BR')} visualizações, {totalAtividade ? Math.round(maiorDia.visualizacoes / totalAtividade * 100) : 0}% do total).</p>}
+                </>}
+              </div>
+            </div>
+          )}
+
           {/* ── Cards de métricas principais ──────────────────────────────── */}
           {/* destaque_elemento é contextual: feedback geral (Respostas/Nota
               Média/NPS) não existe pra esse formato — os 4 cards trocam pra
@@ -761,7 +678,6 @@ export function CampanhaDashboard() {
                 label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
                 sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
                 subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram os destaques no período selecionado."
-                subExtra={variacaoVisualizacoes && <span className="text-[11px] text-outline">{variacaoVisualizacoes}</span>}
               />
               <KpiCard
                 icon="touch_app" iconColor="text-secondary" iconBg="bg-secondary/10"
@@ -774,7 +690,6 @@ export function CampanhaDashboard() {
                 label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
                 sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
                 subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais dos destaques (não por usuários únicos). O cálculo respeita o período selecionado."
-                subExtra={variacaoCliques && <span className="text-[11px] text-outline">{variacaoCliques}</span>}
               />
               <KpiCard
                 icon="thumbs_up_down" iconColor="text-primary" iconBg="bg-primary/10"
@@ -790,7 +705,6 @@ export function CampanhaDashboard() {
                 label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
                 sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
                 subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram a campanha no período selecionado."
-                subExtra={variacaoVisualizacoes && <span className="text-[11px] text-outline">{variacaoVisualizacoes}</span>}
               />
               <KpiCard
                 icon="forum" iconColor="text-secondary" iconBg="bg-secondary/10"
@@ -807,14 +721,12 @@ export function CampanhaDashboard() {
                     ? "Taxa de resposta = usuários que responderam ÷ usuários únicos que visualizaram a campanha. O cálculo respeita o período selecionado."
                     : "Média de respostas por usuário único que visualizou a campanha (sem usuários respondentes identificados para calcular uma taxa). O cálculo respeita o período selecionado."
                 }
-                subExtra={variacaoRespostas && <span className="text-[11px] text-outline">{variacaoRespostas}</span>}
               />
               <KpiCard
                 icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
                 label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
                 sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
                 subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais da campanha (não por usuários únicos). O cálculo respeita o período selecionado."
-                subExtra={variacaoCliques && <span className="text-[11px] text-outline">{variacaoCliques}</span>}
               />
               {kpiTotal > 0 ? (() => {
                 const zona = npsZona(npsScore)
@@ -827,7 +739,6 @@ export function CampanhaDashboard() {
                     subTooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
                     subExtra={
                       <div className="flex flex-col gap-1">
-                        {variacaoNps && <span className="text-[11px] text-outline">{variacaoNps}</span>}
                         <span className={`inline-flex w-fit text-[11px] font-semibold px-2 py-0.5 rounded-full border ${zona.bg} ${zona.text} ${zona.border}`}>
                           {zona.nome}
                         </span>
@@ -848,18 +759,6 @@ export function CampanhaDashboard() {
               )}
             </div>
           )}
-
-          <section className="w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm mb-6 p-4 sm:p-5" aria-labelledby="impressoes-campanha">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <h3 id="impressoes-campanha" className="text-label-md font-bold text-on-surface-variant">Impressões da campanha</h3>
-              <span className="text-label-md text-outline">{data?.periodo.inicio && data.periodo.fim ? `${data.periodo.inicio} a ${data.periodo.fim}` : 'Todo período'}</span>
-            </div>
-            <DailyImpressionsChart
-              serie={data?.serie_diaria ?? []}
-              serieAnterior={data?.serie_diaria_anterior ?? []}
-              mostrarComparacao={Boolean(data?.comparacao) && (data?.serie_diaria_anterior.length ?? 0) === (data?.serie_diaria.length ?? 0)}
-            />
-          </section>
 
           {/* ── Funil de engajamento (feedback geral — não se aplica a
               destaque_elemento, que não tem "Respostas" pra funilar) ──────── */}
@@ -969,6 +868,14 @@ export function CampanhaDashboard() {
             </div>
           )}
 
+          {blocos.resumoNps && kpiTotal > 0 && (
+            <div className="w-full bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm mb-6">
+              <h4 className="text-title-md font-bold text-on-surface">Leitura do NPS</h4>
+              <p className="text-label-md text-outline mt-1 mb-4">Sinais qualitativos das respostas reais</p>
+              {quotes.length === 0 ? <p className="text-body-sm text-outline">Ainda não há comentários de promotores ou detratores.</p> : <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{quotes.map(f => <div key={f.id} className="rounded-xl bg-surface-container-low p-4"><span className={`text-[11px] font-bold uppercase ${npsLabel(f.nota) === 'Promotor' ? 'text-tertiary' : 'text-error'}`}>{npsLabel(f.nota)} · nota {f.nota}</span><p className="text-body-sm text-on-surface mt-2">“{f.observacao?.trim()}”</p></div>)}</div>}
+            </div>
+          )}
+
           {/* ── Seção: Respostas (feedback geral/NPS — não existe pra
               destaque_elemento; bloco preservado no código, só não exibido) ── */}
           {blocos.secaoRespostas && (
@@ -988,7 +895,7 @@ export function CampanhaDashboard() {
                   {feedbacksPeriodo.length < kpiTotal && (
                     <span
                       className="material-symbols-outlined text-[13px] text-outline/50 cursor-help"
-                      title={`A tabela e os filtros abaixo trabalham sobre as ${feedbacksPeriodo.length.toLocaleString('pt-BR')} respostas mais recentes carregadas.`}
+                      title={`A tabela mostra a página ${pagResp} de ${totalPagResp}; os KPIs usam as ${kpiTotal.toLocaleString('pt-BR')} respostas do período.`}
                     >
                       info
                     </span>
@@ -996,24 +903,10 @@ export function CampanhaDashboard() {
                 </span>
                 {temFiltros && (
                   <span className="text-label-md text-outline">
-                    · {totalFiltrado.toLocaleString('pt-BR')} {totalFiltrado === 1 ? 'filtrada' : 'filtradas'} de {feedbacksPeriodo.length.toLocaleString('pt-BR')} carregadas
+                    · {data.total.toLocaleString('pt-BR')} {data.total === 1 ? 'filtrada' : 'filtradas'} no universo filtrado
                   </span>
                 )}
-                {temFiltros && mediaFiltrada !== null && (
-                  <span className="text-label-md text-outline">· Média {mediaFiltrada.toFixed(1)}</span>
-                )}
-                {detraComTel > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-error/10 text-error border border-error/20">
-                    <span className="material-symbols-outlined text-[12px]">phone</span>
-                    {detraComTel} detrator{detraComTel > 1 ? 'es' : ''} com telefone
-                  </span>
-                )}
-                {detraSemTel > 0 && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[12px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
-                    <span className="material-symbols-outlined text-[12px]">phone_disabled</span>
-                    {detraSemTel} detrator{detraSemTel > 1 ? 'es' : ''} sem telefone
-                  </span>
-                )}
+
               </div>
 
               <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -1201,7 +1094,7 @@ export function CampanhaDashboard() {
                 title="Nenhuma resposta ainda"
                 message="As respostas aparecerão aqui assim que os usuários interagirem com a campanha."
               />
-            ) : feedbacksPeriodo.length === 0 ? (
+            ) : data.total === 0 ? (
               <EmptySection
                 icon="event_busy"
                 title="Nenhuma resposta neste período"
@@ -1284,7 +1177,7 @@ export function CampanhaDashboard() {
 
                 {totalPagResp > 1 && (
                   <Paginacao
-                    total={feedbacksFiltrados.length}
+                    total={data.total}
                     pagina={pagResp}
                     tamPagina={tamPagResp}
                     onChange={setPagResp}
@@ -1369,14 +1262,14 @@ export function CampanhaDashboard() {
                 <div className="px-4 sm:px-5 py-3 border-b border-outline-variant/30 flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-title-md font-bold text-on-surface">
-                      {avaliacoesPeriodo.length.toLocaleString('pt-BR')}
+                      {data.avaliacoes_total.toLocaleString('pt-BR')}
                     </span>
                     <span className="text-label-md text-outline">
-                      {avaliacoesPeriodo.length === 1 ? 'avaliação no período' : 'avaliações no período'}
+                      {data.avaliacoes_total === 1 ? 'avaliação no período' : 'avaliações no período'}
                     </span>
                     {temFiltroAvaliacao && (
                       <span className="text-label-md text-outline">
-                        · {avaliacoesFiltradas.length.toLocaleString('pt-BR')} {avaliacoesFiltradas.length === 1 ? 'filtrada' : 'filtradas'} de {avaliacoesPeriodo.length.toLocaleString('pt-BR')} carregadas
+                        · {data.avaliacoes_total.toLocaleString('pt-BR')} {data.avaliacoes_total === 1 ? 'filtrada' : 'filtradas'} no universo filtrado
                       </span>
                     )}
                   </div>
@@ -1427,7 +1320,7 @@ export function CampanhaDashboard() {
                 </div>
 
                 {/* Tabela ou estado vazio */}
-                {avaliacoesDestaques.length === 0 ? (
+                {data.avaliacoes_total === 0 ? (
                   <EmptySection
                     icon="thumbs_up_down"
                     title="Nenhuma avaliação recebida ainda."
@@ -1530,7 +1423,7 @@ export function CampanhaDashboard() {
 
                     {totalPagAvaliacao > 1 && (
                       <Paginacao
-                        total={avaliacoesFiltradas.length}
+                        total={data.avaliacoes_total}
                         pagina={pagAvaliacao}
                         tamPagina={tamPagAvaliacao}
                         onChange={setPagAvaliacao}
@@ -1565,7 +1458,7 @@ export function CampanhaDashboard() {
                   {eventosPeriodo.length < totalEventosPeriodo && (
                     <span
                       className="material-symbols-outlined text-[13px] text-outline/50 cursor-help"
-                      title={`A tabela e os filtros abaixo trabalham sobre as ${eventosPeriodo.length.toLocaleString('pt-BR')} interações mais recentes carregadas.`}
+                      title={`A tabela mostra a página ${pagInter} de ${totalPagInter}; os KPIs usam todas as interações do período.`}
                     >
                       info
                     </span>
@@ -1573,7 +1466,7 @@ export function CampanhaDashboard() {
                 </span>
                 {temFiltroEvento && (
                   <span className="text-label-md text-outline">
-                    · {eventosFiltrados.length.toLocaleString('pt-BR')} {eventosFiltrados.length === 1 ? 'filtrada' : 'filtradas'} de {eventosPeriodo.length.toLocaleString('pt-BR')} carregadas
+                    · {data.eventos_total.toLocaleString('pt-BR')} {data.eventos_total === 1 ? 'filtrada' : 'filtradas'} no universo filtrado
                   </span>
                 )}
               </div>

@@ -174,6 +174,7 @@ export interface DashboardData {
   serie_diaria_anterior: Array<{ data: string; visualizacoes: number; respostas: number; cliques_cta: number }>
   media: number | null
   total: number
+  total_periodo: number
   distribuicao: Record<string, number>
   feedbacks_recentes: Feedback[]
   visualizacoes: number
@@ -187,8 +188,25 @@ export interface DashboardData {
   respondentes_unicos: number
   // Só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   desempenho_destaques: DesempenhoDestaqueItem[]
+  destaque_resumo_periodo: {
+    interacoes: number
+    dispensas: number
+    avaliacoes: number
+    sim: number
+  }
+  quotes_nps: Feedback[]
   // Idem — só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   avaliacoes_destaques: AvaliacaoDestaqueItem[]
+  avaliacoes_total: number
+  avaliacoes_page: number
+  avaliacoes_per_page: number
+  respostas_page: number
+  respostas_per_page: number
+  eventos_total: number
+  eventos_page: number
+  eventos_per_page: number
+  serie_impressao: Array<{ data: string; visualizacoes: number }>
+  atividade_semana: Array<{ dia: number; visualizacoes: number }>
 }
 
 export interface TelaCatalogo {

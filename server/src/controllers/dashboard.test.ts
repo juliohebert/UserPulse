@@ -1,54 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { montarDesempenhoDestaques, whereFeedbackNps, whereUtilidadeDestaque, normalizarDataDashboard, calcularPeriodoAnterior, construirSerieDiaria, chaveDiaDashboard, dataDashboardUtcInicio } from './dashboard'
-
-describe('períodos do dashboard', () => {
-  test('normaliza somente datas ISO reais; entradas inválidas são ignoradas', () => {
-    assert.equal(normalizarDataDashboard('2026-02-03'), '2026-02-03')
-    assert.equal(normalizarDataDashboard('2026-02-30'), null)
-    assert.equal(normalizarDataDashboard('03/02/2026'), null)
-  })
-
-  test('calcula janela anterior inclusiva com a mesma duração', () => {
-    assert.deepEqual(calcularPeriodoAnterior({ inicio: '2026-02-10', fim: '2026-02-16' }), {
-      inicio: '2026-02-03', fim: '2026-02-09',
-    })
-  })
-
-  test('período todo ou incompleto não tem comparação objetiva', () => {
-    assert.equal(calcularPeriodoAnterior({ inicio: null, fim: null }), null)
-    assert.equal(calcularPeriodoAnterior({ inicio: '2026-02-10', fim: null }), null)
-  })
-
-  test('converte limites e eventos para o dia civil de São Paulo', () => {
-    assert.equal(dataDashboardUtcInicio('2026-02-01').toISOString(), '2026-02-01T03:00:00.000Z')
-    assert.equal(chaveDiaDashboard(new Date('2026-02-02T02:59:59.999Z')), '2026-02-01')
-    assert.equal(chaveDiaDashboard(new Date('2026-02-02T03:00:00.000Z')), '2026-02-02')
-  })
-
-  test('série diária inclui dias vazios, converte contagens e preserva ordem cronológica', () => {
-    const serie = construirSerieDiaria('2026-02-01', '2026-02-03', [
-      { data: '2026-02-03', visualizacoes: 2n, respostas: '1', cliques_cta: 0 },
-      { data: '2026-02-01', visualizacoes: 5n, respostas: 0n, cliques_cta: 1n },
-    ])
-    assert.deepEqual(serie, [
-      { data: '2026-02-01', visualizacoes: 5, respostas: 0, cliques_cta: 1 },
-      { data: '2026-02-02', visualizacoes: 0, respostas: 0, cliques_cta: 0 },
-      { data: '2026-02-03', visualizacoes: 2, respostas: 1, cliques_cta: 0 },
-    ])
-  })
-
-  test('série vazia e linha com contagens zero permanecem zeradas', () => {
-    assert.deepEqual(construirSerieDiaria('2026-02-01', '2026-02-01', []), [
-      { data: '2026-02-01', visualizacoes: 0, respostas: 0, cliques_cta: 0 },
-    ])
-    assert.deepEqual(construirSerieDiaria('2026-02-01', '2026-02-01', [
-      { data: '2026-02-01', visualizacoes: 0n, respostas: 0n, cliques_cta: 0n },
-    ]), [
-      { data: '2026-02-01', visualizacoes: 0, respostas: 0, cliques_cta: 0 },
-    ])
-  })
-})
+import { montarDesempenhoDestaques, normalizarAtividadeDiaSemana, normalizarSerieImpressao, whereFeedbackNps, whereUtilidadeDestaque } from './dashboard'
 
 // buscarDashboard() em si é integration-only (várias queries Prisma
 // combinadas com Promise.all) — testado manualmente contra um servidor
@@ -286,5 +238,38 @@ describe('whereUtilidadeDestaque', () => {
     const filtroNps = whereFeedbackNps('camp-1')
     const filtroUtil = whereUtilidadeDestaque('camp-1')
     assert.notEqual(filtroNps.tipo_avaliacao, filtroUtil.tipo_avaliacao)
+  })
+})
+
+describe('agregados visuais do dashboard', () => {
+  test('normaliza contagens do Prisma e datas do gráfico sem perder valores grandes', () => {
+    assert.deepEqual(normalizarSerieImpressao([
+      { data: new Date('2026-08-18T03:00:00.000Z'), visualizacoes: BigInt(900) },
+    ]), [{ data: '2026-08-18', visualizacoes: 900 }])
+  })
+
+  test('normaliza dia da semana preservando o valor agregado', () => {
+    const r = normalizarAtividadeDiaSemana([
+      { dia: '2', visualizacoes: BigInt(194) },
+      { dia: 5, visualizacoes: 3 },
+    ])
+    assert.equal(r.length, 7)
+    assert.deepEqual(r.slice(0, 2), [{ dia: 2, visualizacoes: 194 }, { dia: 5, visualizacoes: 3 }])
+  })
+
+  test('normaliza borda de meia-noite no fuso America/Sao_Paulo, não no UTC', () => {
+    assert.deepEqual(normalizarSerieImpressao([
+      { data: new Date('2026-08-18T02:59:59.999Z'), visualizacoes: 1 },
+      { data: new Date('2026-08-18T03:00:00.000Z'), visualizacoes: 2 },
+    ]), [
+      { data: '2026-08-17', visualizacoes: 1 },
+      { data: '2026-08-18', visualizacoes: 2 },
+    ])
+  })
+
+  test('preserva data civil devolvida pelo bucket SQL em Sao Paulo', () => {
+    assert.deepEqual(normalizarSerieImpressao([
+      { data: '2026-08-18', visualizacoes: 3 },
+    ]), [{ data: '2026-08-18', visualizacoes: 3 }])
   })
 })
