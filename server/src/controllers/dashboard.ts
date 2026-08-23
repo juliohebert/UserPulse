@@ -146,15 +146,34 @@ export interface SerieImpressao {
   visualizacoes: number
 }
 
+export const TIMEZONE_DASHBOARD = 'America/Sao_Paulo'
+
+function dataCivilSaoPaulo(data: Date): string {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TIMEZONE_DASHBOARD,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(data)
+  const porTipo = new Map(partes.map(parte => [parte.type, parte.value]))
+  return `${porTipo.get('year')}-${porTipo.get('month')}-${porTipo.get('day')}`
+}
+
 export interface AtividadeDiaSemana {
   dia: number
   visualizacoes: number
 }
 
 // O gráfico e os dias ativos usam o universo completo da campanha, não a
-// janela de eventos recentes carregada para a tabela.
+// janela de eventos recentes carregada para a tabela. O SQL já devolve datas
+// civis no fuso do negócio; Date continua aceito para chamadas legadas/testes.
 export function normalizarSerieImpressao(rows: Array<{ data: Date | string; visualizacoes: bigint | number }>): SerieImpressao[] {
-  return rows.map(row => ({ data: new Date(row.data).toISOString().slice(0, 10), visualizacoes: Number(row.visualizacoes) }))
+  return rows.map(row => ({
+    data: typeof row.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.data)
+      ? row.data
+      : dataCivilSaoPaulo(new Date(row.data)),
+    visualizacoes: Number(row.visualizacoes),
+  }))
 }
 
 export function normalizarAtividadeDiaSemana(rows: Array<{ dia: number | string; visualizacoes: bigint | number }>): AtividadeDiaSemana[] {
@@ -171,7 +190,11 @@ function pagina(query: Record<string, unknown>, padrao: number) {
 
 function dataQuery(value: unknown, fimDoDia = false): Date | undefined {
   if (typeof value !== 'string' || !value) return undefined
-  const date = new Date(value.length === 10 ? `${value}T${fimDoDia ? '23:59:59.999' : '00:00:00.000'}Z` : value)
+  // Datas civis sem horário pertencem explicitamente a America/Sao_Paulo;
+  // instantes ISO completos preservam o offset enviado pelo frontend.
+  const date = new Date(value.length === 10
+    ? `${value}T${fimDoDia ? '23:59:59.999' : '00:00:00.000'}-03:00`
+    : value)
   return Number.isNaN(date.getTime()) ? undefined : date
 }
 
@@ -331,12 +354,9 @@ export async function buscarDashboard(req: Request, res: Response) {
         where: { ...feedbackPeriodoWhere, usuario_id: { not: null } },
       }),
 
-      // Sem filtro de ativo, de propósito — "Desempenho dos destaques"
-      // preserva histórico de verdade: um item removido da configuração
-      // (ativo:false, ver sincronizarDestaques/atualizar em campanhas.ts)
-      // continua aparecendo aqui com os números que já tinha acumulado,
-      // só marcado como inativo (campo `ativo` no retorno) pro frontend
-      // sinalizar "removido" em vez de escondê-lo.
+      // Sem filtro de ativo, de propósito — um item removido da configuração
+      // continua aparecendo marcado como inativo, mas os eventos e avaliações
+      // obedecem à mesma janela factual selecionada no dashboard.
       ehDestaqueElemento
         ? prisma.campanhaDestaqueItem.findMany({
             where: { campanha_id: id },
@@ -347,14 +367,14 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento
         ? prisma.eventoCampanha.groupBy({
             by: ['destaque_item_id', 'tipo_evento'],
-            where: { campanha_id: id, destaque_item_id: { not: null } },
+            where: { ...eventosPeriodoWhere, destaque_item_id: { not: null } },
             _count: { id: true },
           })
         : Promise.resolve([]),
       ehDestaqueElemento
         ? prisma.eventoCampanha.groupBy({
             by: ['destaque_item_id', 'tipo_evento', 'usuario_id'],
-            where: { campanha_id: id, destaque_item_id: { not: null }, usuario_id: { not: null } },
+            where: { ...eventosPeriodoWhere, destaque_item_id: { not: null }, usuario_id: { not: null } },
           })
         : Promise.resolve([]),
       // Avaliações de utilidade ("Essa melhoria foi útil?") por item — só
@@ -365,7 +385,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento
         ? prisma.feedback.groupBy({
             by: ['destaque_item_id', 'util'],
-            where: whereUtilidadeDestaque(id),
+            where: { ...whereUtilidadeDestaque(id), criado_em: range },
             _count: { id: true },
           })
         : Promise.resolve([]),
@@ -383,22 +403,22 @@ export async function buscarDashboard(req: Request, res: Response) {
           })
         : Promise.resolve([]),
       ehDestaqueElemento ? prisma.feedback.count({ where: avaliacaoWhere }) : Promise.resolve(0),
-      prisma.$queryRaw<Array<{ data: Date; visualizacoes: bigint }>>`
-        SELECT DATE_TRUNC('day', criado_em) AS data, COUNT(*)::bigint AS visualizacoes
+      prisma.$queryRaw<Array<{ data: string; visualizacoes: bigint }>>`
+        SELECT TO_CHAR(DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS data, COUNT(*)::bigint AS visualizacoes
         FROM "EventoCampanha"
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
           ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
           ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
-        GROUP BY DATE_TRUNC('day', criado_em)
+        GROUP BY DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo')
         ORDER BY data ASC
       `,
       prisma.$queryRaw<Array<{ dia: number; visualizacoes: bigint }>>`
-        SELECT EXTRACT(DOW FROM criado_em)::int AS dia, COUNT(*)::bigint AS visualizacoes
+        SELECT EXTRACT(DOW FROM criado_em AT TIME ZONE 'America/Sao_Paulo')::int AS dia, COUNT(*)::bigint AS visualizacoes
         FROM "EventoCampanha"
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
           ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
           ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
-        GROUP BY EXTRACT(DOW FROM criado_em)
+        GROUP BY EXTRACT(DOW FROM criado_em AT TIME ZONE 'America/Sao_Paulo')
         ORDER BY dia ASC
       `,
       prisma.eventoCampanha.groupBy({

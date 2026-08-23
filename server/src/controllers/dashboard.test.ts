@@ -256,4 +256,20 @@ describe('agregados visuais do dashboard', () => {
     assert.equal(r.length, 7)
     assert.deepEqual(r.slice(0, 2), [{ dia: 2, visualizacoes: 194 }, { dia: 5, visualizacoes: 3 }])
   })
+
+  test('normaliza borda de meia-noite no fuso America/Sao_Paulo, não no UTC', () => {
+    assert.deepEqual(normalizarSerieImpressao([
+      { data: new Date('2026-08-18T02:59:59.999Z'), visualizacoes: 1 },
+      { data: new Date('2026-08-18T03:00:00.000Z'), visualizacoes: 2 },
+    ]), [
+      { data: '2026-08-17', visualizacoes: 1 },
+      { data: '2026-08-18', visualizacoes: 2 },
+    ])
+  })
+
+  test('preserva data civil devolvida pelo bucket SQL em Sao Paulo', () => {
+    assert.deepEqual(normalizarSerieImpressao([
+      { data: '2026-08-18', visualizacoes: 3 },
+    ]), [{ data: '2026-08-18', visualizacoes: 3 }])
+  })
 })
