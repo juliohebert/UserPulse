@@ -1,5 +1,5 @@
 // Módulo isolado de propósito (nenhum import, mesmo padrão de
-// campanhas2/campanhaForm.ts) — CampanhaDashboard.tsx importa utils/campanha.ts,
+// campanhas/campanhaForm.ts) — CampanhaDashboard.tsx importa utils/campanha.ts,
 // que usa import.meta.env (só existe sob o bundler do Vite/navegador), então
 // qualquer lógica pura que precise ser testada via node:test (ver
 // dashboardBlocos.test.ts) tem que morar fora do .tsx do componente.
