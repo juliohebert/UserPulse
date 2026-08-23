@@ -2701,4 +2701,41 @@ describe('evaluateCampaigns — corrida entre avaliações assíncronas (token) 
       sandboxCompartilhado!.fetch = fetchOriginal
     }
   })
+
+  test('resposta da busca inicial após updateContext() não monta um destaque duplicado', async () => {
+    presentes.add('filtro-race-init')
+    const campanhaInicial = {
+      id: 'destaque-race-init', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+      tela: 'tela-race-init', data_cy: 'filtro-race-init', titulo: 'Inicial',
+    }
+    let chamadaCandidatas = 0
+    let resolverInicial: (value: unknown) => void = () => {}
+    const respostaInicial = new Promise(resolve => { resolverInicial = resolve })
+    const fetchOriginal = sandboxCompartilhado!.fetch
+    sandboxCompartilhado!.fetch = (url: string) => {
+      if (url.includes('/api/widget/candidatas')) {
+        chamadaCandidatas++
+        return chamadaCandidatas === 1
+          ? respostaInicial
+          : Promise.resolve({ ok: true, json: () => Promise.resolve([]) })
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(null) })
+    }
+    try {
+      ;(sandboxCompartilhado as unknown as Record<string, unknown>).history = { pushState() {}, replaceState() {} }
+      sandboxCompartilhado.document.documentElement = { style: { setProperty() {}, removeProperty() {} } }
+      userPulseInit({ sistema: 'sis-race-init', tela: 'tela-race-init' })
+      userPulseUpdateContext({ cliente_id: 'contexto-novo' })
+
+      // A avaliação disparada pelo updateContext() deve invalidar a busca
+      // inicial. Mesmo se a resposta inicial chegar depois, ela não pode
+      // agendar uma segunda montagem do mesmo destaque.
+      resolverInicial({ ok: true, json: () => Promise.resolve([campanhaInicial]) })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      dispararTimersPendentesDestaque()
+      assert.equal(destaqueElementoGetTestClickListener(0), null)
+    } finally {
+      sandboxCompartilhado!.fetch = fetchOriginal
+    }
+  })
 })
