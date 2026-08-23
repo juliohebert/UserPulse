@@ -550,6 +550,7 @@ model ConfirmacaoLeitura {
 
   campanha Campanha @relation(fields: [campanha_id], references: [id])
 
+  @@index([campanha_id, usuario_id, criado_em])
   @@map("confirmacoes_leitura")
 }
 

@@ -22,6 +22,10 @@ import type { Campanha, StatusCampanha } from '../../types'
 // (adicionado no form) nunca tem `id` -> backend trata como CREATE.
 export interface DestaqueFormItem {
   id?: string
+  // Identidade transitória da UI para itens ainda não persistidos. Não faz
+  // parte do payload; só evita remontar o card quando o objeto é copiado ao
+  // editar um campo.
+  chave_local?: string
   data_cy: string
   texto_badge: string
   titulo: string
