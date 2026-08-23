@@ -857,7 +857,7 @@ export function CampanhaDashboard() {
             <DailyImpressionsChart
               serie={data?.serie_diaria ?? []}
               serieAnterior={data?.serie_diaria_anterior ?? []}
-              mostrarComparacao={Boolean(data?.comparacao)}
+              mostrarComparacao={Boolean(data?.comparacao) && (data?.serie_diaria_anterior.length ?? 0) === (data?.serie_diaria.length ?? 0)}
             />
           </section>
 

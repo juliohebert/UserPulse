@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { montarDesempenhoDestaques, whereFeedbackNps, whereUtilidadeDestaque, normalizarDataDashboard, calcularPeriodoAnterior, construirSerieDiaria } from './dashboard'
+import { montarDesempenhoDestaques, whereFeedbackNps, whereUtilidadeDestaque, normalizarDataDashboard, calcularPeriodoAnterior, construirSerieDiaria, chaveDiaDashboard, dataDashboardUtcInicio } from './dashboard'
 
 describe('períodos do dashboard', () => {
   test('normaliza somente datas ISO reais; entradas inválidas são ignoradas', () => {
@@ -20,10 +20,16 @@ describe('períodos do dashboard', () => {
     assert.equal(calcularPeriodoAnterior({ inicio: '2026-02-10', fim: null }), null)
   })
 
+  test('converte limites e eventos para o dia civil de São Paulo', () => {
+    assert.equal(dataDashboardUtcInicio('2026-02-01').toISOString(), '2026-02-01T03:00:00.000Z')
+    assert.equal(chaveDiaDashboard(new Date('2026-02-02T02:59:59.999Z')), '2026-02-01')
+    assert.equal(chaveDiaDashboard(new Date('2026-02-02T03:00:00.000Z')), '2026-02-02')
+  })
+
   test('série diária inclui dias vazios, converte contagens e preserva ordem cronológica', () => {
     const serie = construirSerieDiaria('2026-02-01', '2026-02-03', [
-      { data: new Date('2026-02-03T00:00:00Z'), visualizacoes: 2n, respostas: '1', cliques_cta: 0 },
-      { data: new Date('2026-02-01T00:00:00Z'), visualizacoes: 5n, respostas: 0n, cliques_cta: 1n },
+      { data: '2026-02-03', visualizacoes: 2n, respostas: '1', cliques_cta: 0 },
+      { data: '2026-02-01', visualizacoes: 5n, respostas: 0n, cliques_cta: 1n },
     ])
     assert.deepEqual(serie, [
       { data: '2026-02-01', visualizacoes: 5, respostas: 0, cliques_cta: 1 },
@@ -37,7 +43,7 @@ describe('períodos do dashboard', () => {
       { data: '2026-02-01', visualizacoes: 0, respostas: 0, cliques_cta: 0 },
     ])
     assert.deepEqual(construirSerieDiaria('2026-02-01', '2026-02-01', [
-      { data: new Date('2026-02-01T00:00:00Z'), visualizacoes: 0n, respostas: 0n, cliques_cta: 0n },
+      { data: '2026-02-01', visualizacoes: 0n, respostas: 0n, cliques_cta: 0n },
     ]), [
       { data: '2026-02-01', visualizacoes: 0, respostas: 0, cliques_cta: 0 },
     ])

@@ -7,6 +7,11 @@ export interface DashboardPeriodo { inicio: string | null; fim: string | null }
 export interface DashboardComparacao { visualizacoes: number; respostas: number; cliques_cta: number; nps: number | null }
 export interface SerieDiariaItem { data: string; visualizacoes: number; respostas: number; cliques_cta: number }
 
+// Timezone civil operacional do dashboard. A agregação SQL e a conversão dos
+// limites usam America/Sao_Paulo, não o timezone da sessão PostgreSQL/Node.
+export const DASHBOARD_TIMEZONE = 'America/Sao_Paulo'
+const DASHBOARD_UTC_OFFSET_MS = 3 * 60 * 60 * 1000
+
 const DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})$/
 
 export function normalizarDataDashboard(value: unknown): string | null {
@@ -27,14 +32,24 @@ export function calcularPeriodoAnterior(periodo: DashboardPeriodo): DashboardPer
   return { inicio: anteriorInicio.toISOString().slice(0, 10), fim: anteriorFim.toISOString().slice(0, 10) }
 }
 
+export function dataDashboardUtcInicio(data: string): Date {
+  return new Date(new Date(`${data}T00:00:00Z`).getTime() + DASHBOARD_UTC_OFFSET_MS)
+}
+
+export function chaveDiaDashboard(data: Date | string): string {
+  return typeof data === 'string'
+    ? data.slice(0, 10)
+    : new Date(data.getTime() - DASHBOARD_UTC_OFFSET_MS).toISOString().slice(0, 10)
+}
+
 function intervaloDashboard(req: Request): { periodo: DashboardPeriodo; inicio: Date | null; fim: Date | null; erro?: string } {
   const inicio = normalizarDataDashboard(req.query.data_inicio)
   const fim = normalizarDataDashboard(req.query.data_fim)
   if (inicio && fim && fim < inicio) return { periodo: { inicio, fim }, inicio: null, fim: null, erro: 'data_fim deve ser igual ou posterior a data_inicio.' }
   return {
     periodo: { inicio, fim },
-    inicio: inicio ? new Date(`${inicio}T00:00:00.000Z`) : null,
-    fim: fim ? new Date(`${fim}T23:59:59.999Z`) : null,
+    inicio: inicio ? dataDashboardUtcInicio(inicio) : null,
+    fim: fim ? new Date(dataDashboardUtcInicio(fim).getTime() + 86400000 - 1) : null,
   }
 }
 
@@ -42,8 +57,8 @@ function filtroData(inicio: Date | null, fim: Date | null) {
   return inicio || fim ? { criado_em: { ...(inicio ? { gte: inicio } : {}), ...(fim ? { lte: fim } : {}) } } : {}
 }
 
-export function construirSerieDiaria(inicio: string, fim: string, rows: Array<{ data: Date; visualizacoes: bigint | number | string; respostas: bigint | number | string; cliques_cta: bigint | number | string }>): SerieDiariaItem[] {
-  const mapa = new Map(rows.map(row => [row.data.toISOString().slice(0, 10), row]))
+export function construirSerieDiaria(inicio: string, fim: string, rows: Array<{ data: Date | string; visualizacoes: bigint | number | string; respostas: bigint | number | string; cliques_cta: bigint | number | string }>): SerieDiariaItem[] {
+  const mapa = new Map(rows.map(row => [chaveDiaDashboard(row.data), row]))
   const resultado: SerieDiariaItem[] = []
   for (let cursor = new Date(`${inicio}T00:00:00Z`), limite = new Date(`${fim}T00:00:00Z`); cursor <= limite; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
     const data = cursor.toISOString().slice(0, 10)
@@ -67,41 +82,41 @@ async function resumoPeriodo(campanhaId: string, inicio: Date | null, fim: Date 
   return { visualizacoes, respostas, cliques_cta, nps: total > 0 ? Math.round((promotores - detratores) / total * 100) : null }
 }
 
-async function seriePeriodo(campanhaId: string, inicio: Date | null, fim: Date | null, periodo: DashboardPeriodo): Promise<SerieDiariaItem[]> {
+async function seriePeriodo(campanhaId: string, inicio: Date | null, fim: Date | null, periodo: DashboardPeriodo, materializarDiasVazios = true): Promise<SerieDiariaItem[]> {
   let inicioSerie = periodo.inicio
   let fimSerie = periodo.fim
   if (!inicioSerie || !fimSerie) {
-    const limites = await prisma.$queryRaw<Array<{ inicio: Date | null; fim: Date | null }>>(Prisma.sql`
-      SELECT MIN(criado_em) AS inicio, MAX(criado_em) AS fim FROM (
-        SELECT criado_em FROM eventos_campanha WHERE campanha_id = ${campanhaId}
-        UNION ALL SELECT criado_em FROM feedbacks WHERE campanha_id = ${campanhaId} AND tipo_avaliacao = 'nps'
+    const limites = await prisma.$queryRaw<Array<{ inicio: string | null; fim: string | null }>>(Prisma.sql`
+      SELECT MIN(data) AS inicio, MAX(data) AS fim FROM (
+        SELECT (criado_em AT TIME ZONE ${DASHBOARD_TIMEZONE})::date::text AS data FROM eventos_campanha WHERE campanha_id = ${campanhaId}
+        UNION ALL SELECT (criado_em AT TIME ZONE ${DASHBOARD_TIMEZONE})::date::text FROM feedbacks WHERE campanha_id = ${campanhaId} AND tipo_avaliacao = 'nps'
       ) atividade
     `)
     if (!limites[0]?.inicio || !limites[0]?.fim) return []
-    inicioSerie ??= limites[0].inicio.toISOString().slice(0, 10)
-    fimSerie ??= limites[0].fim.toISOString().slice(0, 10)
+    inicioSerie ??= limites[0].inicio
+    fimSerie ??= limites[0].fim
   }
-  const rows = await prisma.$queryRaw<Array<{ data: Date; visualizacoes: bigint; respostas: bigint; cliques_cta: bigint }>>(Prisma.sql`
+  const rows = await prisma.$queryRaw<Array<{ data: string; visualizacoes: bigint; respostas: bigint; cliques_cta: bigint }>>(Prisma.sql`
     SELECT data,
       SUM(visualizacoes)::bigint AS visualizacoes,
       SUM(respostas)::bigint AS respostas,
       SUM(cliques_cta)::bigint AS cliques_cta
     FROM (
-      SELECT DATE_TRUNC('day', criado_em) AS data,
+      SELECT (criado_em AT TIME ZONE ${DASHBOARD_TIMEZONE})::date::text AS data,
         COUNT(*) FILTER (WHERE tipo_evento = 'visualizacao') AS visualizacoes,
         0::bigint AS respostas,
         COUNT(*) FILTER (WHERE tipo_evento = 'clique_cta') AS cliques_cta
       FROM eventos_campanha
-      WHERE campanha_id = ${campanhaId} AND criado_em >= ${inicio ?? new Date(`${inicioSerie}T00:00:00Z`)} AND criado_em <= ${fim ?? new Date(`${fimSerie}T23:59:59.999Z`)}
+      WHERE campanha_id = ${campanhaId} AND criado_em >= ${inicio ?? dataDashboardUtcInicio(inicioSerie)} AND criado_em <= ${fim ?? new Date(dataDashboardUtcInicio(fimSerie).getTime() + 86400000 - 1)}
       GROUP BY 1
       UNION ALL
-      SELECT DATE_TRUNC('day', criado_em), 0::bigint, COUNT(*)::bigint, 0::bigint
+      SELECT (criado_em AT TIME ZONE ${DASHBOARD_TIMEZONE})::date::text, 0::bigint, COUNT(*)::bigint, 0::bigint
       FROM feedbacks
-      WHERE campanha_id = ${campanhaId} AND tipo_avaliacao = 'nps' AND criado_em >= ${inicio ?? new Date(`${inicioSerie}T00:00:00Z`)} AND criado_em <= ${fim ?? new Date(`${fimSerie}T23:59:59.999Z`)}
+      WHERE campanha_id = ${campanhaId} AND tipo_avaliacao = 'nps' AND criado_em >= ${inicio ?? dataDashboardUtcInicio(inicioSerie)} AND criado_em <= ${fim ?? new Date(dataDashboardUtcInicio(fimSerie).getTime() + 86400000 - 1)}
       GROUP BY 1
     ) dados GROUP BY data ORDER BY data
   `)
-  return construirSerieDiaria(inicioSerie, fimSerie, rows)
+  return rows.length === 0 && !materializarDiasVazios ? [] : construirSerieDiaria(inicioSerie, fimSerie, rows)
 }
 
 // ─── Desempenho por destaque (Fase 3 — múltiplos destaques) ────────────────
@@ -256,8 +271,8 @@ export async function buscarDashboard(req: Request, res: Response) {
     const { periodo, inicio, fim } = intervalo
     const filtro = filtroData(inicio, fim)
     const periodoAnterior = calcularPeriodoAnterior(periodo)
-    const inicioAnterior = periodoAnterior?.inicio ? new Date(`${periodoAnterior.inicio}T00:00:00.000Z`) : null
-    const fimAnterior = periodoAnterior?.fim ? new Date(`${periodoAnterior.fim}T23:59:59.999Z`) : null
+    const inicioAnterior = periodoAnterior?.inicio ? dataDashboardUtcInicio(periodoAnterior.inicio) : null
+    const fimAnterior = periodoAnterior?.fim ? new Date(dataDashboardUtcInicio(periodoAnterior.fim).getTime() + 86400000 - 1) : null
 
     // Destaques (Fase 3) só tem custo extra pra campanhas destaque_elemento —
     // as outras 3 queries (itensDestaque/totaisPorItem/unicosPorItem) nem
@@ -374,7 +389,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       : null
     const serie_diaria = await seriePeriodo(id, inicio, fim, periodo)
     const serie_diaria_anterior = periodoAnterior
-      ? await seriePeriodo(id, inicioAnterior, fimAnterior, periodoAnterior)
+      ? await seriePeriodo(id, inicioAnterior, fimAnterior, periodoAnterior, false)
       : []
 
     const distribuicao: Record<string, number> = {}
