@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { montarDesempenhoDestaques, whereFeedbackNps, whereUtilidadeDestaque } from './dashboard'
+import { montarDesempenhoDestaques, normalizarAtividadeDiaSemana, normalizarSerieImpressao, whereFeedbackNps, whereUtilidadeDestaque } from './dashboard'
 
 // buscarDashboard() em si é integration-only (várias queries Prisma
 // combinadas com Promise.all) — testado manualmente contra um servidor
@@ -238,5 +238,20 @@ describe('whereUtilidadeDestaque', () => {
     const filtroNps = whereFeedbackNps('camp-1')
     const filtroUtil = whereUtilidadeDestaque('camp-1')
     assert.notEqual(filtroNps.tipo_avaliacao, filtroUtil.tipo_avaliacao)
+  })
+})
+
+describe('agregados visuais do dashboard', () => {
+  test('normaliza contagens do Prisma e datas do gráfico sem perder valores grandes', () => {
+    assert.deepEqual(normalizarSerieImpressao([
+      { data: new Date('2026-08-18T03:00:00.000Z'), visualizacoes: BigInt(900) },
+    ]), [{ data: '2026-08-18', visualizacoes: 900 }])
+  })
+
+  test('normaliza dia da semana preservando o valor agregado', () => {
+    assert.deepEqual(normalizarAtividadeDiaSemana([
+      { dia: '2', visualizacoes: BigInt(194) },
+      { dia: 5, visualizacoes: 3 },
+    ]), [{ dia: 2, visualizacoes: 194 }, { dia: 5, visualizacoes: 3 }])
   })
 })

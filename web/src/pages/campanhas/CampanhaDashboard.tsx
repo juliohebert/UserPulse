@@ -579,6 +579,24 @@ export function CampanhaDashboard() {
   const pctDetr    = totalNps > 0 ? Math.round((detratores / totalNps) * 100) : 0
   const npsScore   = pctProm - pctDetr
 
+  const serieImpressao = data?.serie_impressao ?? []
+  const maxImpressao = Math.max(1, ...serieImpressao.map(p => p.visualizacoes))
+  const pontosImpressao = serieImpressao.map((p, i) => {
+    const x = serieImpressao.length > 1 ? (i / (serieImpressao.length - 1)) * 100 : 50
+    const y = 96 - (p.visualizacoes / maxImpressao) * 88
+    return `${x},${y}`
+  }).join(' ')
+  const atividadeSemana = data?.atividade_semana ?? []
+  const maiorDia = atividadeSemana.reduce<{ dia: number; visualizacoes: number } | null>(
+    (maior, atual) => !maior || atual.visualizacoes > maior.visualizacoes ? atual : maior, null,
+  )
+  const nomesDias = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+  const totalAtividade = atividadeSemana.reduce((s, d) => s + d.visualizacoes, 0)
+  const quotes = feedbacksPeriodo.filter(f => f.observacao?.trim()).filter((f, i, lista) => {
+    const perfil = npsLabel(f.nota)
+    return (perfil === 'Promotor' || perfil === 'Detrator') && lista.findIndex(x => npsLabel(x.nota) === perfil && x.observacao?.trim()) === i
+  })
+
   // % de visualizações que resultaram em resposta — usado no funil (Visualizações → Respostas)
   const taxaRespostaPorVisualizacao = kpiVisualizacoes > 0
     ? Math.round((kpiTotal / kpiVisualizacoes) * 1000) / 10
@@ -707,6 +725,27 @@ export function CampanhaDashboard() {
               </button>
             )}
           </div>
+
+          {/* Dados agregados no servidor — a tabela recente não é usada para
+              desenhar tendências ou identificar dias mais ativos. */}
+          {blocos.funilEngajamento && (
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.75fr)] gap-4 mb-6">
+              <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-3 mb-4"><div><h3 className="text-title-md font-bold text-on-surface">Impressões da campanha</h3><p className="text-label-md text-outline mt-1">Evolução diária de visualizações</p></div><span className="text-label-md text-outline">{serieImpressao.length} dias</span></div>
+                {serieImpressao.length === 0 ? <EmptySection icon="show_chart" title="Sem impressões ainda" message="O gráfico aparecerá quando a campanha for visualizada." /> : <>
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-52 rounded-xl bg-surface-container-low p-2" role="img" aria-label="Gráfico de impressões"><polyline points={pontosImpressao} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className="text-primary" /></svg>
+                  <div className="flex justify-between text-[11px] text-outline mt-2"><span>{serieImpressao[0]?.data}</span><span>Pico: {maxImpressao.toLocaleString('pt-BR')}</span><span>{serieImpressao.length > 0 ? serieImpressao[serieImpressao.length - 1].data : ''}</span></div>
+                </>}
+              </div>
+              <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-4 sm:p-5">
+                <h3 className="text-title-md font-bold text-on-surface">Dias mais ativos</h3><p className="text-label-md text-outline mt-1 mb-5">Visualizações por dia da semana</p>
+                {atividadeSemana.length === 0 ? <EmptySection icon="bar_chart" title="Sem dados de atividade" message="Os dias mais ativos aparecerão com as primeiras visualizações." /> : <>
+                  <div className="flex items-end justify-between gap-1 h-36">{nomesDias.map((nome, dia) => { const valor = atividadeSemana.find(x => x.dia === dia)?.visualizacoes ?? 0; const altura = Math.max(valor ? 8 : 0, Math.round((valor / Math.max(1, ...atividadeSemana.map(x => x.visualizacoes))) * 100)); return <div key={nome} className="flex-1 h-full flex flex-col items-center justify-end gap-1"><span className="text-[10px] text-outline">{valor || ''}</span><div className={`w-full max-w-8 rounded-t ${maiorDia?.dia === dia ? 'bg-primary' : 'bg-primary/25'}`} style={{ height: `${altura}%` }} /><span className="text-[11px] text-outline">{nome}</span></div> })}</div>
+                  {maiorDia && <p className="text-label-md text-outline mt-4">Maior movimento: <strong className="text-on-surface">{nomesDias[maiorDia.dia]}</strong> ({maiorDia.visualizacoes.toLocaleString('pt-BR')} visualizações, {totalAtividade ? Math.round(maiorDia.visualizacoes / totalAtividade * 100) : 0}% do total).</p>}
+                </>}
+              </div>
+            </div>
+          )}
 
           {/* ── Cards de métricas principais ──────────────────────────────── */}
           {/* destaque_elemento é contextual: feedback geral (Respostas/Nota
@@ -909,6 +948,14 @@ export function CampanhaDashboard() {
                   })}
                 </div>
               </div>
+            </div>
+          )}
+
+          {blocos.resumoNps && kpiTotal > 0 && (
+            <div className="w-full bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm mb-6">
+              <h4 className="text-title-md font-bold text-on-surface">Leitura do NPS</h4>
+              <p className="text-label-md text-outline mt-1 mb-4">Sinais qualitativos das respostas reais</p>
+              {quotes.length === 0 ? <p className="text-body-sm text-outline">Ainda não há comentários de promotores ou detratores.</p> : <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{quotes.map(f => <div key={f.id} className="rounded-xl bg-surface-container-low p-4"><span className={`text-[11px] font-bold uppercase ${npsLabel(f.nota) === 'Promotor' ? 'text-tertiary' : 'text-error'}`}>{npsLabel(f.nota)} · nota {f.nota}</span><p className="text-body-sm text-on-surface mt-2">“{f.observacao?.trim()}”</p></div>)}</div>}
             </div>
           )}
 

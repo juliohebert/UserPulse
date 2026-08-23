@@ -140,6 +140,26 @@ export function whereUtilidadeDestaque(campanhaId: string): { campanha_id: strin
   return { campanha_id: campanhaId, tipo_avaliacao: 'utilidade_destaque' }
 }
 
+export interface SerieImpressao {
+  data: string
+  visualizacoes: number
+}
+
+export interface AtividadeDiaSemana {
+  dia: number
+  visualizacoes: number
+}
+
+// O gráfico e os dias ativos usam o universo completo da campanha, não a
+// janela de eventos recentes carregada para a tabela.
+export function normalizarSerieImpressao(rows: Array<{ data: Date | string; visualizacoes: bigint | number }>): SerieImpressao[] {
+  return rows.map(row => ({ data: new Date(row.data).toISOString().slice(0, 10), visualizacoes: Number(row.visualizacoes) }))
+}
+
+export function normalizarAtividadeDiaSemana(rows: Array<{ dia: number | string; visualizacoes: bigint | number }>): AtividadeDiaSemana[] {
+  return rows.map(row => ({ dia: Number(row.dia), visualizacoes: Number(row.visualizacoes) }))
+}
+
 export async function buscarDashboard(req: Request, res: Response) {
   try {
     const id = req.params.id as string
@@ -161,6 +181,8 @@ export async function buscarDashboard(req: Request, res: Response) {
       respondentesUnicosArr,
       itensDestaque, totaisPorItem, unicosPorItem, utilidadePorItem,
       avaliacoes_destaques,
+      serie_impressao,
+      atividade_semana,
     ] = await Promise.all([
       prisma.feedback.aggregate({
         where: whereFeedbackNps(id),
@@ -257,6 +279,20 @@ export async function buscarDashboard(req: Request, res: Response) {
             take: 100,
           })
         : Promise.resolve([]),
+      prisma.$queryRaw<Array<{ data: Date; visualizacoes: bigint }>>`
+        SELECT DATE_TRUNC('day', criado_em) AS data, COUNT(*)::bigint AS visualizacoes
+        FROM "EventoCampanha"
+        WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
+        GROUP BY DATE_TRUNC('day', criado_em)
+        ORDER BY data ASC
+      `,
+      prisma.$queryRaw<Array<{ dia: number; visualizacoes: bigint }>>`
+        SELECT EXTRACT(DOW FROM criado_em)::int AS dia, COUNT(*)::bigint AS visualizacoes
+        FROM "EventoCampanha"
+        WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
+        GROUP BY EXTRACT(DOW FROM criado_em)
+        ORDER BY dia ASC
+      `,
     ])
 
     const distribuicao: Record<string, number> = {}
@@ -299,6 +335,8 @@ export async function buscarDashboard(req: Request, res: Response) {
       desempenho_destaques,
       // Só não-vazio pra campanhas destaque_elemento — ver ehDestaqueElemento.
       avaliacoes_destaques: ehDestaqueElemento ? avaliacoes_destaques : [],
+      serie_impressao: normalizarSerieImpressao(serie_impressao),
+      atividade_semana: normalizarAtividadeDiaSemana(atividade_semana),
     })
   } catch (err) {
     console.error(err)

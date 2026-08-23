@@ -180,6 +180,8 @@ export interface DashboardData {
   desempenho_destaques: DesempenhoDestaqueItem[]
   // Idem — só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   avaliacoes_destaques: AvaliacaoDestaqueItem[]
+  serie_impressao: Array<{ data: string; visualizacoes: number }>
+  atividade_semana: Array<{ dia: number; visualizacoes: number }>
 }
 
 export interface TelaCatalogo {
