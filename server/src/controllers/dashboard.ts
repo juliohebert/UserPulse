@@ -74,8 +74,7 @@ async function seriePeriodo(campanhaId: string, inicio: Date | null, fim: Date |
     const limites = await prisma.$queryRaw<Array<{ inicio: Date | null; fim: Date | null }>>(Prisma.sql`
       SELECT MIN(criado_em) AS inicio, MAX(criado_em) AS fim FROM (
         SELECT criado_em FROM eventos_campanha WHERE campanha_id = ${campanhaId}
-        UNION ALL SELECT criado_em FROM feedbacks WHERE campanha_id = ${campanhaId}
-        UNION ALL SELECT criado_em FROM confirmacoes_leitura WHERE campanha_id = ${campanhaId}
+        UNION ALL SELECT criado_em FROM feedbacks WHERE campanha_id = ${campanhaId} AND tipo_avaliacao = 'nps'
       ) atividade
     `)
     if (!limites[0]?.inicio || !limites[0]?.fim) return []
@@ -374,6 +373,9 @@ export async function buscarDashboard(req: Request, res: Response) {
       ? await resumoPeriodo(id, inicioAnterior, fimAnterior)
       : null
     const serie_diaria = await seriePeriodo(id, inicio, fim, periodo)
+    const serie_diaria_anterior = periodoAnterior
+      ? await seriePeriodo(id, inicioAnterior, fimAnterior, periodoAnterior)
+      : []
 
     const distribuicao: Record<string, number> = {}
     for (let i = 0; i <= 10; i++) distribuicao[String(i)] = 0
@@ -402,6 +404,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       periodo,
       comparacao,
       serie_diaria,
+      serie_diaria_anterior,
       media,
       total: agregado._count?.id ?? 0,
       distribuicao,
