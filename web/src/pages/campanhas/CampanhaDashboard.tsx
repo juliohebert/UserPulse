@@ -140,6 +140,11 @@ function periodoRange(p: Periodo): { inicio: Date | null; fim: Date | null } {
   }
 }
 
+function dataQuery(date: Date | null): string | null {
+  if (!date) return null
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
 function npsZona(score: number): { nome: string; bg: string; text: string; border: string } {
   if (score >= 91) return { nome: 'Zona de Encantamento',      bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200'    }
   if (score >= 76) return { nome: 'Zona de Excelência',        bg: 'bg-green-50',   text: 'text-green-700',   border: 'border-green-200'   }
@@ -203,6 +208,50 @@ function getCellValue(f: Feedback, colId: string): string {
 
 // ─── component ────────────────────────────────────────────────────────────────
 
+function DailyImpressionsChart({ serie, serieAnterior, mostrarComparacao }: {
+  serie: DashboardData['serie_diaria']
+  serieAnterior: DashboardData['serie_diaria_anterior']
+  mostrarComparacao: boolean
+}) {
+  if (serie.length === 0) {
+    return <div className="h-48 flex items-center justify-center text-label-md text-outline">Sem visualizações no período selecionado.</div>
+  }
+  const largura = 720
+  const altura = 220
+  const margem = 28
+  const max = Math.max(...serie.map(item => item.visualizacoes), ...(mostrarComparacao ? serieAnterior.map(item => item.visualizacoes) : []), 1)
+  const pontos = serie.map((item, index) => {
+    const x = margem + (index / Math.max(serie.length - 1, 1)) * (largura - margem * 2)
+    const y = altura - margem - (item.visualizacoes / max) * (altura - margem * 2)
+    return `${x},${y}`
+  }).join(' ')
+  const pontosAnteriores = mostrarComparacao && serieAnterior.length === serie.length
+    ? serieAnterior.map((item, index) => {
+        const x = margem + (index / Math.max(serie.length - 1, 1)) * (largura - margem * 2)
+        const y = altura - margem - (item.visualizacoes / max) * (altura - margem * 2)
+        return `${x},${y}`
+      }).join(' ')
+    : null
+  return (
+    <div role="img" aria-label="Impressões da campanha por dia" className="w-full overflow-hidden">
+      <svg viewBox={`0 0 ${largura} ${altura}`} className="w-full h-48" preserveAspectRatio="none">
+        <line x1={margem} y1={altura - margem} x2={largura - margem} y2={altura - margem} stroke="currentColor" className="text-outline-variant" />
+        {pontosAnteriores && <polyline points={pontosAnteriores} fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="6 4" className="text-outline" strokeLinecap="round" strokeLinejoin="round" />}
+        <polyline points={pontos} fill="none" stroke="currentColor" strokeWidth="3" className="text-primary" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <div className="flex justify-between text-[11px] text-outline px-1">
+        <span>{serie[0].data}</span><span>{serie[serie.length - 1].data}</span>
+      </div>
+    </div>
+  )
+}
+
+function variacaoComparacao(atual: number, anterior: number): string | null {
+  if (anterior === 0) return null
+  const percentual = ((atual - anterior) / anterior) * 100
+  return `${percentual >= 0 ? '+' : ''}${percentual.toFixed(1)}% vs. período anterior`
+}
+
 export function CampanhaDashboard() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -242,13 +291,19 @@ export function CampanhaDashboard() {
   const load = () => {
     setLoading(true)
     setError(null)
-    get<DashboardData>(`/dashboard/campanhas/${id}`)
+    const range = periodoRange(periodo)
+    const params = new URLSearchParams()
+    const inicio = dataQuery(range.inicio)
+    const fim = dataQuery(range.fim)
+    if (inicio) params.set('data_inicio', inicio)
+    if (fim) params.set('data_fim', fim)
+    get<DashboardData>(`/dashboard/campanhas/${id}${params.size ? `?${params}` : ''}`)
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [id])
+  useEffect(() => { load() }, [id, periodo])
 
   useEffect(() => {
     if (!showColMenu) return
@@ -470,31 +525,15 @@ export function CampanhaDashboard() {
   const temFiltroAvaliacao = filtroDestaqueAvaliacao !== '' || filtroUtilAvaliacao !== 'Todos' || buscaAvaliacao !== ''
 
   // ── KPI metrics — período-aware ──────────────────────────────────────────
-  const kpiVisualizacoes = periodoAtivo
-    ? eventosPeriodo.filter(e => e.tipo_evento === 'visualizacao').length
-    : (data?.visualizacoes ?? 0)
-  const kpiVisualizacoesUnicas = periodoAtivo
-    ? new Set(eventosPeriodo.filter(e => e.tipo_evento === 'visualizacao' && e.usuario_id).map(e => e.usuario_id)).size
-    : (data?.visualizacoes_unicas ?? 0)
-  const kpiCliques = periodoAtivo
-    ? eventosPeriodo.filter(e => e.tipo_evento === 'clique_cta').length
-    : (data?.cliques_cta ?? 0)
-  const kpiCliquesUnicos = periodoAtivo
-    ? new Set(eventosPeriodo.filter(e => e.tipo_evento === 'clique_cta' && e.usuario_id).map(e => e.usuario_id)).size
-    : (data?.cliques_unicos ?? 0)
-  const kpiTotal = periodoAtivo ? feedbacksPeriodo.length : (data?.total ?? 0)
-  const kpiMedia: number | null = periodoAtivo
-    ? (feedbacksPeriodo.length > 0 ? feedbacksPeriodo.reduce((s, f) => s + f.nota, 0) / feedbacksPeriodo.length : null)
-    : (data?.media ?? null)
-  const kpiDistribuicao: Record<string, number> = periodoAtivo
-    ? feedbacksPeriodo.reduce<Record<string, number>>((acc, f) => {
-        const k = String(f.nota); acc[k] = (acc[k] ?? 0) + 1; return acc
-      }, {})
-    : (data?.distribuicao ?? {})
+  const kpiVisualizacoes = data?.visualizacoes ?? 0
+  const kpiVisualizacoesUnicas = data?.visualizacoes_unicas ?? 0
+  const kpiCliques = data?.cliques_cta ?? 0
+  const kpiCliquesUnicos = data?.cliques_unicos ?? 0
+  const kpiTotal = data?.total ?? 0
+  const kpiMedia: number | null = data?.media ?? null
+  const kpiDistribuicao: Record<string, number> = data?.distribuicao ?? {}
   const kpiTaxaClique = kpiVisualizacoes > 0 ? Math.round((kpiCliques / kpiVisualizacoes) * 1000) / 10 : 0
-  const kpiRespondentesUnicos = periodoAtivo
-    ? new Set(feedbacksPeriodo.filter(f => f.usuario_id).map(f => f.usuario_id)).size
-    : (data?.respondentes_unicos ?? 0)
+  const kpiRespondentesUnicos = data?.respondentes_unicos ?? 0
   // total real de interações no período (visualizações + cliques, contagens completas do backend)
   const totalEventosPeriodo = kpiVisualizacoes + kpiCliques
 
@@ -505,20 +544,13 @@ export function CampanhaDashboard() {
   // filtra a lista já carregada; sem período, usa os totais exatos que já
   // vêm prontos em desempenho_destaques (nunca capados em 100 como
   // eventos_recentes).
-  const kpiInteracoes = periodoAtivo
-    ? eventosPeriodo.filter(e => e.tipo_evento === 'interacao_badge').length
-    : desempenhoDestaques.reduce((s, i) => s + i.interacoes, 0)
+  const kpiInteracoes = desempenhoDestaques.reduce((s, i) => s + i.interacoes, 0)
   const kpiTaxaInteracao = kpiVisualizacoes > 0 ? Math.round((kpiInteracoes / kpiVisualizacoes) * 1000) / 10 : 0
-  const kpiDispensas = periodoAtivo
-    ? eventosPeriodo.filter(e => e.tipo_evento === 'dispensa').length
-    : desempenhoDestaques.reduce((s, i) => s + i.dispensas, 0)
-  const kpiAvaliacoesTotal = periodoAtivo
-    ? avaliacoesPeriodo.length
-    : desempenhoDestaques.reduce((s, i) => s + i.avaliacoes, 0)
-  const kpiSimTotal = periodoAtivo
-    ? avaliacoesPeriodo.filter(a => a.util === true).length
-    : desempenhoDestaques.reduce((s, i) => s + i.sim, 0)
+  const kpiDispensas = desempenhoDestaques.reduce((s, i) => s + i.dispensas, 0)
+  const kpiAvaliacoesTotal = desempenhoDestaques.reduce((s, i) => s + i.avaliacoes, 0)
+  const kpiSimTotal = desempenhoDestaques.reduce((s, i) => s + i.sim, 0)
   const kpiPercentualUtil = kpiAvaliacoesTotal > 0 ? Math.round((kpiSimTotal / kpiAvaliacoesTotal) * 1000) / 10 : null
+
 
   // Valores dos chips-resumo da seção Interações — QUAIS chips aparecem
   // (e com que rótulo) vem de blocos.indicadoresInteracoes (dashboardBlocos.ts);
@@ -578,6 +610,13 @@ export function CampanhaDashboard() {
   const pctNeut    = totalNps > 0 ? Math.round((neutros    / totalNps) * 100) : 0
   const pctDetr    = totalNps > 0 ? Math.round((detratores / totalNps) * 100) : 0
   const npsScore   = pctProm - pctDetr
+  const comparacao = data?.comparacao
+  const variacaoVisualizacoes = comparacao ? variacaoComparacao(kpiVisualizacoes, comparacao.visualizacoes) : null
+  const variacaoRespostas = comparacao ? variacaoComparacao(kpiTotal, comparacao.respostas) : null
+  const variacaoCliques = comparacao ? variacaoComparacao(kpiCliques, comparacao.cliques_cta) : null
+  const variacaoNps = comparacao?.nps !== null && comparacao?.nps !== undefined
+    ? `${npsScore >= comparacao.nps ? '+' : ''}${npsScore - comparacao.nps} pts vs. período anterior`
+    : null
 
   // % de visualizações que resultaram em resposta — usado no funil (Visualizações → Respostas)
   const taxaRespostaPorVisualizacao = kpiVisualizacoes > 0
@@ -722,6 +761,7 @@ export function CampanhaDashboard() {
                 label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
                 sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
                 subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram os destaques no período selecionado."
+                subExtra={variacaoVisualizacoes && <span className="text-[11px] text-outline">{variacaoVisualizacoes}</span>}
               />
               <KpiCard
                 icon="touch_app" iconColor="text-secondary" iconBg="bg-secondary/10"
@@ -734,6 +774,7 @@ export function CampanhaDashboard() {
                 label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
                 sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
                 subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais dos destaques (não por usuários únicos). O cálculo respeita o período selecionado."
+                subExtra={variacaoCliques && <span className="text-[11px] text-outline">{variacaoCliques}</span>}
               />
               <KpiCard
                 icon="thumbs_up_down" iconColor="text-primary" iconBg="bg-primary/10"
@@ -749,6 +790,7 @@ export function CampanhaDashboard() {
                 label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
                 sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
                 subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram a campanha no período selecionado."
+                subExtra={variacaoVisualizacoes && <span className="text-[11px] text-outline">{variacaoVisualizacoes}</span>}
               />
               <KpiCard
                 icon="forum" iconColor="text-secondary" iconBg="bg-secondary/10"
@@ -765,12 +807,14 @@ export function CampanhaDashboard() {
                     ? "Taxa de resposta = usuários que responderam ÷ usuários únicos que visualizaram a campanha. O cálculo respeita o período selecionado."
                     : "Média de respostas por usuário único que visualizou a campanha (sem usuários respondentes identificados para calcular uma taxa). O cálculo respeita o período selecionado."
                 }
+                subExtra={variacaoRespostas && <span className="text-[11px] text-outline">{variacaoRespostas}</span>}
               />
               <KpiCard
                 icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
                 label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
                 sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
                 subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais da campanha (não por usuários únicos). O cálculo respeita o período selecionado."
+                subExtra={variacaoCliques && <span className="text-[11px] text-outline">{variacaoCliques}</span>}
               />
               {kpiTotal > 0 ? (() => {
                 const zona = npsZona(npsScore)
@@ -783,6 +827,7 @@ export function CampanhaDashboard() {
                     subTooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
                     subExtra={
                       <div className="flex flex-col gap-1">
+                        {variacaoNps && <span className="text-[11px] text-outline">{variacaoNps}</span>}
                         <span className={`inline-flex w-fit text-[11px] font-semibold px-2 py-0.5 rounded-full border ${zona.bg} ${zona.text} ${zona.border}`}>
                           {zona.nome}
                         </span>
@@ -803,6 +848,18 @@ export function CampanhaDashboard() {
               )}
             </div>
           )}
+
+          <section className="w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm mb-6 p-4 sm:p-5" aria-labelledby="impressoes-campanha">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 id="impressoes-campanha" className="text-label-md font-bold text-on-surface-variant">Impressões da campanha</h3>
+              <span className="text-label-md text-outline">{data?.periodo.inicio && data.periodo.fim ? `${data.periodo.inicio} a ${data.periodo.fim}` : 'Todo período'}</span>
+            </div>
+            <DailyImpressionsChart
+              serie={data?.serie_diaria ?? []}
+              serieAnterior={data?.serie_diaria_anterior ?? []}
+              mostrarComparacao={Boolean(data?.comparacao) && (data?.serie_diaria_anterior.length ?? 0) === (data?.serie_diaria.length ?? 0)}
+            />
+          </section>
 
           {/* ── Funil de engajamento (feedback geral — não se aplica a
               destaque_elemento, que não tem "Respostas" pra funilar) ──────── */}
