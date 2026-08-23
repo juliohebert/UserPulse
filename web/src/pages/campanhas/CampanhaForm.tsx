@@ -346,7 +346,7 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
   onSelecionarTela: (telaId: string) => void
   // Ambos opcionais (Fase 5) — undefined quando o usuário não tem
   // CONFIGURACOES.GERENCIAR, escondendo os atalhos de criação inline (ver
-  // Campanhas2Index). Selecionar uma tela/sistema já existente continua
+  // CampanhaFormIndex). Selecionar uma tela/sistema já existente continua
   // sempre disponível, independente disso.
   onAdicionarTela?: (busca?: string) => void
   onGerenciarSistemas?: () => void
@@ -1775,7 +1775,7 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
   )
 }
 
-export function Campanhas2Index() {
+export function CampanhaFormIndex() {
   const navigate = useNavigate()
   const location = useLocation()
   const { id } = useParams<{ id: string }>()

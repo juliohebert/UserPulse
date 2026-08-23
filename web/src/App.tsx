@@ -13,7 +13,7 @@ import { TrocarSenhaPage } from './pages/TrocarSenha'
 import { MinhaContaPage } from './pages/MinhaConta'
 import { Dashboard } from './pages/Dashboard'
 import { CampanhasIndex } from './pages/campanhas/Index'
-import { Campanhas2Index } from './pages/campanhas2/Index'
+import { CampanhaFormIndex } from './pages/campanhas/CampanhaForm'
 import { CampanhaDashboard } from './pages/campanhas/CampanhaDashboard'
 import { CampanhaPreview } from './pages/campanhas/Preview'
 import { CatalogoTelasIndex } from './pages/catalogo/Index'
@@ -79,10 +79,8 @@ export default function App() {
               <Route path="campanhas/:id/preview" element={<CampanhaPreview />} />
             </Route>
             <Route element={<RequireAcessoModulo modulo="CAMPANHAS" nivel="GERENCIAR" />}>
-              <Route path="campanhas-2" element={<Navigate to="/campanhas/nova" replace />} />
-              <Route path="campanhas/nova" element={<Campanhas2Index />} />
-              <Route path="campanhas/:id/editar" element={<Campanhas2Index />} />
-              <Route path="campanhas2/:id/editar" element={<Campanhas2Index />} />
+              <Route path="campanhas/nova" element={<CampanhaFormIndex />} />
+              <Route path="campanhas/:id/editar" element={<CampanhaFormIndex />} />
             </Route>
 
             {/* tours/guia fica dentro do VISUALIZAR (é só documentação de
