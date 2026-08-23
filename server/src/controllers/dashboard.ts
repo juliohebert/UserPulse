@@ -405,7 +405,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento ? prisma.feedback.count({ where: avaliacaoWhere }) : Promise.resolve(0),
       prisma.$queryRaw<Array<{ data: string; visualizacoes: bigint }>>`
         SELECT TO_CHAR(DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS data, COUNT(*)::bigint AS visualizacoes
-        FROM "EventoCampanha"
+        FROM eventos_campanha
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
           ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
           ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
@@ -414,7 +414,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       `,
       prisma.$queryRaw<Array<{ dia: number; visualizacoes: bigint }>>`
         SELECT EXTRACT(DOW FROM criado_em AT TIME ZONE 'America/Sao_Paulo')::int AS dia, COUNT(*)::bigint AS visualizacoes
-        FROM "EventoCampanha"
+        FROM eventos_campanha
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
           ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
           ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
