@@ -206,6 +206,7 @@ export interface DashboardData {
   eventos_page: number
   eventos_per_page: number
   serie_impressao: Array<{ data: string; visualizacoes: number }>
+  serie_impressao_anterior: Array<{ data: string; visualizacoes: number }>
   atividade_semana: Array<{ dia: number; visualizacoes: number }>
 }
 
