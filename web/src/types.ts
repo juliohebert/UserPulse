@@ -180,6 +180,14 @@ export interface DashboardData {
   desempenho_destaques: DesempenhoDestaqueItem[]
   // Idem — só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   avaliacoes_destaques: AvaliacaoDestaqueItem[]
+  avaliacoes_total: number
+  avaliacoes_page: number
+  avaliacoes_per_page: number
+  respostas_page: number
+  respostas_per_page: number
+  eventos_total: number
+  eventos_page: number
+  eventos_per_page: number
   serie_impressao: Array<{ data: string; visualizacoes: number }>
   atividade_semana: Array<{ dia: number; visualizacoes: number }>
 }

@@ -249,9 +249,11 @@ describe('agregados visuais do dashboard', () => {
   })
 
   test('normaliza dia da semana preservando o valor agregado', () => {
-    assert.deepEqual(normalizarAtividadeDiaSemana([
+    const r = normalizarAtividadeDiaSemana([
       { dia: '2', visualizacoes: BigInt(194) },
       { dia: 5, visualizacoes: 3 },
-    ]), [{ dia: 2, visualizacoes: 194 }, { dia: 5, visualizacoes: 3 }])
+    ])
+    assert.equal(r.length, 7)
+    assert.deepEqual(r.slice(0, 2), [{ dia: 2, visualizacoes: 194 }, { dia: 5, visualizacoes: 3 }])
   })
 })

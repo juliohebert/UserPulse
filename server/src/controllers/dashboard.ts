@@ -1,4 +1,5 @@
 import { Request, Response } from 'express'
+import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { FORMATO_DESTAQUE_ELEMENTO } from './campanhas'
 
@@ -157,7 +158,75 @@ export function normalizarSerieImpressao(rows: Array<{ data: Date | string; visu
 }
 
 export function normalizarAtividadeDiaSemana(rows: Array<{ dia: number | string; visualizacoes: bigint | number }>): AtividadeDiaSemana[] {
-  return rows.map(row => ({ dia: Number(row.dia), visualizacoes: Number(row.visualizacoes) }))
+  const porDia = new Map(rows.map(row => [Number(row.dia), Number(row.visualizacoes)]))
+  return Array.from({ length: 7 }, (_, dia) => ({ dia, visualizacoes: porDia.get(dia) ?? 0 }))
+    .sort((a, b) => b.visualizacoes - a.visualizacoes || a.dia - b.dia)
+}
+
+function pagina(query: Record<string, unknown>, padrao: number) {
+  const page = Math.max(1, Math.trunc(Number(query.page)) || 1)
+  const perPage = Math.min(100, Math.max(1, Math.trunc(Number(query.per_page)) || padrao))
+  return { page, perPage }
+}
+
+function dataQuery(value: unknown, fimDoDia = false): Date | undefined {
+  if (typeof value !== 'string' || !value) return undefined
+  const date = new Date(value.length === 10 ? `${value}T${fimDoDia ? '23:59:59.999' : '00:00:00.000'}Z` : value)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function intervalo(query: Request['query']) {
+  const inicio = dataQuery(query.data_inicio)
+  const fim = dataQuery(query.data_fim, true)
+  return { ...(inicio ? { gte: inicio } : {}), ...(fim ? { lte: fim } : {}) }
+}
+
+function filtrosFeedback(query: Request['query'], campanhaId: string): Prisma.FeedbackWhereInput {
+  const where: Prisma.FeedbackWhereInput = { ...whereFeedbackNps(campanhaId), criado_em: intervalo(query) }
+  const nota = Number(query.nota)
+  if (Number.isInteger(nota) && nota >= 0 && nota <= 10) where.nota = nota
+  if (query.nps === 'Promotor') where.nota = { gte: 9 }
+  if (query.nps === 'Neutro') where.nota = { gte: 7, lte: 8 }
+  if (query.nps === 'Detrator') where.nota = { lte: 6 }
+  if (query.tem_telefone === 'sim') where.telefone_contato = { not: null }
+  if (query.tem_telefone === 'nao') where.telefone_contato = null
+  const contexto: Prisma.FeedbackWhereInput[] = []
+  for (const [key, value] of [['cliente_nome', query.cliente_nome], ['unidade_nome', query.unidade_nome], ['usuario_tipo', query.usuario_tipo], ['Estado', query.estado]] as Array<[string, unknown]>) {
+    if (typeof value === 'string' && value) contexto.push({ contexto: { path: [key], string_contains: value } })
+  }
+  if (typeof query.busca === 'string' && query.busca.trim()) {
+    const termo = query.busca.trim()
+    where.OR = [
+      { usuario_id: { contains: termo, mode: 'insensitive' } },
+      { usuario_nome: { contains: termo, mode: 'insensitive' } },
+      { usuario_email: { contains: termo, mode: 'insensitive' } },
+      { observacao: { contains: termo, mode: 'insensitive' } },
+      { contexto: { path: ['usuario_nome'], string_contains: termo } },
+      { contexto: { path: ['usuario_email'], string_contains: termo } },
+      { contexto: { path: ['cliente_nome'], string_contains: termo } },
+      { contexto: { path: ['unidade_nome'], string_contains: termo } },
+    ]
+  }
+  return contexto.length ? { AND: [where, ...contexto] } : where
+}
+
+function filtrosEventos(query: Request['query'], campanhaId: string): Prisma.EventoCampanhaWhereInput {
+  const where: Prisma.EventoCampanhaWhereInput = { campanha_id: campanhaId, criado_em: intervalo(query) }
+  const tipos: Record<string, string> = { Visualização: 'visualizacao', Clique: 'clique_cta', Interação: 'interacao_badge', Dispensa: 'dispensa' }
+  if (typeof query.tipo === 'string' && tipos[query.tipo]) where.tipo_evento = tipos[query.tipo]
+  if (typeof query.destaque_id === 'string' && query.destaque_id) where.destaque_item_id = query.destaque_id
+  if (typeof query.busca_evento === 'string' && query.busca_evento.trim()) {
+    const termo = query.busca_evento.trim()
+    where.OR = [
+      { usuario_id: { contains: termo, mode: 'insensitive' } },
+      { tipo_evento: { contains: termo, mode: 'insensitive' } },
+      { contexto: { path: ['usuario_nome'], string_contains: termo } },
+      { contexto: { path: ['usuario_email'], string_contains: termo } },
+      { contexto: { path: ['cliente_nome'], string_contains: termo } },
+      { contexto: { path: ['unidade_nome'], string_contains: termo } },
+    ]
+  }
+  return where
 }
 
 export async function buscarDashboard(req: Request, res: Response) {
@@ -173,44 +242,70 @@ export async function buscarDashboard(req: Request, res: Response) {
     // as outras 3 queries (itensDestaque/totaisPorItem/unicosPorItem) nem
     // entram no Promise.all quando o formato não é esse.
     const ehDestaqueElemento = campanha.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
+    const range = intervalo(req.query)
+    const feedbackWhere = filtrosFeedback(req.query, id)
+    const eventosWhere = filtrosEventos(req.query, id)
+    const respPag = pagina({ page: req.query.res_page, per_page: req.query.res_per_page }, 10)
+    const interPag = pagina({ page: req.query.event_page, per_page: req.query.event_per_page }, 10)
+    const avalPag = pagina({ page: req.query.avaliacao_page, per_page: req.query.avaliacao_per_page }, 10)
+    const eventosPeriodoWhere = { campanha_id: id, criado_em: range }
+    const avaliacaoWhere: Prisma.FeedbackWhereInput = { ...whereUtilidadeDestaque(id), criado_em: range }
+    if (typeof req.query.avaliacao_destaque_id === 'string' && req.query.avaliacao_destaque_id) avaliacaoWhere.destaque_item_id = req.query.avaliacao_destaque_id
+    if (req.query.avaliacao_util === 'sim') avaliacaoWhere.util = true
+    if (req.query.avaliacao_util === 'nao') avaliacaoWhere.util = false
+    if (typeof req.query.busca_avaliacao === 'string' && req.query.busca_avaliacao.trim()) {
+      const termo = req.query.busca_avaliacao.trim()
+      avaliacaoWhere.OR = [
+        { usuario_id: { contains: termo, mode: 'insensitive' } },
+        { usuario_nome: { contains: termo, mode: 'insensitive' } },
+        { usuario_email: { contains: termo, mode: 'insensitive' } },
+        { observacao: { contains: termo, mode: 'insensitive' } },
+        { contexto: { path: ['usuario_nome'], string_contains: termo } },
+        { contexto: { path: ['usuario_email'], string_contains: termo } },
+      ]
+    }
 
     const [
-      agregado, porNota, feedbacks_recentes,
+      agregado, porNota, feedbacks_recentes, feedbacks_total,
       visualizacoes, cliques_cta, total_confirmacoes,
-      eventos_recentes, visualizacoesUnicasArr, cliquesUnicosArr,
+      eventos_recentes, eventos_total, visualizacoesUnicasArr, cliquesUnicosArr,
       respondentesUnicosArr,
       itensDestaque, totaisPorItem, unicosPorItem, utilidadePorItem,
-      avaliacoes_destaques,
+      avaliacoes_destaques, avaliacoes_total,
       serie_impressao,
       atividade_semana,
     ] = await Promise.all([
       prisma.feedback.aggregate({
-        where: whereFeedbackNps(id),
+        where: feedbackWhere,
         _avg: { nota: true },
         _count: { id: true },
       }),
 
       prisma.feedback.groupBy({
         by: ['nota'],
-        where: whereFeedbackNps(id),
+        where: feedbackWhere,
         _count: { nota: true },
       }),
 
       prisma.feedback.findMany({
-        where: whereFeedbackNps(id),
+        where: feedbackWhere,
         orderBy: { criado_em: 'desc' },
-        take: 20,
+        skip: (respPag.page - 1) * respPag.perPage,
+        take: respPag.perPage,
       }),
+      prisma.feedback.count({ where: feedbackWhere }),
 
-      prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'visualizacao' } }),
-      prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'clique_cta' } }),
-      prisma.confirmacaoLeitura.count({ where: { campanha_id: id } }),
+      prisma.eventoCampanha.count({ where: { ...eventosPeriodoWhere, tipo_evento: 'visualizacao' } }),
+      prisma.eventoCampanha.count({ where: { ...eventosPeriodoWhere, tipo_evento: 'clique_cta' } }),
+      prisma.confirmacaoLeitura.count({ where: { campanha_id: id, criado_em: range } }),
 
       prisma.eventoCampanha.findMany({
-        where: { campanha_id: id },
+        where: eventosWhere,
         orderBy: { criado_em: 'desc' },
-        take: 100,
+        skip: (interPag.page - 1) * interPag.perPage,
+        take: interPag.perPage,
       }),
+      prisma.eventoCampanha.count({ where: eventosWhere }),
       // Únicos NO NÍVEL DA CAMPANHA: agrupa só por usuario_id, sem
       // destaque_item_id — um usuário que interagiu com 2 destaques
       // diferentes da mesma campanha conta 1 vez aqui, nunca 2 (é assim
@@ -218,15 +313,15 @@ export async function buscarDashboard(req: Request, res: Response) {
       // muda esta query, então a deduplicação entre itens já é automática).
       prisma.eventoCampanha.groupBy({
         by: ['usuario_id'],
-        where: { campanha_id: id, tipo_evento: 'visualizacao', usuario_id: { not: null } },
+        where: { ...eventosPeriodoWhere, tipo_evento: 'visualizacao', usuario_id: { not: null } },
       }),
       prisma.eventoCampanha.groupBy({
         by: ['usuario_id'],
-        where: { campanha_id: id, tipo_evento: 'clique_cta', usuario_id: { not: null } },
+        where: { ...eventosPeriodoWhere, tipo_evento: 'clique_cta', usuario_id: { not: null } },
       }),
       prisma.feedback.groupBy({
         by: ['usuario_id'],
-        where: { ...whereFeedbackNps(id), usuario_id: { not: null } },
+        where: { ...feedbackWhere, usuario_id: { not: null } },
       }),
 
       // Sem filtro de ativo, de propósito — "Desempenho dos destaques"
@@ -274,15 +369,19 @@ export async function buscarDashboard(req: Request, res: Response) {
       // aqui, o frontend resolve "Removido" via desempenho_destaques.
       ehDestaqueElemento
         ? prisma.feedback.findMany({
-            where: whereUtilidadeDestaque(id),
+            where: avaliacaoWhere,
             orderBy: { criado_em: 'desc' },
-            take: 100,
+            skip: (avalPag.page - 1) * avalPag.perPage,
+            take: avalPag.perPage,
           })
         : Promise.resolve([]),
+      ehDestaqueElemento ? prisma.feedback.count({ where: avaliacaoWhere }) : Promise.resolve(0),
       prisma.$queryRaw<Array<{ data: Date; visualizacoes: bigint }>>`
         SELECT DATE_TRUNC('day', criado_em) AS data, COUNT(*)::bigint AS visualizacoes
         FROM "EventoCampanha"
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
+          ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
+          ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
         GROUP BY DATE_TRUNC('day', criado_em)
         ORDER BY data ASC
       `,
@@ -290,6 +389,8 @@ export async function buscarDashboard(req: Request, res: Response) {
         SELECT EXTRACT(DOW FROM criado_em)::int AS dia, COUNT(*)::bigint AS visualizacoes
         FROM "EventoCampanha"
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
+          ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
+          ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
         GROUP BY EXTRACT(DOW FROM criado_em)
         ORDER BY dia ASC
       `,
@@ -320,7 +421,7 @@ export async function buscarDashboard(req: Request, res: Response) {
     res.json({
       campanha,
       media,
-      total: agregado._count?.id ?? 0,
+      total: feedbacks_total,
       distribuicao,
       feedbacks_recentes,
       visualizacoes,
@@ -329,12 +430,20 @@ export async function buscarDashboard(req: Request, res: Response) {
       total_confirmacoes,
       percentual_confirmacao,
       eventos_recentes,
+      eventos_total,
+      eventos_page: interPag.page,
+      eventos_per_page: interPag.perPage,
       visualizacoes_unicas,
       cliques_unicos,
       respondentes_unicos,
       desempenho_destaques,
       // Só não-vazio pra campanhas destaque_elemento — ver ehDestaqueElemento.
       avaliacoes_destaques: ehDestaqueElemento ? avaliacoes_destaques : [],
+      avaliacoes_total: ehDestaqueElemento ? avaliacoes_total : 0,
+      avaliacoes_page: avalPag.page,
+      avaliacoes_per_page: avalPag.perPage,
+      respostas_page: respPag.page,
+      respostas_per_page: respPag.perPage,
       serie_impressao: normalizarSerieImpressao(serie_impressao),
       atividade_semana: normalizarAtividadeDiaSemana(atividade_semana),
     })

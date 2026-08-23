@@ -242,13 +242,34 @@ export function CampanhaDashboard() {
   const load = () => {
     setLoading(true)
     setError(null)
-    get<DashboardData>(`/dashboard/campanhas/${id}`)
+    const params = new URLSearchParams()
+    const { inicio, fim } = periodoRange(periodo)
+    if (inicio) params.set('data_inicio', inicio.toISOString())
+    if (fim) params.set('data_fim', fim.toISOString())
+    params.set('res_page', String(pagResp)); params.set('res_per_page', String(tamPagResp))
+    params.set('event_page', String(pagInter)); params.set('event_per_page', String(tamPagInter))
+    params.set('avaliacao_page', String(pagAvaliacao)); params.set('avaliacao_per_page', String(tamPagAvaliacao))
+    if (filtros.nps !== 'Todos') params.set('nps', filtros.nps)
+    if (filtros.nota) params.set('nota', filtros.nota)
+    if (filtros.cliente) params.set('cliente_nome', filtros.cliente)
+    if (filtros.unidade) params.set('unidade_nome', filtros.unidade)
+    if (filtros.perfil) params.set('usuario_tipo', filtros.perfil)
+    if (filtros.estado) params.set('estado', filtros.estado)
+    if (filtros.telefone !== 'Todos') params.set('tem_telefone', filtros.telefone === 'Informado' ? 'sim' : 'nao')
+    if (filtros.busca.trim()) params.set('busca', filtros.busca.trim())
+    if (filtroEvento !== 'Todos') params.set('tipo', filtroEvento)
+    if (filtroDestaque) params.set('destaque_id', filtroDestaque)
+    if (buscaEvento.trim()) params.set('busca_evento', buscaEvento.trim())
+    if (filtroDestaqueAvaliacao) params.set('avaliacao_destaque_id', filtroDestaqueAvaliacao)
+    if (filtroUtilAvaliacao !== 'Todos') params.set('avaliacao_util', filtroUtilAvaliacao === 'Sim' ? 'sim' : 'nao')
+    if (buscaAvaliacao.trim()) params.set('busca_avaliacao', buscaAvaliacao.trim())
+    get<DashboardData>(`/dashboard/campanhas/${id}?${params}`)
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [id])
+  useEffect(() => { load() }, [id, periodo, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
 
   useEffect(() => {
     if (!showColMenu) return
@@ -356,10 +377,9 @@ export function CampanhaDashboard() {
 
   // paginação respostas
   const feedbacksPaginados = useMemo(() => {
-    const start = (pagResp - 1) * tamPagResp
-    return feedbacksFiltrados.slice(start, start + tamPagResp)
-  }, [feedbacksFiltrados, pagResp, tamPagResp])
-  const totalPagResp = Math.ceil(feedbacksFiltrados.length / tamPagResp)
+    return feedbacksFiltrados
+  }, [feedbacksFiltrados])
+  const totalPagResp = Math.ceil((data?.total ?? 0) / tamPagResp)
 
   const totalFiltrado = feedbacksFiltrados.length
   const mediaFiltrada = totalFiltrado > 0
@@ -408,10 +428,9 @@ export function CampanhaDashboard() {
 
   // paginação interações
   const eventosPaginados = useMemo(() => {
-    const start = (pagInter - 1) * tamPagInter
-    return eventosFiltrados.slice(start, start + tamPagInter)
-  }, [eventosFiltrados, pagInter, tamPagInter])
-  const totalPagInter = Math.ceil(eventosFiltrados.length / tamPagInter)
+    return eventosFiltrados
+  }, [eventosFiltrados])
+  const totalPagInter = Math.ceil((data?.eventos_total ?? 0) / tamPagInter)
 
   const temFiltroEvento = filtroEvento !== 'Todos' || filtroDestaque !== '' || buscaEvento !== ''
 
@@ -462,10 +481,9 @@ export function CampanhaDashboard() {
   }, [avaliacoesPeriodo, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
 
   const avaliacoesPaginadas = useMemo(() => {
-    const start = (pagAvaliacao - 1) * tamPagAvaliacao
-    return avaliacoesFiltradas.slice(start, start + tamPagAvaliacao)
-  }, [avaliacoesFiltradas, pagAvaliacao, tamPagAvaliacao])
-  const totalPagAvaliacao = Math.ceil(avaliacoesFiltradas.length / tamPagAvaliacao)
+    return avaliacoesFiltradas
+  }, [avaliacoesFiltradas])
+  const totalPagAvaliacao = Math.ceil((data?.avaliacoes_total ?? 0) / tamPagAvaliacao)
 
   const temFiltroAvaliacao = filtroDestaqueAvaliacao !== '' || filtroUtilAvaliacao !== 'Todos' || buscaAvaliacao !== ''
 
@@ -739,8 +757,8 @@ export function CampanhaDashboard() {
               </div>
               <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-4 sm:p-5">
                 <h3 className="text-title-md font-bold text-on-surface">Dias mais ativos</h3><p className="text-label-md text-outline mt-1 mb-5">Visualizações por dia da semana</p>
-                {atividadeSemana.length === 0 ? <EmptySection icon="bar_chart" title="Sem dados de atividade" message="Os dias mais ativos aparecerão com as primeiras visualizações." /> : <>
-                  <div className="flex items-end justify-between gap-1 h-36">{nomesDias.map((nome, dia) => { const valor = atividadeSemana.find(x => x.dia === dia)?.visualizacoes ?? 0; const altura = Math.max(valor ? 8 : 0, Math.round((valor / Math.max(1, ...atividadeSemana.map(x => x.visualizacoes))) * 100)); return <div key={nome} className="flex-1 h-full flex flex-col items-center justify-end gap-1"><span className="text-[10px] text-outline">{valor || ''}</span><div className={`w-full max-w-8 rounded-t ${maiorDia?.dia === dia ? 'bg-primary' : 'bg-primary/25'}`} style={{ height: `${altura}%` }} /><span className="text-[11px] text-outline">{nome}</span></div> })}</div>
+                {totalAtividade === 0 ? <EmptySection icon="bar_chart" title="Sem dados de atividade" message="Os dias mais ativos aparecerão com as primeiras visualizações." /> : <>
+                  <div className="flex items-end justify-between gap-1 h-36">{atividadeSemana.map(({ dia, visualizacoes: valor }) => { const nome = nomesDias[dia] ?? `Dia ${dia}`; const altura = Math.max(valor ? 8 : 0, Math.round((valor / Math.max(1, ...atividadeSemana.map(x => x.visualizacoes))) * 100)); return <div key={dia} className="flex-1 h-full flex flex-col items-center justify-end gap-1"><span className="text-[10px] text-outline">{valor || ''}</span><div className={`w-full max-w-8 rounded-t ${maiorDia?.dia === dia ? 'bg-primary' : 'bg-primary/25'}`} style={{ height: `${altura}%` }} /><span className="text-[11px] text-outline">{nome}</span></div> })}</div>
                   {maiorDia && <p className="text-label-md text-outline mt-4">Maior movimento: <strong className="text-on-surface">{nomesDias[maiorDia.dia]}</strong> ({maiorDia.visualizacoes.toLocaleString('pt-BR')} visualizações, {totalAtividade ? Math.round(maiorDia.visualizacoes / totalAtividade * 100) : 0}% do total).</p>}
                 </>}
               </div>
