@@ -1,6 +1,109 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import { FORMATO_DESTAQUE_ELEMENTO } from './campanhas'
+import { Prisma } from '@prisma/client'
+
+export interface DashboardPeriodo { inicio: string | null; fim: string | null }
+export interface DashboardComparacao { visualizacoes: number; respostas: number; cliques_cta: number; nps: number | null }
+export interface SerieDiariaItem { data: string; visualizacoes: number; respostas: number; cliques_cta: number }
+
+const DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})$/
+
+export function normalizarDataDashboard(value: unknown): string | null {
+  if (typeof value !== 'string' || !DATA_ISO.test(value)) return null
+  const [, ano, mes, dia] = value.match(DATA_ISO)!
+  const date = new Date(Date.UTC(Number(ano), Number(mes) - 1, Number(dia)))
+  return date.getUTCFullYear() === Number(ano) && date.getUTCMonth() === Number(mes) - 1 && date.getUTCDate() === Number(dia)
+    ? value : null
+}
+
+export function calcularPeriodoAnterior(periodo: DashboardPeriodo): DashboardPeriodo | null {
+  if (!periodo.inicio || !periodo.fim) return null
+  const inicio = new Date(`${periodo.inicio}T00:00:00Z`)
+  const fim = new Date(`${periodo.fim}T00:00:00Z`)
+  const dias = Math.round((fim.getTime() - inicio.getTime()) / 86400000) + 1
+  const anteriorFim = new Date(inicio.getTime() - 86400000)
+  const anteriorInicio = new Date(anteriorFim.getTime() - (dias - 1) * 86400000)
+  return { inicio: anteriorInicio.toISOString().slice(0, 10), fim: anteriorFim.toISOString().slice(0, 10) }
+}
+
+function intervaloDashboard(req: Request): { periodo: DashboardPeriodo; inicio: Date | null; fim: Date | null; erro?: string } {
+  const inicio = normalizarDataDashboard(req.query.data_inicio)
+  const fim = normalizarDataDashboard(req.query.data_fim)
+  if (inicio && fim && fim < inicio) return { periodo: { inicio, fim }, inicio: null, fim: null, erro: 'data_fim deve ser igual ou posterior a data_inicio.' }
+  return {
+    periodo: { inicio, fim },
+    inicio: inicio ? new Date(`${inicio}T00:00:00.000Z`) : null,
+    fim: fim ? new Date(`${fim}T23:59:59.999Z`) : null,
+  }
+}
+
+function filtroData(inicio: Date | null, fim: Date | null) {
+  return inicio || fim ? { criado_em: { ...(inicio ? { gte: inicio } : {}), ...(fim ? { lte: fim } : {}) } } : {}
+}
+
+function construirSerieDiaria(inicio: string, fim: string, rows: Array<{ data: Date; visualizacoes: bigint; respostas: bigint; cliques_cta: bigint }>): SerieDiariaItem[] {
+  const mapa = new Map(rows.map(row => [row.data.toISOString().slice(0, 10), row]))
+  const resultado: SerieDiariaItem[] = []
+  for (let cursor = new Date(`${inicio}T00:00:00Z`), limite = new Date(`${fim}T00:00:00Z`); cursor <= limite; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const data = cursor.toISOString().slice(0, 10)
+    const row = mapa.get(data)
+    resultado.push({ data, visualizacoes: Number(row?.visualizacoes ?? 0), respostas: Number(row?.respostas ?? 0), cliques_cta: Number(row?.cliques_cta ?? 0) })
+  }
+  return resultado
+}
+
+async function resumoPeriodo(campanhaId: string, inicio: Date | null, fim: Date | null): Promise<DashboardComparacao> {
+  const filtro = filtroData(inicio, fim)
+  const [visualizacoes, respostas, cliques_cta, porNota] = await Promise.all([
+    prisma.eventoCampanha.count({ where: { campanha_id: campanhaId, tipo_evento: 'visualizacao', ...filtro } }),
+    prisma.feedback.count({ where: { campanha_id: campanhaId, tipo_avaliacao: 'nps', ...filtro } }),
+    prisma.eventoCampanha.count({ where: { campanha_id: campanhaId, tipo_evento: 'clique_cta', ...filtro } }),
+    prisma.feedback.groupBy({ where: { campanha_id: campanhaId, tipo_avaliacao: 'nps', ...filtro }, by: ['nota'], _count: { nota: true } }),
+  ])
+  const total = porNota.reduce((sum, item) => sum + item._count.nota, 0)
+  const promotores = porNota.filter(item => item.nota !== null && item.nota >= 9).reduce((sum, item) => sum + item._count.nota, 0)
+  const detratores = porNota.filter(item => item.nota !== null && item.nota <= 6).reduce((sum, item) => sum + item._count.nota, 0)
+  return { visualizacoes, respostas, cliques_cta, nps: total > 0 ? Math.round((promotores - detratores) / total * 100) : null }
+}
+
+async function seriePeriodo(campanhaId: string, inicio: Date | null, fim: Date | null, periodo: DashboardPeriodo): Promise<SerieDiariaItem[]> {
+  let inicioSerie = periodo.inicio
+  let fimSerie = periodo.fim
+  if (!inicioSerie || !fimSerie) {
+    const limites = await prisma.$queryRaw<Array<{ inicio: Date | null; fim: Date | null }>>(Prisma.sql`
+      SELECT MIN(criado_em) AS inicio, MAX(criado_em) AS fim FROM (
+        SELECT criado_em FROM eventos_campanha WHERE campanha_id = ${campanhaId}
+        UNION ALL SELECT criado_em FROM feedbacks WHERE campanha_id = ${campanhaId}
+        UNION ALL SELECT criado_em FROM confirmacoes_leitura WHERE campanha_id = ${campanhaId}
+      ) atividade
+    `)
+    if (!limites[0]?.inicio || !limites[0]?.fim) return []
+    inicioSerie ??= limites[0].inicio.toISOString().slice(0, 10)
+    fimSerie ??= limites[0].fim.toISOString().slice(0, 10)
+  }
+  const rows = await prisma.$queryRaw<Array<{ data: Date; visualizacoes: bigint; respostas: bigint; cliques_cta: bigint }>>(Prisma.sql`
+    SELECT data,
+      SUM(visualizacoes)::bigint AS visualizacoes,
+      SUM(respostas)::bigint AS respostas,
+      SUM(cliques_cta)::bigint AS cliques_cta
+    FROM (
+      SELECT DATE_TRUNC('day', criado_em) AS data,
+        COUNT(*) FILTER (WHERE tipo_evento = 'visualizacao') AS visualizacoes,
+        0::bigint AS respostas,
+        COUNT(*) FILTER (WHERE tipo_evento = 'clique_cta') AS cliques_cta
+      FROM eventos_campanha
+      WHERE campanha_id = ${campanhaId} AND criado_em >= ${inicio ?? new Date(`${inicioSerie}T00:00:00Z`)} AND criado_em <= ${fim ?? new Date(`${fimSerie}T23:59:59.999Z`)}
+      GROUP BY 1
+      UNION ALL
+      SELECT DATE_TRUNC('day', criado_em), 0::bigint, COUNT(*)::bigint, 0::bigint
+      FROM feedbacks
+      WHERE campanha_id = ${campanhaId} AND tipo_avaliacao = 'nps' AND criado_em >= ${inicio ?? new Date(`${inicioSerie}T00:00:00Z`)} AND criado_em <= ${fim ?? new Date(`${fimSerie}T23:59:59.999Z`)}
+      GROUP BY 1
+    ) dados GROUP BY data ORDER BY data
+  `)
+  return construirSerieDiaria(inicioSerie, fimSerie, rows)
+}
 
 // ─── Desempenho por destaque (Fase 3 — múltiplos destaques) ────────────────
 // Igual ao restante deste dashboard (visualizacoes_unicas/cliques_unicos):
@@ -149,6 +252,14 @@ export async function buscarDashboard(req: Request, res: Response) {
       return res.status(404).json({ erro: 'Campanha não encontrada.' })
     }
 
+    const intervalo = intervaloDashboard(req)
+    if (intervalo.erro) return res.status(400).json({ erro: intervalo.erro })
+    const { periodo, inicio, fim } = intervalo
+    const filtro = filtroData(inicio, fim)
+    const periodoAnterior = calcularPeriodoAnterior(periodo)
+    const inicioAnterior = periodoAnterior?.inicio ? new Date(`${periodoAnterior.inicio}T00:00:00.000Z`) : null
+    const fimAnterior = periodoAnterior?.fim ? new Date(`${periodoAnterior.fim}T23:59:59.999Z`) : null
+
     // Destaques (Fase 3) só tem custo extra pra campanhas destaque_elemento —
     // as outras 3 queries (itensDestaque/totaisPorItem/unicosPorItem) nem
     // entram no Promise.all quando o formato não é esse.
@@ -163,29 +274,29 @@ export async function buscarDashboard(req: Request, res: Response) {
       avaliacoes_destaques,
     ] = await Promise.all([
       prisma.feedback.aggregate({
-        where: whereFeedbackNps(id),
+        where: { ...whereFeedbackNps(id), ...filtro },
         _avg: { nota: true },
         _count: { id: true },
       }),
 
       prisma.feedback.groupBy({
         by: ['nota'],
-        where: whereFeedbackNps(id),
+        where: { ...whereFeedbackNps(id), ...filtro },
         _count: { nota: true },
       }),
 
       prisma.feedback.findMany({
-        where: whereFeedbackNps(id),
+        where: { ...whereFeedbackNps(id), ...filtro },
         orderBy: { criado_em: 'desc' },
         take: 20,
       }),
 
-      prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'visualizacao' } }),
-      prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'clique_cta' } }),
-      prisma.confirmacaoLeitura.count({ where: { campanha_id: id } }),
+      prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'visualizacao', ...filtro } }),
+      prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'clique_cta', ...filtro } }),
+      prisma.confirmacaoLeitura.count({ where: { campanha_id: id, ...filtro } }),
 
       prisma.eventoCampanha.findMany({
-        where: { campanha_id: id },
+        where: { campanha_id: id, ...filtro },
         orderBy: { criado_em: 'desc' },
         take: 100,
       }),
@@ -196,15 +307,15 @@ export async function buscarDashboard(req: Request, res: Response) {
       // muda esta query, então a deduplicação entre itens já é automática).
       prisma.eventoCampanha.groupBy({
         by: ['usuario_id'],
-        where: { campanha_id: id, tipo_evento: 'visualizacao', usuario_id: { not: null } },
+        where: { campanha_id: id, tipo_evento: 'visualizacao', usuario_id: { not: null }, ...filtro },
       }),
       prisma.eventoCampanha.groupBy({
         by: ['usuario_id'],
-        where: { campanha_id: id, tipo_evento: 'clique_cta', usuario_id: { not: null } },
+        where: { campanha_id: id, tipo_evento: 'clique_cta', usuario_id: { not: null }, ...filtro },
       }),
       prisma.feedback.groupBy({
         by: ['usuario_id'],
-        where: { ...whereFeedbackNps(id), usuario_id: { not: null } },
+        where: { ...whereFeedbackNps(id), usuario_id: { not: null }, ...filtro },
       }),
 
       // Sem filtro de ativo, de propósito — "Desempenho dos destaques"
@@ -223,14 +334,14 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento
         ? prisma.eventoCampanha.groupBy({
             by: ['destaque_item_id', 'tipo_evento'],
-            where: { campanha_id: id, destaque_item_id: { not: null } },
+            where: { campanha_id: id, destaque_item_id: { not: null }, ...filtro },
             _count: { id: true },
           })
         : Promise.resolve([]),
       ehDestaqueElemento
         ? prisma.eventoCampanha.groupBy({
             by: ['destaque_item_id', 'tipo_evento', 'usuario_id'],
-            where: { campanha_id: id, destaque_item_id: { not: null }, usuario_id: { not: null } },
+            where: { campanha_id: id, destaque_item_id: { not: null }, usuario_id: { not: null }, ...filtro },
           })
         : Promise.resolve([]),
       // Avaliações de utilidade ("Essa melhoria foi útil?") por item — só
@@ -241,7 +352,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento
         ? prisma.feedback.groupBy({
             by: ['destaque_item_id', 'util'],
-            where: whereUtilidadeDestaque(id),
+            where: { ...whereUtilidadeDestaque(id), ...filtro },
             _count: { id: true },
           })
         : Promise.resolve([]),
@@ -252,12 +363,17 @@ export async function buscarDashboard(req: Request, res: Response) {
       // aqui, o frontend resolve "Removido" via desempenho_destaques.
       ehDestaqueElemento
         ? prisma.feedback.findMany({
-            where: whereUtilidadeDestaque(id),
+            where: { ...whereUtilidadeDestaque(id), ...filtro },
             orderBy: { criado_em: 'desc' },
             take: 100,
           })
         : Promise.resolve([]),
     ])
+
+    const comparacao = periodoAnterior
+      ? await resumoPeriodo(id, inicioAnterior, fimAnterior)
+      : null
+    const serie_diaria = await seriePeriodo(id, inicio, fim, periodo)
 
     const distribuicao: Record<string, number> = {}
     for (let i = 0; i <= 10; i++) distribuicao[String(i)] = 0
@@ -283,6 +399,9 @@ export async function buscarDashboard(req: Request, res: Response) {
 
     res.json({
       campanha,
+      periodo,
+      comparacao,
+      serie_diaria,
       media,
       total: agregado._count?.id ?? 0,
       distribuicao,

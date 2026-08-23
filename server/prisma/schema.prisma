@@ -550,6 +550,7 @@ model ConfirmacaoLeitura {
 
   campanha Campanha @relation(fields: [campanha_id], references: [id])
 
+  @@index([campanha_id, criado_em], map: "confirmacoes_leitura_campanha_criado_idx")
   @@map("confirmacoes_leitura")
 }
 
@@ -606,6 +607,7 @@ model Feedback {
   // (ver whereFeedbackNps em dashboard.ts) — índice cobre exatamente esse
   // padrão de acesso.
   @@index([campanha_id, tipo_avaliacao])
+  @@index([campanha_id, tipo_avaliacao, criado_em], map: "feedbacks_campanha_tipo_criado_idx")
   // "Uma resposta atual" por usuário+item+tipo — um novo envio ATUALIZA em
   // vez de duplicar (registrarUtilidadeDestaque usa upsert com esta chave
   // composta, que o Postgres compila num INSERT ... ON CONFLICT DO UPDATE

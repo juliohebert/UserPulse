@@ -1,6 +1,25 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { montarDesempenhoDestaques, whereFeedbackNps, whereUtilidadeDestaque } from './dashboard'
+import { montarDesempenhoDestaques, whereFeedbackNps, whereUtilidadeDestaque, normalizarDataDashboard, calcularPeriodoAnterior } from './dashboard'
+
+describe('períodos do dashboard', () => {
+  test('normaliza somente datas ISO reais; entradas inválidas são ignoradas', () => {
+    assert.equal(normalizarDataDashboard('2026-02-03'), '2026-02-03')
+    assert.equal(normalizarDataDashboard('2026-02-30'), null)
+    assert.equal(normalizarDataDashboard('03/02/2026'), null)
+  })
+
+  test('calcula janela anterior inclusiva com a mesma duração', () => {
+    assert.deepEqual(calcularPeriodoAnterior({ inicio: '2026-02-10', fim: '2026-02-16' }), {
+      inicio: '2026-02-03', fim: '2026-02-09',
+    })
+  })
+
+  test('período todo ou incompleto não tem comparação objetiva', () => {
+    assert.equal(calcularPeriodoAnterior({ inicio: null, fim: null }), null)
+    assert.equal(calcularPeriodoAnterior({ inicio: '2026-02-10', fim: null }), null)
+  })
+})
 
 // buscarDashboard() em si é integration-only (várias queries Prisma
 // combinadas com Promise.all) — testado manualmente contra um servidor

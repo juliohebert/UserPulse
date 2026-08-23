@@ -163,6 +163,14 @@ export interface AvaliacaoDestaqueItem {
 
 export interface DashboardData {
   campanha: Campanha
+  periodo: { inicio: string | null; fim: string | null }
+  comparacao: {
+    visualizacoes: number
+    respostas: number
+    cliques_cta: number
+    nps: number | null
+  } | null
+  serie_diaria: Array<{ data: string; visualizacoes: number; respostas: number; cliques_cta: number }>
   media: number | null
   total: number
   distribuicao: Record<string, number>

@@ -140,6 +140,11 @@ function periodoRange(p: Periodo): { inicio: Date | null; fim: Date | null } {
   }
 }
 
+function dataQuery(date: Date | null): string | null {
+  if (!date) return null
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
 function npsZona(score: number): { nome: string; bg: string; text: string; border: string } {
   if (score >= 91) return { nome: 'Zona de Encantamento',      bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200'    }
   if (score >= 76) return { nome: 'Zona de Excelência',        bg: 'bg-green-50',   text: 'text-green-700',   border: 'border-green-200'   }
@@ -203,6 +208,32 @@ function getCellValue(f: Feedback, colId: string): string {
 
 // ─── component ────────────────────────────────────────────────────────────────
 
+function DailyImpressionsChart({ serie }: { serie: DashboardData['serie_diaria'] }) {
+  if (serie.length === 0) {
+    return <div className="h-48 flex items-center justify-center text-label-md text-outline">Sem visualizações no período selecionado.</div>
+  }
+  const largura = 720
+  const altura = 220
+  const margem = 28
+  const max = Math.max(...serie.map(item => item.visualizacoes), 1)
+  const pontos = serie.map((item, index) => {
+    const x = margem + (index / Math.max(serie.length - 1, 1)) * (largura - margem * 2)
+    const y = altura - margem - (item.visualizacoes / max) * (altura - margem * 2)
+    return `${x},${y}`
+  }).join(' ')
+  return (
+    <div role="img" aria-label="Impressões da campanha por dia" className="w-full overflow-hidden">
+      <svg viewBox={`0 0 ${largura} ${altura}`} className="w-full h-48" preserveAspectRatio="none">
+        <line x1={margem} y1={altura - margem} x2={largura - margem} y2={altura - margem} stroke="currentColor" className="text-outline-variant" />
+        <polyline points={pontos} fill="none" stroke="currentColor" strokeWidth="3" className="text-primary" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <div className="flex justify-between text-[11px] text-outline px-1">
+        <span>{serie[0].data}</span><span>{serie[serie.length - 1].data}</span>
+      </div>
+    </div>
+  )
+}
+
 export function CampanhaDashboard() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -242,13 +273,19 @@ export function CampanhaDashboard() {
   const load = () => {
     setLoading(true)
     setError(null)
-    get<DashboardData>(`/dashboard/campanhas/${id}`)
+    const range = periodoRange(periodo)
+    const params = new URLSearchParams()
+    const inicio = dataQuery(range.inicio)
+    const fim = dataQuery(range.fim)
+    if (inicio) params.set('data_inicio', inicio)
+    if (fim) params.set('data_fim', fim)
+    get<DashboardData>(`/dashboard/campanhas/${id}${params.size ? `?${params}` : ''}`)
       .then(setData)
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [id])
+  useEffect(() => { load() }, [id, periodo])
 
   useEffect(() => {
     if (!showColMenu) return
@@ -803,6 +840,14 @@ export function CampanhaDashboard() {
               )}
             </div>
           )}
+
+          <section className="w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm mb-6 p-4 sm:p-5" aria-labelledby="impressoes-campanha">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h3 id="impressoes-campanha" className="text-label-md font-bold text-on-surface-variant">Impressões da campanha</h3>
+              <span className="text-label-md text-outline">{data?.periodo.inicio && data.periodo.fim ? `${data.periodo.inicio} a ${data.periodo.fim}` : 'Todo período'}</span>
+            </div>
+            <DailyImpressionsChart serie={data?.serie_diaria ?? []} />
+          </section>
 
           {/* ── Funil de engajamento (feedback geral — não se aplica a
               destaque_elemento, que não tem "Respostas" pra funilar) ──────── */}
