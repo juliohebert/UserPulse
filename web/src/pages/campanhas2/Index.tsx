@@ -668,14 +668,12 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
                   <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
                     {temSistemas ? 'Selecione um sistema no card para listar as telas cadastradas.' : 'Este cliente ainda não tem sistemas cadastrados. Crie um sistema antes de escolher telas para a campanha.'}
                     {!temSistemas && onGerenciarSistemas && (
-                      <button
-                        type="button"
+                      <a
                         onClick={onGerenciarSistemas}
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#0064e0] px-4 py-2 text-[12px] font-bold text-white transition hover:bg-[#0457cb]"
+                        className="mt-3 inline-flex items-center gap-1.5 text-[#0064e0] hover:text-[#0457cb] hover:underline text-[12px] font-bold transition"
                       >
-                        <span className="material-symbols-outlined text-[16px]">add</span>
                         Criar sistema
-                      </button>
+                      </a>
                     )}
                   </div>
                 ) : (
