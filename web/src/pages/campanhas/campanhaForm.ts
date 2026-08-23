@@ -1,6 +1,6 @@
 import type { Campanha, StatusCampanha } from '../../types'
 
-// Lógica pura (sem React/JSX) do formulário de Campanhas 2 — hidratação
+// Lógica pura (sem React/JSX) do formulário canônico de campanhas — hidratação
 // (GET Campanha -> FormState), geração de payload (FormState -> POST/PUT) e
 // resolução do tipo de destino selecionado no dock. Extraída de Index.tsx
 // pra poder ser testada com node:test sem precisar montar componentes.
@@ -200,7 +200,7 @@ export function pareceUrlVideo(valor: string): boolean {
 // 4 formas de identificar quando/onde a campanha aparece. 'url' é a 4ª
 // opção (campo desta rodada) — campanhas antigas criadas pelo Form.tsx
 // legado podem ter modo_identificacao='url_contem' (destino por caminho de
-// URL), formato que o Campanhas 2 não representava até agora: sem esse
+// URL), formato que o fluxo anterior não representava até agora: sem esse
 // case, `resolverTipoDestino` caía no fallback 'tela', escondendo o
 // url_contem configurado e arriscando perdê-lo caso o usuário mexesse na
 // seção Destino (ver DockLateral em Index.tsx).
@@ -311,7 +311,7 @@ export function hidratarFormState(c: Campanha): FormState {
   }
 }
 
-// Campanhas 2 é o fluxo mantido pra edição — hidratarFormState/
+// O formulário canônico é o fluxo mantido pra edição — hidratarFormState/
 // montarPayloadCampanha acima cobrem com segurança todos os formatos que o
 // Form.tsx legado suportava (comunicado/modal, NPS, gatilho por tela/evento,
 // destino por data-cy/URL, feedback, segmentação, reexibição, vigência, CTA,

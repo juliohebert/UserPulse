@@ -14,7 +14,7 @@ import {
 } from './campanhaForm'
 
 // Compat com campanhas antigas criadas pelo Form.tsx legado (rotaEditarCampanha
-// passou a enviar TODAS as campanhas pro Campanhas 2). Estas suítes cobrem
+// passou a enviar TODAS as campanhas pro formulário canônico). Estas suítes cobrem
 // só a lógica pura (sem Prisma/DB/React) — hidratação (GET -> FormState) e
 // geração de payload (FormState -> POST/PUT); a integração real com o
 // backend é validada manualmente contra um servidor local, mesmo padrão das

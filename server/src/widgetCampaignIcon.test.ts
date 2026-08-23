@@ -65,7 +65,7 @@ const ICONES_TIPO_CAMPANHA_ADMIN: Record<string, string> = {
   pesquisa: 'quiz',
 }
 
-describe('campaignIconName (widget.js) — paridade com o preview do Campanhas 2', () => {
+describe('campaignIconName (widget.js) — paridade com o preview de campanhas', () => {
   for (const [tipo, iconeEsperado] of Object.entries(ICONES_TIPO_CAMPANHA_ADMIN)) {
     test(`tipo "${tipo}" -> mesmo ícone do preview ("${iconeEsperado}")`, () => {
       assert.equal(campaignIconName({ tipo }), iconeEsperado)
