@@ -11,7 +11,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 
-// Esta página não busca a aparência por sistema (diferente de campanhas2,
+// Esta página não busca a aparência por sistema (diferente do formulário de campanhas,
 // que usa a cor do tenant) — cobalto fixo, mesmo tom de {colors.primary} no
 // DESIGN.md, único usado nos outros elementos desta simulação (bg-primary).
 const CORACAO_SIMULACAO = '#0064e0'

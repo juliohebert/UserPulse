@@ -197,8 +197,8 @@
       // Fundo azul-claro + ícone azul (mesmo par de tokens já usado por
       // .up-tour-progress logo abaixo: --up-primary-soft pro fundo,
       // --up-primary pro texto/ícone) — mesmo estilo do círculo no preview
-      // do Campanhas 2 (ícone campaign/rocket_launch/quiz sobre fundo suave
-      // da cor do sistema, ver campanhas2/Index.tsx), não mais fundo sólido
+      // do formulário de campanhas (ícone campaign/rocket_launch/quiz sobre fundo suave
+      // da cor do sistema, ver CampanhaForm.tsx), não mais fundo sólido
       // + ícone branco.
       '.up-brand-icon{width:32px;height:32px;border-radius:999px;background:var(--up-primary-soft, rgba(0,88,190,.1));color:var(--up-primary, #0058be);display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
       // Sem esta regra, o <svg> de campaignIconName() (sem width/height nem
@@ -206,8 +206,8 @@
       // cai no tamanho padrão do navegador pra um <svg> só com viewBox (bem
       // maior que os 32px do círculo) e no fill preto padrão do SVG — o
       // ícone real do widget fica estourado, bem diferente do ícone de
-      // 18px que o preview do Campanhas 2 mostra pro mesmo tipo
-      // (iconeTipoCampanha, campanhas2/Index.tsx) — mesma regra de ícone
+      // 18px que o formulário de campanhas mostra pro mesmo tipo
+      // (iconeTipoCampanha, CampanhaForm.tsx) — mesma regra de ícone
       // por tipo nos dois lados, só a exibição no widget que faltava.
       // `color` repetido aqui (já existe em .up-brand-icon, o pai) de
       // propósito: currentColor em `fill` resolve o `color` computado do
@@ -218,8 +218,8 @@
       '.up-brand-icon svg{width:18px;height:18px;color:var(--up-primary, #0058be);fill:currentColor;flex-shrink:0}',
       // Sem white-space:nowrap/overflow:hidden/text-overflow:ellipsis — título
       // grande agora quebra linha em vez de truncar com "...", igual ao
-      // preview do Campanhas 2 (CardEditavel/PreviewCampanhaModal, ver
-      // campanhas2/Index.tsx). overflow-wrap:break-word só protege o caso de
+      // preview do formulário de campanhas (CardEditavel/PreviewCampanhaModal, ver
+      // CampanhaForm.tsx). overflow-wrap:break-word só protege o caso de
       // uma palavra única maior que a largura disponível (ex.: sem espaços);
       // não afeta a quebra normal entre palavras.
       '.up-title{font-size:15px;line-height:21px;font-weight:800;color:#0b1c30;margin:0;overflow-wrap:break-word}',
@@ -1060,7 +1060,7 @@
     }
     if (name === 'campaign') {
       // Path oficial do Material Symbols Outlined "campaign" (24px), igual
-      // ao que campanhas2/Index.tsx exibe via material-symbols-outlined
+      // ao que CampanhaForm.tsx exibe via material-symbols-outlined
       // (ICONES_TIPO_CAMPANHA/iconeTipoCampanha) — copiado de
       // github.com/google/material-design-icons,
       // symbols/web/campaign/materialsymbolsoutlined/campaign_24px.svg.
@@ -10884,7 +10884,7 @@
     markShown: markShown,
     // Ícone do cabeçalho da modal por tipo de campanha (comunicado/melhoria/
     // pesquisa) — regra pura, exposta só pra confirmar por teste que fica em
-    // paridade com iconeTipoCampanha/ICONES_TIPO_CAMPANHA (campanhas2/Index.tsx,
+    // paridade com iconeTipoCampanha/ICONES_TIPO_CAMPANHA (CampanhaForm.tsx,
     // "preview"), a mesma regra do lado do admin. Ver server/src/widgetCampaignIcon.test.ts.
     campaignIconName: campaignIconName,
   };
