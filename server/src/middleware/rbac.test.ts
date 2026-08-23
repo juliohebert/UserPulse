@@ -246,7 +246,7 @@ describe('RBAC — GET /aparencia-widget/default exige VISUALIZAR em CONFIGURACO
 // Ajuste pós-revisão da Fase 4: estes dois GETs voltaram a ficar SEM guard
 // de módulo (mesmo comportamento de antes da Fase 1) porque são consumidos
 // fora da tela de Configurações também — o seletor de sistema/tela usado ao
-// criar campanha (ver web/src/pages/campanhas2/Index.tsx, módulo CAMPANHAS,
+// criar campanha (ver web/src/pages/campanhas/CampanhaForm.tsx, módulo CAMPANHAS,
 // independente de CONFIGURACOES). Gatear por CONFIGURACOES quebraria esse
 // fluxo pra EDITOR agora que o padrão de EDITOR em CONFIGURACOES é NENHUM.
 describe('RBAC — GET /catalogo-telas e GET /sistemas continuam sem guard de módulo (ajuste pós-revisão)', () => {

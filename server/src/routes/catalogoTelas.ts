@@ -8,7 +8,7 @@ const router = Router()
 // — o padrão de EDITOR/VIEWER em CONFIGURACOES virou NENHUM (ver
 // lib/permissoesModulo.ts), mas este endpoint é consumido fora da tela de
 // Configurações também (o seletor de telas usado ao criar uma campanha/
-// tour, ver web/src/pages/campanhas2/Index.tsx — CAMPANHAS é módulo
+// tour, ver web/src/pages/campanhas/CampanhaForm.tsx — CAMPANHAS é módulo
 // independente de CONFIGURACOES). Gatear esta leitura por CONFIGURACOES
 // quebraria esse fluxo pra EDITOR sem relação nenhuma com o pedido desta
 // fase. Mesmo comportamento de antes da Fase 1 (liberado a qualquer papel

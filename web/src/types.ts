@@ -3,7 +3,7 @@ export interface Campanha {
   slug: string
   titulo: string
   // Eyebrow do modal por padrão; quando modo_exibicao === 'destaque_elemento'
-  // (ver campanhas2/Index.tsx) é reutilizado como texto do badge (ex. "Novo").
+  // (ver CampanhaForm.tsx) é reutilizado como texto do badge (ex. "Novo").
   subtitulo: string | null
   descricao: string
   tipo: string
@@ -28,7 +28,7 @@ export interface Campanha {
   // nunca foi publicada, ATIVA publicada e elegível, INATIVA já publicada e
   // desativada. "Agendada"/"Encerrada" NUNCA são status: são só uma leitura
   // de período (data_inicio/data_fim) calculada em cima de uma campanha
-  // ATIVA — ver getStatus em pages/campanhas2/campanhaForm.ts. O backend
+  // ATIVA — ver getStatus em pages/campanhas/campanhaForm.ts. O backend
   // ainda manda `ativo` (compat de deploy), mas nada no frontend lê mais
   // esse campo.
   status: CampanhaStatus
@@ -57,7 +57,7 @@ export interface Campanha {
   // Múltiplos destaques independentes (Fase 2 de destaque_elemento) — só
   // presente quando incluído pelo backend (buscarPorId/duplicar). Ausente
   // (undefined) não significa "sem destaques": ver rotina de fallback em
-  // campanhas2/Index.tsx (mesma lógica de destaqueElementoResolverItens em
+  // CampanhaForm.tsx (mesma lógica de destaqueElementoResolverItens em
   // widget.js) para campanhas antigas que ainda não têm nenhuma linha aqui.
   destaques?: CampanhaDestaqueItem[]
 }
@@ -163,6 +163,15 @@ export interface AvaliacaoDestaqueItem {
 
 export interface DashboardData {
   campanha: Campanha
+  periodo: { inicio: string | null; fim: string | null }
+  comparacao: {
+    visualizacoes: number
+    respostas: number
+    cliques_cta: number
+    nps: number | null
+  } | null
+  serie_diaria: Array<{ data: string; visualizacoes: number; respostas: number; cliques_cta: number }>
+  serie_diaria_anterior: Array<{ data: string; visualizacoes: number; respostas: number; cliques_cta: number }>
   media: number | null
   total: number
   total_periodo: number
@@ -248,7 +257,7 @@ export type CampanhaStatus = 'RASCUNHO' | 'ATIVA' | 'INATIVA'
 // Status de EXIBIÇÃO — 'rascunho'/'inativa' espelham 1:1 o status
 // persistido; 'agendada'/'ativa'/'encerrada' só existem para uma campanha
 // ATIVA e vêm da janela de período (data_inicio/data_fim), nunca são
-// persistidos à parte. Ver getStatus em pages/campanhas2/campanhaForm.ts.
+// persistidos à parte. Ver getStatus em pages/campanhas/campanhaForm.ts.
 export type StatusCampanha = 'rascunho' | 'ativa' | 'inativa' | 'agendada' | 'encerrada'
 
 export interface TourPasso {

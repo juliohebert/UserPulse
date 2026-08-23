@@ -57,7 +57,7 @@ const COLLATOR = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base'
 // 'agendada'/'encerrada' NUNCA são status persistido (só existem
 // RASCUNHO/ATIVA/INATIVA no backend, ver CampanhaStatus em types.ts) — são
 // uma leitura de período por cima de uma campanha ATIVA (ver getStatus em
-// pages/campanhas2/campanhaForm.ts). O label deixa isso explícito ("Ativa ·
+// pages/campanhas/campanhaForm.ts). O label deixa isso explícito ("Ativa ·
 // Agendada"/"Ativa · Encerrada") pra nunca parecer um 4º/5º status ao lado
 // de Rascunho/Ativa/Inativa.
 const STATUS_BADGE: Record<StatusCampanha, { label: string; color: string; dot: string }> = {
