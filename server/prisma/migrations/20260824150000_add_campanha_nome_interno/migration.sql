@@ -1,8 +1,8 @@
 -- Add administrative campaign name while preserving existing public titles.
-ALTER TABLE "Campanha" ADD COLUMN "nome_interno" TEXT;
+ALTER TABLE "campanhas" ADD COLUMN "nome_interno" TEXT;
 
-UPDATE "Campanha"
+UPDATE "campanhas"
 SET "nome_interno" = "titulo"
 WHERE "nome_interno" IS NULL;
 
-ALTER TABLE "Campanha" ALTER COLUMN "nome_interno" SET NOT NULL;
+ALTER TABLE "campanhas" ALTER COLUMN "nome_interno" SET NOT NULL;
