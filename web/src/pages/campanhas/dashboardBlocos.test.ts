@@ -52,6 +52,7 @@ describe('blocosDashboardVisiveis — destaque_elemento não renderiza blocos de
 
   test('mostra os blocos específicos de destaque_elemento', () => {
     assert.equal(blocos.kpiDestaque, true, 'cards de KPI de destaque (Visualizações/Interações/Cliques CTA/Avaliações)')
+    assert.equal(blocos.graficoImpressoes, true, 'gráfico agregado de impressões dos destaques')
     assert.equal(blocos.desempenhoDestaques, true)
     assert.equal(blocos.avaliacoesDestaques, true)
   })
@@ -94,6 +95,7 @@ describe('blocosDashboardVisiveis — outros tipos de campanha continuam com o r
   test('modal_automatica: todos os blocos de feedback geral/NPS aparecem, nenhum bloco de destaque aparece', () => {
     const blocos = blocosDashboardVisiveis('modal_automatica')
     assert.equal(blocos.kpiFeedbackGeral, true)
+    assert.equal(blocos.graficoImpressoes, true)
     assert.equal(blocos.funilEngajamento, true)
     assert.equal(blocos.resumoNps, true)
     assert.equal(blocos.distribuicaoNotas, true)

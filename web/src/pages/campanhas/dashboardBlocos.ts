@@ -61,6 +61,9 @@ export interface IndicadorResumoDef {
 export interface BlocosDashboard {
   kpiDestaque: boolean
   kpiFeedbackGeral: boolean
+  // Impressões existem nos dois formatos; destaque_elemento só não usa o
+  // funil Visualizações -> Respostas, que pertence ao feedback geral.
+  graficoImpressoes: boolean
   funilEngajamento: boolean
   resumoNps: boolean
   distribuicaoNotas: boolean
@@ -121,6 +124,7 @@ export function blocosDashboardVisiveis(modoExibicao: string): BlocosDashboard {
   return {
     kpiDestaque: destaque,
     kpiFeedbackGeral: !destaque,
+    graficoImpressoes: true,
     funilEngajamento: !destaque,
     resumoNps: !destaque,
     distribuicaoNotas: !destaque,

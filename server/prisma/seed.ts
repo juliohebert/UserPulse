@@ -1,6 +1,12 @@
 import { PrismaClient } from '@prisma/client'
+import { createHash } from 'node:crypto'
 
 const prisma = new PrismaClient()
+
+function idSeed(tipo: string, tenantId: string, chave: string) {
+  const hash = createHash('sha256').update(`${tenantId}:${chave}`).digest('hex').slice(0, 32)
+  return `seed-${tipo}-${hash}`
+}
 
 type CampanhaSeed = {
   slug: string
@@ -20,7 +26,17 @@ type CampanhaSeed = {
   modo_exibicao?: string
   gatilho?: string
   modo_identificacao?: string
+  data_cy?: string
   url_contem?: string
+  destaques?: Array<{
+    chave: string
+    data_cy: string
+    texto_badge: string
+    titulo: string
+    descricao: string
+    texto_botao?: string
+    url_botao?: string
+  }>
 }
 
 type TourSeed = {
@@ -89,6 +105,24 @@ type EventoCampanhaSeed = {
   dispositivo: string
   contexto: Record<string, string>
   minutoDia: number
+  destaqueChave?: string
+}
+
+type AvaliacaoDestaqueSeed = {
+  id: string
+  campanhaSlug: string
+  destaqueChave: string
+  diasAtras: number
+  util: boolean
+  observacao?: string
+  usuario_id: string
+  usuario_nome: string
+  usuario_email: string
+  sistema: string
+  tela: string
+  navegador: string
+  dispositivo: string
+  contexto: Record<string, string>
 }
 
 const campanhasSeed: CampanhaSeed[] = [
@@ -110,6 +144,50 @@ const campanhasSeed: CampanhaSeed[] = [
     prioridade: 1,
     ativo: true,
     pergunta_feedback: 'O que você achou das melhorias?',
+  },
+  {
+    slug: 'quarkclinic-agenda-destaques',
+    titulo: 'Atalhos inteligentes da agenda',
+    subtitulo: 'Novo',
+    descricao: 'Conheça recursos da agenda diretamente no ponto em que cada ação acontece.',
+    tipo: 'melhoria',
+    sistema: 'QuarkClinic',
+    tela: 'agenda',
+    texto_botao: 'Experimentar filtro',
+    url_botao: '/app/agenda?filtros=1',
+    prioridade: 4,
+    ativo: true,
+    feedback_habilitado: false,
+    modo_exibicao: 'destaque_elemento',
+    modo_identificacao: 'data_cy',
+    data_cy: 'agenda-filtros-rapidos',
+    destaques: [
+      {
+        chave: 'filtros-rapidos',
+        data_cy: 'agenda-filtros-rapidos',
+        texto_badge: 'Novo',
+        titulo: 'Filtros rápidos da agenda',
+        descricao: 'Combine profissional, unidade e status para encontrar horários e consultas com menos cliques.',
+        texto_botao: 'Experimentar filtro',
+        url_botao: '/app/agenda?filtros=1',
+      },
+      {
+        chave: 'confirmacao-whatsapp',
+        data_cy: 'agenda-confirmacao-whatsapp',
+        texto_badge: 'Automação',
+        titulo: 'Confirmação por WhatsApp',
+        descricao: 'Envie lembretes e acompanhe a confirmação do paciente sem sair da agenda.',
+        texto_botao: 'Configurar mensagens',
+        url_botao: '/app/agenda/configuracoes/whatsapp',
+      },
+      {
+        chave: 'relatorio-ausencias',
+        data_cy: 'agenda-relatorio-ausencias',
+        texto_badge: 'Insight',
+        titulo: 'Relatório de ausências',
+        descricao: 'Identifique padrões de faltas por período, unidade e profissional para agir preventivamente.',
+      },
+    ],
   },
   {
     slug: 'quarkclinic-prontuario-novo',
@@ -567,6 +645,52 @@ const feedbacksGeradosSeed: FeedbackSeed[] = [
 
 const feedbacksSeed: FeedbackSeed[] = [...feedbacksManuaisSeed, ...feedbacksGeradosSeed]
 
+const DESTAQUES_AGENDA = [
+  { chave: 'filtros-rapidos', fase: 0, base: 10, taxaInteracao: 0.58, taxaClique: 0.31, taxaDispensa: 0.08 },
+  { chave: 'confirmacao-whatsapp', fase: 2, base: 8, taxaInteracao: 0.51, taxaClique: 0.24, taxaDispensa: 0.11 },
+  { chave: 'relatorio-ausencias', fase: 4, base: 6, taxaInteracao: 0.43, taxaClique: 0, taxaDispensa: 0.15 },
+] as const
+
+const OBSERVACOES_UTILIDADE_NEGATIVA = [
+  'Ainda não ficou claro quando devo usar este recurso.',
+  'O destaque chamou atenção, mas não ajudou no meu fluxo atual.',
+  'Preciso de um exemplo mais prático antes de começar a usar.',
+]
+
+function gerarAvaliacoesDestaqueSeed(): AvaliacaoDestaqueSeed[] {
+  let sequencia = 1
+  return DESTAQUES_AGENDA.flatMap((destaque, destaqueIndex) =>
+    usuariosDemo.map((usuario, usuarioIndex) => ({
+      id: `12000000-0000-0000-0000-${String(sequencia++).padStart(12, '0')}`,
+      campanhaSlug: 'quarkclinic-agenda-destaques',
+      destaqueChave: destaque.chave,
+      diasAtras: (usuarioIndex * 3 + destaqueIndex * 2) % 28,
+      util: (usuarioIndex + destaqueIndex) % 5 !== 3,
+      observacao: usuarioIndex % 3 === 0
+        ? ((usuarioIndex + destaqueIndex) % 5 !== 3
+            ? OBSERVACOES_DEMO[(usuarioIndex + destaqueIndex) % OBSERVACOES_DEMO.length]
+            : OBSERVACOES_UTILIDADE_NEGATIVA[(usuarioIndex + destaqueIndex) % OBSERVACOES_UTILIDADE_NEGATIVA.length])
+        : undefined,
+      usuario_id: `user-${usuario.id}`,
+      usuario_nome: usuario.nome,
+      usuario_email: usuario.email,
+      sistema: 'QuarkClinic',
+      tela: 'agenda',
+      navegador: usuarioIndex % 4 === 0 ? 'Safari' : usuarioIndex % 3 === 0 ? 'Edge' : 'Chrome',
+      dispositivo: usuarioIndex % 5 === 0 ? 'Mobile' : usuarioIndex % 3 === 0 ? 'Notebook' : 'Desktop',
+      contexto: {
+        cliente_nome: usuario.cliente,
+        unidade_nome: usuario.unidade,
+        usuario_tipo: usuario.perfil,
+        Perfil: usuario.perfil,
+        Estado: usuario.estado,
+      },
+    })),
+  )
+}
+
+const avaliacoesDestaqueSeed = gerarAvaliacoesDestaqueSeed()
+
 const perfisEventosDemo = [
   { slug: 'quarkclinic-agenda-demo', sistema: 'QuarkClinic', tela: 'agenda', base: 22, fase: 0, taxaClique: 0.24 },
   { slug: 'quarkclinic-prontuario-novo', sistema: 'QuarkClinic', tela: 'prontuario', base: 16, fase: 2, taxaClique: 0.20 },
@@ -638,7 +762,62 @@ function gerarEventosCampanhaSeed(): EventoCampanhaSeed[] {
   return eventos
 }
 
-const eventosCampanhaSeed = gerarEventosCampanhaSeed()
+function gerarEventosDestaqueSeed(): EventoCampanhaSeed[] {
+  const eventos: EventoCampanhaSeed[] = []
+  const pesosSemana = [0.42, 1.08, 1.22, 1.16, 1.05, 0.88, 0.55]
+  const pulsos = [-1, 2, 0, 3, -2, 1, 2]
+  const hoje = new Date()
+  let sequenciaId = 1
+
+  const adicionarEventos = (
+    quantidade: number,
+    tipo_evento: EventoCampanhaSeed['tipo_evento'],
+    destaqueChave: string,
+    diasAtras: number,
+    usuarios: typeof usuariosDemo,
+    deslocamentoMinutos: number,
+  ) => {
+    for (let indice = 0; indice < quantidade; indice += 1) {
+      const usuario = usuarios[indice % usuarios.length]
+      eventos.push({
+        id: `34000000-0000-0000-0000-${String(sequenciaId++).padStart(12, '0')}`,
+        campanhaSlug: 'quarkclinic-agenda-destaques',
+        destaqueChave,
+        diasAtras,
+        tipo_evento,
+        usuario_id: `user-${usuario.id}`,
+        sistema: 'QuarkClinic',
+        tela: 'agenda',
+        navegador: indice % 4 === 0 ? 'Safari' : indice % 3 === 0 ? 'Edge' : 'Chrome',
+        dispositivo: indice % 5 === 0 ? 'Mobile' : indice % 3 === 0 ? 'Notebook' : 'Desktop',
+        contexto: { cliente_nome: usuario.cliente, unidade_nome: usuario.unidade, usuario_tipo: usuario.perfil, Perfil: usuario.perfil, Estado: usuario.estado },
+        minutoDia: 8 * 60 + ((indice * 41 + diasAtras * 13 + destaqueChave.length * 7) % 540) + deslocamentoMinutos,
+      })
+    }
+  }
+
+  DESTAQUES_AGENDA.forEach(destaque => {
+    for (let diasAtras = 44; diasAtras >= 0; diasAtras -= 1) {
+      const data = new Date(hoje)
+      data.setDate(data.getDate() - diasAtras)
+      const visualizacoes = Math.max(1, Math.round(
+        destaque.base * pesosSemana[data.getDay()] + pulsos[(44 - diasAtras + destaque.fase) % pulsos.length],
+      ))
+      const usuariosDoDia = Array.from(
+        { length: visualizacoes },
+        (_, indice) => usuariosDemo[(diasAtras * 2 + indice + destaque.fase) % usuariosDemo.length],
+      )
+      adicionarEventos(visualizacoes, 'visualizacao', destaque.chave, diasAtras, usuariosDoDia, 0)
+      adicionarEventos(Math.round(visualizacoes * destaque.taxaInteracao), 'interacao_badge', destaque.chave, diasAtras, usuariosDoDia, 5)
+      adicionarEventos(Math.round(visualizacoes * destaque.taxaClique), 'clique_cta', destaque.chave, diasAtras, usuariosDoDia, 10)
+      adicionarEventos(Math.round(visualizacoes * destaque.taxaDispensa), 'dispensa', destaque.chave, diasAtras, usuariosDoDia, 15)
+    }
+  })
+
+  return eventos
+}
+
+const eventosCampanhaSeed = [...gerarEventosCampanhaSeed(), ...gerarEventosDestaqueSeed()]
 
 async function resolverTenant() {
   const slug = process.env.ADMIN_TENANT_SLUG?.trim().toLowerCase() || 'quark'
@@ -654,8 +833,15 @@ async function resolverTenant() {
 }
 
 async function seedCampanhas(tenant_id: string) {
-  const campanhas = new Map<string, { id: string }>()
+  const campanhas = new Map<string, { id: string; destaques: Map<string, string> }>()
   for (const item of campanhasSeed) {
+    const destaques = item.destaques?.map(({ chave, ...destaque }, index) => ({
+      ...destaque,
+      id: idSeed('destaque', tenant_id, `${item.slug}:${chave}`),
+      tenant_id,
+      ordem: index + 1,
+      ativo: true,
+    }))
     const data = {
       tenant_id,
       slug: item.slug,
@@ -673,6 +859,7 @@ async function seedCampanhas(tenant_id: string) {
       modo_exibicao: item.modo_exibicao ?? 'modal_automatica',
       gatilho: item.gatilho ?? 'ao_abrir_tela',
       modo_identificacao: item.modo_identificacao ?? 'sistema_tela',
+      data_cy: item.data_cy,
       url_contem: item.url_contem,
       atraso_ms: 800,
       mostrar_uma_vez: false,
@@ -685,11 +872,32 @@ async function seedCampanhas(tenant_id: string) {
     }
     const campanha = await prisma.campanha.upsert({
       where: { tenant_id_slug: { tenant_id, slug: item.slug } },
-      create: data,
-      update: data,
+      create: { ...data, ...(destaques && { destaques: { create: destaques } }) },
+      update: {
+        ...data,
+        ...(destaques && {
+          destaques: {
+            updateMany: {
+              where: { id: { notIn: destaques.map(destaque => destaque.id) } },
+              data: { ativo: false },
+            },
+            upsert: destaques.map(destaque => ({
+              where: { id: destaque.id },
+              create: destaque,
+              update: destaque,
+            })),
+          },
+        }),
+      },
       select: { id: true },
     })
-    campanhas.set(item.slug, campanha)
+    campanhas.set(item.slug, {
+      ...campanha,
+      destaques: new Map(item.destaques?.map(destaque => [
+        destaque.chave,
+        idSeed('destaque', tenant_id, `${item.slug}:${destaque.chave}`),
+      ]) ?? []),
+    })
   }
   console.log(`✓ Campanhas seed: ${campanhas.size} registro(s)`)
   return campanhas
@@ -784,14 +992,12 @@ function dataRelativa(diasAtras: number, minutoDia?: number) {
   return data
 }
 
-async function seedInteracoesCampanhas(campanhas: Map<string, { id: string }>) {
-  const feedbacks = feedbacksSeed.flatMap(item => {
+async function seedInteracoesCampanhas(campanhas: Map<string, { id: string; destaques: Map<string, string> }>) {
+  const feedbacksNps = feedbacksSeed.flatMap(item => {
     const campanha = campanhas.get(item.campanhaSlug)
     return campanha ? [{
-        id: item.id,
+        id: idSeed('feedback', campanha.id, item.id),
         campanha_id: campanha.id,
-        // Todo feedback seed é demo de NPS (0-10) — fundação
-        // csat/utilidade_destaque ainda não tem dado de exemplo próprio.
         tipo_avaliacao: 'nps',
         nota: item.nota,
         observacao: item.observacao,
@@ -808,11 +1014,38 @@ async function seedInteracoesCampanhas(campanhas: Map<string, { id: string }>) {
       }] : []
   })
 
+  const avaliacoesDestaque = avaliacoesDestaqueSeed.flatMap(item => {
+    const campanha = campanhas.get(item.campanhaSlug)
+    const destaqueItemId = campanha?.destaques.get(item.destaqueChave)
+    return campanha && destaqueItemId ? [{
+      id: idSeed('feedback', campanha.id, item.id),
+      campanha_id: campanha.id,
+      destaque_item_id: destaqueItemId,
+      tipo_avaliacao: 'utilidade_destaque',
+      nota: null,
+      util: item.util,
+      observacao: item.observacao,
+      usuario_id: item.usuario_id,
+      usuario_nome: item.usuario_nome,
+      usuario_email: item.usuario_email,
+      sistema: item.sistema,
+      tela: item.tela,
+      navegador: item.navegador,
+      dispositivo: item.dispositivo,
+      contexto: item.contexto,
+      criado_em: dataRelativa(item.diasAtras),
+    }] : []
+  })
+  const feedbacks = [...feedbacksNps, ...avaliacoesDestaque]
+
   const eventos = eventosCampanhaSeed.flatMap(item => {
     const campanha = campanhas.get(item.campanhaSlug)
-    return campanha ? [{
-        id: item.id,
+    const destaqueItemId = item.destaqueChave ? campanha?.destaques.get(item.destaqueChave) : undefined
+    if (!campanha || (item.destaqueChave && !destaqueItemId)) return []
+    return [{
+        id: idSeed('evento', campanha.id, item.id),
         campanha_id: campanha.id,
+        destaque_item_id: destaqueItemId,
         tipo_evento: item.tipo_evento,
         usuario_id: item.usuario_id,
         sistema: item.sistema,
@@ -821,19 +1054,31 @@ async function seedInteracoesCampanhas(campanhas: Map<string, { id: string }>) {
         dispositivo: item.dispositivo,
         contexto: item.contexto,
         criado_em: dataRelativa(item.diasAtras, item.minutoDia),
-      }] : []
+      }]
   })
 
+  const campanhaIds = [...campanhas.values()].map(campanha => campanha.id)
+
   await prisma.$transaction([
-    prisma.feedback.deleteMany({ where: { OR: [
-      { id: { startsWith: '10000000-' } },
-      { id: { startsWith: '11000000-' } },
-    ] } }),
-    prisma.eventoCampanha.deleteMany({ where: { OR: [
-      { id: { startsWith: '20000000-' } },
-      { id: { startsWith: '32000000-' } },
-      { id: { startsWith: '33000000-' } },
-    ] } }),
+    prisma.feedback.deleteMany({ where: {
+      campanha_id: { in: campanhaIds },
+      OR: [
+        { id: { startsWith: 'seed-feedback-' } },
+        { id: { startsWith: '10000000-' } },
+        { id: { startsWith: '11000000-' } },
+        { id: { startsWith: '12000000-' } },
+      ],
+    } }),
+    prisma.eventoCampanha.deleteMany({ where: {
+      campanha_id: { in: campanhaIds },
+      OR: [
+        { id: { startsWith: 'seed-evento-' } },
+        { id: { startsWith: '20000000-' } },
+        { id: { startsWith: '32000000-' } },
+        { id: { startsWith: '33000000-' } },
+        { id: { startsWith: '34000000-' } },
+      ],
+    } }),
     prisma.feedback.createMany({ data: feedbacks }),
     prisma.eventoCampanha.createMany({ data: eventos }),
   ])

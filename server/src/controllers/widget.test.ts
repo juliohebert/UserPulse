@@ -24,6 +24,23 @@ describe('contrato de eventos das campanhas demo', () => {
     }
     assert.match(FONTE_SEED, /tipo_evento: 'visualizacao'/)
   })
+
+  test('seed de destaque cria itens, tracking por item e avaliações de utilidade', () => {
+    assert.match(FONTE_SEED, /modo_exibicao: 'destaque_elemento'/)
+    assert.match(FONTE_SEED, /destaques: \[/)
+    assert.match(FONTE_SEED, /destaque_item_id: destaqueItemId/)
+    assert.match(FONTE_SEED, /tipo_avaliacao: 'utilidade_destaque'/)
+    assert.match(FONTE_SEED, /nota: null/)
+    assert.match(FONTE_SEED, /adicionarEventos\([^\n]+, 'interacao_badge'/)
+    assert.match(FONTE_SEED, /adicionarEventos\([^\n]+, 'clique_cta'/)
+    assert.match(FONTE_SEED, /adicionarEventos\([^\n]+, 'dispensa'/)
+    assert.match(FONTE_SEED, /\.\.\.gerarEventosDestaqueSeed\(\)/)
+    assert.match(FONTE_SEED, /const avaliacoesDestaqueSeed = gerarAvaliacoesDestaqueSeed\(\)/)
+    assert.match(FONTE_SEED, /campanha_id: \{ in: campanhaIds \}/)
+    assert.match(FONTE_SEED, /idSeed\('destaque', tenant_id/)
+    assert.match(FONTE_SEED, /where: \{ id: \{ notIn: destaques\.map/)
+    assert.match(FONTE_SEED, /data: \{ ativo: false \}/)
+  })
 })
 
 const CAMPANHA_REEXIBICAO = {

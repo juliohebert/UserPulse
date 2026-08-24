@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, getBlob } from '../../services/api'
-import type { AvaliacaoDestaqueItem, DashboardData, EventoCampanha, Feedback } from '../../types'
+import type { AvaliacaoDestaqueItem, DashboardData, DesempenhoDestaqueItem, EventoCampanha, Feedback } from '../../types'
 import { formatDateTime, getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
@@ -232,7 +232,7 @@ export function CampanhaDashboard() {
   const colMenuRef = useRef<HTMLDivElement>(null)
   const colMenuPopoverRef = useRef<HTMLDivElement>(null)
 
-  const load = () => {
+  const load = (signal?: AbortSignal) => {
     setLoading(true)
     setError(null)
     const params = new URLSearchParams()
@@ -256,13 +256,21 @@ export function CampanhaDashboard() {
     if (filtroDestaqueAvaliacao) params.set('avaliacao_destaque_id', filtroDestaqueAvaliacao)
     if (filtroUtilAvaliacao !== 'Todos') params.set('avaliacao_util', filtroUtilAvaliacao === 'Sim' ? 'sim' : 'nao')
     if (buscaAvaliacao.trim()) params.set('busca_avaliacao', buscaAvaliacao.trim())
-    get<DashboardData>(`/dashboard/campanhas/${id}?${params}`)
+    get<DashboardData>(`/dashboard/campanhas/${id}?${params}`, { signal })
       .then(setData)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
+      .catch(e => {
+        if ((e as Error).name !== 'AbortError') setError((e as Error).message)
+      })
+      .finally(() => {
+        if (!signal?.aborted) setLoading(false)
+      })
   }
 
-  useEffect(() => { load() }, [id, periodo, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
+  useEffect(() => {
+    const controller = new AbortController()
+    load(controller.signal)
+    return () => controller.abort()
+  }, [id, periodo, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
 
   useEffect(() => {
     if (!showColMenu) return
@@ -292,13 +300,20 @@ export function CampanhaDashboard() {
   }, [showColMenu])
 
   // reset respostas page when filters or period change
-  useEffect(() => { setPagResp(1) }, [filtros, periodo])
+  useEffect(() => { setPagResp(1) }, [filtros])
 
   // reset interações page when filters change
-  useEffect(() => { setPagInter(1) }, [filtroEvento, filtroDestaque, buscaEvento, periodo])
+  useEffect(() => { setPagInter(1) }, [filtroEvento, filtroDestaque, buscaEvento])
 
   // reset avaliações dos destaques page when filters change
-  useEffect(() => { setPagAvaliacao(1) }, [filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao, periodo])
+  useEffect(() => { setPagAvaliacao(1) }, [filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
+
+  const alterarPeriodo = (atualizar: Periodo | ((atual: Periodo) => Periodo)) => {
+    setPagResp(1)
+    setPagInter(1)
+    setPagAvaliacao(1)
+    setPeriodo(atualizar)
+  }
 
   const toggleCol = (colId: string) => {
     setVisibleCols(prev => {
@@ -376,6 +391,12 @@ export function CampanhaDashboard() {
 
   const blocos = blocosDashboardVisiveis(data?.campanha.modo_exibicao ?? '')
   const desempenhoDestaques = data?.desempenho_destaques ?? []
+  const destaquesOrdenados = useMemo(() => [...desempenhoDestaques].sort((a, b) => {
+    if (a.ativo !== b.ativo) return a.ativo ? -1 : 1
+    if (a.percentual_util !== b.percentual_util) return (b.percentual_util ?? -1) - (a.percentual_util ?? -1)
+    if (a.avaliacoes !== b.avaliacoes) return b.avaliacoes - a.avaliacoes
+    return b.visualizacoes - a.visualizacoes
+  }), [desempenhoDestaques])
   const destaqueTituloPorId = useMemo(() => {
     const mapa = new Map<string, string>()
     for (const item of desempenhoDestaques) mapa.set(item.destaque_item_id, item.titulo)
@@ -438,6 +459,7 @@ export function CampanhaDashboard() {
   const kpiSimTotal = periodoAtivo
     ? (data?.destaque_resumo_periodo.sim ?? 0)
     : desempenhoDestaques.reduce((s, i) => s + i.sim, 0)
+  const kpiNaoTotal = Math.max(0, kpiAvaliacoesTotal - kpiSimTotal)
   const kpiPercentualUtil = kpiAvaliacoesTotal > 0 ? Math.round((kpiSimTotal / kpiAvaliacoesTotal) * 1000) / 10 : null
 
   // Valores dos chips-resumo da seção Interações — QUAIS chips aparecem
@@ -594,10 +616,10 @@ export function CampanhaDashboard() {
         </div>
       </div>
 
-      {loading && <LoadingSpinner />}
+      {loading && !data && <LoadingSpinner />}
       {error && <ErrorState message={error} onRetry={load} />}
 
-      {!loading && !error && data && (
+      {!error && data && (
         <>
           <div className="mx-auto max-w-[1480px]">
           {/* ── Filtro de período ──────────────────────────────────────────── */}
@@ -605,7 +627,7 @@ export function CampanhaDashboard() {
             {(['hoje', '7d', '30d', 'mes', 'todo', 'custom'] as PeriodoOpcao[]).map(op => (
               <button
                 key={op}
-                onClick={() => setPeriodo(p => ({ ...p, opcao: op }))}
+                onClick={() => alterarPeriodo(p => ({ ...p, opcao: op }))}
                 className={`h-[34px] whitespace-nowrap rounded-[10px] border-0 px-[13px] text-[12px] font-bold transition-all ${
                   periodo.opcao === op
                     ? 'bg-[#101828] text-white'
@@ -620,21 +642,21 @@ export function CampanhaDashboard() {
                 <input
                   type="date"
                   value={periodo.customInicio}
-                  onChange={e => setPeriodo(p => ({ ...p, customInicio: e.target.value }))}
+                  onChange={e => alterarPeriodo(p => ({ ...p, customInicio: e.target.value }))}
                   className="h-[34px] rounded-lg border border-[#dfe3e9] bg-white px-3 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <span className="text-label-md text-outline">até</span>
                 <input
                   type="date"
                   value={periodo.customFim}
-                  onChange={e => setPeriodo(p => ({ ...p, customFim: e.target.value }))}
+                  onChange={e => alterarPeriodo(p => ({ ...p, customFim: e.target.value }))}
                   className="h-[34px] rounded-lg border border-[#dfe3e9] bg-white px-3 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </>
             )}
             {periodoAtivo && (
               <button
-                onClick={() => setPeriodo(PERIODO_INICIAL)}
+                onClick={() => alterarPeriodo(PERIODO_INICIAL)}
                 className="flex h-[34px] items-center gap-1 whitespace-nowrap px-2.5 text-[12px] font-bold text-[#667085] transition-colors hover:text-error"
                 title="Restaurar todo período"
               >
@@ -670,8 +692,9 @@ export function CampanhaDashboard() {
               <KpiCard
                 icon="thumbs_up_down" iconColor="text-primary" iconBg="bg-primary/10"
                 label="Avaliações" value={kpiAvaliacoesTotal.toLocaleString('pt-BR')}
-                sub={kpiPercentualUtil === null ? 'sem avaliações ainda' : `${kpiPercentualUtil.toLocaleString('pt-BR')}% útil`}
+                sub={kpiPercentualUtil === null ? 'sem avaliações ainda' : `${kpiPercentualUtil.toLocaleString('pt-BR')}% consideraram útil`}
                 subTooltip="Avaliações = respostas de utilidade ('Essa melhoria foi útil?') recebidas nos destaques. % útil = respostas Sim ÷ total de avaliações. O cálculo respeita o período selecionado."
+                subExtra={kpiAvaliacoesTotal > 0 ? <UtilidadeBar sim={kpiSimTotal} nao={kpiNaoTotal} compacta /> : undefined}
               />
             </div>
           ) : (
@@ -719,6 +742,17 @@ export function CampanhaDashboard() {
           )}
 
           {/* Dados agregados no servidor; listas paginadas não alimentam gráficos. */}
+          {blocos.graficoImpressoes && !blocos.funilEngajamento && (
+            <div className="mb-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(330px,.75fr)]">
+              <ImpressionChart
+                serie={serieImpressao}
+                serieAnterior={serieAnterior}
+                mediaDiaria={mediaDiaria}
+                titulo="Impressões dos destaques"
+              />
+              <ActivityPanel atividade={atividadeSemana} maiorDia={maiorDia} total={totalAtividade} percentualMaiorDia={percentualMaiorDia} nomesDias={nomesDias} />
+            </div>
+          )}
           {blocos.funilEngajamento && (
             <div className="mb-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(330px,.75fr)]">
               <div className="grid min-w-0 gap-4">
@@ -1084,55 +1118,14 @@ export function CampanhaDashboard() {
           {blocos.desempenhoDestaques && desempenhoDestaques.length > 0 && (
             <>
               <SectionTitle icon="new_releases" tooltip={TOOLTIP_DESEMPENHO_DESTAQUES}>Desempenho dos destaques</SectionTitle>
-              <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden mb-6">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead className="bg-surface-container-low border-b border-outline-variant">
-                      <tr>
-                        {[
-                          'Destaque', 'Visualizações', 'Únicos', 'Interações', 'Únicos', 'Cliques CTA', 'Únicos', 'Dispensaram', 'Únicos',
-                          'Avaliações', 'Sim', 'Não', '% útil',
-                        ].map((h, i) => (
-                          <th key={`${h}-${i}`} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-outline-variant/30">
-                      {desempenhoDestaques.map(item => (
-                        <tr key={item.destaque_item_id} className="hover:bg-surface-container-low/50 transition-colors">
-                          <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[220px]">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[13px] truncate text-on-surface" title={item.titulo}>{item.titulo}</span>
-                              {!item.ativo && (
-                                <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-outline-variant/30 text-outline">
-                                  Removido
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.visualizacoes.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.visualizacoes_unicas.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.interacoes.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.interacoes_unicas.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.cliques_cta.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.cliques_cta_unicos.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.dispensas.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.dispensas_unicas.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.avaliacoes.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.sim.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle"><CellText value={item.nao.toLocaleString('pt-BR')} /></td>
-                          <td className="px-4 py-3 whitespace-nowrap align-middle">
-                            {item.percentual_util === null ? (
-                              <span className="text-[13px] text-outline italic">Sem avaliações</span>
-                            ) : (
-                              <CellText value={`${item.percentual_util.toLocaleString('pt-BR')}%`} />
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+                {destaquesOrdenados.map((item, index) => (
+                  <DestaquePerformanceCard
+                    key={item.destaque_item_id}
+                    item={item}
+                    liderUtilidade={index === 0 && item.ativo && item.percentual_util !== null}
+                  />
+                ))}
               </div>
             </>
           )}
@@ -1546,10 +1539,11 @@ function formatarDataGrafico(data: string) {
     .replace('.', '')
 }
 
-function ImpressionChart({ serie, serieAnterior, mediaDiaria }: {
+function ImpressionChart({ serie, serieAnterior, mediaDiaria, titulo = 'Impressões da campanha' }: {
   serie: SerieImpressaoDashboard
   serieAnterior: SerieImpressaoDashboard
   mediaDiaria: number
+  titulo?: string
 }) {
   const [indiceAtivo, setIndiceAtivo] = useState<number | null>(null)
   const [comparacaoVisivel, setComparacaoVisivel] = useState(true)
@@ -1602,7 +1596,7 @@ function ImpressionChart({ serie, serieAnterior, mediaDiaria }: {
   return (
     <article className="rounded-[22px] border border-[#e7ebf2] bg-white p-5 shadow-sm sm:p-[22px]">
       <div className="mb-[18px] flex flex-wrap items-start justify-between gap-4">
-        <div><h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">Impressões da campanha</h3><p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">Passe pelo gráfico para explorar cada dia</p></div>
+        <div><h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">{titulo}</h3><p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">Passe pelo gráfico para explorar cada dia</p></div>
         <div className="flex flex-wrap items-center gap-3.5 text-[11px] font-bold text-[#667085]">
           <span className="inline-flex items-center gap-2"><i className="h-[3px] w-4 rounded bg-primary" />Período atual</span>
           {serieAnterior.length > 0 && (
@@ -1728,6 +1722,74 @@ function NpsDeepDive({ score, promotores, neutros, detratores, pctProm, pctNeut,
     <div className="min-w-0 rounded-[18px] border border-[#e7ebf2] bg-white p-[18px]"><p className="mb-3.5 text-[12px] font-extrabold text-[#475467]">Distribuição das notas (0 a 10)</p><div className="overflow-x-auto"><div className="grid h-[220px] min-w-[460px] grid-cols-11 items-end gap-2">{Array.from({ length: 11 }, (_, nota) => { const total = distribuicao[String(nota)] ?? 0; return <div key={nota} className="flex min-w-0 flex-col items-center justify-end gap-2"><span className="text-[10px] font-extrabold text-[#475467]">{total}</span><div className={`w-full max-w-[42px] rounded-t-[10px] ${notaColor(nota)}`} style={{ height: `${Math.max(8, Math.round(total / maxDist * 150))}px` }} /><span className="text-[10px] font-bold text-[#98a2b3]">{nota}</span></div>})}</div></div></div>
     <div className="grid gap-3"><div className="rounded-[18px] border border-[#e7ebf2] bg-[#fbfcfe] p-4"><p className="mb-2 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">Maior concentração</p><strong className="text-[26px] tracking-[-0.04em] text-[#101828]">Nota {notaMaisFrequente.nota}</strong><p className="mt-1.5 text-[12px] font-semibold leading-[1.5] text-[#667085]">{notaMaisFrequente.total} respostas estão nessa nota, a maior concentração do período.</p></div><div className="rounded-[18px] border border-[#e7ebf2] bg-[#fbfcfe] p-4"><p className="mb-2 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">Risco atual</p><strong className="text-[26px] tracking-[-0.04em] text-[#101828]">{pctDetr}%</strong><p className="mt-1.5 text-[12px] font-semibold leading-[1.5] text-[#667085]">O percentual de detratores é o principal ponto de atenção desta campanha.</p></div></div>
   </div></article>
+}
+
+function taxaDestaque(valor: number, visualizacoes: number) {
+  return visualizacoes > 0 ? Math.round(valor / visualizacoes * 1000) / 10 : 0
+}
+
+function UtilidadeBar({ sim, nao, compacta = false }: { sim: number; nao: number; compacta?: boolean }) {
+  const total = sim + nao
+  const percentualSim = total > 0 ? sim / total * 100 : 0
+  return (
+    <div>
+      <div className={`flex w-full overflow-hidden rounded-full bg-[#eef2f6] ${compacta ? 'h-1.5' : 'h-2.5'}`} aria-label={`${sim} respostas Sim e ${nao} respostas Não`}>
+        <span className="bg-[#12b76a] transition-[width] duration-300" style={{ width: `${percentualSim}%` }} />
+        <span className="bg-[#f97066] transition-[width] duration-300" style={{ width: `${100 - percentualSim}%` }} />
+      </div>
+      <div className={`flex items-center justify-between font-bold ${compacta ? 'mt-1.5 text-[10px]' : 'mt-2.5 text-[11px]'}`}>
+        <span className="inline-flex items-center gap-1.5 text-[#027a48]"><i className="h-2 w-2 rounded-full bg-[#12b76a]" />Sim {sim.toLocaleString('pt-BR')}</span>
+        <span className="inline-flex items-center gap-1.5 text-[#b42318]"><i className="h-2 w-2 rounded-full bg-[#f97066]" />Não {nao.toLocaleString('pt-BR')}</span>
+      </div>
+    </div>
+  )
+}
+
+function DestaquePerformanceCard({ item, liderUtilidade }: { item: DesempenhoDestaqueItem; liderUtilidade: boolean }) {
+  const metricas = [
+    { rotulo: 'Interações', valor: item.interacoes, unicos: item.interacoes_unicas, taxa: taxaDestaque(item.interacoes, item.visualizacoes), cor: 'text-[#6941c6]', fundo: 'bg-[#f4f0ff]' },
+    { rotulo: 'Cliques CTA', valor: item.cliques_cta, unicos: item.cliques_cta_unicos, taxa: taxaDestaque(item.cliques_cta, item.visualizacoes), cor: 'text-[#027a48]', fundo: 'bg-[#ecfdf3]' },
+    { rotulo: 'Dispensas', valor: item.dispensas, unicos: item.dispensas_unicas, taxa: taxaDestaque(item.dispensas, item.visualizacoes), cor: 'text-[#b42318]', fundo: 'bg-[#fff1f0]' },
+  ]
+
+  return (
+    <article className={`flex min-w-0 flex-col rounded-[22px] border bg-white p-5 shadow-sm transition-colors ${item.ativo ? 'border-[#e7ebf2] hover:border-primary/30' : 'border-[#e7ebf2] opacity-75'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="truncate text-[15px] font-extrabold text-[#101828]" title={item.titulo}>{item.titulo}</h4>
+            {!item.ativo && <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[#667085]">Removido</span>}
+            {liderUtilidade && <span className="rounded-full bg-[#ecfdf3] px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[#027a48]">Maior % útil</span>}
+          </div>
+          <p className="mt-1 text-[11px] font-semibold text-[#98a2b3]">Desempenho no período selecionado</p>
+        </div>
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary"><span className="material-symbols-outlined text-[18px]">new_releases</span></span>
+      </div>
+
+      <div className="mt-5 flex items-end justify-between gap-4 border-b border-[#e7ebf2] pb-4">
+        <div><p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">Visualizações</p><strong className="mt-1 block text-[32px] leading-none tracking-[-0.04em] text-[#101828]">{item.visualizacoes.toLocaleString('pt-BR')}</strong></div>
+        <div className="text-right"><p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">Usuários únicos</p><strong className="mt-1 block text-[20px] text-[#344054]">{item.visualizacoes_unicas.toLocaleString('pt-BR')}</strong></div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-3 gap-2">
+        {metricas.map(metrica => (
+          <div key={metrica.rotulo} className={`min-w-0 rounded-2xl p-3 ${metrica.fundo}`}>
+            <p className="truncate text-[10px] font-extrabold uppercase tracking-[.03em] text-[#667085]" title={metrica.rotulo}>{metrica.rotulo}</p>
+            <div className="mt-2 flex items-end gap-1.5"><strong className={`text-[20px] leading-none ${metrica.cor}`}>{metrica.valor.toLocaleString('pt-BR')}</strong><span className={`text-[10px] font-extrabold ${metrica.cor}`}>{metrica.taxa.toLocaleString('pt-BR')}%</span></div>
+            <p className="mt-1.5 truncate text-[10px] font-semibold text-[#98a2b3]">{metrica.unicos.toLocaleString('pt-BR')} únicos</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-[#e7ebf2] bg-[#fbfcfe] p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div><p className="text-[11px] font-extrabold text-[#475467]">Este destaque foi útil?</p><p className="mt-0.5 text-[10px] font-semibold text-[#98a2b3]">{item.avaliacoes.toLocaleString('pt-BR')} {item.avaliacoes === 1 ? 'resposta' : 'respostas'}</p></div>
+          <strong className={`text-[22px] tracking-[-0.03em] ${item.percentual_util === null ? 'text-[#98a2b3]' : 'text-[#027a48]'}`}>{item.percentual_util === null ? '—' : `${item.percentual_util.toLocaleString('pt-BR')}%`}</strong>
+        </div>
+        {item.avaliacoes > 0 ? <UtilidadeBar sim={item.sim} nao={item.nao} /> : <p className="rounded-xl bg-white px-3 py-2 text-center text-[11px] font-semibold text-[#98a2b3]">Aguardando avaliações de utilidade</p>}
+      </div>
+    </article>
+  )
 }
 
 function SectionTitle({ icon, tooltip, children }: { icon: string; tooltip?: string; children: React.ReactNode }) {
