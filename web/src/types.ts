@@ -1,6 +1,7 @@
 export interface Campanha {
   id: string
   slug: string
+  nome_interno: string
   titulo: string
   // Eyebrow do modal por padrão; quando modo_exibicao === 'destaque_elemento'
   // (ver campanhas2/Index.tsx) é reutilizado como texto do badge (ex. "Novo").
@@ -489,6 +490,7 @@ export interface ResultadoElegibilidade {
   criterios: Criterio[]
   campanha_concorrente: {
     id: string
+    nome_interno: string
     titulo: string
     prioridade: number
     motivo: string

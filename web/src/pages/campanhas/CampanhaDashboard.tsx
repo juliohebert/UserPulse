@@ -629,7 +629,7 @@ export function CampanhaDashboard() {
             <span className="text-on-surface">Dashboard</span>
           </nav>
           <h2 className="text-headline-lg font-bold text-on-surface leading-tight break-words">
-            {data?.campanha.titulo ?? 'Dashboard da Campanha'}
+            {data?.campanha.nome_interno ?? 'Dashboard da Campanha'}
           </h2>
           {data && (
             <div className="flex flex-wrap items-center gap-2 mt-2">

@@ -193,9 +193,10 @@ describe('ocultarTenantId — nunca deixa tenant_id vazar numa resposta pública
   })
 
   test('remove tenant_id de um objeto simples, preservando os demais campos', () => {
-    const entrada = { id: 'c1', tenant_id: 't1', titulo: 'Campanha X', ativo: true }
+    const entrada = { id: 'c1', tenant_id: 't1', nome_interno: 'Interno', titulo: 'Campanha X', ativo: true }
     const saida = ocultarTenantId(entrada)
     assert.equal('tenant_id' in saida, false)
+    assert.equal('nome_interno' in saida, false)
     assert.deepEqual(saida, { id: 'c1', titulo: 'Campanha X', ativo: true })
   })
 
