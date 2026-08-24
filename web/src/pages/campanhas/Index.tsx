@@ -80,7 +80,7 @@ function StatusInline({ status }: { status: StatusCampanha }) {
 
 function valorOrdenacao(c: Campanha, key: SortKey): string | number {
   switch (key) {
-    case 'campanha': return c.titulo
+    case 'campanha': return c.nome_interno
     case 'tipo': return c.tipo
     case 'sistema': return `${c.sistema} ${c.tela}`
     case 'status': return STATUS_BADGE[getStatus(c)].label
@@ -201,7 +201,7 @@ function CampanhaCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <p className="text-body-md font-bold text-on-surface truncate">{c.titulo}</p>
+          <p className="text-body-md font-bold text-on-surface truncate">{c.nome_interno}</p>
           {(c.prioridade ?? 0) > 0 && (
             <Tooltip label={`Prioridade ${c.prioridade}`}>
               <span className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-full border border-primary/20 bg-primary/5 px-1.5 text-[10px] font-bold leading-none text-primary">
@@ -228,7 +228,7 @@ function CampanhaCard({
       <div onClick={e => e.stopPropagation()} className="flex flex-wrap gap-1 mt-3 pt-3 border-t border-outline-variant/20 [&>button]:flex-1 [&>button]:min-w-[64px]">
         <button
           onClick={() => navigate(`/campanhas/${c.id}/preview`)}
-          aria-label={`Abrir preview de ${c.titulo}`}
+          aria-label={`Abrir preview de ${c.nome_interno}`}
           className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-primary-fixed`}
         >
           <span className="material-symbols-outlined text-[20px]">visibility</span>
@@ -236,7 +236,7 @@ function CampanhaCard({
         </button>
         <button
           onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
-          aria-label={`Abrir dashboard de ${c.titulo}`}
+          aria-label={`Abrir dashboard de ${c.nome_interno}`}
           className={`${actionBtn} text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed`}
         >
           <span className="material-symbols-outlined text-[20px]">query_stats</span>
@@ -245,7 +245,7 @@ function CampanhaCard({
         {podeEscrever && (
           <button
             onClick={() => navigate(rotaEditarCampanha(c))}
-            aria-label={`Editar ${c.titulo}`}
+            aria-label={`Editar ${c.nome_interno}`}
             className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-surface-container-high`}
           >
             <span className="material-symbols-outlined text-[20px]">edit</span>
@@ -256,7 +256,7 @@ function CampanhaCard({
           <button
             onClick={() => onDuplicar(c)}
             disabled={duplicating}
-            aria-label={`Duplicar ${c.titulo}`}
+            aria-label={`Duplicar ${c.nome_interno}`}
             className={`${actionBtn} text-on-surface-variant hover:text-primary hover:bg-surface-container-high disabled:opacity-40`}
           >
             <span className={`material-symbols-outlined text-[20px] ${duplicating ? 'animate-spin' : ''}`}>{duplicating ? 'progress_activity' : 'content_copy'}</span>
@@ -267,7 +267,7 @@ function CampanhaCard({
           c.status === 'RASCUNHO' ? (
             <button
               onClick={() => onAtivar(c.id)}
-              aria-label={`Publicar ${c.titulo}`}
+              aria-label={`Publicar ${c.nome_interno}`}
               className={`${actionBtn} text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10`}
             >
               <span className="material-symbols-outlined text-[20px]">publish</span>
@@ -277,7 +277,7 @@ function CampanhaCard({
             <>
               <button
                 onClick={() => onInativar(c.id)}
-                aria-label={`Desativar ${c.titulo}`}
+                aria-label={`Desativar ${c.nome_interno}`}
                 className={`${actionBtn} text-on-surface-variant hover:text-error hover:bg-error-container`}
               >
                 <span className="material-symbols-outlined text-[20px]">block</span>
@@ -286,7 +286,7 @@ function CampanhaCard({
               {status !== 'encerrada' && (
                 <button
                   onClick={() => onEncerrar(c.id)}
-                  aria-label={`Encerrar ${c.titulo}`}
+                  aria-label={`Encerrar ${c.nome_interno}`}
                   className={`${actionBtn} text-on-surface-variant hover:text-outline hover:bg-surface-container-high`}
                 >
                   <span className="material-symbols-outlined text-[20px]">event_busy</span>
@@ -297,7 +297,7 @@ function CampanhaCard({
           ) : (
             <button
               onClick={() => onAtivar(c.id)}
-              aria-label={`Reativar ${c.titulo}`}
+              aria-label={`Reativar ${c.nome_interno}`}
               className={`${actionBtn} text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10`}
             >
               <span className="material-symbols-outlined text-[20px]">check_circle</span>
@@ -389,7 +389,7 @@ export function CampanhasIndex() {
   const termoBusca = buscaNome.trim().toLowerCase()
   const sistemas = [...new Set(campanhas.map(c => c.sistema).filter(Boolean))]
   const campanhasFiltradas = campanhas.filter(c => {
-    if (termoBusca && !c.titulo.toLowerCase().includes(termoBusca)) return false
+    if (termoBusca && !`${c.nome_interno} ${c.titulo}`.toLowerCase().includes(termoBusca)) return false
     if (filtroStatus !== 'todas' && getStatus(c) !== filtroStatus) return false
     if (filtroTipo && c.tipo !== filtroTipo) return false
     if (filtroSistema && c.sistema !== filtroSistema) return false
@@ -835,7 +835,7 @@ export function CampanhasIndex() {
                           {colunasVisiveis.campanha && (
                             <td className="px-4 py-4 align-middle max-w-[320px]">
                               <div className="flex items-center gap-2 min-w-0">
-                                <p className="text-body-md font-bold text-on-surface truncate">{c.titulo}</p>
+                                <p className="text-body-md font-bold text-on-surface truncate">{c.nome_interno}</p>
                                 {(c.prioridade ?? 0) > 0 && (
                                   <Tooltip label={`Prioridade ${c.prioridade}`}>
                                     <span className="inline-flex h-5 shrink-0 items-center gap-0.5 rounded-full border border-primary/20 bg-primary/5 px-1.5 text-[10px] font-bold leading-none text-primary">
@@ -906,7 +906,7 @@ export function CampanhasIndex() {
                               <TooltipIconButton
                                 label="Preview"
                                 onClick={() => navigate(`/campanhas/${c.id}/preview`)}
-                                ariaLabel={`Abrir preview de ${c.titulo}`}
+                                ariaLabel={`Abrir preview de ${c.nome_interno}`}
                                 className="p-2 text-on-surface-variant hover:text-primary hover:bg-primary-fixed rounded-full transition-all"
                               >
                                 <span className="material-symbols-outlined text-[18px]">visibility</span>
@@ -914,7 +914,7 @@ export function CampanhasIndex() {
                               <TooltipIconButton
                                 label="Ver dashboard"
                                 onClick={() => navigate(`/campanhas/${c.id}/dashboard`)}
-                                ariaLabel={`Abrir dashboard de ${c.titulo}`}
+                                ariaLabel={`Abrir dashboard de ${c.nome_interno}`}
                                 className="p-2 text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed rounded-full transition-all"
                               >
                                 <span className="material-symbols-outlined text-[18px]">query_stats</span>
@@ -923,7 +923,7 @@ export function CampanhasIndex() {
                                 <TooltipIconButton
                                   label="Editar"
                                   onClick={() => navigate(rotaEditarCampanha(c))}
-                                  ariaLabel={`Editar ${c.titulo}`}
+                                  ariaLabel={`Editar ${c.nome_interno}`}
                                   className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all"
                                 >
                                   <span className="material-symbols-outlined text-[18px]">edit</span>
@@ -933,7 +933,7 @@ export function CampanhasIndex() {
                                 <TooltipIconButton
                                   label="Duplicar"
                                   onClick={() => duplicarCampanha(c)}
-                                  ariaLabel={`Duplicar ${c.titulo}`}
+                                  ariaLabel={`Duplicar ${c.nome_interno}`}
                                   className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all"
                                 >
                                   <span className={`material-symbols-outlined text-[18px] ${duplicandoId === c.id ? 'animate-spin' : ''}`}>
@@ -946,7 +946,7 @@ export function CampanhasIndex() {
                                   <TooltipIconButton
                                     label="Publicar"
                                     onClick={() => handleAtivar(c.id)}
-                                    ariaLabel={`Publicar ${c.titulo}`}
+                                    ariaLabel={`Publicar ${c.nome_interno}`}
                                     className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-full transition-all"
                                   >
                                     <span className="material-symbols-outlined text-[18px]">publish</span>
@@ -956,7 +956,7 @@ export function CampanhasIndex() {
                                     <TooltipIconButton
                                       label="Desativar"
                                       onClick={() => solicitarInativacao(c.id)}
-                                      ariaLabel={`Desativar ${c.titulo}`}
+                                      ariaLabel={`Desativar ${c.nome_interno}`}
                                       className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-full transition-all"
                                     >
                                       <span className="material-symbols-outlined text-[18px]">block</span>
@@ -965,7 +965,7 @@ export function CampanhasIndex() {
                                       <TooltipIconButton
                                         label="Encerrar"
                                         onClick={() => solicitarEncerramento(c.id)}
-                                        ariaLabel={`Encerrar ${c.titulo}`}
+                                        ariaLabel={`Encerrar ${c.nome_interno}`}
                                         className="p-2 text-on-surface-variant hover:text-outline hover:bg-surface-container-high rounded-full transition-all"
                                       >
                                         <span className="material-symbols-outlined text-[18px]">event_busy</span>
@@ -976,7 +976,7 @@ export function CampanhasIndex() {
                                   <TooltipIconButton
                                     label="Reativar"
                                     onClick={() => handleAtivar(c.id)}
-                                    ariaLabel={`Reativar ${c.titulo}`}
+                                    ariaLabel={`Reativar ${c.nome_interno}`}
                                     className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-full transition-all"
                                   >
                                     <span className="material-symbols-outlined text-[18px]">check_circle</span>

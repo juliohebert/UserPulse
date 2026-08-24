@@ -487,7 +487,7 @@ export function Dashboard() {
     ...campanhas.map((c) => ({
       tipo: "campanha" as const,
       id: c.id,
-      titulo: c.titulo,
+      titulo: c.nome_interno,
       criado_em: c.criado_em,
       meta: `${c._count?.feedbacks ?? 0} resposta${(c._count?.feedbacks ?? 0) === 1 ? "" : "s"}`,
     })),
@@ -849,7 +849,7 @@ export function Dashboard() {
                                 <td className="px-5 py-4">
                                   <div className="flex flex-col">
                                     <span className="text-body-md font-bold text-on-surface">
-                                      {c.titulo}
+                                      {c.nome_interno}
                                     </span>
                                     <span className="text-[11px] text-on-surface-variant">
                                       {c.sistema} · {c.tela}
@@ -883,7 +883,7 @@ export function Dashboard() {
                                           navigate(`/campanhas/${c.id}/editar`)
                                         }
                                         title="Editar"
-                                        aria-label={`Editar ${c.titulo}`}
+                                        aria-label={`Editar ${c.nome_interno}`}
                                         className="p-2 text-on-surface-variant hover:text-primary rounded-lg transition-colors"
                                       >
                                         <span className="material-symbols-outlined text-[18px]">
@@ -896,7 +896,7 @@ export function Dashboard() {
                                         navigate(`/campanhas/${c.id}/dashboard`)
                                       }
                                       title="Dashboard"
-                                      aria-label={`Abrir dashboard de ${c.titulo}`}
+                                      aria-label={`Abrir dashboard de ${c.nome_interno}`}
                                       className="p-2 text-on-surface-variant hover:text-secondary rounded-lg transition-colors"
                                     >
                                       <span className="material-symbols-outlined text-[18px]">
@@ -910,7 +910,7 @@ export function Dashboard() {
                                           setCampanhaInativar(c);
                                         }}
                                         title="Inativar"
-                                        aria-label={`Inativar ${c.titulo}`}
+                                        aria-label={`Inativar ${c.nome_interno}`}
                                         className="p-2 text-on-surface-variant hover:text-error rounded-lg transition-colors"
                                       >
                                         <span className="material-symbols-outlined text-[18px]">

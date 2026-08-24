@@ -622,6 +622,9 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
       </div>
 
       <div>
+      <div className="mb-5 rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] p-4">
+        <CampoDock label="Nome interno (admin)" hint="Usado apenas para identificar e buscar esta campanha na gestão." value={form.nome_interno} onChange={valor => setCampo('nome_interno', valor)} placeholder="Ex.: Onboarding - novo dashboard" />
+      </div>
       {secao === 'destino' && (
         <div className="space-y-5">
           <div>

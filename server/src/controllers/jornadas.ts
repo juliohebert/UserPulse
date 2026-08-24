@@ -157,7 +157,7 @@ const INCLUDE_BLOCOS = {
         orderBy: { ordem: 'asc' as const },
         include: {
           tour: { select: { id: true, titulo: true, slug: true } },
-          campanha: { select: { id: true, titulo: true, slug: true, ativo: true } },
+          campanha: { select: { id: true, nome_interno: true, titulo: true, slug: true, ativo: true } },
         },
       },
     },

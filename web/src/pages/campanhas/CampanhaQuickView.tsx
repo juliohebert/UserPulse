@@ -68,7 +68,7 @@ export function CampanhaQuickView({ campanha, onClose }: Props) {
         <div className="flex-1 overflow-y-auto">
           {/* Título e meta */}
           <div className="px-5 pt-5 pb-4 border-b border-outline-variant/30">
-            <h2 className="text-headline-sm font-bold text-on-surface leading-tight">{campanha.titulo}</h2>
+            <h2 className="text-headline-sm font-bold text-on-surface leading-tight">{campanha.nome_interno}</h2>
             {campanha.subtitulo && (
               <p className="mt-1 text-body-md font-semibold text-primary">{campanha.subtitulo}</p>
             )}
