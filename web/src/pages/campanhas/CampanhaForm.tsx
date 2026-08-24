@@ -13,6 +13,8 @@ import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 import { criarResolvedorIdDestaque, urlHttpValida } from '../../components/campanhas/DestaqueElementoSimulacao.logic'
+import { ReordenarPrioridade } from './ReordenarPrioridade'
+import { chaveGrupoConcorrente } from './grupoConcorrente'
 import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm.utils'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
@@ -338,13 +340,17 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
   )
 }
 
-function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editando, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview }: {
+function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editando, temGrupoConcorrente, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview, onDefinirPrioridade }: {
   secao: SecaoDock
   form: FormState
   catalogoTelas: TelaCatalogo[]
   temSistemas: boolean
   salvando: boolean
   editando: boolean
+  // Só true quando a campanha já salva tem 1+ concorrente (mesmo grupo, ver
+  // chaveGrupoConcorrente em grupoConcorrente.ts) — controla se o botão
+  // "Definir prioridade de exibição" aparece abaixo.
+  temGrupoConcorrente: boolean
   setCampo: <K extends keyof FormState>(campo: K, valor: FormState[K]) => void
   setSecao: (secao: SecaoDock) => void
   onSelecionarTela: (telaId: string) => void
@@ -356,6 +362,7 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
   onGerenciarSistemas?: () => void
   onLimpar: () => void
   onPreview: () => void
+  onDefinirPrioridade: () => void
 }) {
   // Inicializado a partir do form já hidratado (DockLateral só monta depois
   // que carregandoCampanha vira false — ver early return em Index) em vez
@@ -919,10 +926,23 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
             )
           })()}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <CampoDock label="Tempo antes de aparecer (ms)" value={form.atraso_ms} onChange={valor => setCampo('atraso_ms', valor)} type="number" />
-            <CampoDock label="Prioridade" value={form.prioridade} onChange={valor => setCampo('prioridade', valor)} type="number" />
-          </div>
+          <CampoDock label="Tempo antes de aparecer (ms)" value={form.atraso_ms} onChange={valor => setCampo('atraso_ms', valor)} type="number" />
+          {/* Prioridade não é mais digitada aqui — ordenação visual (setas
+              ↑/↓, mesmo componente ReordenarPrioridade.tsx usado na listagem
+              de Campanhas, aberto aqui como overlay sobre o próprio
+              formulário — ver reordenarAberto/onSaved em
+              CampanhaFormIndex) define a prioridade de exibição entre
+              campanhas concorrentes (mesmo grupo: sistema/tela ou
+              url_contem + gatilho). O valor atual de form.prioridade
+              continua sendo carregado/reenviado sem alteração (ver
+              hidratarFormState/montarPayloadCampanha), só não é mais
+              editável por aqui — só o botão abaixo (visível apenas ao
+              editar uma campanha com concorrente) muda a prioridade. */}
+          {editando && temGrupoConcorrente && (
+            <Button type="button" variant="ghost" size="sm" onClick={onDefinirPrioridade}>
+              Definir prioridade de exibição
+            </Button>
+          )}
         </div>
       )}
 
@@ -1840,6 +1860,22 @@ export function CampanhaFormIndex() {
   // existia um mecanismo de dirty genérico no projeto pra reaproveitar.
   const formCarregadoRef = useRef<FormState | null>(null)
 
+  // Todas as campanhas do tenant (mesma chamada que já alimentava a lista
+  // de sistemas abaixo) — reaproveitada só pra saber, ao editar, se a
+  // campanha atual tem concorrente (mesmo grupo, ver chaveGrupoConcorrente)
+  // e abrir a reordenação sobre este formulário (ver
+  // temGrupoConcorrente/reordenarAberto).
+  const [campanhasExistentes, setCampanhasExistentes] = useState<Campanha[]>([])
+  const [reordenarAberto, setReordenarAberto] = useState(false)
+
+  const grupoAtual = useMemo(() => {
+    if (!campanhaAtual) return null
+    const chave = chaveGrupoConcorrente(campanhaAtual)
+    if (!chave) return null
+    const membros = campanhasExistentes.filter(c => chaveGrupoConcorrente(c) === chave)
+    return membros.length >= 2 ? { chave, campanhas: membros } : null
+  }, [campanhaAtual, campanhasExistentes])
+
   const embedUrl = useMemo(() => converterVideoEmbed(form.video_url), [form.video_url])
   const aparenciaAtual = useMemo(() => {
     const chave = form.sistema.trim()
@@ -1869,6 +1905,8 @@ export function CampanhaFormIndex() {
     async function carregarSistemasDeCampanhasExistentes() {
       const campanhas = await get<Campanha[]>('/campanhas').catch(() => [])
       if (cancelado) return
+
+      setCampanhasExistentes(campanhas)
 
       const sistemasCampanhas = campanhas.map(c => c.sistema).filter(Boolean)
       if (sistemasCampanhas.length === 0) return
@@ -2065,6 +2103,33 @@ export function CampanhaFormIndex() {
     }
   }
 
+  // POST /campanhas/reordenar (chamado dentro do overlay) já persiste a
+  // nova prioridade no backend — aqui só rebusca a campanha atual pra
+  // sincronizar form.prioridade (e o snapshot formCarregadoRef, pra não
+  // acusar alteração não salva por causa disso) com o valor novo. Sem isso,
+  // um "Salvar alterações" logo em seguida reenviaria via PUT o
+  // form.prioridade antigo (ver montarPayloadCampanha) e sobrescreveria a
+  // ordem que acabou de ser definida. Nunca troca o resto do form, mesmo
+  // princípio de publicarOuReativarCampanha acima.
+  async function aoSalvarPrioridade() {
+    setReordenarAberto(false)
+    if (!id) return
+    try {
+      const atualizada = await get<Campanha>(`/campanhas/${id}`)
+      const prioridade = String(atualizada.prioridade)
+      setForm(prev => ({ ...prev, prioridade }))
+      if (formCarregadoRef.current) {
+        formCarregadoRef.current = { ...formCarregadoRef.current, prioridade }
+      }
+      setCampanhaAtual(atualizada)
+    } catch {
+      // Prioridade já foi salva no backend (reorder concluiu antes de
+      // chegar aqui) — só a sincronização local falhou; o próximo
+      // carregamento da página traz o valor certo.
+    }
+    get<Campanha[]>('/campanhas').then(setCampanhasExistentes).catch(() => {})
+  }
+
   const AVISO_ALTERACOES_PENDENTES = 'Salve as alterações antes de alterar o status da campanha.'
 
   // O form pode divergir do que está persistido (usuário editou e não
@@ -2248,6 +2313,7 @@ export function CampanhaFormIndex() {
           temSistemas={sistemasConfig.length > 0}
           salvando={salvando}
           editando={Boolean(id)}
+          temGrupoConcorrente={grupoAtual !== null}
           setCampo={setCampo}
           setSecao={setSecaoDock}
           onSelecionarTela={selecionarTelaCatalogo}
@@ -2255,8 +2321,17 @@ export function CampanhaFormIndex() {
           onGerenciarSistemas={podeGerenciarConfiguracoes ? () => navigate('/configuracoes/sistemas') : undefined}
           onLimpar={limparConstrutor}
           onPreview={() => setPreviewAberto(true)}
+          onDefinirPrioridade={() => setReordenarAberto(true)}
         />
       </form>
+
+      {reordenarAberto && grupoAtual && (
+        <ReordenarPrioridade
+          grupos={[grupoAtual]}
+          onClose={() => setReordenarAberto(false)}
+          onSaved={aoSalvarPrioridade}
+        />
+      )}
 
       {modalNovaTelaAberto && (
         <TelaCatalogoModal

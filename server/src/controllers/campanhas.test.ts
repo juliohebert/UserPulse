@@ -17,6 +17,10 @@ import {
   resolverEncerramentoCampanha,
   motivoBloqueioReaberturaEncerrada,
   motivoBloqueioPublicarComDataFimPassada,
+  chaveGrupoConcorrente,
+  validarIdsReordenacao,
+  calcularPrioridadesReordenadas,
+  type CampanhaGrupoInput,
   type DestaqueItemInput,
 } from './campanhas'
 
@@ -508,5 +512,118 @@ describe('motivoBloqueioPublicarComDataFimPassada', () => {
 
   test('publicar com data_fim futura -> permitido', () => {
     assert.equal(motivoBloqueioPublicarComDataFimPassada(FUTURA, AGORA), null)
+  })
+})
+
+describe('validarIdsReordenacao', () => {
+  // idsDoGrupo simula o subconjunto já filtrado por chaveGrupoConcorrente
+  // (calculado pelo controller), nunca o total de campanhas do tenant.
+  const idsDoGrupo = ['a', 'b', 'c']
+
+  test('lista vazia ou não-array -> erro', () => {
+    assert.match(validarIdsReordenacao([], idsDoGrupo).erro!, /Informe a lista/)
+    assert.match(validarIdsReordenacao(null, idsDoGrupo).erro!, /Informe a lista/)
+    assert.match(validarIdsReordenacao('a,b,c', idsDoGrupo).erro!, /Informe a lista/)
+  })
+
+  test('item não-string ou vazio -> erro', () => {
+    assert.match(validarIdsReordenacao(['a', 2, 'c'], idsDoGrupo).erro!, /inválida/)
+    assert.match(validarIdsReordenacao(['a', '  ', 'c'], idsDoGrupo).erro!, /inválida/)
+  })
+
+  test('ids duplicados -> erro', () => {
+    assert.match(validarIdsReordenacao(['a', 'b', 'a'], ['a', 'b']).erro!, /duplicados/)
+  })
+
+  test('lista que não bate exatamente com o grupo -> erro', () => {
+    assert.match(validarIdsReordenacao(['a', 'b'], idsDoGrupo).erro!, /grupo de prioridade/)
+    assert.match(validarIdsReordenacao(['a', 'b', 'x'], idsDoGrupo).erro!, /grupo de prioridade/)
+  })
+
+  test('lista válida (mesmo conjunto do grupo, ordem qualquer) -> sem erro', () => {
+    const resultado = validarIdsReordenacao(['c', 'a', 'b'], idsDoGrupo)
+    assert.equal(resultado.erro, null)
+    assert.deepEqual(resultado.ids, ['c', 'a', 'b'])
+  })
+})
+
+describe('chaveGrupoConcorrente', () => {
+  function campanha(overrides: Partial<CampanhaGrupoInput>): CampanhaGrupoInput {
+    return {
+      id: 'x',
+      sistema: 'esig',
+      tela: 'Agenda',
+      modo_identificacao: 'sistema_tela',
+      url_contem: null,
+      gatilho: 'ao_abrir_tela',
+      evento: null,
+      ...overrides,
+    }
+  }
+
+  test('sistema_tela: mesma sistema+tela -> mesma chave', () => {
+    const a = chaveGrupoConcorrente(campanha({ id: 'a' }))
+    const b = chaveGrupoConcorrente(campanha({ id: 'b' }))
+    assert.equal(a, b)
+    assert.ok(a)
+  })
+
+  test('sistema_tela: telas diferentes -> chaves diferentes', () => {
+    const a = chaveGrupoConcorrente(campanha({ tela: 'Agenda' }))
+    const b = chaveGrupoConcorrente(campanha({ tela: 'Faturamento' }))
+    assert.notEqual(a, b)
+  })
+
+  test('sistemas diferentes -> chaves diferentes mesmo com a mesma tela', () => {
+    const a = chaveGrupoConcorrente(campanha({ sistema: 'esig' }))
+    const b = chaveGrupoConcorrente(campanha({ sistema: 'quark' }))
+    assert.notEqual(a, b)
+  })
+
+  test('url_contem: mesma sistema+url_contem -> mesma chave', () => {
+    const a = chaveGrupoConcorrente(campanha({ modo_identificacao: 'url_contem', url_contem: '/agenda', tela: null }))
+    const b = chaveGrupoConcorrente(campanha({ modo_identificacao: 'url_contem', url_contem: '/agenda', tela: null }))
+    assert.equal(a, b)
+    assert.ok(a)
+  })
+
+  test('url_contem sem valor -> sem grupo (null)', () => {
+    assert.equal(chaveGrupoConcorrente(campanha({ modo_identificacao: 'url_contem', url_contem: null })), null)
+  })
+
+  test('sistema_tela e url_contem nunca competem entre si', () => {
+    const a = chaveGrupoConcorrente(campanha({ modo_identificacao: 'sistema_tela', tela: 'Agenda' }))
+    const b = chaveGrupoConcorrente(campanha({ modo_identificacao: 'url_contem', url_contem: 'Agenda' }))
+    assert.notEqual(a, b)
+  })
+
+  test('data_cy nunca forma grupo -> sempre null', () => {
+    assert.equal(chaveGrupoConcorrente(campanha({ modo_identificacao: 'data_cy' })), null)
+  })
+
+  test('apos_evento com eventos diferentes -> chaves diferentes', () => {
+    const a = chaveGrupoConcorrente(campanha({ gatilho: 'apos_evento', evento: 'salvou_ficha' }))
+    const b = chaveGrupoConcorrente(campanha({ gatilho: 'apos_evento', evento: 'abriu_relatorio' }))
+    assert.notEqual(a, b)
+  })
+
+  test('ao_abrir_tela e apos_evento (mesma tela) nunca competem entre si', () => {
+    const a = chaveGrupoConcorrente(campanha({ gatilho: 'ao_abrir_tela' }))
+    const b = chaveGrupoConcorrente(campanha({ gatilho: 'apos_evento', evento: 'salvou_ficha' }))
+    assert.notEqual(a, b)
+  })
+})
+
+describe('calcularPrioridadesReordenadas', () => {
+  test('primeiro da lista recebe a maior prioridade, decrescendo por posição', () => {
+    assert.deepEqual(calcularPrioridadesReordenadas(['x', 'y', 'z']), [
+      { id: 'x', prioridade: 3 },
+      { id: 'y', prioridade: 2 },
+      { id: 'z', prioridade: 1 },
+    ])
+  })
+
+  test('lista com 1 item -> prioridade 1', () => {
+    assert.deepEqual(calcularPrioridadesReordenadas(['único']), [{ id: 'único', prioridade: 1 }])
   })
 })

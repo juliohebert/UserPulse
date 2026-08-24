@@ -12,6 +12,12 @@ const router = Router()
 // permissoes_personalizadas=false, que replica esse comportamento aberto).
 router.get('/', requireAcessoModulo('CAMPANHAS', 'VISUALIZAR'), campanhas.listar)
 router.post('/', requireEscritaConteudo('CAMPANHAS'), campanhas.criar)
+// Reordenação visual de prioridade (sem digitar número) — corpo sempre traz
+// a lista INTEIRA de ids do GRUPO CONCORRENTE na nova ordem (mesma
+// sistema/tela ou url_contem + gatilho[+evento], nunca o tenant inteiro),
+// ver chaveGrupoConcorrente()/reordenar() em controllers/campanhas.ts. Rota
+// de segmento único, nunca colide com as rotas `/:id/...` abaixo.
+router.post('/reordenar', requireEscritaConteudo('CAMPANHAS'), campanhas.reordenar)
 router.post('/:id/duplicar', requireEscritaConteudo('CAMPANHAS'), campanhas.duplicar)
 router.get('/:id', requireAcessoModulo('CAMPANHAS', 'VISUALIZAR'), campanhas.buscarPorId)
 router.put('/:id', requireEscritaConteudo('CAMPANHAS'), campanhas.atualizar)
