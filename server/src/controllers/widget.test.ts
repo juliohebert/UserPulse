@@ -11,10 +11,37 @@ import {
 const DIA_MS = 86_400_000
 const AGORA = new Date('2026-07-10T12:00:00Z')
 const FONTE_WIDGET = readFileSync(new URL('./widget.ts', import.meta.url), 'utf8')
+const FONTE_SEED = readFileSync(new URL('../../prisma/seed.ts', import.meta.url), 'utf8')
 
 function diasAtras(dias: number): Date {
   return new Date(AGORA.getTime() - dias * DIA_MS)
 }
+
+describe('contrato de eventos das campanhas demo', () => {
+  test('seed usa os mesmos tipos de evento aceitos pelo widget', () => {
+    for (const tipoLegado of ['feedback_enviado', 'visualizada', 'cta_clicado', 'fechada']) {
+      assert.equal(FONTE_SEED.includes(`'${tipoLegado}'`), false, `tipo legado encontrado no seed: ${tipoLegado}`)
+    }
+    assert.match(FONTE_SEED, /tipo_evento: 'visualizacao'/)
+  })
+
+  test('seed de destaque cria itens, tracking por item e avaliações de utilidade', () => {
+    assert.match(FONTE_SEED, /modo_exibicao: 'destaque_elemento'/)
+    assert.match(FONTE_SEED, /destaques: \[/)
+    assert.match(FONTE_SEED, /destaque_item_id: destaqueItemId/)
+    assert.match(FONTE_SEED, /tipo_avaliacao: 'utilidade_destaque'/)
+    assert.match(FONTE_SEED, /nota: null/)
+    assert.match(FONTE_SEED, /adicionarEventos\([^\n]+, 'interacao_badge'/)
+    assert.match(FONTE_SEED, /adicionarEventos\([^\n]+, 'clique_cta'/)
+    assert.match(FONTE_SEED, /adicionarEventos\([^\n]+, 'dispensa'/)
+    assert.match(FONTE_SEED, /\.\.\.gerarEventosDestaqueSeed\(\)/)
+    assert.match(FONTE_SEED, /const avaliacoesDestaqueSeed = gerarAvaliacoesDestaqueSeed\(\)/)
+    assert.match(FONTE_SEED, /campanha_id: \{ in: campanhaIds \}/)
+    assert.match(FONTE_SEED, /idSeed\('destaque', tenant_id/)
+    assert.match(FONTE_SEED, /where: \{ id: \{ notIn: destaques\.map/)
+    assert.match(FONTE_SEED, /data: \{ ativo: false \}/)
+  })
+})
 
 const CAMPANHA_REEXIBICAO = {
   politica_reexibicao: 'uma_vez_apos_visualizacao',
@@ -193,9 +220,10 @@ describe('ocultarTenantId — nunca deixa tenant_id vazar numa resposta pública
   })
 
   test('remove tenant_id de um objeto simples, preservando os demais campos', () => {
-    const entrada = { id: 'c1', tenant_id: 't1', titulo: 'Campanha X', ativo: true }
+    const entrada = { id: 'c1', tenant_id: 't1', nome_interno: 'Interno', titulo: 'Campanha X', ativo: true }
     const saida = ocultarTenantId(entrada)
     assert.equal('tenant_id' in saida, false)
+    assert.equal('nome_interno' in saida, false)
     assert.deepEqual(saida, { id: 'c1', titulo: 'Campanha X', ativo: true })
   })
 

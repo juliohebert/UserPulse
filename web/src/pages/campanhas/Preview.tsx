@@ -11,7 +11,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 
-// Esta página não busca a aparência por sistema (diferente de campanhas2,
+// Esta página não busca a aparência por sistema (diferente do formulário de campanhas,
 // que usa a cor do tenant) — cobalto fixo, mesmo tom de {colors.primary} no
 // DESIGN.md, único usado nos outros elementos desta simulação (bg-primary).
 const CORACAO_SIMULACAO = '#0064e0'
@@ -174,7 +174,7 @@ export function CampanhaPreview() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-title-lg font-bold text-on-surface">{campanha.titulo}</h2>
+            <h2 className="text-title-lg font-bold text-on-surface">{campanha.nome_interno}</h2>
             <StatusBadge status={getStatus(campanha)} />
           </div>
           <p className="text-body-md text-on-surface-variant mt-0.5">Modo teste: nenhum feedback será registrado.</p>
@@ -709,7 +709,7 @@ export function CampanhaPreview() {
               <div className="rounded-xl border border-[#ffe082] bg-[#fff8e1] p-4">
                 <p className="text-label-sm text-[#e65100] font-semibold uppercase tracking-wider mb-2">Campanha concorrente com maior prioridade</p>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="min-w-0 text-body-md font-bold text-on-surface break-words">{eligResult.campanha_concorrente.titulo}</p>
+                  <p className="min-w-0 text-body-md font-bold text-on-surface break-words">{eligResult.campanha_concorrente.nome_interno}</p>
                   <span className="px-2.5 py-0.5 bg-[#ffe082] text-[#e65100] rounded-full text-label-sm font-bold shrink-0">
                     Prioridade {eligResult.campanha_concorrente.prioridade}
                   </span>

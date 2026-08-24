@@ -1,4 +1,5 @@
 import { Request, Response } from 'express'
+import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { FORMATO_DESTAQUE_ELEMENTO } from './campanhas'
 
@@ -140,6 +141,126 @@ export function whereUtilidadeDestaque(campanhaId: string): { campanha_id: strin
   return { campanha_id: campanhaId, tipo_avaliacao: 'utilidade_destaque' }
 }
 
+export interface SerieImpressao {
+  data: string
+  visualizacoes: number
+}
+
+export const TIMEZONE_DASHBOARD = 'America/Sao_Paulo'
+
+function dataCivilSaoPaulo(data: Date): string {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TIMEZONE_DASHBOARD,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(data)
+  const porTipo = new Map(partes.map(parte => [parte.type, parte.value]))
+  return `${porTipo.get('year')}-${porTipo.get('month')}-${porTipo.get('day')}`
+}
+
+export interface AtividadeDiaSemana {
+  dia: number
+  visualizacoes: number
+}
+
+// O gráfico e os dias ativos usam o universo completo da campanha, não a
+// janela de eventos recentes carregada para a tabela. O SQL já devolve datas
+// civis no fuso do negócio; Date continua aceito para chamadas legadas/testes.
+export function normalizarSerieImpressao(rows: Array<{ data: Date | string; visualizacoes: bigint | number }>): SerieImpressao[] {
+  return rows.map(row => ({
+    data: typeof row.data === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.data)
+      ? row.data
+      : dataCivilSaoPaulo(new Date(row.data)),
+    visualizacoes: Number(row.visualizacoes),
+  }))
+}
+
+export function normalizarAtividadeDiaSemana(rows: Array<{ dia: number | string; visualizacoes: bigint | number }>): AtividadeDiaSemana[] {
+  const porDia = new Map(rows.map(row => [Number(row.dia), Number(row.visualizacoes)]))
+  return Array.from({ length: 7 }, (_, dia) => ({ dia, visualizacoes: porDia.get(dia) ?? 0 }))
+    .sort((a, b) => b.visualizacoes - a.visualizacoes || a.dia - b.dia)
+}
+
+function pagina(query: Record<string, unknown>, padrao: number) {
+  const page = Math.max(1, Math.trunc(Number(query.page)) || 1)
+  const perPage = Math.min(100, Math.max(1, Math.trunc(Number(query.per_page)) || padrao))
+  return { page, perPage }
+}
+
+function dataQuery(value: unknown, fimDoDia = false): Date | undefined {
+  if (typeof value !== 'string' || !value) return undefined
+  // Datas civis sem horário pertencem explicitamente a America/Sao_Paulo;
+  // instantes ISO completos preservam o offset enviado pelo frontend.
+  const date = new Date(value.length === 10
+    ? `${value}T${fimDoDia ? '23:59:59.999' : '00:00:00.000'}-03:00`
+    : value)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function intervalo(query: Request['query']) {
+  const inicio = dataQuery(query.data_inicio)
+  const fim = dataQuery(query.data_fim, true)
+  return { ...(inicio ? { gte: inicio } : {}), ...(fim ? { lte: fim } : {}) }
+}
+
+function intervaloAnterior(range: { gte?: Date; lte?: Date }) {
+  if (!range.gte || !range.lte) return null
+  const duracao = range.lte.getTime() - range.gte.getTime() + 1
+  return {
+    gte: new Date(range.gte.getTime() - duracao),
+    lte: new Date(range.gte.getTime() - 1),
+  }
+}
+
+function filtrosFeedback(query: Request['query'], campanhaId: string): Prisma.FeedbackWhereInput {
+  const where: Prisma.FeedbackWhereInput = { ...whereFeedbackNps(campanhaId), criado_em: intervalo(query) }
+  const nota = Number(query.nota)
+  if (Number.isInteger(nota) && nota >= 0 && nota <= 10) where.nota = nota
+  if (query.nps === 'Promotor') where.nota = { gte: 9 }
+  if (query.nps === 'Neutro') where.nota = { gte: 7, lte: 8 }
+  if (query.nps === 'Detrator') where.nota = { lte: 6 }
+  if (query.tem_telefone === 'sim') where.telefone_contato = { not: null }
+  if (query.tem_telefone === 'nao') where.telefone_contato = null
+  const contexto: Prisma.FeedbackWhereInput[] = []
+  for (const [key, value] of [['cliente_nome', query.cliente_nome], ['unidade_nome', query.unidade_nome], ['usuario_tipo', query.usuario_tipo], ['Estado', query.estado]] as Array<[string, unknown]>) {
+    if (typeof value === 'string' && value) contexto.push({ contexto: { path: [key], string_contains: value } })
+  }
+  if (typeof query.busca === 'string' && query.busca.trim()) {
+    const termo = query.busca.trim()
+    where.OR = [
+      { usuario_id: { contains: termo, mode: 'insensitive' } },
+      { usuario_nome: { contains: termo, mode: 'insensitive' } },
+      { usuario_email: { contains: termo, mode: 'insensitive' } },
+      { observacao: { contains: termo, mode: 'insensitive' } },
+      { contexto: { path: ['usuario_nome'], string_contains: termo } },
+      { contexto: { path: ['usuario_email'], string_contains: termo } },
+      { contexto: { path: ['cliente_nome'], string_contains: termo } },
+      { contexto: { path: ['unidade_nome'], string_contains: termo } },
+    ]
+  }
+  return contexto.length ? { AND: [where, ...contexto] } : where
+}
+
+function filtrosEventos(query: Request['query'], campanhaId: string): Prisma.EventoCampanhaWhereInput {
+  const where: Prisma.EventoCampanhaWhereInput = { campanha_id: campanhaId, criado_em: intervalo(query) }
+  const tipos: Record<string, string> = { Visualização: 'visualizacao', Clique: 'clique_cta', Interação: 'interacao_badge', Dispensa: 'dispensa' }
+  if (typeof query.tipo === 'string' && tipos[query.tipo]) where.tipo_evento = tipos[query.tipo]
+  if (typeof query.destaque_id === 'string' && query.destaque_id) where.destaque_item_id = query.destaque_id
+  if (typeof query.busca_evento === 'string' && query.busca_evento.trim()) {
+    const termo = query.busca_evento.trim()
+    where.OR = [
+      { usuario_id: { contains: termo, mode: 'insensitive' } },
+      { tipo_evento: { contains: termo, mode: 'insensitive' } },
+      { contexto: { path: ['usuario_nome'], string_contains: termo } },
+      { contexto: { path: ['usuario_email'], string_contains: termo } },
+      { contexto: { path: ['cliente_nome'], string_contains: termo } },
+      { contexto: { path: ['unidade_nome'], string_contains: termo } },
+    ]
+  }
+  return where
+}
+
 export async function buscarDashboard(req: Request, res: Response) {
   try {
     const id = req.params.id as string
@@ -153,42 +274,77 @@ export async function buscarDashboard(req: Request, res: Response) {
     // as outras 3 queries (itensDestaque/totaisPorItem/unicosPorItem) nem
     // entram no Promise.all quando o formato não é esse.
     const ehDestaqueElemento = campanha.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
+    const range = intervalo(req.query)
+    // Filtros da tabela nunca podem alterar os KPIs, distribuição ou NPS.
+    // Mantemos dois universos: período para o resumo e filtros para a lista.
+    const feedbackPeriodoWhere: Prisma.FeedbackWhereInput = { ...whereFeedbackNps(id), criado_em: range }
+    const feedbackWhere = filtrosFeedback(req.query, id)
+    const eventosWhere = filtrosEventos(req.query, id)
+    const respPag = pagina({ page: req.query.res_page, per_page: req.query.res_per_page }, 10)
+    const interPag = pagina({ page: req.query.event_page, per_page: req.query.event_per_page }, 10)
+    const avalPag = pagina({ page: req.query.avaliacao_page, per_page: req.query.avaliacao_per_page }, 10)
+    const eventosPeriodoWhere = { campanha_id: id, criado_em: range }
+    const avaliacaoWhere: Prisma.FeedbackWhereInput = { ...whereUtilidadeDestaque(id), criado_em: range }
+    if (typeof req.query.avaliacao_destaque_id === 'string' && req.query.avaliacao_destaque_id) avaliacaoWhere.destaque_item_id = req.query.avaliacao_destaque_id
+    if (req.query.avaliacao_util === 'sim') avaliacaoWhere.util = true
+    if (req.query.avaliacao_util === 'nao') avaliacaoWhere.util = false
+    if (typeof req.query.busca_avaliacao === 'string' && req.query.busca_avaliacao.trim()) {
+      const termo = req.query.busca_avaliacao.trim()
+      avaliacaoWhere.OR = [
+        { usuario_id: { contains: termo, mode: 'insensitive' } },
+        { usuario_nome: { contains: termo, mode: 'insensitive' } },
+        { usuario_email: { contains: termo, mode: 'insensitive' } },
+        { observacao: { contains: termo, mode: 'insensitive' } },
+        { contexto: { path: ['usuario_nome'], string_contains: termo } },
+        { contexto: { path: ['usuario_email'], string_contains: termo } },
+      ]
+    }
 
     const [
-      agregado, porNota, feedbacks_recentes,
+      agregado, porNota, feedbacks_recentes, feedbacks_total,
       visualizacoes, cliques_cta, total_confirmacoes,
-      eventos_recentes, visualizacoesUnicasArr, cliquesUnicosArr,
+      eventos_recentes, eventos_total, visualizacoesUnicasArr, cliquesUnicosArr,
       respondentesUnicosArr,
       itensDestaque, totaisPorItem, unicosPorItem, utilidadePorItem,
-      avaliacoes_destaques,
+      avaliacoes_destaques, avaliacoes_total,
+      serie_impressao,
+      atividade_semana,
+      destaqueEventosPeriodo,
+      destaqueAvaliacoesPeriodo,
+      quotePromotor,
+      quoteDetrator,
     ] = await Promise.all([
       prisma.feedback.aggregate({
-        where: whereFeedbackNps(id),
+        where: feedbackPeriodoWhere,
         _avg: { nota: true },
         _count: { id: true },
       }),
 
       prisma.feedback.groupBy({
         by: ['nota'],
-        where: whereFeedbackNps(id),
+        where: feedbackPeriodoWhere,
         _count: { nota: true },
       }),
 
       prisma.feedback.findMany({
-        where: whereFeedbackNps(id),
+        where: feedbackWhere,
         orderBy: { criado_em: 'desc' },
-        take: 20,
+        skip: (respPag.page - 1) * respPag.perPage,
+        take: respPag.perPage,
       }),
+      prisma.feedback.count({ where: feedbackWhere }),
 
-      prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'visualizacao' } }),
-      prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'clique_cta' } }),
-      prisma.confirmacaoLeitura.count({ where: { campanha_id: id } }),
+      prisma.eventoCampanha.count({ where: { ...eventosPeriodoWhere, tipo_evento: 'visualizacao' } }),
+      prisma.eventoCampanha.count({ where: { ...eventosPeriodoWhere, tipo_evento: 'clique_cta' } }),
+      prisma.confirmacaoLeitura.count({ where: { campanha_id: id, criado_em: range } }),
 
       prisma.eventoCampanha.findMany({
-        where: { campanha_id: id },
+        where: eventosWhere,
         orderBy: { criado_em: 'desc' },
-        take: 100,
+        skip: (interPag.page - 1) * interPag.perPage,
+        take: interPag.perPage,
       }),
+      prisma.eventoCampanha.count({ where: eventosWhere }),
       // Únicos NO NÍVEL DA CAMPANHA: agrupa só por usuario_id, sem
       // destaque_item_id — um usuário que interagiu com 2 destaques
       // diferentes da mesma campanha conta 1 vez aqui, nunca 2 (é assim
@@ -196,23 +352,20 @@ export async function buscarDashboard(req: Request, res: Response) {
       // muda esta query, então a deduplicação entre itens já é automática).
       prisma.eventoCampanha.groupBy({
         by: ['usuario_id'],
-        where: { campanha_id: id, tipo_evento: 'visualizacao', usuario_id: { not: null } },
+        where: { ...eventosPeriodoWhere, tipo_evento: 'visualizacao', usuario_id: { not: null } },
       }),
       prisma.eventoCampanha.groupBy({
         by: ['usuario_id'],
-        where: { campanha_id: id, tipo_evento: 'clique_cta', usuario_id: { not: null } },
+        where: { ...eventosPeriodoWhere, tipo_evento: 'clique_cta', usuario_id: { not: null } },
       }),
       prisma.feedback.groupBy({
         by: ['usuario_id'],
-        where: { ...whereFeedbackNps(id), usuario_id: { not: null } },
+        where: { ...feedbackPeriodoWhere, usuario_id: { not: null } },
       }),
 
-      // Sem filtro de ativo, de propósito — "Desempenho dos destaques"
-      // preserva histórico de verdade: um item removido da configuração
-      // (ativo:false, ver sincronizarDestaques/atualizar em campanhas.ts)
-      // continua aparecendo aqui com os números que já tinha acumulado,
-      // só marcado como inativo (campo `ativo` no retorno) pro frontend
-      // sinalizar "removido" em vez de escondê-lo.
+      // Sem filtro de ativo, de propósito — um item removido da configuração
+      // continua aparecendo marcado como inativo, mas os eventos e avaliações
+      // obedecem à mesma janela factual selecionada no dashboard.
       ehDestaqueElemento
         ? prisma.campanhaDestaqueItem.findMany({
             where: { campanha_id: id },
@@ -223,14 +376,14 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento
         ? prisma.eventoCampanha.groupBy({
             by: ['destaque_item_id', 'tipo_evento'],
-            where: { campanha_id: id, destaque_item_id: { not: null } },
+            where: { ...eventosPeriodoWhere, destaque_item_id: { not: null } },
             _count: { id: true },
           })
         : Promise.resolve([]),
       ehDestaqueElemento
         ? prisma.eventoCampanha.groupBy({
             by: ['destaque_item_id', 'tipo_evento', 'usuario_id'],
-            where: { campanha_id: id, destaque_item_id: { not: null }, usuario_id: { not: null } },
+            where: { ...eventosPeriodoWhere, destaque_item_id: { not: null }, usuario_id: { not: null } },
           })
         : Promise.resolve([]),
       // Avaliações de utilidade ("Essa melhoria foi útil?") por item — só
@@ -241,7 +394,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento
         ? prisma.feedback.groupBy({
             by: ['destaque_item_id', 'util'],
-            where: whereUtilidadeDestaque(id),
+            where: { ...whereUtilidadeDestaque(id), criado_em: range },
             _count: { id: true },
           })
         : Promise.resolve([]),
@@ -252,11 +405,51 @@ export async function buscarDashboard(req: Request, res: Response) {
       // aqui, o frontend resolve "Removido" via desempenho_destaques.
       ehDestaqueElemento
         ? prisma.feedback.findMany({
-            where: whereUtilidadeDestaque(id),
+            where: avaliacaoWhere,
             orderBy: { criado_em: 'desc' },
-            take: 100,
+            skip: (avalPag.page - 1) * avalPag.perPage,
+            take: avalPag.perPage,
           })
         : Promise.resolve([]),
+      ehDestaqueElemento ? prisma.feedback.count({ where: avaliacaoWhere }) : Promise.resolve(0),
+      prisma.$queryRaw<Array<{ data: string; visualizacoes: bigint }>>`
+        SELECT TO_CHAR(DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS data, COUNT(*)::bigint AS visualizacoes
+        FROM eventos_campanha
+        WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
+          ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
+          ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
+        GROUP BY DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo')
+        ORDER BY data ASC
+      `,
+      prisma.$queryRaw<Array<{ dia: number; visualizacoes: bigint }>>`
+        SELECT EXTRACT(DOW FROM criado_em AT TIME ZONE 'America/Sao_Paulo')::int AS dia, COUNT(*)::bigint AS visualizacoes
+        FROM eventos_campanha
+        WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
+          ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
+          ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
+        GROUP BY EXTRACT(DOW FROM criado_em AT TIME ZONE 'America/Sao_Paulo')
+        ORDER BY dia ASC
+      `,
+      prisma.eventoCampanha.groupBy({
+        by: ['tipo_evento'],
+        where: eventosPeriodoWhere,
+        _count: { id: true },
+      }),
+      ehDestaqueElemento
+        ? prisma.feedback.groupBy({
+            by: ['util'],
+            where: { ...whereUtilidadeDestaque(id), criado_em: range },
+            _count: { id: true },
+          })
+        : Promise.resolve([]),
+      prisma.feedback.findFirst({
+        where: { ...feedbackPeriodoWhere, nota: { gte: 9 }, observacao: { not: '' } },
+        orderBy: { criado_em: 'desc' },
+      }),
+      prisma.feedback.findFirst({
+        where: { ...feedbackPeriodoWhere, nota: { lte: 6 }, observacao: { not: '' } },
+        orderBy: { criado_em: 'desc' },
+      }),
     ])
 
     const distribuicao: Record<string, number> = {}
@@ -280,11 +473,57 @@ export async function buscarDashboard(req: Request, res: Response) {
     const desempenho_destaques = ehDestaqueElemento
       ? montarDesempenhoDestaques(itensDestaque, totaisPorItem, unicosPorItem, utilidadePorItem)
       : []
+    const destaqueResumoPeriodo = {
+      interacoes: destaqueEventosPeriodo.find(item => item.tipo_evento === 'interacao_badge')?._count.id ?? 0,
+      dispensas: destaqueEventosPeriodo.find(item => item.tipo_evento === 'dispensa')?._count.id ?? 0,
+      avaliacoes: destaqueAvaliacoesPeriodo.reduce((sum, item) => sum + item._count.id, 0),
+      sim: destaqueAvaliacoesPeriodo.find(item => item.util === true)?._count.id ?? 0,
+    }
+
+    // Não há comparação honesta para "Todo período"; só calculamos a janela
+    // imediatamente anterior quando o usuário forneceu início e fim.
+    const rangeAnterior = intervaloAnterior(range)
+    let comparacao: { visualizacoes: number; respostas: number; cliques_cta: number; nps: number | null; media: number | null } | null = null
+    let serie_impressao_anterior: Array<{ data: string; visualizacoes: number }> = []
+    if (rangeAnterior) {
+      const [visualizacoesAnterior, cliquesAnterior, respostasAnteriores, notasAnteriores, mediaAnterior, serieAnterior] = await Promise.all([
+        prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'visualizacao', criado_em: rangeAnterior } }),
+        prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'clique_cta', criado_em: rangeAnterior } }),
+        prisma.feedback.count({ where: { ...whereFeedbackNps(id), criado_em: rangeAnterior } }),
+        prisma.feedback.groupBy({ by: ['nota'], where: { ...whereFeedbackNps(id), criado_em: rangeAnterior }, _count: { nota: true } }),
+        prisma.feedback.aggregate({ where: { ...whereFeedbackNps(id), criado_em: rangeAnterior }, _avg: { nota: true } }),
+        prisma.$queryRaw<Array<{ data: string; visualizacoes: bigint }>>`
+          SELECT TO_CHAR(DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS data,
+                 COUNT(*)::bigint AS visualizacoes
+          FROM eventos_campanha
+          WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
+            AND criado_em >= ${rangeAnterior.gte} AND criado_em <= ${rangeAnterior.lte}
+          GROUP BY DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo')
+          ORDER BY data ASC
+        `,
+      ])
+      const totalNotasAnteriores = notasAnteriores.reduce((sum, item) => sum + item._count.nota, 0)
+      const promotoresAnteriores = notasAnteriores.filter(item => item.nota !== null && item.nota >= 9).reduce((sum, item) => sum + item._count.nota, 0)
+      const detratoresAnteriores = notasAnteriores.filter(item => item.nota !== null && item.nota <= 6).reduce((sum, item) => sum + item._count.nota, 0)
+      comparacao = {
+        visualizacoes: visualizacoesAnterior,
+        respostas: respostasAnteriores,
+        cliques_cta: cliquesAnterior,
+        nps: totalNotasAnteriores > 0 ? Math.round((promotoresAnteriores - detratoresAnteriores) / totalNotasAnteriores * 100) : null,
+        media: mediaAnterior._avg.nota !== null ? Math.round(mediaAnterior._avg.nota * 10) / 10 : null,
+      }
+      serie_impressao_anterior = normalizarSerieImpressao(serieAnterior)
+    }
 
     res.json({
       campanha,
+      periodo: { inicio: range.gte?.toISOString() ?? null, fim: range.lte?.toISOString() ?? null },
+      comparacao,
+      serie_diaria: [],
+      serie_diaria_anterior: [],
       media,
-      total: agregado._count?.id ?? 0,
+      total: feedbacks_total,
+      total_periodo: agregado._count.id,
       distribuicao,
       feedbacks_recentes,
       visualizacoes,
@@ -293,12 +532,25 @@ export async function buscarDashboard(req: Request, res: Response) {
       total_confirmacoes,
       percentual_confirmacao,
       eventos_recentes,
+      eventos_total,
+      eventos_page: interPag.page,
+      eventos_per_page: interPag.perPage,
       visualizacoes_unicas,
       cliques_unicos,
       respondentes_unicos,
       desempenho_destaques,
+      destaque_resumo_periodo: destaqueResumoPeriodo,
+      quotes_nps: [quotePromotor, quoteDetrator].filter(Boolean),
       // Só não-vazio pra campanhas destaque_elemento — ver ehDestaqueElemento.
       avaliacoes_destaques: ehDestaqueElemento ? avaliacoes_destaques : [],
+      avaliacoes_total: ehDestaqueElemento ? avaliacoes_total : 0,
+      avaliacoes_page: avalPag.page,
+      avaliacoes_per_page: avalPag.perPage,
+      respostas_page: respPag.page,
+      respostas_per_page: respPag.perPage,
+      serie_impressao: normalizarSerieImpressao(serie_impressao),
+      serie_impressao_anterior,
+      atividade_semana: normalizarAtividadeDiaSemana(atividade_semana),
     })
   } catch (err) {
     console.error(err)

@@ -13,7 +13,9 @@ import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 import { criarResolvedorIdDestaque, urlHttpValida } from '../../components/campanhas/DestaqueElementoSimulacao.logic'
-import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm'
+import { ReordenarPrioridade } from './ReordenarPrioridade'
+import { chaveGrupoConcorrente } from './grupoConcorrente'
+import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm.utils'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
   TIPOS_CAMPANHA,
@@ -25,7 +27,7 @@ import {
   hidratarFormState,
   montarPayloadCampanha,
   getStatus,
-} from './campanhaForm'
+} from './campanhaForm.utils'
 
 type SecaoDock = 'destino' | 'exibicao' | 'feedback' | 'segmentacao'
 type PosicaoMidia = 'topo' | 'antes_cta'
@@ -338,24 +340,29 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
   )
 }
 
-function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editando, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview }: {
+function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editando, temGrupoConcorrente, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview, onDefinirPrioridade }: {
   secao: SecaoDock
   form: FormState
   catalogoTelas: TelaCatalogo[]
   temSistemas: boolean
   salvando: boolean
   editando: boolean
+  // Só true quando a campanha já salva tem 1+ concorrente (mesmo grupo, ver
+  // chaveGrupoConcorrente em grupoConcorrente.ts) — controla se o botão
+  // "Definir prioridade de exibição" aparece abaixo.
+  temGrupoConcorrente: boolean
   setCampo: <K extends keyof FormState>(campo: K, valor: FormState[K]) => void
   setSecao: (secao: SecaoDock) => void
   onSelecionarTela: (telaId: string) => void
   // Ambos opcionais (Fase 5) — undefined quando o usuário não tem
   // CONFIGURACOES.GERENCIAR, escondendo os atalhos de criação inline (ver
-  // Campanhas2Index). Selecionar uma tela/sistema já existente continua
+  // CampanhaFormIndex). Selecionar uma tela/sistema já existente continua
   // sempre disponível, independente disso.
   onAdicionarTela?: (busca?: string) => void
   onGerenciarSistemas?: () => void
   onLimpar: () => void
   onPreview: () => void
+  onDefinirPrioridade: () => void
 }) {
   // Inicializado a partir do form já hidratado (DockLateral só monta depois
   // que carregandoCampanha vira false — ver early return em Index) em vez
@@ -627,6 +634,9 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
       </div>
 
       <div>
+      <div className="mb-5 rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] p-4">
+        <CampoDock label="Nome interno (admin)" hint="Usado apenas para identificar e buscar esta campanha na gestão." value={form.nome_interno} onChange={valor => setCampo('nome_interno', valor)} placeholder="Ex.: Onboarding - novo dashboard" />
+      </div>
       {secao === 'destino' && (
         <div className="space-y-5">
           <div>
@@ -918,12 +928,21 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
 
           <CampoDock label="Tempo antes de aparecer (ms)" value={form.atraso_ms} onChange={valor => setCampo('atraso_ms', valor)} type="number" />
           {/* Prioridade não é mais digitada aqui — ordenação visual (setas
-              ↑/↓, ver ReordenarPrioridade.tsx) na listagem de Campanhas
-              define a prioridade de exibição entre campanhas concorrentes
-              (mesmo grupo: sistema/tela ou url_contem + gatilho). O valor atual de
-              form.prioridade continua sendo carregado/reenviado sem alteração
-              (ver hidratarFormState/montarPayloadCampanha), só não é mais
-              editável por aqui. */}
+              ↑/↓, mesmo componente ReordenarPrioridade.tsx usado na listagem
+              de Campanhas, aberto aqui como overlay sobre o próprio
+              formulário — ver reordenarAberto/onSaved em
+              CampanhaFormIndex) define a prioridade de exibição entre
+              campanhas concorrentes (mesmo grupo: sistema/tela ou
+              url_contem + gatilho). O valor atual de form.prioridade
+              continua sendo carregado/reenviado sem alteração (ver
+              hidratarFormState/montarPayloadCampanha), só não é mais
+              editável por aqui — só o botão abaixo (visível apenas ao
+              editar uma campanha com concorrente) muda a prioridade. */}
+          {editando && temGrupoConcorrente && (
+            <Button type="button" variant="ghost" size="sm" onClick={onDefinirPrioridade}>
+              Definir prioridade de exibição
+            </Button>
+          )}
         </div>
       )}
 
@@ -1786,7 +1805,7 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
   )
 }
 
-export function Campanhas2Index() {
+export function CampanhaFormIndex() {
   const navigate = useNavigate()
   const location = useLocation()
   const { id } = useParams<{ id: string }>()
@@ -1841,6 +1860,22 @@ export function Campanhas2Index() {
   // existia um mecanismo de dirty genérico no projeto pra reaproveitar.
   const formCarregadoRef = useRef<FormState | null>(null)
 
+  // Todas as campanhas do tenant (mesma chamada que já alimentava a lista
+  // de sistemas abaixo) — reaproveitada só pra saber, ao editar, se a
+  // campanha atual tem concorrente (mesmo grupo, ver chaveGrupoConcorrente)
+  // e abrir a reordenação sobre este formulário (ver
+  // temGrupoConcorrente/reordenarAberto).
+  const [campanhasExistentes, setCampanhasExistentes] = useState<Campanha[]>([])
+  const [reordenarAberto, setReordenarAberto] = useState(false)
+
+  const grupoAtual = useMemo(() => {
+    if (!campanhaAtual) return null
+    const chave = chaveGrupoConcorrente(campanhaAtual)
+    if (!chave) return null
+    const membros = campanhasExistentes.filter(c => chaveGrupoConcorrente(c) === chave)
+    return membros.length >= 2 ? { chave, campanhas: membros } : null
+  }, [campanhaAtual, campanhasExistentes])
+
   const embedUrl = useMemo(() => converterVideoEmbed(form.video_url), [form.video_url])
   const aparenciaAtual = useMemo(() => {
     const chave = form.sistema.trim()
@@ -1870,6 +1905,8 @@ export function Campanhas2Index() {
     async function carregarSistemasDeCampanhasExistentes() {
       const campanhas = await get<Campanha[]>('/campanhas').catch(() => [])
       if (cancelado) return
+
+      setCampanhasExistentes(campanhas)
 
       const sistemasCampanhas = campanhas.map(c => c.sistema).filter(Boolean)
       if (sistemasCampanhas.length === 0) return
@@ -2066,6 +2103,33 @@ export function Campanhas2Index() {
     }
   }
 
+  // POST /campanhas/reordenar (chamado dentro do overlay) já persiste a
+  // nova prioridade no backend — aqui só rebusca a campanha atual pra
+  // sincronizar form.prioridade (e o snapshot formCarregadoRef, pra não
+  // acusar alteração não salva por causa disso) com o valor novo. Sem isso,
+  // um "Salvar alterações" logo em seguida reenviaria via PUT o
+  // form.prioridade antigo (ver montarPayloadCampanha) e sobrescreveria a
+  // ordem que acabou de ser definida. Nunca troca o resto do form, mesmo
+  // princípio de publicarOuReativarCampanha acima.
+  async function aoSalvarPrioridade() {
+    setReordenarAberto(false)
+    if (!id) return
+    try {
+      const atualizada = await get<Campanha>(`/campanhas/${id}`)
+      const prioridade = String(atualizada.prioridade)
+      setForm(prev => ({ ...prev, prioridade }))
+      if (formCarregadoRef.current) {
+        formCarregadoRef.current = { ...formCarregadoRef.current, prioridade }
+      }
+      setCampanhaAtual(atualizada)
+    } catch {
+      // Prioridade já foi salva no backend (reorder concluiu antes de
+      // chegar aqui) — só a sincronização local falhou; o próximo
+      // carregamento da página traz o valor certo.
+    }
+    get<Campanha[]>('/campanhas').then(setCampanhasExistentes).catch(() => {})
+  }
+
   const AVISO_ALTERACOES_PENDENTES = 'Salve as alterações antes de alterar o status da campanha.'
 
   // O form pode divergir do que está persistido (usuário editou e não
@@ -2249,6 +2313,7 @@ export function Campanhas2Index() {
           temSistemas={sistemasConfig.length > 0}
           salvando={salvando}
           editando={Boolean(id)}
+          temGrupoConcorrente={grupoAtual !== null}
           setCampo={setCampo}
           setSecao={setSecaoDock}
           onSelecionarTela={selecionarTelaCatalogo}
@@ -2256,8 +2321,17 @@ export function Campanhas2Index() {
           onGerenciarSistemas={podeGerenciarConfiguracoes ? () => navigate('/configuracoes/sistemas') : undefined}
           onLimpar={limparConstrutor}
           onPreview={() => setPreviewAberto(true)}
+          onDefinirPrioridade={() => setReordenarAberto(true)}
         />
       </form>
+
+      {reordenarAberto && grupoAtual && (
+        <ReordenarPrioridade
+          grupos={[grupoAtual]}
+          onClose={() => setReordenarAberto(false)}
+          onSaved={aoSalvarPrioridade}
+        />
+      )}
 
       {modalNovaTelaAberto && (
         <TelaCatalogoModal
@@ -2284,7 +2358,7 @@ export function Campanhas2Index() {
 
       {confirmarDesativar && campanhaAtual && (
         <ConfirmDialog
-          title={`Desativar "${campanhaAtual.titulo}"?`}
+          title={`Desativar "${campanhaAtual.nome_interno}"?`}
           description="Ela deixará de ser exibida para os usuários, mas o histórico de respostas será preservado."
           confirmLabel="Desativar campanha"
           variant="danger"
@@ -2297,7 +2371,7 @@ export function Campanhas2Index() {
 
       {confirmarEncerrar && campanhaAtual && (
         <ConfirmDialog
-          title={`Encerrar "${campanhaAtual.titulo}"?`}
+          title={`Encerrar "${campanhaAtual.nome_interno}"?`}
           description="A vigência termina agora — ela para de ser exibida para os usuários, mas continua ATIVA (diferente de desativar) e o histórico de respostas é preservado."
           confirmLabel="Encerrar campanha"
           variant="danger"

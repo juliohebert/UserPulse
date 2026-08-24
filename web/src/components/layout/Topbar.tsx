@@ -124,13 +124,13 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
 
         const q = termo.toLowerCase()
         const campanhasFiltradas = campanhas
-          .filter(c => [c.titulo, c.subtitulo ?? '', c.slug, c.sistema, c.tela, c.tipo]
+          .filter(c => [c.nome_interno, c.titulo, c.subtitulo ?? '', c.slug, c.sistema, c.tela, c.tipo]
             .some(v => v.toLowerCase().includes(q)))
           .slice(0, 5)
           .map<ResultadoBusca>(c => ({
             id: `campanha-${c.id}`,
             tipo: 'campanha',
-            titulo: c.titulo,
+            titulo: c.nome_interno,
             subtitulo: `Campanha · ${c.sistema} · ${c.tela}`,
             icon: 'campaign',
             to: `/campanhas/${c.id}/dashboard`,
@@ -210,7 +210,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
 
   return (
     <header
-      className={`fixed top-0 right-0 left-0 ${collapsed ? 'md:left-24' : 'md:left-[292px]'} h-16 bg-white border-b border-outline-variant flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200`}
+      className={`fixed inset-x-0 top-0 h-16 bg-white border-b border-outline-variant flex justify-between items-center px-4 md:pr-8 ${collapsed ? 'md:pl-32' : 'md:pl-[324px]'} z-40 transition-[padding-left] duration-200`}
     >
       <button
         type="button"

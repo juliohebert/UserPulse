@@ -45,7 +45,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
-export const get = <T>(path: string) => request<T>(path)
+export const get = <T>(path: string, init?: RequestInit) => request<T>(path, init)
 
 export const post = <T>(path: string, body: unknown) =>
   request<T>(path, {

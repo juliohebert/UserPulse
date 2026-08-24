@@ -1,9 +1,16 @@
 import { PrismaClient } from '@prisma/client'
+import { createHash } from 'node:crypto'
 
 const prisma = new PrismaClient()
 
+function idSeed(tipo: string, tenantId: string, chave: string) {
+  const hash = createHash('sha256').update(`${tenantId}:${chave}`).digest('hex').slice(0, 32)
+  return `seed-${tipo}-${hash}`
+}
+
 type CampanhaSeed = {
   slug: string
+  nome_interno: string
   titulo: string
   subtitulo?: string
   descricao: string
@@ -20,7 +27,17 @@ type CampanhaSeed = {
   modo_exibicao?: string
   gatilho?: string
   modo_identificacao?: string
+  data_cy?: string
   url_contem?: string
+  destaques?: Array<{
+    chave: string
+    data_cy: string
+    texto_badge: string
+    titulo: string
+    descricao: string
+    texto_botao?: string
+    url_botao?: string
+  }>
 }
 
 type TourSeed = {
@@ -81,8 +98,27 @@ type EventoCampanhaSeed = {
   id: string
   campanhaSlug: string
   diasAtras: number
-  tipo_evento: string
+  tipo_evento: 'visualizacao' | 'clique_cta' | 'interacao_badge' | 'dispensa'
   usuario_id: string
+  sistema: string
+  tela: string
+  navegador: string
+  dispositivo: string
+  contexto: Record<string, string>
+  minutoDia: number
+  destaqueChave?: string
+}
+
+type AvaliacaoDestaqueSeed = {
+  id: string
+  campanhaSlug: string
+  destaqueChave: string
+  diasAtras: number
+  util: boolean
+  observacao?: string
+  usuario_id: string
+  usuario_nome: string
+  usuario_email: string
   sistema: string
   tela: string
   navegador: string
@@ -93,6 +129,7 @@ type EventoCampanhaSeed = {
 const campanhasSeed: CampanhaSeed[] = [
   {
     slug: 'quarkclinic-agenda-demo',
+    nome_interno: 'QuarkClinic — novidades da agenda (demo)',
     titulo: 'Novidades do QuarkClinic',
     subtitulo: 'Confira o que chegou de novo na agenda',
     descricao:
@@ -111,7 +148,52 @@ const campanhasSeed: CampanhaSeed[] = [
     pergunta_feedback: 'O que você achou das melhorias?',
   },
   {
+    slug: 'quarkclinic-agenda-destaques',
+    titulo: 'Atalhos inteligentes da agenda',
+    subtitulo: 'Novo',
+    descricao: 'Conheça recursos da agenda diretamente no ponto em que cada ação acontece.',
+    tipo: 'melhoria',
+    sistema: 'QuarkClinic',
+    tela: 'agenda',
+    texto_botao: 'Experimentar filtro',
+    url_botao: '/app/agenda?filtros=1',
+    prioridade: 4,
+    ativo: true,
+    feedback_habilitado: false,
+    modo_exibicao: 'destaque_elemento',
+    modo_identificacao: 'data_cy',
+    data_cy: 'agenda-filtros-rapidos',
+    destaques: [
+      {
+        chave: 'filtros-rapidos',
+        data_cy: 'agenda-filtros-rapidos',
+        texto_badge: 'Novo',
+        titulo: 'Filtros rápidos da agenda',
+        descricao: 'Combine profissional, unidade e status para encontrar horários e consultas com menos cliques.',
+        texto_botao: 'Experimentar filtro',
+        url_botao: '/app/agenda?filtros=1',
+      },
+      {
+        chave: 'confirmacao-whatsapp',
+        data_cy: 'agenda-confirmacao-whatsapp',
+        texto_badge: 'Automação',
+        titulo: 'Confirmação por WhatsApp',
+        descricao: 'Envie lembretes e acompanhe a confirmação do paciente sem sair da agenda.',
+        texto_botao: 'Configurar mensagens',
+        url_botao: '/app/agenda/configuracoes/whatsapp',
+      },
+      {
+        chave: 'relatorio-ausencias',
+        data_cy: 'agenda-relatorio-ausencias',
+        texto_badge: 'Insight',
+        titulo: 'Relatório de ausências',
+        descricao: 'Identifique padrões de faltas por período, unidade e profissional para agir preventivamente.',
+      },
+    ],
+  },
+  {
     slug: 'quarkclinic-prontuario-novo',
+    nome_interno: 'QuarkClinic — novo prontuário',
     titulo: 'Novo prontuário disponível',
     subtitulo: 'Registro clínico mais rápido e organizado',
     descricao: 'O prontuário ganhou uma experiência mais limpa para registrar evolução, anexos e condutas em menos cliques.',
@@ -126,6 +208,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'quarkclinic-pesquisa-atendimento',
+    nome_interno: 'QuarkClinic — pesquisa de atendimento',
     titulo: 'Pesquisa rápida sobre atendimento',
     subtitulo: 'Ajude a melhorar o fluxo da recepção',
     descricao: 'Conte como está a experiência de atendimento e quais pontos podemos simplificar para sua equipe.',
@@ -138,6 +221,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'quarkclinic-faturamento-recursos',
+    nome_interno: 'QuarkClinic — recursos de faturamento',
     titulo: 'Melhorias no faturamento',
     subtitulo: 'Conciliação e repasses em destaque',
     descricao: 'Agora a tela de faturamento traz filtros por convênio, status de repasse e período de competência.',
@@ -151,6 +235,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'quarkclinic-estoque-alerta',
+    nome_interno: 'QuarkClinic — alerta de estoque mínimo',
     titulo: 'Alerta de estoque mínimo',
     subtitulo: 'Evite falta de materiais críticos',
     descricao: 'Configure alertas para materiais, medicamentos e insumos que exigem reposição antecipada.',
@@ -162,6 +247,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'userpulse-onboarding-widget',
+    nome_interno: 'UserPulse — checklist de implantação do widget',
     titulo: 'Checklist de implantação do widget',
     subtitulo: 'Confira os passos para publicar o UserPulse',
     descricao: 'Revise a instalação do script, public key, identificação de usuários e ambiente de homologação.',
@@ -178,6 +264,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'userpulse-feedback-campanhas',
+    nome_interno: 'UserPulse — leitura de feedbacks de campanhas',
     titulo: 'Como ler feedbacks de campanhas',
     subtitulo: 'Notas, observações e oportunidades',
     descricao: 'Use os feedbacks para entender adoção, objeções e melhorias percebidas pelos usuários.',
@@ -189,6 +276,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'userpulse-pesquisa-produto',
+    nome_interno: 'UserPulse — pesquisa de satisfação do produto',
     titulo: 'Pesquisa de satisfação do produto',
     subtitulo: 'Coleta genérica de percepção',
     descricao: 'Modelo de campanha para coletar opinião dos usuários após uma mudança importante no produto.',
@@ -376,7 +464,7 @@ const feedbacksManuaisSeed: FeedbackSeed[] = [
     id: '10000000-0000-0000-0000-000000000001',
     campanhaSlug: 'quarkclinic-agenda-demo',
     diasAtras: 1,
-    nota: 5,
+    nota: 10,
     observacao: 'A confirmação por WhatsApp reduziu bastante as ligações da recepção.',
     usuario_id: 'user-ana-recepcao',
     usuario_nome: 'Ana Recepção',
@@ -386,13 +474,13 @@ const feedbacksManuaisSeed: FeedbackSeed[] = [
     navegador: 'Chrome',
     dispositivo: 'Desktop',
     telefone_contato: '+55 11 90000-1001',
-    contexto: { cliente: 'Clínica Jardim', unidade: 'Matriz', perfil: 'Recepção', estado: 'SP' },
+    contexto: { cliente_nome: 'Clínica Jardim', unidade_nome: 'Matriz', usuario_tipo: 'Recepção', Perfil: 'Recepção', Estado: 'SP' },
   },
   {
     id: '10000000-0000-0000-0000-000000000002',
     campanhaSlug: 'quarkclinic-agenda-demo',
     diasAtras: 2,
-    nota: 4,
+    nota: 8,
     observacao: 'Gostei dos filtros, mas queria salvar uma visualização padrão.',
     usuario_id: 'user-bruno-coord',
     usuario_nome: 'Bruno Coordenador',
@@ -401,13 +489,13 @@ const feedbacksManuaisSeed: FeedbackSeed[] = [
     tela: 'agenda',
     navegador: 'Edge',
     dispositivo: 'Desktop',
-    contexto: { cliente: 'Clínica Jardim', unidade: 'Matriz', perfil: 'Coordenação', estado: 'SP' },
+    contexto: { cliente_nome: 'Clínica Jardim', unidade_nome: 'Matriz', usuario_tipo: 'Coordenação', Perfil: 'Coordenação', Estado: 'SP' },
   },
   {
     id: '10000000-0000-0000-0000-000000000003',
     campanhaSlug: 'quarkclinic-agenda-demo',
     diasAtras: 6,
-    nota: 3,
+    nota: 5,
     observacao: 'A agenda ficou melhor, mas o relatório de ausências ainda demora para carregar.',
     usuario_id: 'user-carla-recepcao',
     usuario_nome: 'Carla Atendimento',
@@ -416,13 +504,13 @@ const feedbacksManuaisSeed: FeedbackSeed[] = [
     tela: 'agenda',
     navegador: 'Chrome',
     dispositivo: 'Notebook',
-    contexto: { cliente: 'Quark Saúde', unidade: 'Zona Sul', perfil: 'Recepção', estado: 'RJ' },
+    contexto: { cliente_nome: 'Quark Saúde', unidade_nome: 'Zona Sul', usuario_tipo: 'Recepção', Perfil: 'Recepção', Estado: 'RJ' },
   },
   {
     id: '10000000-0000-0000-0000-000000000004',
     campanhaSlug: 'quarkclinic-pesquisa-atendimento',
     diasAtras: 0,
-    nota: 4,
+    nota: 9,
     observacao: 'O fluxo está mais claro para encaixes, principalmente no período da manhã.',
     usuario_id: 'user-diego-atendimento',
     usuario_nome: 'Diego Atendimento',
@@ -432,13 +520,13 @@ const feedbacksManuaisSeed: FeedbackSeed[] = [
     navegador: 'Chrome',
     dispositivo: 'Desktop',
     telefone_contato: '+55 21 90000-2002',
-    contexto: { cliente: 'Quark Saúde', unidade: 'Centro', perfil: 'Atendimento', estado: 'RJ' },
+    contexto: { cliente_nome: 'Quark Saúde', unidade_nome: 'Centro', usuario_tipo: 'Atendimento', Perfil: 'Atendimento', Estado: 'RJ' },
   },
   {
     id: '10000000-0000-0000-0000-000000000005',
     campanhaSlug: 'quarkclinic-pesquisa-atendimento',
     diasAtras: 4,
-    nota: 2,
+    nota: 4,
     observacao: 'Ainda preciso abrir muitas telas para concluir um atendimento simples.',
     usuario_id: 'user-elisa-atendimento',
     usuario_nome: 'Elisa Atendimento',
@@ -447,13 +535,13 @@ const feedbacksManuaisSeed: FeedbackSeed[] = [
     tela: 'atendimento',
     navegador: 'Firefox',
     dispositivo: 'Desktop',
-    contexto: { cliente: 'Clínica Norte', unidade: 'Unidade 2', perfil: 'Atendimento', estado: 'MG' },
+    contexto: { cliente_nome: 'Clínica Norte', unidade_nome: 'Unidade 2', usuario_tipo: 'Atendimento', Perfil: 'Atendimento', Estado: 'MG' },
   },
   {
     id: '10000000-0000-0000-0000-000000000006',
     campanhaSlug: 'quarkclinic-prontuario-novo',
     diasAtras: 3,
-    nota: 5,
+    nota: 10,
     observacao: 'Os anexos no prontuário facilitaram a revisão antes da consulta.',
     usuario_id: 'user-felipe-medico',
     usuario_nome: 'Dr. Felipe Moura',
@@ -462,13 +550,13 @@ const feedbacksManuaisSeed: FeedbackSeed[] = [
     tela: 'prontuario',
     navegador: 'Safari',
     dispositivo: 'MacBook',
-    contexto: { cliente: 'Clínica Jardim', unidade: 'Matriz', perfil: 'Médico', estado: 'SP' },
+    contexto: { cliente_nome: 'Clínica Jardim', unidade_nome: 'Matriz', usuario_tipo: 'Médico', Perfil: 'Médico', Estado: 'SP' },
   },
   {
     id: '10000000-0000-0000-0000-000000000007',
     campanhaSlug: 'quarkclinic-faturamento-recursos',
     diasAtras: 8,
-    nota: 4,
+    nota: 9,
     observacao: 'Filtro por convênio ajudou na conferência mensal.',
     usuario_id: 'user-gabi-financeiro',
     usuario_nome: 'Gabriela Financeiro',
@@ -477,13 +565,13 @@ const feedbacksManuaisSeed: FeedbackSeed[] = [
     tela: 'faturamento',
     navegador: 'Chrome',
     dispositivo: 'Desktop',
-    contexto: { cliente: 'Quark Saúde', unidade: 'Centro', perfil: 'Financeiro', estado: 'RJ' },
+    contexto: { cliente_nome: 'Quark Saúde', unidade_nome: 'Centro', usuario_tipo: 'Financeiro', Perfil: 'Financeiro', Estado: 'RJ' },
   },
   {
     id: '10000000-0000-0000-0000-000000000008',
     campanhaSlug: 'userpulse-pesquisa-produto',
     diasAtras: 10,
-    nota: 5,
+    nota: 10,
     observacao: 'Os dashboards ficaram mais úteis para priorizar melhorias.',
     usuario_id: 'user-hugo-produto',
     usuario_nome: 'Hugo Produto',
@@ -492,7 +580,7 @@ const feedbacksManuaisSeed: FeedbackSeed[] = [
     tela: 'dashboard',
     navegador: 'Chrome',
     dispositivo: 'Desktop',
-    contexto: { cliente: 'Quark', unidade: 'Produto', perfil: 'Admin', estado: 'SP' },
+    contexto: { cliente_nome: 'Quark', unidade_nome: 'Produto', usuario_tipo: 'Admin', Perfil: 'Admin', Estado: 'SP' },
   },
 ]
 
@@ -524,11 +612,12 @@ function feedbackDemo(
   total: number,
   sistema: string,
   tela: string,
-  notaBase: number,
+  faseNps: number,
 ): FeedbackSeed[] {
+  const notasNps = [10, 9, 8, 10, 7, 9, 6, 10, 8, 5, 9, 4]
   return Array.from({ length: total }, (_, index) => {
     const usuario = usuariosDemo[index % usuariosDemo.length]
-    const nota = Math.max(1, Math.min(5, notaBase + ((index % 5) - 2)))
+    const nota = notasNps[(index + faseNps) % notasNps.length]
     const numero = sequencia + index
     return {
       id: `11000000-0000-0000-0000-${String(numero).padStart(12, '0')}`,
@@ -545,10 +634,11 @@ function feedbackDemo(
       dispositivo: index % 5 === 0 ? 'Mobile' : index % 3 === 0 ? 'Notebook' : 'Desktop',
       telefone_contato: index % 7 === 0 ? `+55 11 9${String(10000000 + index).padStart(8, '0')}` : undefined,
       contexto: {
-        cliente: usuario.cliente,
-        unidade: usuario.unidade,
-        perfil: usuario.perfil,
-        estado: usuario.estado,
+        cliente_nome: usuario.cliente,
+        unidade_nome: usuario.unidade,
+        usuario_tipo: usuario.perfil,
+        Perfil: usuario.perfil,
+        Estado: usuario.estado,
       },
     }
   })
@@ -564,41 +654,179 @@ const feedbacksGeradosSeed: FeedbackSeed[] = [
 
 const feedbacksSeed: FeedbackSeed[] = [...feedbacksManuaisSeed, ...feedbacksGeradosSeed]
 
-const eventosCampanhaSeed: EventoCampanhaSeed[] = [
-  ...feedbacksSeed.map((f, index) => ({
-    id: `20000000-0000-0000-0000-${String(index + 1).padStart(12, '0')}`,
-    campanhaSlug: f.campanhaSlug,
-    diasAtras: f.diasAtras,
-    tipo_evento: 'feedback_enviado',
-    usuario_id: f.usuario_id,
-    sistema: f.sistema,
-    tela: f.tela,
-    navegador: f.navegador,
-    dispositivo: f.dispositivo,
-    contexto: f.contexto,
-  })),
-  ...[
-    'quarkclinic-agenda-demo',
-    'quarkclinic-agenda-demo',
-    'quarkclinic-agenda-demo',
-    'quarkclinic-pesquisa-atendimento',
-    'quarkclinic-prontuario-novo',
-    'quarkclinic-faturamento-recursos',
-    'quarkclinic-estoque-alerta',
-    'userpulse-onboarding-widget',
-  ].map((campanhaSlug, index) => ({
-    id: `20000000-0000-0000-0000-${String(index + 101).padStart(12, '0')}`,
-    campanhaSlug,
-    diasAtras: index + 1,
-    tipo_evento: index % 3 === 0 ? 'visualizada' : index % 3 === 1 ? 'cta_clicado' : 'fechada',
-    usuario_id: `user-demo-${index + 1}`,
-    sistema: campanhaSlug.startsWith('userpulse') ? 'UserPulse' : 'QuarkClinic',
-    tela: campanhaSlug.startsWith('userpulse') ? 'campanhas' : 'agenda',
-    navegador: index % 2 === 0 ? 'Chrome' : 'Edge',
-    dispositivo: index % 2 === 0 ? 'Desktop' : 'Notebook',
-    contexto: { cliente: index % 2 === 0 ? 'Clínica Jardim' : 'Quark Saúde', perfil: index % 2 === 0 ? 'Recepção' : 'Admin' },
-  })),
+const DESTAQUES_AGENDA = [
+  { chave: 'filtros-rapidos', fase: 0, base: 10, taxaInteracao: 0.58, taxaClique: 0.31, taxaDispensa: 0.08 },
+  { chave: 'confirmacao-whatsapp', fase: 2, base: 8, taxaInteracao: 0.51, taxaClique: 0.24, taxaDispensa: 0.11 },
+  { chave: 'relatorio-ausencias', fase: 4, base: 6, taxaInteracao: 0.43, taxaClique: 0, taxaDispensa: 0.15 },
+] as const
+
+const OBSERVACOES_UTILIDADE_NEGATIVA = [
+  'Ainda não ficou claro quando devo usar este recurso.',
+  'O destaque chamou atenção, mas não ajudou no meu fluxo atual.',
+  'Preciso de um exemplo mais prático antes de começar a usar.',
 ]
+
+function gerarAvaliacoesDestaqueSeed(): AvaliacaoDestaqueSeed[] {
+  let sequencia = 1
+  return DESTAQUES_AGENDA.flatMap((destaque, destaqueIndex) =>
+    usuariosDemo.map((usuario, usuarioIndex) => ({
+      id: `12000000-0000-0000-0000-${String(sequencia++).padStart(12, '0')}`,
+      campanhaSlug: 'quarkclinic-agenda-destaques',
+      destaqueChave: destaque.chave,
+      diasAtras: (usuarioIndex * 3 + destaqueIndex * 2) % 28,
+      util: (usuarioIndex + destaqueIndex) % 5 !== 3,
+      observacao: usuarioIndex % 3 === 0
+        ? ((usuarioIndex + destaqueIndex) % 5 !== 3
+            ? OBSERVACOES_DEMO[(usuarioIndex + destaqueIndex) % OBSERVACOES_DEMO.length]
+            : OBSERVACOES_UTILIDADE_NEGATIVA[(usuarioIndex + destaqueIndex) % OBSERVACOES_UTILIDADE_NEGATIVA.length])
+        : undefined,
+      usuario_id: `user-${usuario.id}`,
+      usuario_nome: usuario.nome,
+      usuario_email: usuario.email,
+      sistema: 'QuarkClinic',
+      tela: 'agenda',
+      navegador: usuarioIndex % 4 === 0 ? 'Safari' : usuarioIndex % 3 === 0 ? 'Edge' : 'Chrome',
+      dispositivo: usuarioIndex % 5 === 0 ? 'Mobile' : usuarioIndex % 3 === 0 ? 'Notebook' : 'Desktop',
+      contexto: {
+        cliente_nome: usuario.cliente,
+        unidade_nome: usuario.unidade,
+        usuario_tipo: usuario.perfil,
+        Perfil: usuario.perfil,
+        Estado: usuario.estado,
+      },
+    })),
+  )
+}
+
+const avaliacoesDestaqueSeed = gerarAvaliacoesDestaqueSeed()
+
+const perfisEventosDemo = [
+  { slug: 'quarkclinic-agenda-demo', sistema: 'QuarkClinic', tela: 'agenda', base: 22, fase: 0, taxaClique: 0.24 },
+  { slug: 'quarkclinic-prontuario-novo', sistema: 'QuarkClinic', tela: 'prontuario', base: 16, fase: 2, taxaClique: 0.20 },
+  { slug: 'quarkclinic-pesquisa-atendimento', sistema: 'QuarkClinic', tela: 'atendimento', base: 14, fase: 4, taxaClique: 0 },
+  { slug: 'quarkclinic-faturamento-recursos', sistema: 'QuarkClinic', tela: 'faturamento', base: 12, fase: 6, taxaClique: 0.17 },
+  { slug: 'quarkclinic-estoque-alerta', sistema: 'QuarkClinic', tela: 'estoque', base: 8, fase: 8, taxaClique: 0 },
+  { slug: 'userpulse-onboarding-widget', sistema: 'UserPulse', tela: 'integracao', base: 10, fase: 1, taxaClique: 0.26 },
+  { slug: 'userpulse-feedback-campanhas', sistema: 'UserPulse', tela: 'campanhas', base: 6, fase: 3, taxaClique: 0 },
+  { slug: 'userpulse-pesquisa-produto', sistema: 'UserPulse', tela: 'dashboard', base: 7, fase: 5, taxaClique: 0 },
+]
+
+function gerarEventosCampanhaSeed(): EventoCampanhaSeed[] {
+  const eventos: EventoCampanhaSeed[] = []
+  const pesosSemana = [0.38, 1.12, 1.34, 1.22, 1.08, 0.82, 0.48]
+  const pulsos = [-2, 1, 4, 0, 3, -1, 2, 5, -3, 1, 0]
+  const hoje = new Date()
+
+  perfisEventosDemo.forEach((perfil, campanhaIndex) => {
+    let visualizacoesAcumuladas = 0
+    let cliquesAcumulados = 0
+    for (let diasAtras = 44; diasAtras >= 0; diasAtras -= 1) {
+      const data = new Date(hoje)
+      data.setDate(data.getDate() - diasAtras)
+      const indiceDia = 44 - diasAtras
+      const quantidade = Math.max(1, Math.round(
+        perfil.base * pesosSemana[data.getDay()] + pulsos[(indiceDia + perfil.fase) % pulsos.length]
+      ))
+      const totalAnterior = visualizacoesAcumuladas
+      visualizacoesAcumuladas += quantidade
+      const alvoCliques = Math.floor(visualizacoesAcumuladas * perfil.taxaClique)
+      const cliquesNoDia = alvoCliques - cliquesAcumulados
+      cliquesAcumulados = alvoCliques
+
+      for (let sequencia = 0; sequencia < quantidade; sequencia += 1) {
+        const usuario = usuariosDemo[(indiceDia * 3 + sequencia + perfil.fase) % usuariosDemo.length]
+        eventos.push({
+          id: `32000000-0000-0000-0000-${String(campanhaIndex * 100_000_000 + indiceDia * 100_000 + sequencia + 1).padStart(12, '0')}`,
+          campanhaSlug: perfil.slug,
+          diasAtras,
+          tipo_evento: 'visualizacao',
+          usuario_id: `user-${usuario.id}`,
+          sistema: perfil.sistema,
+          tela: perfil.tela,
+          navegador: sequencia % 4 === 0 ? 'Safari' : sequencia % 3 === 0 ? 'Edge' : 'Chrome',
+          dispositivo: sequencia % 5 === 0 ? 'Mobile' : sequencia % 3 === 0 ? 'Notebook' : 'Desktop',
+          contexto: { cliente_nome: usuario.cliente, unidade_nome: usuario.unidade, usuario_tipo: usuario.perfil, Perfil: usuario.perfil, Estado: usuario.estado },
+          minutoDia: 8 * 60 + ((sequencia * 37 + indiceDia * 11) % 600),
+        })
+      }
+
+      for (let sequencia = 0; sequencia < cliquesNoDia; sequencia += 1) {
+        const usuario = usuariosDemo[(totalAnterior + sequencia + perfil.fase) % usuariosDemo.length]
+        eventos.push({
+          id: `33000000-0000-0000-0000-${String(campanhaIndex * 100_000_000 + indiceDia * 100_000 + sequencia + 1).padStart(12, '0')}`,
+          campanhaSlug: perfil.slug,
+          diasAtras,
+          tipo_evento: 'clique_cta',
+          usuario_id: `user-${usuario.id}`,
+          sistema: perfil.sistema,
+          tela: perfil.tela,
+          navegador: sequencia % 3 === 0 ? 'Edge' : 'Chrome',
+          dispositivo: sequencia % 4 === 0 ? 'Mobile' : 'Desktop',
+          contexto: { cliente_nome: usuario.cliente, unidade_nome: usuario.unidade, usuario_tipo: usuario.perfil, Perfil: usuario.perfil, Estado: usuario.estado },
+          minutoDia: 9 * 60 + ((sequencia * 43 + indiceDia * 13) % 540),
+        })
+      }
+    }
+  })
+  return eventos
+}
+
+function gerarEventosDestaqueSeed(): EventoCampanhaSeed[] {
+  const eventos: EventoCampanhaSeed[] = []
+  const pesosSemana = [0.42, 1.08, 1.22, 1.16, 1.05, 0.88, 0.55]
+  const pulsos = [-1, 2, 0, 3, -2, 1, 2]
+  const hoje = new Date()
+  let sequenciaId = 1
+
+  const adicionarEventos = (
+    quantidade: number,
+    tipo_evento: EventoCampanhaSeed['tipo_evento'],
+    destaqueChave: string,
+    diasAtras: number,
+    usuarios: typeof usuariosDemo,
+    deslocamentoMinutos: number,
+  ) => {
+    for (let indice = 0; indice < quantidade; indice += 1) {
+      const usuario = usuarios[indice % usuarios.length]
+      eventos.push({
+        id: `34000000-0000-0000-0000-${String(sequenciaId++).padStart(12, '0')}`,
+        campanhaSlug: 'quarkclinic-agenda-destaques',
+        destaqueChave,
+        diasAtras,
+        tipo_evento,
+        usuario_id: `user-${usuario.id}`,
+        sistema: 'QuarkClinic',
+        tela: 'agenda',
+        navegador: indice % 4 === 0 ? 'Safari' : indice % 3 === 0 ? 'Edge' : 'Chrome',
+        dispositivo: indice % 5 === 0 ? 'Mobile' : indice % 3 === 0 ? 'Notebook' : 'Desktop',
+        contexto: { cliente_nome: usuario.cliente, unidade_nome: usuario.unidade, usuario_tipo: usuario.perfil, Perfil: usuario.perfil, Estado: usuario.estado },
+        minutoDia: 8 * 60 + ((indice * 41 + diasAtras * 13 + destaqueChave.length * 7) % 540) + deslocamentoMinutos,
+      })
+    }
+  }
+
+  DESTAQUES_AGENDA.forEach(destaque => {
+    for (let diasAtras = 44; diasAtras >= 0; diasAtras -= 1) {
+      const data = new Date(hoje)
+      data.setDate(data.getDate() - diasAtras)
+      const visualizacoes = Math.max(1, Math.round(
+        destaque.base * pesosSemana[data.getDay()] + pulsos[(44 - diasAtras + destaque.fase) % pulsos.length],
+      ))
+      const usuariosDoDia = Array.from(
+        { length: visualizacoes },
+        (_, indice) => usuariosDemo[(diasAtras * 2 + indice + destaque.fase) % usuariosDemo.length],
+      )
+      adicionarEventos(visualizacoes, 'visualizacao', destaque.chave, diasAtras, usuariosDoDia, 0)
+      adicionarEventos(Math.round(visualizacoes * destaque.taxaInteracao), 'interacao_badge', destaque.chave, diasAtras, usuariosDoDia, 5)
+      adicionarEventos(Math.round(visualizacoes * destaque.taxaClique), 'clique_cta', destaque.chave, diasAtras, usuariosDoDia, 10)
+      adicionarEventos(Math.round(visualizacoes * destaque.taxaDispensa), 'dispensa', destaque.chave, diasAtras, usuariosDoDia, 15)
+    }
+  })
+
+  return eventos
+}
+
+const eventosCampanhaSeed = [...gerarEventosCampanhaSeed(), ...gerarEventosDestaqueSeed()]
 
 async function resolverTenant() {
   const slug = process.env.ADMIN_TENANT_SLUG?.trim().toLowerCase() || 'quark'
@@ -614,11 +842,19 @@ async function resolverTenant() {
 }
 
 async function seedCampanhas(tenant_id: string) {
-  const campanhas = new Map<string, { id: string }>()
+  const campanhas = new Map<string, { id: string; destaques: Map<string, string> }>()
   for (const item of campanhasSeed) {
+    const destaques = item.destaques?.map(({ chave, ...destaque }, index) => ({
+      ...destaque,
+      id: idSeed('destaque', tenant_id, `${item.slug}:${chave}`),
+      tenant_id,
+      ordem: index + 1,
+      ativo: true,
+    }))
     const data = {
       tenant_id,
       slug: item.slug,
+      nome_interno: item.nome_interno,
       titulo: item.titulo,
       subtitulo: item.subtitulo,
       descricao: item.descricao,
@@ -633,22 +869,45 @@ async function seedCampanhas(tenant_id: string) {
       modo_exibicao: item.modo_exibicao ?? 'modal_automatica',
       gatilho: item.gatilho ?? 'ao_abrir_tela',
       modo_identificacao: item.modo_identificacao ?? 'sistema_tela',
+      data_cy: item.data_cy,
       url_contem: item.url_contem,
       atraso_ms: 800,
       mostrar_uma_vez: false,
       prioridade: item.prioridade,
       ordem: item.prioridade,
       ativo: item.ativo,
+      status: item.ativo ? 'ATIVA' as const : 'INATIVA' as const,
       exige_confirmacao_leitura: item.exige_confirmacao_leitura ?? false,
       permitir_fechar_modal: true,
     }
     const campanha = await prisma.campanha.upsert({
       where: { tenant_id_slug: { tenant_id, slug: item.slug } },
-      create: data,
-      update: data,
+      create: { ...data, ...(destaques && { destaques: { create: destaques } }) },
+      update: {
+        ...data,
+        ...(destaques && {
+          destaques: {
+            updateMany: {
+              where: { id: { notIn: destaques.map(destaque => destaque.id) } },
+              data: { ativo: false },
+            },
+            upsert: destaques.map(destaque => ({
+              where: { id: destaque.id },
+              create: destaque,
+              update: destaque,
+            })),
+          },
+        }),
+      },
       select: { id: true },
     })
-    campanhas.set(item.slug, campanha)
+    campanhas.set(item.slug, {
+      ...campanha,
+      destaques: new Map(item.destaques?.map(destaque => [
+        destaque.chave,
+        idSeed('destaque', tenant_id, `${item.slug}:${destaque.chave}`),
+      ]) ?? []),
+    })
   }
   console.log(`✓ Campanhas seed: ${campanhas.size} registro(s)`)
   return campanhas
@@ -735,40 +994,19 @@ async function seedJornadas(
   console.log(`✓ Jornadas seed: ${total} registro(s)`)
 }
 
-function dataRelativa(diasAtras: number) {
+function dataRelativa(diasAtras: number, minutoDia?: number) {
   const data = new Date()
   data.setDate(data.getDate() - diasAtras)
-  data.setHours(10 + (diasAtras % 8), 15, 0, 0)
+  const minutos = minutoDia ?? (10 + (diasAtras % 8)) * 60 + 15
+  data.setHours(Math.floor(minutos / 60), minutos % 60, 0, 0)
   return data
 }
 
-async function seedInteracoesCampanhas(campanhas: Map<string, { id: string }>) {
-  let feedbacks = 0
-  for (const item of feedbacksSeed) {
+async function seedInteracoesCampanhas(campanhas: Map<string, { id: string; destaques: Map<string, string> }>) {
+  const feedbacksNps = feedbacksSeed.flatMap(item => {
     const campanha = campanhas.get(item.campanhaSlug)
-    if (!campanha) continue
-    await prisma.feedback.upsert({
-      where: { id: item.id },
-      create: {
-        id: item.id,
-        campanha_id: campanha.id,
-        // Todo feedback seed é demo de NPS (0-10) — fundação
-        // csat/utilidade_destaque ainda não tem dado de exemplo próprio.
-        tipo_avaliacao: 'nps',
-        nota: item.nota,
-        observacao: item.observacao,
-        usuario_id: item.usuario_id,
-        usuario_nome: item.usuario_nome,
-        usuario_email: item.usuario_email,
-        sistema: item.sistema,
-        tela: item.tela,
-        navegador: item.navegador,
-        dispositivo: item.dispositivo,
-        contexto: item.contexto,
-        telefone_contato: item.telefone_contato,
-        criado_em: dataRelativa(item.diasAtras),
-      },
-      update: {
+    return campanha ? [{
+        id: idSeed('feedback', campanha.id, item.id),
         campanha_id: campanha.id,
         tipo_avaliacao: 'nps',
         nota: item.nota,
@@ -783,45 +1021,79 @@ async function seedInteracoesCampanhas(campanhas: Map<string, { id: string }>) {
         contexto: item.contexto,
         telefone_contato: item.telefone_contato,
         criado_em: dataRelativa(item.diasAtras),
-      },
-    })
-    feedbacks += 1
-  }
+      }] : []
+  })
 
-  let eventos = 0
-  for (const item of eventosCampanhaSeed) {
+  const avaliacoesDestaque = avaliacoesDestaqueSeed.flatMap(item => {
     const campanha = campanhas.get(item.campanhaSlug)
-    if (!campanha) continue
-    await prisma.eventoCampanha.upsert({
-      where: { id: item.id },
-      create: {
-        id: item.id,
-        campanha_id: campanha.id,
-        tipo_evento: item.tipo_evento,
-        usuario_id: item.usuario_id,
-        sistema: item.sistema,
-        tela: item.tela,
-        navegador: item.navegador,
-        dispositivo: item.dispositivo,
-        contexto: item.contexto,
-        criado_em: dataRelativa(item.diasAtras),
-      },
-      update: {
-        campanha_id: campanha.id,
-        tipo_evento: item.tipo_evento,
-        usuario_id: item.usuario_id,
-        sistema: item.sistema,
-        tela: item.tela,
-        navegador: item.navegador,
-        dispositivo: item.dispositivo,
-        contexto: item.contexto,
-        criado_em: dataRelativa(item.diasAtras),
-      },
-    })
-    eventos += 1
-  }
+    const destaqueItemId = campanha?.destaques.get(item.destaqueChave)
+    return campanha && destaqueItemId ? [{
+      id: idSeed('feedback', campanha.id, item.id),
+      campanha_id: campanha.id,
+      destaque_item_id: destaqueItemId,
+      tipo_avaliacao: 'utilidade_destaque',
+      nota: null,
+      util: item.util,
+      observacao: item.observacao,
+      usuario_id: item.usuario_id,
+      usuario_nome: item.usuario_nome,
+      usuario_email: item.usuario_email,
+      sistema: item.sistema,
+      tela: item.tela,
+      navegador: item.navegador,
+      dispositivo: item.dispositivo,
+      contexto: item.contexto,
+      criado_em: dataRelativa(item.diasAtras),
+    }] : []
+  })
+  const feedbacks = [...feedbacksNps, ...avaliacoesDestaque]
 
-  console.log(`✓ Interações de campanhas seed: ${feedbacks} feedback(s), ${eventos} evento(s)`)
+  const eventos = eventosCampanhaSeed.flatMap(item => {
+    const campanha = campanhas.get(item.campanhaSlug)
+    const destaqueItemId = item.destaqueChave ? campanha?.destaques.get(item.destaqueChave) : undefined
+    if (!campanha || (item.destaqueChave && !destaqueItemId)) return []
+    return [{
+        id: idSeed('evento', campanha.id, item.id),
+        campanha_id: campanha.id,
+        destaque_item_id: destaqueItemId,
+        tipo_evento: item.tipo_evento,
+        usuario_id: item.usuario_id,
+        sistema: item.sistema,
+        tela: item.tela,
+        navegador: item.navegador,
+        dispositivo: item.dispositivo,
+        contexto: item.contexto,
+        criado_em: dataRelativa(item.diasAtras, item.minutoDia),
+      }]
+  })
+
+  const campanhaIds = [...campanhas.values()].map(campanha => campanha.id)
+
+  await prisma.$transaction([
+    prisma.feedback.deleteMany({ where: {
+      campanha_id: { in: campanhaIds },
+      OR: [
+        { id: { startsWith: 'seed-feedback-' } },
+        { id: { startsWith: '10000000-' } },
+        { id: { startsWith: '11000000-' } },
+        { id: { startsWith: '12000000-' } },
+      ],
+    } }),
+    prisma.eventoCampanha.deleteMany({ where: {
+      campanha_id: { in: campanhaIds },
+      OR: [
+        { id: { startsWith: 'seed-evento-' } },
+        { id: { startsWith: '20000000-' } },
+        { id: { startsWith: '32000000-' } },
+        { id: { startsWith: '33000000-' } },
+        { id: { startsWith: '34000000-' } },
+      ],
+    } }),
+    prisma.feedback.createMany({ data: feedbacks }),
+    prisma.eventoCampanha.createMany({ data: eventos }),
+  ])
+
+  console.log(`✓ Interações de campanhas seed: ${feedbacks.length} feedback(s), ${eventos.length} evento(s)`)
 }
 
 async function seedCatalogo(tenant_id: string) {
