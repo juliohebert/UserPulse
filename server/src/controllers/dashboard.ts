@@ -204,6 +204,15 @@ function intervalo(query: Request['query']) {
   return { ...(inicio ? { gte: inicio } : {}), ...(fim ? { lte: fim } : {}) }
 }
 
+function intervaloAnterior(range: { gte?: Date; lte?: Date }) {
+  if (!range.gte || !range.lte) return null
+  const duracao = range.lte.getTime() - range.gte.getTime() + 1
+  return {
+    gte: new Date(range.gte.getTime() - duracao),
+    lte: new Date(range.gte.getTime() - 1),
+  }
+}
+
 function filtrosFeedback(query: Request['query'], campanhaId: string): Prisma.FeedbackWhereInput {
   const where: Prisma.FeedbackWhereInput = { ...whereFeedbackNps(campanhaId), criado_em: intervalo(query) }
   const nota = Number(query.nota)
@@ -405,7 +414,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento ? prisma.feedback.count({ where: avaliacaoWhere }) : Promise.resolve(0),
       prisma.$queryRaw<Array<{ data: string; visualizacoes: bigint }>>`
         SELECT TO_CHAR(DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS data, COUNT(*)::bigint AS visualizacoes
-        FROM "EventoCampanha"
+        FROM eventos_campanha
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
           ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
           ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
@@ -414,7 +423,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       `,
       prisma.$queryRaw<Array<{ dia: number; visualizacoes: bigint }>>`
         SELECT EXTRACT(DOW FROM criado_em AT TIME ZONE 'America/Sao_Paulo')::int AS dia, COUNT(*)::bigint AS visualizacoes
-        FROM "EventoCampanha"
+        FROM eventos_campanha
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
           ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
           ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
@@ -471,8 +480,47 @@ export async function buscarDashboard(req: Request, res: Response) {
       sim: destaqueAvaliacoesPeriodo.find(item => item.util === true)?._count.id ?? 0,
     }
 
+    // Não há comparação honesta para "Todo período"; só calculamos a janela
+    // imediatamente anterior quando o usuário forneceu início e fim.
+    const rangeAnterior = intervaloAnterior(range)
+    let comparacao: { visualizacoes: number; respostas: number; cliques_cta: number; nps: number | null; media: number | null } | null = null
+    let serie_impressao_anterior: Array<{ data: string; visualizacoes: number }> = []
+    if (rangeAnterior) {
+      const [visualizacoesAnterior, cliquesAnterior, respostasAnteriores, notasAnteriores, mediaAnterior, serieAnterior] = await Promise.all([
+        prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'visualizacao', criado_em: rangeAnterior } }),
+        prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'clique_cta', criado_em: rangeAnterior } }),
+        prisma.feedback.count({ where: { ...whereFeedbackNps(id), criado_em: rangeAnterior } }),
+        prisma.feedback.groupBy({ by: ['nota'], where: { ...whereFeedbackNps(id), criado_em: rangeAnterior }, _count: { nota: true } }),
+        prisma.feedback.aggregate({ where: { ...whereFeedbackNps(id), criado_em: rangeAnterior }, _avg: { nota: true } }),
+        prisma.$queryRaw<Array<{ data: string; visualizacoes: bigint }>>`
+          SELECT TO_CHAR(DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS data,
+                 COUNT(*)::bigint AS visualizacoes
+          FROM eventos_campanha
+          WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
+            AND criado_em >= ${rangeAnterior.gte} AND criado_em <= ${rangeAnterior.lte}
+          GROUP BY DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo')
+          ORDER BY data ASC
+        `,
+      ])
+      const totalNotasAnteriores = notasAnteriores.reduce((sum, item) => sum + item._count.nota, 0)
+      const promotoresAnteriores = notasAnteriores.filter(item => item.nota !== null && item.nota >= 9).reduce((sum, item) => sum + item._count.nota, 0)
+      const detratoresAnteriores = notasAnteriores.filter(item => item.nota !== null && item.nota <= 6).reduce((sum, item) => sum + item._count.nota, 0)
+      comparacao = {
+        visualizacoes: visualizacoesAnterior,
+        respostas: respostasAnteriores,
+        cliques_cta: cliquesAnterior,
+        nps: totalNotasAnteriores > 0 ? Math.round((promotoresAnteriores - detratoresAnteriores) / totalNotasAnteriores * 100) : null,
+        media: mediaAnterior._avg.nota !== null ? Math.round(mediaAnterior._avg.nota * 10) / 10 : null,
+      }
+      serie_impressao_anterior = normalizarSerieImpressao(serieAnterior)
+    }
+
     res.json({
       campanha,
+      periodo: { inicio: range.gte?.toISOString() ?? null, fim: range.lte?.toISOString() ?? null },
+      comparacao,
+      serie_diaria: [],
+      serie_diaria_anterior: [],
       media,
       total: feedbacks_total,
       total_periodo: agregado._count.id,
@@ -501,6 +549,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       respostas_page: respPag.page,
       respostas_per_page: respPag.perPage,
       serie_impressao: normalizarSerieImpressao(serie_impressao),
+      serie_impressao_anterior,
       atividade_semana: normalizarAtividadeDiaSemana(atividade_semana),
     })
   } catch (err) {

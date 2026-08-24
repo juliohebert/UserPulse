@@ -8,7 +8,7 @@ import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
-import { blocosDashboardVisiveis, type IndicadorResumoDef } from './dashboardBlocos'
+import { blocosDashboardVisiveis, diasCivisNoIntervalo, variacaoPercentual, type IndicadorResumoDef } from './dashboardBlocos'
 
 // ─── filter types ─────────────────────────────────────────────────────────────
 
@@ -506,6 +506,24 @@ export function CampanhaDashboard() {
     const y = 96 - (p.visualizacoes / maxImpressao) * 88
     return `${x},${y}`
   }).join(' ')
+  const areaImpressao = serieImpressao.length > 1 ? `0,96 ${pontosImpressao} 100,96` : ''
+  const serieAnterior = data?.serie_impressao_anterior ?? []
+  const maxComparacao = Math.max(1, maxImpressao, ...serieAnterior.map(p => p.visualizacoes))
+  const pontosAnteriores = serieAnterior.map((p, i) => {
+    const x = serieAnterior.length > 1 ? (i / (serieAnterior.length - 1)) * 100 : 50
+    const y = 96 - (p.visualizacoes / maxComparacao) * 88
+    return `${x},${y}`
+  }).join(' ')
+  const diasPeriodo = diasCivisNoIntervalo(data?.periodo.inicio, data?.periodo.fim)
+  const mediaDiaria = serieImpressao.length > 0
+    ? Math.round(serieImpressao.reduce((sum, p) => sum + p.visualizacoes, 0) / (diasPeriodo ?? serieImpressao.length))
+    : 0
+  const variacaoVisualizacoes = variacaoPercentual(kpiVisualizacoes, data?.comparacao?.visualizacoes)
+  const variacaoRespostas = variacaoPercentual(kpiTotal, data?.comparacao?.respostas)
+  const variacaoCliques = variacaoPercentual(kpiCliques, data?.comparacao?.cliques_cta)
+  const variacaoMedia = kpiMedia !== null && data?.comparacao?.media !== null && data?.comparacao?.media !== undefined
+    ? variacaoPercentual(kpiMedia, data.comparacao.media)
+    : null
   const atividadeSemana = data?.atividade_semana ?? []
   const maiorDia = atividadeSemana.reduce<{ dia: number; visualizacoes: number } | null>(
     (maior, atual) => !maior || atual.visualizacoes > maior.visualizacoes ? atual : maior, null,
@@ -650,8 +668,16 @@ export function CampanhaDashboard() {
               <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-4 sm:p-5">
                 <div className="flex items-start justify-between gap-3 mb-4"><div><h3 className="text-title-md font-bold text-on-surface">Impressões da campanha</h3><p className="text-label-md text-outline mt-1">Evolução diária de visualizações</p></div><span className="text-label-md text-outline">{serieImpressao.length} dias</span></div>
                 {serieImpressao.length === 0 ? <EmptySection icon="show_chart" title="Sem impressões ainda" message="O gráfico aparecerá quando a campanha for visualizada." /> : <>
-                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-52 rounded-xl bg-surface-container-low p-2" role="img" aria-label="Gráfico de impressões"><polyline points={pontosImpressao} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className="text-primary" /></svg>
-                  <div className="flex justify-between text-[11px] text-outline mt-2"><span>{serieImpressao[0]?.data}</span><span>Pico: {maxImpressao.toLocaleString('pt-BR')}</span><span>{serieImpressao.length > 0 ? serieImpressao[serieImpressao.length - 1].data : ''}</span></div>
+                  <div className="flex flex-wrap items-center justify-end gap-3 mb-2 text-[11px] text-outline">
+                    <span className="inline-flex items-center gap-1"><i className="w-5 h-0.5 bg-primary rounded" />Período atual</span>
+                    {serieAnterior.length > 0 && <span className="inline-flex items-center gap-1"><i className="w-5 h-0.5 border-t border-dashed border-outline" />Período anterior</span>}
+                  </div>
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-52 rounded-xl bg-surface-container-low p-2" role="img" aria-label="Gráfico de impressões">
+                    {areaImpressao && <polygon points={areaImpressao} className="fill-primary/10" />}
+                    {pontosAnteriores && <polyline points={pontosAnteriores} fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" className="text-outline/60" />}
+                    <polyline points={pontosImpressao} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className="text-primary" />
+                  </svg>
+                  <div className="flex justify-between text-[11px] text-outline mt-2"><span>{serieImpressao[0]?.data}</span><span>Pico: {maxImpressao.toLocaleString('pt-BR')} · Média diária: {mediaDiaria.toLocaleString('pt-BR')}</span><span>{serieImpressao[serieImpressao.length - 1]?.data}</span></div>
                 </>}
               </div>
               <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-4 sm:p-5">
@@ -676,6 +702,7 @@ export function CampanhaDashboard() {
               <KpiCard
                 icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
                 label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
+                trend={variacaoVisualizacoes}
                 sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
                 subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram os destaques no período selecionado."
               />
@@ -688,6 +715,7 @@ export function CampanhaDashboard() {
               <KpiCard
                 icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
                 label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
+                trend={variacaoCliques}
                 sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
                 subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais dos destaques (não por usuários únicos). O cálculo respeita o período selecionado."
               />
@@ -703,12 +731,14 @@ export function CampanhaDashboard() {
               <KpiCard
                 icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
                 label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
+                trend={variacaoVisualizacoes}
                 sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
                 subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram a campanha no período selecionado."
               />
               <KpiCard
                 icon="forum" iconColor="text-secondary" iconBg="bg-secondary/10"
                 label="Respostas" value={kpiTotal.toLocaleString('pt-BR')}
+                trend={variacaoRespostas}
                 sub={
                   temRespondentes && kpiVisualizacoesUnicas > 0
                     ? `${kpiRespondentesUnicos.toLocaleString('pt-BR')} de ${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários responderam`
@@ -725,6 +755,7 @@ export function CampanhaDashboard() {
               <KpiCard
                 icon="ads_click" iconColor="text-tertiary" iconBg="bg-tertiary/10"
                 label="Cliques CTA" value={kpiCliques.toLocaleString('pt-BR')}
+                trend={variacaoCliques}
                 sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
                 subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais da campanha (não por usuários únicos). O cálculo respeita o período selecionado."
               />
@@ -734,6 +765,7 @@ export function CampanhaDashboard() {
                   <KpiCard
                     icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
                     label="Nota Média" value={kpiMedia !== null ? kpiMedia.toFixed(1) : '—'}
+                    trend={variacaoMedia}
                     sub={`NPS: ${npsScore > 0 ? '+' : ''}${npsScore}`}
                     tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
                     subTooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
@@ -2174,10 +2206,11 @@ function CellText({ value, truncate }: { value: string; truncate?: boolean }) {
 interface KpiCardProps {
   icon: string; iconColor: string; iconBg: string
   label: string; value: string; sub: string; large?: boolean
+  trend?: number | null
   tooltip?: string; subTooltip?: string; subExtra?: React.ReactNode
 }
 
-function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, tooltip, subTooltip, subExtra }: KpiCardProps) {
+function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, trend, tooltip, subTooltip, subExtra }: KpiCardProps) {
   return (
     <div className="min-w-0 bg-surface-container-lowest p-3.5 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm hover:border-primary/40 transition-colors">
       <div className="flex items-start gap-2.5 sm:gap-3">
@@ -2195,6 +2228,11 @@ function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, tooltip, s
           </p>
           <p className={`font-bold text-on-surface leading-none mt-1 truncate ${large ? 'text-title-lg sm:text-display-sm' : 'text-title-lg sm:text-headline-lg'}`}>
             {value}
+            {trend !== null && trend !== undefined && (
+              <span className={`ml-2 align-middle text-[12px] font-semibold ${trend >= 0 ? 'text-tertiary' : 'text-error'}`} title="Variação em relação ao período anterior">
+                {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
+              </span>
+            )}
           </p>
           <p className="text-label-md font-medium text-outline mt-1 flex items-center gap-1">
             {sub}

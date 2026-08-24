@@ -169,6 +169,7 @@ export interface DashboardData {
     respostas: number
     cliques_cta: number
     nps: number | null
+    media: number | null
   } | null
   serie_diaria: Array<{ data: string; visualizacoes: number; respostas: number; cliques_cta: number }>
   serie_diaria_anterior: Array<{ data: string; visualizacoes: number; respostas: number; cliques_cta: number }>
@@ -206,6 +207,7 @@ export interface DashboardData {
   eventos_page: number
   eventos_per_page: number
   serie_impressao: Array<{ data: string; visualizacoes: number }>
+  serie_impressao_anterior: Array<{ data: string; visualizacoes: number }>
   atividade_semana: Array<{ dia: number; visualizacoes: number }>
 }
 

@@ -1,8 +1,31 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { blocosDashboardVisiveis } from './dashboardBlocos'
+import { blocosDashboardVisiveis, diasCivisNoIntervalo, variacaoPercentual } from './dashboardBlocos'
 
-// Não há renderização de React nos testes deste projeto (nenhum React
+describe('diasCivisNoIntervalo', () => {
+  test('inclui dias sem eventos entre o início e o fim no fuso de São Paulo', () => {
+    assert.equal(
+      diasCivisNoIntervalo('2026-08-10T03:00:00.000Z', '2026-08-18T02:59:59.999Z'),
+      8,
+    )
+  })
+
+  test('retorna nulo quando o período não é delimitado', () => {
+    assert.equal(diasCivisNoIntervalo(null, '2026-08-17T02:59:59.999Z'), null)
+  })
+})
+
+describe('variacaoPercentual', () => {
+  test('calcula a tendência da média quando há período anterior', () => {
+    assert.equal(variacaoPercentual(7.5, 6), 25)
+  })
+
+  test('mantém tendência neutra quando não há comparação ou o denominador é zero', () => {
+    assert.equal(variacaoPercentual(7.5, null), null)
+    assert.equal(variacaoPercentual(7.5, 0), null)
+  })
+})
+
 // Testing Library/jsdom configurado, ver server/package.json e a ausência
 // de script de teste em web/package.json) — mesmo limite documentado em
 // CLAUDE.md pro lado do servidor, aplicado aqui também (mesmo padrão já
