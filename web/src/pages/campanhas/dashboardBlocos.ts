@@ -1,5 +1,5 @@
 // Módulo isolado de propósito (nenhum import, mesmo padrão de
-// campanhas2/campanhaForm.ts) — CampanhaDashboard.tsx importa utils/campanha.ts,
+// campanhas/campanhaForm.ts) — CampanhaDashboard.tsx importa utils/campanha.ts,
 // que usa import.meta.env (só existe sob o bundler do Vite/navegador), então
 // qualquer lógica pura que precise ser testada via node:test (ver
 // dashboardBlocos.test.ts) tem que morar fora do .tsx do componente.
@@ -7,6 +7,36 @@
 export interface OpcaoFiltroEvento {
   value: string
   label: string
+}
+
+/** Conta dias civis entre limites ISO, interpretados no fuso do produto. */
+export function diasCivisNoIntervalo(
+  inicio: string | null | undefined,
+  fim: string | null | undefined,
+  timeZone = 'America/Sao_Paulo',
+): number | null {
+  if (!inicio || !fim) return null
+  const formatador = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  const dataCivil = (valor: string) => {
+    const partes = formatador.formatToParts(new Date(valor))
+    const ano = partes.find(p => p.type === 'year')?.value
+    const mes = partes.find(p => p.type === 'month')?.value
+    const dia = partes.find(p => p.type === 'day')?.value
+    return Date.UTC(Number(ano), Number(mes) - 1, Number(dia))
+  }
+  const diferenca = Math.round((dataCivil(fim) - dataCivil(inicio)) / 86_400_000) + 1
+  return Math.max(0, diferenca)
+}
+
+/** Retorna a variação percentual ou nulo quando não há base comparável. */
+export function variacaoPercentual(atual: number, anterior: number | null | undefined): number | null {
+  if (anterior === null || anterior === undefined || anterior === 0) return null
+  return Math.round(((atual - anterior) / anterior) * 100)
 }
 
 // `key` identifica qual valor já calculado no componente entra em cada chip
@@ -31,6 +61,9 @@ export interface IndicadorResumoDef {
 export interface BlocosDashboard {
   kpiDestaque: boolean
   kpiFeedbackGeral: boolean
+  // Impressões existem nos dois formatos; destaque_elemento só não usa o
+  // funil Visualizações -> Respostas, que pertence ao feedback geral.
+  graficoImpressoes: boolean
   funilEngajamento: boolean
   resumoNps: boolean
   distribuicaoNotas: boolean
@@ -91,6 +124,7 @@ export function blocosDashboardVisiveis(modoExibicao: string): BlocosDashboard {
   return {
     kpiDestaque: destaque,
     kpiFeedbackGeral: !destaque,
+    graficoImpressoes: true,
     funilEngajamento: !destaque,
     resumoNps: !destaque,
     distribuicaoNotas: !destaque,

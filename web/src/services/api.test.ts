@@ -111,4 +111,20 @@ describe('request — sucesso não aciona nenhum handler', () => {
     assert.equal(unauthorizedChamadas, 0)
     assert.equal(forbiddenChamadas, 0)
   })
+
+  test('get encaminha o AbortSignal para o fetch', async () => {
+    const controller = new AbortController()
+    let signalRecebido: AbortSignal | null | undefined
+    globalThis.fetch = (async (_input, init) => {
+      signalRecebido = init?.signal
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({}),
+      }
+    }) as typeof fetch
+
+    await get('/campanhas', { signal: controller.signal })
+    assert.equal(signalRecebido, controller.signal)
+  })
 })

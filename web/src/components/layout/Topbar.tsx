@@ -210,7 +210,7 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
 
   return (
     <header
-      className={`fixed top-0 right-0 left-0 ${collapsed ? 'md:left-24' : 'md:left-[292px]'} h-16 bg-white border-b border-outline-variant flex justify-between items-center px-4 lg:px-margin-desktop z-40 transition-[left] duration-200`}
+      className={`fixed inset-x-0 top-0 h-16 bg-white border-b border-outline-variant flex justify-between items-center px-4 md:pr-8 ${collapsed ? 'md:pl-32' : 'md:pl-[324px]'} z-40 transition-[padding-left] duration-200`}
     >
       <button
         type="button"

@@ -23,7 +23,7 @@ export function Layout() {
     })
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-[#f5f7fb]">
       {sidebarMobileAberta && (
         <button
           type="button"

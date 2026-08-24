@@ -66,7 +66,7 @@ export function resolverRemocaoCampanha(statusAtual: CampanhaStatus): ResultadoR
 // resolverRemocaoCampanha) — disponível só pra campanha ATIVA ainda não
 // encerrada. Nunca cria um 4º status: "Encerrada" continua sendo só uma
 // leitura de período (data_fim no passado) por cima de status=ATIVA, igual
-// getStatus no frontend (web/src/pages/campanhas2/campanhaForm.ts) já fazia
+// getStatus no frontend (web/src/pages/campanhas/campanhaForm.ts) já fazia
 // antes desta ação existir — aqui só define o `data_fim` que faz essa
 // leitura passar a valer. Função pura — decide o QUE fazer a partir de
 // status/data_fim atuais + `agora` (sempre injetado pelo caller, nunca
