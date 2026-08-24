@@ -440,6 +440,7 @@ interface ResultadoElegibilidade {
   criterios: Criterio[]
   campanha_concorrente: {
     id: string
+    nome_interno: string
     titulo: string
     prioridade: number
     motivo: string
@@ -1677,6 +1678,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
         if (!competitorBlocked) {
           campanhaConcorrente = {
             id: c.id,
+            nome_interno: c.nome_interno,
             titulo: c.titulo,
             prioridade: c.prioridade,
             motivo: `Prioridade ${c.prioridade} > ${campanha.prioridade}`,
@@ -1686,7 +1688,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
       }
 
       if (campanhaConcorrente) {
-        warn('Prioridade', `A campanha "${campanhaConcorrente.titulo}" (prioridade ${campanhaConcorrente.prioridade}) será exibida primeiro. Esta campanha não seria a primeira exibida nesta visita.`)
+        warn('Prioridade', `A campanha "${campanhaConcorrente.nome_interno}" (prioridade ${campanhaConcorrente.prioridade}) será exibida primeiro. Esta campanha não seria a primeira exibida nesta visita.`)
       } else {
         ok('Prioridade', 'Nenhuma campanha concorrente com maior prioridade para este contexto.')
       }
@@ -1699,7 +1701,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
       exibiria,
       motivo: firstBlock
         ?? (campanhaConcorrente
-          ? `A campanha "${campanhaConcorrente.titulo}" seria exibida antes desta.`
+          ? `A campanha "${campanhaConcorrente.nome_interno}" seria exibida antes desta.`
           : 'Campanha elegível para exibição.'),
       criterios,
       campanha_concorrente: campanhaConcorrente,

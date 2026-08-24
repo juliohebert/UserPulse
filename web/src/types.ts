@@ -490,6 +490,7 @@ export interface ResultadoElegibilidade {
   criterios: Criterio[]
   campanha_concorrente: {
     id: string
+    nome_interno: string
     titulo: string
     prioridade: number
     motivo: string
