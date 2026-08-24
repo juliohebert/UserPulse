@@ -8,7 +8,7 @@ import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
-import { blocosDashboardVisiveis, type IndicadorResumoDef } from './dashboardBlocos'
+import { blocosDashboardVisiveis, diasCivisNoIntervalo, variacaoPercentual, type IndicadorResumoDef } from './dashboardBlocos'
 
 // ─── filter types ─────────────────────────────────────────────────────────────
 
@@ -514,16 +514,16 @@ export function CampanhaDashboard() {
     const y = 96 - (p.visualizacoes / maxComparacao) * 88
     return `${x},${y}`
   }).join(' ')
+  const diasPeriodo = diasCivisNoIntervalo(data?.periodo.inicio, data?.periodo.fim)
   const mediaDiaria = serieImpressao.length > 0
-    ? Math.round(serieImpressao.reduce((sum, p) => sum + p.visualizacoes, 0) / serieImpressao.length)
+    ? Math.round(serieImpressao.reduce((sum, p) => sum + p.visualizacoes, 0) / (diasPeriodo ?? serieImpressao.length))
     : 0
-  const variacao = (atual: number, anterior: number | undefined) => {
-    if (anterior === undefined || anterior === 0) return null
-    return Math.round(((atual - anterior) / anterior) * 100)
-  }
-  const variacaoVisualizacoes = variacao(kpiVisualizacoes, data?.comparacao?.visualizacoes)
-  const variacaoRespostas = variacao(kpiTotal, data?.comparacao?.respostas)
-  const variacaoCliques = variacao(kpiCliques, data?.comparacao?.cliques_cta)
+  const variacaoVisualizacoes = variacaoPercentual(kpiVisualizacoes, data?.comparacao?.visualizacoes)
+  const variacaoRespostas = variacaoPercentual(kpiTotal, data?.comparacao?.respostas)
+  const variacaoCliques = variacaoPercentual(kpiCliques, data?.comparacao?.cliques_cta)
+  const variacaoMedia = kpiMedia !== null && data?.comparacao?.media !== null && data?.comparacao?.media !== undefined
+    ? variacaoPercentual(kpiMedia, data.comparacao.media)
+    : null
   const atividadeSemana = data?.atividade_semana ?? []
   const maiorDia = atividadeSemana.reduce<{ dia: number; visualizacoes: number } | null>(
     (maior, atual) => !maior || atual.visualizacoes > maior.visualizacoes ? atual : maior, null,
@@ -765,6 +765,7 @@ export function CampanhaDashboard() {
                   <KpiCard
                     icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
                     label="Nota Média" value={kpiMedia !== null ? kpiMedia.toFixed(1) : '—'}
+                    trend={variacaoMedia}
                     sub={`NPS: ${npsScore > 0 ? '+' : ''}${npsScore}`}
                     tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
                     subTooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
