@@ -11,10 +11,20 @@ import {
 const DIA_MS = 86_400_000
 const AGORA = new Date('2026-07-10T12:00:00Z')
 const FONTE_WIDGET = readFileSync(new URL('./widget.ts', import.meta.url), 'utf8')
+const FONTE_SEED = readFileSync(new URL('../../prisma/seed.ts', import.meta.url), 'utf8')
 
 function diasAtras(dias: number): Date {
   return new Date(AGORA.getTime() - dias * DIA_MS)
 }
+
+describe('contrato de eventos das campanhas demo', () => {
+  test('seed usa os mesmos tipos de evento aceitos pelo widget', () => {
+    for (const tipoLegado of ['feedback_enviado', 'visualizada', 'cta_clicado', 'fechada']) {
+      assert.equal(FONTE_SEED.includes(`'${tipoLegado}'`), false, `tipo legado encontrado no seed: ${tipoLegado}`)
+    }
+    assert.match(FONTE_SEED, /tipo_evento: 'visualizacao'/)
+  })
+})
 
 const CAMPANHA_REEXIBICAO = {
   politica_reexibicao: 'uma_vez_apos_visualizacao',

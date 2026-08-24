@@ -107,7 +107,7 @@ interface Periodo {
   customFim: string
 }
 
-const PERIODO_INICIAL: Periodo = { opcao: 'todo', customInicio: '', customFim: '' }
+const PERIODO_INICIAL: Periodo = { opcao: '30d', customInicio: '', customFim: '' }
 
 const PERIODO_LABELS: Record<PeriodoOpcao, string> = {
   todo: 'Todo período', hoje: 'Hoje', '7d': '7 dias', '30d': '30 dias', mes: 'Este mês', custom: 'Personalizado',
@@ -156,8 +156,8 @@ function npsLabel(nota: number): 'Promotor' | 'Neutro' | 'Detrator' {
 }
 
 function notaColor(n: number): string {
-  if (n <= 3) return 'bg-error'
-  if (n <= 6) return 'bg-yellow-400'
+  if (n <= 6) return 'bg-error'
+  if (n <= 8) return 'bg-amber-400'
   return 'bg-tertiary'
 }
 
@@ -500,20 +500,7 @@ export function CampanhaDashboard() {
   const npsScore   = pctProm - pctDetr
 
   const serieImpressao = data?.serie_impressao ?? []
-  const maxImpressao = Math.max(1, ...serieImpressao.map(p => p.visualizacoes))
-  const pontosImpressao = serieImpressao.map((p, i) => {
-    const x = serieImpressao.length > 1 ? (i / (serieImpressao.length - 1)) * 100 : 50
-    const y = 96 - (p.visualizacoes / maxImpressao) * 88
-    return `${x},${y}`
-  }).join(' ')
-  const areaImpressao = serieImpressao.length > 1 ? `0,96 ${pontosImpressao} 100,96` : ''
   const serieAnterior = data?.serie_impressao_anterior ?? []
-  const maxComparacao = Math.max(1, maxImpressao, ...serieAnterior.map(p => p.visualizacoes))
-  const pontosAnteriores = serieAnterior.map((p, i) => {
-    const x = serieAnterior.length > 1 ? (i / (serieAnterior.length - 1)) * 100 : 50
-    const y = 96 - (p.visualizacoes / maxComparacao) * 88
-    return `${x},${y}`
-  }).join(' ')
   const diasPeriodo = diasCivisNoIntervalo(data?.periodo.inicio, data?.periodo.fim)
   const mediaDiaria = serieImpressao.length > 0
     ? Math.round(serieImpressao.reduce((sum, p) => sum + p.visualizacoes, 0) / (diasPeriodo ?? serieImpressao.length))
@@ -521,15 +508,15 @@ export function CampanhaDashboard() {
   const variacaoVisualizacoes = variacaoPercentual(kpiVisualizacoes, data?.comparacao?.visualizacoes)
   const variacaoRespostas = variacaoPercentual(kpiTotal, data?.comparacao?.respostas)
   const variacaoCliques = variacaoPercentual(kpiCliques, data?.comparacao?.cliques_cta)
-  const variacaoMedia = kpiMedia !== null && data?.comparacao?.media !== null && data?.comparacao?.media !== undefined
-    ? variacaoPercentual(kpiMedia, data.comparacao.media)
-    : null
   const atividadeSemana = data?.atividade_semana ?? []
   const maiorDia = atividadeSemana.reduce<{ dia: number; visualizacoes: number } | null>(
     (maior, atual) => !maior || atual.visualizacoes > maior.visualizacoes ? atual : maior, null,
   )
   const nomesDias = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
   const totalAtividade = atividadeSemana.reduce((s, d) => s + d.visualizacoes, 0)
+  const percentualMaiorDia = maiorDia && totalAtividade ? Math.round(maiorDia.visualizacoes / totalAtividade * 1000) / 10 : 0
+  const notaMaisFrequente = Array.from({ length: 11 }, (_, nota) => ({ nota, total: kpiDistribuicao[String(nota)] ?? 0 }))
+    .sort((a, b) => b.total - a.total || b.nota - a.nota)[0]
   const quotes = data?.quotes_nps ?? []
 
   // % de visualizações que resultaram em resposta — usado no funil (Visualizações → Respostas)
@@ -538,9 +525,6 @@ export function CampanhaDashboard() {
     : 0
   // baseado em usuários (card Respostas) — só faz sentido quando há usuários respondentes identificados
   const temRespondentes = kpiRespondentesUnicos > 0
-  const mediaRespostasPorUsuario = kpiVisualizacoesUnicas > 0
-    ? Math.round((kpiTotal / kpiVisualizacoesUnicas) * 10) / 10
-    : null
 
   const atalhos = [
     {
@@ -571,38 +555,38 @@ export function CampanhaDashboard() {
   ]
 
   return (
-    <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
+    <section className="min-h-full overflow-x-hidden bg-[#f5f7fb] px-4 py-6 lg:px-margin-desktop lg:py-8">
 
       {/* ── Cabeçalho ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+      <div className="mx-auto mb-6 flex max-w-[1480px] flex-col justify-between gap-5 sm:flex-row sm:items-start">
         <div className="min-w-0">
-          <nav className="flex gap-2 text-label-md text-outline mb-1">
+          <nav className="mb-2.5 flex gap-2 text-[12px] font-bold text-[#98a2b3]">
             <button onClick={() => navigate('/campanhas')} className="hover:text-primary transition-colors">Campanhas</button>
             <span>/</span>
             <span className="text-on-surface">Dashboard</span>
           </nav>
-          <h2 className="text-headline-lg font-bold text-on-surface leading-tight break-words">
+          <h2 className="break-words text-[24px] font-bold leading-[1.16] tracking-[-0.035em] text-[#101828] sm:text-[30px]">
             {data?.campanha.titulo ?? 'Dashboard da Campanha'}
           </h2>
           {data && (
-            <div className="flex flex-wrap items-center gap-2 mt-2">
-              <TypeBadge tipo={data.campanha.tipo} />
+            <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
+              <span className="inline-flex h-[30px] items-center rounded-full border border-[#e7ebf2] bg-white px-3 text-[12px] font-bold text-[#667085]">{data.campanha.sistema}</span>
               <StatusBadge status={getStatus(data.campanha)} />
-              <span className="text-label-md text-outline">{data.campanha.sistema} · {data.campanha.tela}</span>
+              <TypeBadge tipo={data.campanha.tipo} />
             </div>
           )}
         </div>
-        <div className="flex flex-wrap gap-2 shrink-0">
+        <div className="flex shrink-0 flex-wrap gap-2.5">
           <button
             onClick={() => navigate(`/campanhas/${id}/preview`)}
-            className="flex items-center gap-1.5 px-4 py-2 border border-primary text-primary rounded-xl text-label-md font-bold hover:bg-primary-fixed transition-all"
+            className="flex h-[42px] items-center gap-2 rounded-xl border border-[#e7ebf2] bg-white px-4 text-[13px] font-bold text-[#344054] shadow-sm transition-colors hover:border-primary/40"
           >
             <span className="material-symbols-outlined text-[18px]">visibility</span>
             Preview
           </button>
           <button
             onClick={() => navigate(data ? rotaEditarCampanha(data.campanha) : `/campanhas/${id}/editar`)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all"
+            className="flex h-[42px] items-center gap-2 rounded-xl border border-primary bg-primary px-[18px] text-[13px] font-bold text-white shadow-sm transition-opacity hover:opacity-90"
           >
             <span className="material-symbols-outlined text-[18px]">edit</span>
             Editar
@@ -615,18 +599,17 @@ export function CampanhaDashboard() {
 
       {!loading && !error && data && (
         <>
+          <div className="mx-auto max-w-[1480px]">
           {/* ── Filtro de período ──────────────────────────────────────────── */}
-          <div className="w-full max-w-full flex flex-wrap items-center gap-1.5 sm:gap-2 mb-6 p-3.5 sm:p-4 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm">
-            <span className="material-symbols-outlined text-[16px] text-outline shrink-0">date_range</span>
-            <span className="text-label-md text-on-surface-variant font-medium mr-1 shrink-0">Período:</span>
-            {(['todo', 'hoje', '7d', '30d', 'mes', 'custom'] as PeriodoOpcao[]).map(op => (
+          <div className="mb-5 flex w-max max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-[#e7ebf2] bg-white p-[7px] shadow-sm">
+            {(['hoje', '7d', '30d', 'mes', 'todo', 'custom'] as PeriodoOpcao[]).map(op => (
               <button
                 key={op}
                 onClick={() => setPeriodo(p => ({ ...p, opcao: op }))}
-                className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-label-md font-semibold border whitespace-nowrap transition-all ${
+                className={`h-[34px] whitespace-nowrap rounded-[10px] border-0 px-[13px] text-[12px] font-bold transition-all ${
                   periodo.opcao === op
-                    ? 'bg-primary text-on-primary border-primary'
-                    : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary/50 hover:text-primary'
+                    ? 'bg-[#101828] text-white'
+                    : 'bg-transparent text-[#667085] hover:bg-[#f5f7fb] hover:text-[#101828]'
                 }`}
               >
                 {PERIODO_LABELS[op]}
@@ -638,21 +621,21 @@ export function CampanhaDashboard() {
                   type="date"
                   value={periodo.customInicio}
                   onChange={e => setPeriodo(p => ({ ...p, customInicio: e.target.value }))}
-                  className="px-3 py-1.5 border border-outline-variant rounded-xl text-label-md bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="h-[34px] rounded-lg border border-[#dfe3e9] bg-white px-3 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <span className="text-label-md text-outline">até</span>
                 <input
                   type="date"
                   value={periodo.customFim}
                   onChange={e => setPeriodo(p => ({ ...p, customFim: e.target.value }))}
-                  className="px-3 py-1.5 border border-outline-variant rounded-xl text-label-md bg-surface-bright focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="h-[34px] rounded-lg border border-[#dfe3e9] bg-white px-3 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </>
             )}
             {periodoAtivo && (
               <button
                 onClick={() => setPeriodo(PERIODO_INICIAL)}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-label-md text-on-surface-variant hover:text-error transition-colors ml-auto"
+                className="flex h-[34px] items-center gap-1 whitespace-nowrap px-2.5 text-[12px] font-bold text-[#667085] transition-colors hover:text-error"
                 title="Restaurar todo período"
               >
                 <span className="material-symbols-outlined text-[16px]">restart_alt</span>
@@ -661,44 +644,9 @@ export function CampanhaDashboard() {
             )}
           </div>
 
-          {/* Dados agregados no servidor — a tabela recente não é usada para
-              desenhar tendências ou identificar dias mais ativos. */}
-          {blocos.funilEngajamento && (
-            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,.75fr)] gap-4 mb-6">
-              <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-4 sm:p-5">
-                <div className="flex items-start justify-between gap-3 mb-4"><div><h3 className="text-title-md font-bold text-on-surface">Impressões da campanha</h3><p className="text-label-md text-outline mt-1">Evolução diária de visualizações</p></div><span className="text-label-md text-outline">{serieImpressao.length} dias</span></div>
-                {serieImpressao.length === 0 ? <EmptySection icon="show_chart" title="Sem impressões ainda" message="O gráfico aparecerá quando a campanha for visualizada." /> : <>
-                  <div className="flex flex-wrap items-center justify-end gap-3 mb-2 text-[11px] text-outline">
-                    <span className="inline-flex items-center gap-1"><i className="w-5 h-0.5 bg-primary rounded" />Período atual</span>
-                    {serieAnterior.length > 0 && <span className="inline-flex items-center gap-1"><i className="w-5 h-0.5 border-t border-dashed border-outline" />Período anterior</span>}
-                  </div>
-                  <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-52 rounded-xl bg-surface-container-low p-2" role="img" aria-label="Gráfico de impressões">
-                    {areaImpressao && <polygon points={areaImpressao} className="fill-primary/10" />}
-                    {pontosAnteriores && <polyline points={pontosAnteriores} fill="none" stroke="currentColor" strokeWidth="1" strokeDasharray="3 2" vectorEffect="non-scaling-stroke" className="text-outline/60" />}
-                    <polyline points={pontosImpressao} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" className="text-primary" />
-                  </svg>
-                  <div className="flex justify-between text-[11px] text-outline mt-2"><span>{serieImpressao[0]?.data}</span><span>Pico: {maxImpressao.toLocaleString('pt-BR')} · Média diária: {mediaDiaria.toLocaleString('pt-BR')}</span><span>{serieImpressao[serieImpressao.length - 1]?.data}</span></div>
-                </>}
-              </div>
-              <div className="min-w-0 bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm p-4 sm:p-5">
-                <h3 className="text-title-md font-bold text-on-surface">Dias mais ativos</h3><p className="text-label-md text-outline mt-1 mb-5">Visualizações por dia da semana</p>
-                {totalAtividade === 0 ? <EmptySection icon="bar_chart" title="Sem dados de atividade" message="Os dias mais ativos aparecerão com as primeiras visualizações." /> : <>
-                  <div className="flex items-end justify-between gap-1 h-36">{atividadeSemana.map(({ dia, visualizacoes: valor }) => { const nome = nomesDias[dia] ?? `Dia ${dia}`; const altura = Math.max(valor ? 8 : 0, Math.round((valor / Math.max(1, ...atividadeSemana.map(x => x.visualizacoes))) * 100)); return <div key={dia} className="flex-1 h-full flex flex-col items-center justify-end gap-1"><span className="text-[10px] text-outline">{valor || ''}</span><div className={`w-full max-w-8 rounded-t ${maiorDia?.dia === dia ? 'bg-primary' : 'bg-primary/25'}`} style={{ height: `${altura}%` }} /><span className="text-[11px] text-outline">{nome}</span></div> })}</div>
-                  {maiorDia && <p className="text-label-md text-outline mt-4">Maior movimento: <strong className="text-on-surface">{nomesDias[maiorDia.dia]}</strong> ({maiorDia.visualizacoes.toLocaleString('pt-BR')} visualizações, {totalAtividade ? Math.round(maiorDia.visualizacoes / totalAtividade * 100) : 0}% do total).</p>}
-                </>}
-              </div>
-            </div>
-          )}
-
-          {/* ── Cards de métricas principais ──────────────────────────────── */}
-          {/* destaque_elemento é contextual: feedback geral (Respostas/Nota
-              Média/NPS) não existe pra esse formato — os 4 cards trocam pra
-              métricas que fazem sentido pra destaque em elemento, reaproveitando
-              os mesmos dados já calculados acima (kpiInteracoes/kpiAvaliacoesTotal/
-              kpiPercentualUtil). Os cards de NPS continuam no código, intocados,
-              pra qualquer outro tipo de campanha (ver bloco `: (` abaixo). */}
+          {/* KPIs no topo, como no relatório de referência. */}
           {blocos.kpiDestaque ? (
-            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
+            <div className="mb-4 grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
               <KpiCard
                 icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
                 label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
@@ -727,25 +675,19 @@ export function CampanhaDashboard() {
               />
             </div>
           ) : (
-            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
+            <div className="mb-4 grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 lg:grid-cols-4">
               <KpiCard
                 icon="visibility" iconColor="text-primary" iconBg="bg-primary/10"
-                label="Visualizações" value={kpiVisualizacoes.toLocaleString('pt-BR')}
+                label="Impressões" value={kpiVisualizacoes.toLocaleString('pt-BR')}
                 trend={variacaoVisualizacoes}
-                sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
+                sub={data.comparacao ? `vs. ${data.comparacao.visualizacoes.toLocaleString('pt-BR')} no período anterior` : `${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários únicos`}
                 subTooltip="Visualizações únicas representam a quantidade de usuários distintos que visualizaram a campanha no período selecionado."
               />
               <KpiCard
                 icon="forum" iconColor="text-secondary" iconBg="bg-secondary/10"
                 label="Respostas" value={kpiTotal.toLocaleString('pt-BR')}
                 trend={variacaoRespostas}
-                sub={
-                  temRespondentes && kpiVisualizacoesUnicas > 0
-                    ? `${kpiRespondentesUnicos.toLocaleString('pt-BR')} de ${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} usuários responderam`
-                    : mediaRespostasPorUsuario !== null
-                    ? `Média: ${mediaRespostasPorUsuario.toLocaleString('pt-BR')} respostas/usuário`
-                    : 'sem dados de usuário'
-                }
+                sub={`Taxa de resposta de ${taxaRespostaPorVisualizacao.toLocaleString('pt-BR')}%`}
                 subTooltip={
                   temRespondentes
                     ? "Taxa de resposta = usuários que responderam ÷ usuários únicos que visualizaram a campanha. O cálculo respeita o período selecionado."
@@ -759,106 +701,39 @@ export function CampanhaDashboard() {
                 sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
                 subTooltip="Taxa de clique = cliques no CTA ÷ visualizações totais da campanha (não por usuários únicos). O cálculo respeita o período selecionado."
               />
-              {kpiTotal > 0 ? (() => {
-                const zona = npsZona(npsScore)
-                return (
-                  <KpiCard
-                    icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
-                    label="Nota Média" value={kpiMedia !== null ? kpiMedia.toFixed(1) : '—'}
-                    trend={variacaoMedia}
-                    sub={`NPS: ${npsScore > 0 ? '+' : ''}${npsScore}`}
-                    tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
-                    subTooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
-                    subExtra={
-                      <div className="flex flex-col gap-1">
-                        <span className={`inline-flex w-fit text-[11px] font-semibold px-2 py-0.5 rounded-full border ${zona.bg} ${zona.text} ${zona.border}`}>
-                          {zona.nome}
-                        </span>
-                        <span className="text-[11px] text-outline">
-                          {pctProm}% promotores − {pctDetr}% detratores
-                        </span>
-                      </div>
-                    }
-                  />
-                )
-              })() : (
+              {kpiTotal > 0 ? (
                 <KpiCard
-                  icon="star" iconColor="text-yellow-500" iconBg="bg-yellow-50"
-                  label="Nota Média" value="—"
+                  icon="speed" iconColor="text-amber-600" iconBg="bg-amber-50"
+                  label="NPS" value={`${npsScore > 0 ? '+' : ''}${npsScore}`}
+                  sub={`${promotores} promotores · ${neutros} neutros · ${detratores} detratores`}
+                  tooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6."
+                />
+              ) : (
+                <KpiCard
+                  icon="speed" iconColor="text-amber-600" iconBg="bg-amber-50"
+                  label="NPS" value="—"
                   sub="sem respostas ainda"
-                  tooltip="Nota Média = soma das notas recebidas ÷ quantidade de respostas com nota. O cálculo respeita o período selecionado no dashboard."
                 />
               )}
             </div>
           )}
 
-          {/* ── Funil de engajamento (feedback geral — não se aplica a
-              destaque_elemento, que não tem "Respostas" pra funilar) ──────── */}
+          {/* Dados agregados no servidor; listas paginadas não alimentam gráficos. */}
           {blocos.funilEngajamento && (
-          <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm mb-6 p-4 sm:p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <span className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                <span className="material-symbols-outlined text-[16px]">filter_alt</span>
-              </span>
-              <h3 className="text-label-md font-bold text-on-surface-variant uppercase tracking-wider">
-                Funil de engajamento
-              </h3>
-            </div>
-            <div className="flex items-stretch gap-2 flex-col sm:flex-row">
-              <FunnelStep
-                icon="visibility" iconColor="text-primary" barColor="bg-primary"
-                label="Visualizações" value={kpiVisualizacoes} pct={100}
-                sub={`${kpiVisualizacoesUnicas.toLocaleString('pt-BR')} únicos`}
-              />
-              <FunnelArrow label={`${taxaRespostaPorVisualizacao.toLocaleString('pt-BR')}% das visualizações geraram resposta`} />
-              <FunnelStep
-                icon="forum" iconColor="text-tertiary" barColor="bg-tertiary"
-                label="Respostas" value={kpiTotal}
-                pct={kpiVisualizacoes > 0 ? (kpiTotal / kpiVisualizacoes) * 100 : 0}
-                sub={kpiMedia !== null ? `Média: ${kpiMedia.toFixed(1)}` : 'sem respostas'}
-              />
-            </div>
-            <div className="mt-4 pt-4 border-t border-outline-variant/30">
-              <p className="text-label-md text-outline mb-2">
-                Cliques CTA — métrica paralela (resposta não depende de clicar no CTA)
-              </p>
-              <FunnelStep
-                icon="ads_click" iconColor="text-secondary" barColor="bg-secondary"
-                label="Cliques CTA" value={kpiCliques}
-                pct={kpiVisualizacoes > 0 ? (kpiCliques / kpiVisualizacoes) * 100 : 0}
-                sub={`${kpiCliquesUnicos.toLocaleString('pt-BR')} usuários únicos · ${kpiTaxaClique.toLocaleString('pt-BR')}% das visualizações`}
-              />
-            </div>
-          </div>
-          )}
-
-          {/* ── Seção: Resumo ─────────────────────────────────────────────── */}
-          <SectionTitle icon="summarize">Resumo</SectionTitle>
-
-          {/* Promotores/Neutros/Detratores/NPS — feedback geral, não existe
-              pra destaque_elemento (fica preservado no código, só não exibido). */}
-          {blocos.resumoNps && kpiTotal > 0 && (
-            <div className="grid grid-cols-1 min-[420px]:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4">
-              <KpiCard icon="sentiment_very_satisfied" iconColor="text-tertiary" iconBg="bg-tertiary/10"
-                label="Promotores" value={`${promotores}`} sub={`${pctProm}% do total`} />
-              <KpiCard icon="sentiment_neutral" iconColor="text-yellow-600" iconBg="bg-yellow-50"
-                label="Neutros" value={`${neutros}`} sub={`${pctNeut}% do total`} />
-              <KpiCard icon="sentiment_dissatisfied" iconColor="text-error" iconBg="bg-error/10"
-                label="Detratores" value={`${detratores}`} sub={`${pctDetr}% do total`} />
-              <div className="min-w-0 bg-surface-container-lowest p-3.5 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm flex flex-col items-center justify-center text-center gap-1">
-                <p className="text-label-md text-outline flex items-center gap-1">
-                  NPS
-                  <span
-                    className="material-symbols-outlined text-[13px] text-outline/50 cursor-help shrink-0"
-                    title="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6. O resultado varia de -100 a 100."
-                  >
-                    info
-                  </span>
-                </p>
-                <p className={`text-title-lg sm:text-display-sm font-bold leading-none ${npsScore > 0 ? 'text-tertiary' : npsScore < 0 ? 'text-error' : 'text-on-surface'}`}>
-                  {npsScore > 0 ? '+' : ''}{npsScore}
-                </p>
-                <p className="text-label-md text-outline">%Prom − %Detr</p>
+            <div className="mb-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(330px,.75fr)]">
+              <div className="grid min-w-0 gap-4">
+                <ImpressionChart serie={serieImpressao} serieAnterior={serieAnterior} mediaDiaria={mediaDiaria} />
+                <EngagementFunnel
+                  visualizacoes={kpiVisualizacoes}
+                  respostas={kpiTotal}
+                  cliques={kpiCliques}
+                  taxaResposta={taxaRespostaPorVisualizacao}
+                  taxaClique={kpiTaxaClique}
+                />
+              </div>
+              <div className="grid min-w-0 gap-4">
+                <ActivityPanel atividade={atividadeSemana} maiorDia={maiorDia} total={totalAtividade} percentualMaiorDia={percentualMaiorDia} nomesDias={nomesDias} />
+                <NpsExecutive score={npsScore} media={kpiMedia} detratores={detratores} percentualDetratores={pctDetr} quotes={quotes} />
               </div>
             </div>
           )}
@@ -874,38 +749,19 @@ export function CampanhaDashboard() {
             </div>
           )}
 
-          {/* Distribuição de notas — feedback geral (NPS), não existe pra
-              destaque_elemento (fica preservado no código, só não exibido). */}
           {blocos.distribuicaoNotas && kpiTotal > 0 && (
-            <div className="w-full max-w-full min-w-0 bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm mb-6">
-              <h4 className="text-title-md font-bold text-on-surface mb-4 sm:mb-5">Distribuição de notas</h4>
-              <div className="overflow-x-auto">
-                <div className="flex items-end gap-1.5 sm:gap-2 min-w-[380px] sm:min-w-0">
-                  {Array.from({ length: 11 }, (_, i) => {
-                    const count = kpiDistribuicao[String(i)] ?? 0
-                    const height = Math.round((count / maxDist) * 100)
-                    return (
-                      <div key={i} className="flex-1 min-w-[28px] flex flex-col items-center gap-1">
-                        <span className="text-[10px] text-outline font-bold">{count > 0 ? count : ''}</span>
-                        <div className="w-full flex items-end justify-center bg-surface-container-low/70 rounded-t" style={{ height: '96px' }}>
-                          <div className={`w-full rounded-t transition-all ${notaColor(i)}`}
-                            style={{ height: `${Math.max(height, count > 0 ? 4 : 0)}%` }} />
-                        </div>
-                        <span className="text-[11px] text-outline font-bold">{i}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {blocos.resumoNps && kpiTotal > 0 && (
-            <div className="w-full bg-surface-container-lowest p-4 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm mb-6">
-              <h4 className="text-title-md font-bold text-on-surface">Leitura do NPS</h4>
-              <p className="text-label-md text-outline mt-1 mb-4">Sinais qualitativos das respostas reais</p>
-              {quotes.length === 0 ? <p className="text-body-sm text-outline">Ainda não há comentários de promotores ou detratores.</p> : <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{quotes.map(f => <div key={f.id} className="rounded-xl bg-surface-container-low p-4"><span className={`text-[11px] font-bold uppercase ${npsLabel(f.nota) === 'Promotor' ? 'text-tertiary' : 'text-error'}`}>{npsLabel(f.nota)} · nota {f.nota}</span><p className="text-body-sm text-on-surface mt-2">“{f.observacao?.trim()}”</p></div>)}</div>}
-            </div>
+            <NpsDeepDive
+              score={npsScore}
+              promotores={promotores}
+              neutros={neutros}
+              detratores={detratores}
+              pctProm={pctProm}
+              pctNeut={pctNeut}
+              pctDetr={pctDetr}
+              distribuicao={kpiDistribuicao}
+              maxDist={maxDist}
+              notaMaisFrequente={notaMaisFrequente}
+            />
           )}
 
           {/* ── Seção: Respostas (feedback geral/NPS — não existe pra
@@ -1666,6 +1522,7 @@ export function CampanhaDashboard() {
               </>
             )}
           </div>
+          </div>
         </>
       )}
     </section>
@@ -1673,6 +1530,205 @@ export function CampanhaDashboard() {
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+type SerieImpressaoDashboard = DashboardData['serie_impressao']
+type AtividadeSemanaDashboard = DashboardData['atividade_semana']
+
+function formatarDataCurta(data: string) {
+  return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' })
+    .format(new Date(`${data}T12:00:00`))
+    .replace('.', '')
+}
+
+function formatarDataGrafico(data: string) {
+  return new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: 'long' })
+    .format(new Date(`${data}T12:00:00`))
+    .replace('.', '')
+}
+
+function ImpressionChart({ serie, serieAnterior, mediaDiaria }: {
+  serie: SerieImpressaoDashboard
+  serieAnterior: SerieImpressaoDashboard
+  mediaDiaria: number
+}) {
+  const [indiceAtivo, setIndiceAtivo] = useState<number | null>(null)
+  const [comparacaoVisivel, setComparacaoVisivel] = useState(true)
+  const graficoRef = useRef<SVGSVGElement>(null)
+  const largura = 840
+  const altura = 300
+  const margem = { esquerda: 46, direita: 18, topo: 26, base: 36 }
+  const serieComparativa = comparacaoVisivel ? serieAnterior : []
+  const maximo = Math.max(1, ...serie.map(p => p.visualizacoes), ...serieComparativa.map(p => p.visualizacoes))
+  const teto = Math.max(10, Math.ceil(maximo / 10) * 10)
+  const x = (indice: number, total: number) => margem.esquerda + (total <= 1 ? (largura - margem.esquerda - margem.direita) / 2 : indice * (largura - margem.esquerda - margem.direita) / (total - 1))
+  const y = (valor: number) => margem.topo + (teto - valor) * (altura - margem.topo - margem.base) / teto
+  const pontos = serie.map((p, indice) => `${x(indice, serie.length)},${y(p.visualizacoes)}`).join(' ')
+  const pontosAnteriores = serieComparativa.map((p, indice) => `${x(indice, serieComparativa.length)},${y(p.visualizacoes)}`).join(' ')
+  const area = serie.length > 1 ? `M ${x(0, serie.length)} ${y(serie[0].visualizacoes)} ${serie.map((p, indice) => `L ${x(indice, serie.length)} ${y(p.visualizacoes)}`).join(' ')} L ${x(serie.length - 1, serie.length)} ${altura - margem.base} L ${x(0, serie.length)} ${altura - margem.base} Z` : ''
+  const pico = serie.reduce<{ indice: number; data: string; visualizacoes: number } | null>((atual, ponto, indice) => !atual || ponto.visualizacoes > atual.visualizacoes ? { indice, ...ponto } : atual, null)
+  const linhas = [0, Math.round(teto / 3), Math.round(teto * 2 / 3), teto]
+  const quantidadeDatas = serie.length <= 7 ? serie.length : serie.length <= 14 ? 7 : serie.length <= 31 ? 6 : 5
+  const indicesDatas = [...new Set(Array.from(
+    { length: quantidadeDatas },
+    (_, indice) => Math.round(indice * (serie.length - 1) / Math.max(1, quantidadeDatas - 1)),
+  ))]
+  const pontoAtivo = indiceAtivo === null ? null : serie[indiceAtivo]
+  const pontoAnterior = indiceAtivo === null ? null : serieAnterior[indiceAtivo]
+  const totalAtual = serie.reduce((total, ponto) => total + ponto.visualizacoes, 0)
+
+  const selecionarPonto = (clientX: number) => {
+    const rect = graficoRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const coordenadaSvg = (clientX - rect.left) * largura / rect.width
+    const posicao = Math.min(1, Math.max(0, (coordenadaSvg - margem.esquerda) / (largura - margem.esquerda - margem.direita)))
+    setIndiceAtivo(Math.round(posicao * (serie.length - 1)))
+  }
+
+  const navegarPontos = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    setIndiceAtivo(atual => {
+      if (event.key === 'Home') return 0
+      if (event.key === 'End') return serie.length - 1
+      const indice = atual ?? serie.length - 1
+      return Math.min(serie.length - 1, Math.max(0, indice + (event.key === 'ArrowLeft' ? -1 : 1)))
+    })
+  }
+
+  const diferencaAtiva = pontoAtivo && pontoAnterior
+    ? pontoAtivo.visualizacoes - pontoAnterior.visualizacoes
+    : null
+
+  return (
+    <article className="rounded-[22px] border border-[#e7ebf2] bg-white p-5 shadow-sm sm:p-[22px]">
+      <div className="mb-[18px] flex flex-wrap items-start justify-between gap-4">
+        <div><h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">Impressões da campanha</h3><p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">Passe pelo gráfico para explorar cada dia</p></div>
+        <div className="flex flex-wrap items-center gap-3.5 text-[11px] font-bold text-[#667085]">
+          <span className="inline-flex items-center gap-2"><i className="h-[3px] w-4 rounded bg-primary" />Período atual</span>
+          {serieAnterior.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setComparacaoVisivel(visivel => !visivel)}
+              aria-pressed={comparacaoVisivel}
+              className={`inline-flex items-center gap-2 rounded-lg px-2 py-1 transition-colors ${comparacaoVisivel ? 'bg-[#f2f4f7] text-[#475467]' : 'text-[#98a2b3] hover:bg-[#f8fafc]'}`}
+              title={`${comparacaoVisivel ? 'Ocultar' : 'Mostrar'} período anterior`}
+            >
+              <i className={`w-4 border-t-2 border-dashed ${comparacaoVisivel ? 'border-[#98a2b3]' : 'border-[#d0d5dd]'}`} />
+              Período anterior
+              <span className="material-symbols-outlined text-[14px]">{comparacaoVisivel ? 'visibility' : 'visibility_off'}</span>
+            </button>
+          )}
+        </div>
+      </div>
+      {serie.length === 0 ? <EmptySection icon="show_chart" title="Sem impressões ainda" message="O gráfico aparecerá quando a campanha for visualizada." /> : <>
+        <div
+          className="relative h-[280px] touch-pan-y overflow-hidden rounded-2xl border border-[#f0f2f6] bg-gradient-to-b from-[#fbfcff] to-white p-2 outline-none ring-primary/30 transition-shadow focus:ring-2 sm:h-[330px]"
+          tabIndex={0}
+          aria-label="Gráfico diário de impressões. Use as setas esquerda e direita para navegar entre os dias."
+          onFocus={() => setIndiceAtivo(atual => atual ?? serie.length - 1)}
+          onBlur={() => setIndiceAtivo(null)}
+          onKeyDown={navegarPontos}
+          onPointerMove={event => selecionarPonto(event.clientX)}
+          onPointerDown={event => selecionarPonto(event.clientX)}
+          onPointerLeave={() => setIndiceAtivo(null)}
+        >
+          <svg ref={graficoRef} viewBox={`0 0 ${largura} ${altura}`} preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="Gráfico de impressões">
+            <defs><linearGradient id="campaign-area-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0064e0" stopOpacity=".18" /><stop offset="100%" stopColor="#0064e0" stopOpacity="0" /></linearGradient></defs>
+            {linhas.map(valor => <g key={valor}><line x1={margem.esquerda} y1={y(valor)} x2={largura - margem.direita} y2={y(valor)} stroke="#e9edf3" /><text x="8" y={y(valor) + 4} fill="#98a2b3" fontSize="11" fontWeight="600">{valor}</text></g>)}
+            {indicesDatas.map((indice, posicao) => <text key={serie[indice].data} x={x(indice, serie.length)} y={altura - 10} fill="#98a2b3" fontSize="11" fontWeight="600" textAnchor={posicao === 0 ? 'start' : posicao === indicesDatas.length - 1 ? 'end' : 'middle'}>{formatarDataCurta(serie[indice].data)}</text>)}
+            {pontosAnteriores && <polyline points={pontosAnteriores} fill="none" stroke="#cfd5df" strokeWidth="2" strokeDasharray="5 5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+            {area && <path d={area} fill="url(#campaign-area-fill)" />}
+            <polyline points={pontos} fill="none" stroke="#0064e0" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+            {pontoAtivo && <>
+              <line x1={x(indiceAtivo!, serie.length)} y1={margem.topo} x2={x(indiceAtivo!, serie.length)} y2={altura - margem.base} stroke="#98a2b3" strokeDasharray="4 5" vectorEffect="non-scaling-stroke" />
+              {comparacaoVisivel && pontoAnterior && <circle cx={x(indiceAtivo!, serie.length)} cy={y(pontoAnterior.visualizacoes)} r="4" fill="white" stroke="#98a2b3" strokeWidth="2" vectorEffect="non-scaling-stroke" />}
+              <circle cx={x(indiceAtivo!, serie.length)} cy={y(pontoAtivo.visualizacoes)} r="6" fill="white" stroke="#0064e0" strokeWidth="3" vectorEffect="non-scaling-stroke" />
+            </>}
+          </svg>
+          {pontoAtivo && (
+            <div
+              className="pointer-events-none absolute z-10 w-[172px] rounded-xl border border-[#e7ebf2] bg-[#101828] p-3 text-white shadow-xl"
+              style={{
+                left: `clamp(94px, ${(x(indiceAtivo!, serie.length) / largura) * 100}%, calc(100% - 94px))`,
+                top: `clamp(82px, ${(y(pontoAtivo.visualizacoes) / altura) * 100}%, calc(100% - 18px))`,
+                transform: 'translate(-50%, -100%) translateY(-12px)',
+              }}
+            >
+              <p className="text-[12px] font-medium leading-4 text-[#d0d5dd]">{formatarDataGrafico(pontoAtivo.data)}</p>
+              <div className="mt-2 flex items-end justify-between gap-3">
+                <span className="text-[11px] font-semibold text-[#98a2b3]">Impressões</span>
+                <strong className="text-[22px] leading-none">{pontoAtivo.visualizacoes.toLocaleString('pt-BR')}</strong>
+              </div>
+              {comparacaoVisivel && pontoAnterior && (
+                <div className="mt-2 flex items-center justify-between gap-2 border-t border-white/10 pt-2 text-[11px] font-semibold">
+                  <span className="text-[#98a2b3]">Período anterior</span>
+                  <span>{pontoAnterior.visualizacoes.toLocaleString('pt-BR')}</span>
+                </div>
+              )}
+              {comparacaoVisivel && diferencaAtiva !== null && (
+                <p className={`mt-1 text-right text-[11px] font-bold ${diferencaAtiva >= 0 ? 'text-[#6ce9a6]' : 'text-[#fda29b]'}`}>
+                  {diferencaAtiva >= 0 ? '+' : ''}{diferencaAtiva.toLocaleString('pt-BR')} vs. período anterior
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="mt-3.5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="rounded-xl bg-[#f8fafc] px-3.5 py-3"><p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">Total no período</p><p className="mt-1 text-[16px] font-extrabold text-[#344054]">{totalAtual.toLocaleString('pt-BR')}</p></div>
+          <div className="rounded-xl bg-[#f8fafc] px-3.5 py-3"><p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">Média diária</p><p className="mt-1 text-[16px] font-extrabold text-[#344054]">{mediaDiaria.toLocaleString('pt-BR')}</p></div>
+          <div className="rounded-xl bg-[#f8fafc] px-3.5 py-3"><p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">Melhor dia</p><p className="mt-1 truncate text-[16px] font-extrabold text-[#344054]">{pico ? `${pico.visualizacoes.toLocaleString('pt-BR')} · ${formatarDataCurta(pico.data)}` : '—'}</p></div>
+        </div>
+      </>}
+    </article>
+  )
+}
+
+function EngagementFunnel({ visualizacoes, respostas, cliques, taxaResposta, taxaClique }: { visualizacoes: number; respostas: number; cliques: number; taxaResposta: number; taxaClique: number }) {
+  const etapas = [
+    { icon: 'visibility', nome: 'Impressões', valor: visualizacoes, badge: 'Base total', cor: '#0064e0', fundo: '#f8fafc', descricao: 'Total de vezes que a campanha foi visualizada pelos usuários no período selecionado.', largura: 100 },
+    { icon: 'forum', nome: 'Respostas', valor: respostas, badge: `${taxaResposta.toLocaleString('pt-BR')}%`, cor: '#7a5af8', fundo: '#f4f0ff', descricao: 'Usuários que enviaram uma nota ou feedback depois de visualizar a campanha.', largura: taxaResposta },
+    { icon: 'ads_click', nome: 'Cliques CTA', valor: cliques, badge: `${taxaClique.toLocaleString('pt-BR')}%`, cor: '#12b76a', fundo: '#ecfdf3', descricao: 'Ação paralela: cliques no botão configurado, sem depender do envio de resposta.', largura: taxaClique },
+  ]
+  return (
+    <article className="overflow-hidden rounded-[22px] border border-[#e7ebf2] bg-white shadow-sm">
+      <div className="px-[22px] pt-[22px]"><h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">Funil de engajamento</h3><p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">Fluxo principal e ações da campanha</p></div>
+      <div className="relative m-[22px] mt-[18px] overflow-hidden rounded-3xl border border-[#e7ebf2]">
+        <div className="relative h-[76px] bg-gradient-to-r from-[#0064e0] via-[#4e8efc] to-[#7a5af8] after:absolute after:-bottom-7 after:-left-[5%] after:-right-[5%] after:h-[72px] after:rounded-t-[60%] after:bg-white after:content-['']" />
+        <div className="relative z-[2] grid grid-cols-1 md:grid-cols-3">
+          {etapas.map((etapa, indice) => <div key={etapa.nome} className={`flex min-h-[214px] flex-col p-[22px] ${indice < etapas.length - 1 ? 'border-b border-[#e7ebf2] md:border-b-0 md:border-r' : ''}`}>
+            <span className="mb-3.5 grid h-[42px] w-[42px] place-items-center rounded-xl border border-[#e7ebf2]" style={{ color: etapa.cor, backgroundColor: etapa.fundo }}><span className="material-symbols-outlined text-[18px]">{etapa.icon}</span></span>
+            <span className="mb-2.5 text-[12px] font-extrabold text-[#475467]">{etapa.nome}</span>
+            <div className="mb-2.5 flex flex-wrap items-end gap-2.5"><strong className="text-[36px] leading-none tracking-[-0.05em] text-[#101828] sm:text-[40px]">{etapa.valor.toLocaleString('pt-BR')}</strong><span className="rounded-[10px] px-2 py-1 text-[12px] font-extrabold" style={{ color: etapa.cor, backgroundColor: etapa.fundo }}>{etapa.badge}</span></div>
+            <p className="mb-4 text-[13px] font-semibold leading-[1.55] text-[#667085]">{etapa.descricao}</p>
+            <div className="mt-auto h-2 overflow-hidden rounded-full bg-[#eef2f6]"><span className="block h-full rounded-full" style={{ width: `${Math.min(100, Math.max(etapa.valor > 0 ? 4 : 0, etapa.largura))}%`, backgroundColor: etapa.cor }} /></div>
+          </div>)}
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function ActivityPanel({ atividade, maiorDia, total, percentualMaiorDia, nomesDias }: { atividade: AtividadeSemanaDashboard; maiorDia: { dia: number; visualizacoes: number } | null; total: number; percentualMaiorDia: number; nomesDias: string[] }) {
+  const maximo = Math.max(1, ...atividade.map(item => item.visualizacoes))
+  const nomesDiasCompletos = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado']
+  return <article className="rounded-[22px] border border-[#e7ebf2] bg-white p-[22px] shadow-sm"><h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">Dias mais ativos</h3><p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">Visualizações por dia da semana</p>
+    {total === 0 ? <EmptySection icon="bar_chart" title="Sem dados de atividade" message="Os dias mais ativos aparecerão com as primeiras visualizações." /> : <><div className="mt-4 flex h-[178px] items-end gap-2 border-b border-[#e7ebf2] px-1 pb-1.5">{atividade.map(item => { const ativo = maiorDia?.dia === item.dia; return <div key={item.dia} className="flex h-full flex-1 flex-col items-center justify-end gap-2"><span className="text-[10px] font-extrabold text-[#344054]">{item.visualizacoes}</span><div className={`w-full max-w-[42px] rounded-t-[10px] ${ativo ? 'bg-gradient-to-b from-[#4e8efc] to-[#0064e0] shadow-[0_8px_22px_rgba(11,111,251,.16)]' : 'bg-[#edf1f6]'}`} style={{ height: `${Math.max(8, Math.round(item.visualizacoes / maximo * 100))}%` }} /><span className={`text-[11px] font-bold ${ativo ? 'text-primary' : 'text-[#98a2b3]'}`}>{nomesDias[item.dia]}</span></div>})}</div><div className="mt-4 flex items-center gap-4 rounded-2xl bg-[#f8fafc] px-4 py-3.5"><strong className="shrink-0 text-[32px] leading-none tracking-[-0.04em] text-[#101828]">{percentualMaiorDia.toLocaleString('pt-BR')}%</strong><div className="border-l border-[#e7ebf2] pl-4"><p className="text-[11px] font-extrabold uppercase tracking-[.04em] text-[#98a2b3]">Maior concentração</p><p className="mt-1 text-[12px] font-semibold leading-[1.45] text-[#667085]">das visualizações aconteceram na <strong className="text-[#344054]">{maiorDia ? nomesDiasCompletos[maiorDia.dia] : '—'}</strong>.</p></div></div></>}
+  </article>
+}
+
+function NpsExecutive({ score, media, detratores, percentualDetratores, quotes }: { score: number; media: number | null; detratores: number; percentualDetratores: number; quotes: Feedback[] }) {
+  const zona = npsZona(score)
+  const itens = [{ rotulo: 'Zona atual', valor: `${score > 0 ? '+' : ''}${score}`, texto: `A campanha está em ${zona.nome.toLowerCase()}.` }, { rotulo: 'Nota média', valor: media === null ? '—' : media.toFixed(1), texto: 'Média geral das respostas recebidas.' }, { rotulo: 'Ponto de atenção', valor: detratores.toLocaleString('pt-BR'), texto: `${percentualDetratores}% das respostas vieram de detratores.` }]
+  return <article className="rounded-[22px] border border-[#e7ebf2] bg-white p-[22px] shadow-sm"><h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">Leitura do NPS</h3><p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">Resumo executivo das notas</p><div className="mt-2.5 grid gap-3">{itens.map(item => <div key={item.rotulo} className="flex items-center justify-between gap-4 rounded-2xl border border-[#e7ebf2] bg-[#fbfcfe] p-[15px]"><div><p className="mb-2 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">{item.rotulo}</p><p className="text-[12px] font-semibold leading-[1.45] text-[#98a2b3]">{item.texto}</p></div><strong className="shrink-0 text-[24px] tracking-[-0.04em] text-[#101828]">{item.valor}</strong></div>)}</div><div className="mt-4 border-t border-[#e7ebf2] pt-4"><p className="mb-3 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">Sinais qualitativos</p>{quotes.length === 0 ? <p className="text-[12px] font-semibold text-[#98a2b3]">Ainda não há comentários no período.</p> : <div className="grid gap-2.5">{quotes.map(item => <div key={item.id} className="rounded-xl border border-[#e7ebf2] bg-[#fbfcfe] px-3 py-2.5 text-[12px] font-semibold leading-[1.45] text-[#475467]"><strong className={`mb-1 block text-[10px] uppercase tracking-[.04em] ${npsLabel(item.nota) === 'Promotor' ? 'text-tertiary' : 'text-error'}`}>{npsLabel(item.nota)} · nota {item.nota}</strong>“{item.observacao}”</div>)}</div>}</div></article>
+}
+
+function NpsDeepDive({ score, promotores, neutros, detratores, pctProm, pctNeut, pctDetr, distribuicao, maxDist, notaMaisFrequente }: { score: number; promotores: number; neutros: number; detratores: number; pctProm: number; pctNeut: number; pctDetr: number; distribuicao: Record<string, number>; maxDist: number; notaMaisFrequente: { nota: number; total: number } }) {
+  return <article className="mb-6 rounded-[22px] border border-[#e7ebf2] bg-white p-[22px] shadow-sm"><div className="mb-[18px]"><h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">Distribuição e leitura das notas</h3><p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">Detalhamento para entender melhor a qualidade das respostas do NPS</p></div><div className="grid grid-cols-1 items-start gap-[18px] xl:grid-cols-[300px_minmax(0,1fr)_300px]">
+    <div className="h-full rounded-[18px] border border-[#e7ebf2] bg-[#fbfcfe] p-[18px]"><div className="mx-auto h-[112px] w-[190px] overflow-hidden"><div className="relative h-[190px] w-[190px] rounded-full" style={{ background: 'conic-gradient(from 270deg, #f04438 0deg 52deg, #ffb74a 52deg 91deg, #42c77a 91deg 180deg, #edf1f6 180deg 360deg)' }}><div className="absolute left-[26px] top-[26px] h-[138px] w-[138px] rounded-full bg-[#fbfcfe]" /><div className="absolute bottom-[78px] left-1/2 z-10 -translate-x-1/2 text-center"><strong className="text-[31px] tracking-[-0.04em] text-[#101828]">{score > 0 ? '+' : ''}{score}</strong><p className="text-[11px] font-bold text-[#98a2b3]">NPS atual</p></div></div></div><div className="mt-4">{[["#12b76a", 'Promotores', promotores, pctProm], ["#ffb74a", 'Neutros', neutros, pctNeut], ["#f04438", 'Detratores', detratores, pctDetr]].map(([cor, label, total, pct]) => <div key={String(label)} className="flex items-center justify-between border-b border-[#e7ebf2] py-2.5 text-[12px] font-bold text-[#475467] last:border-0"><span><i className="mr-2 inline-block h-[9px] w-[9px] rounded-full" style={{ backgroundColor: String(cor) }} />{label}</span><strong className="text-[14px] text-[#101828]">{total} · {pct}%</strong></div>)}</div></div>
+    <div className="min-w-0 rounded-[18px] border border-[#e7ebf2] bg-white p-[18px]"><p className="mb-3.5 text-[12px] font-extrabold text-[#475467]">Distribuição das notas (0 a 10)</p><div className="overflow-x-auto"><div className="grid h-[220px] min-w-[460px] grid-cols-11 items-end gap-2">{Array.from({ length: 11 }, (_, nota) => { const total = distribuicao[String(nota)] ?? 0; return <div key={nota} className="flex min-w-0 flex-col items-center justify-end gap-2"><span className="text-[10px] font-extrabold text-[#475467]">{total}</span><div className={`w-full max-w-[42px] rounded-t-[10px] ${notaColor(nota)}`} style={{ height: `${Math.max(8, Math.round(total / maxDist * 150))}px` }} /><span className="text-[10px] font-bold text-[#98a2b3]">{nota}</span></div>})}</div></div></div>
+    <div className="grid gap-3"><div className="rounded-[18px] border border-[#e7ebf2] bg-[#fbfcfe] p-4"><p className="mb-2 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">Maior concentração</p><strong className="text-[26px] tracking-[-0.04em] text-[#101828]">Nota {notaMaisFrequente.nota}</strong><p className="mt-1.5 text-[12px] font-semibold leading-[1.5] text-[#667085]">{notaMaisFrequente.total} respostas estão nessa nota, a maior concentração do período.</p></div><div className="rounded-[18px] border border-[#e7ebf2] bg-[#fbfcfe] p-4"><p className="mb-2 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">Risco atual</p><strong className="text-[26px] tracking-[-0.04em] text-[#101828]">{pctDetr}%</strong><p className="mt-1.5 text-[12px] font-semibold leading-[1.5] text-[#667085]">O percentual de detratores é o principal ponto de atenção desta campanha.</p></div></div>
+  </div></article>
+}
 
 function SectionTitle({ icon, tooltip, children }: { icon: string; tooltip?: string; children: React.ReactNode }) {
   return (
@@ -1859,36 +1915,6 @@ function FiltroSelect({ label, value, options, onChange }: {
         </div>,
         document.body
       )}
-    </div>
-  )
-}
-
-function FunnelStep({ icon, iconColor, barColor, label, value, pct, sub }: {
-  icon: string; iconColor: string; barColor: string
-  label: string; value: number; pct: number; sub: string
-}) {
-  const barWidth = Math.min(Math.max(pct, value > 0 ? 4 : 0), 100)
-  return (
-    <div className="flex-1 min-w-0 bg-surface-container-low rounded-2xl p-3.5 sm:p-4 flex flex-col gap-1.5 sm:gap-2">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className={`material-symbols-outlined text-[16px] shrink-0 ${iconColor}`}>{icon}</span>
-        <span className="text-label-md text-on-surface-variant font-semibold truncate">{label}</span>
-      </div>
-      <p className="text-title-lg sm:text-headline-lg font-bold text-on-surface leading-none">{value.toLocaleString('pt-BR')}</p>
-      <div className="w-full h-1.5 bg-outline-variant/30 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${barWidth}%` }} />
-      </div>
-      <p className="text-label-md text-outline truncate">{sub}</p>
-    </div>
-  )
-}
-
-function FunnelArrow({ label }: { label: string }) {
-  return (
-    <div className="flex sm:flex-col items-center justify-center gap-1 px-1 py-2 sm:py-0 shrink-0">
-      <span className="text-[12px] text-outline font-bold text-center leading-snug max-w-[112px] hidden sm:block">{label}</span>
-      <span className="material-symbols-outlined text-outline text-[18px] rotate-90 sm:rotate-0">arrow_forward</span>
-      <span className="text-[12px] text-outline font-bold text-center leading-snug sm:hidden">{label}</span>
     </div>
   )
 }
@@ -2212,13 +2238,9 @@ interface KpiCardProps {
 
 function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, trend, tooltip, subTooltip, subExtra }: KpiCardProps) {
   return (
-    <div className="min-w-0 bg-surface-container-lowest p-3.5 sm:p-5 rounded-2xl border border-outline-variant/30 shadow-sm hover:border-primary/40 transition-colors">
-      <div className="flex items-start gap-2.5 sm:gap-3">
-        <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
-          <span className={`material-symbols-outlined ${iconColor} text-[17px] sm:text-[19px]`}>{icon}</span>
-        </div>
-        <div className="min-w-0">
-          <p className="text-label-md font-medium text-outline flex items-center gap-1 truncate">
+    <div className="min-h-[146px] min-w-0 rounded-[22px] border border-[#e7ebf2] bg-white p-5 shadow-sm transition-colors hover:border-primary/30">
+      <div className="mb-3.5 flex items-center justify-between gap-3">
+          <p className="flex min-w-0 items-center gap-1 truncate text-[13px] font-bold text-[#475467]">
             {label}
             {tooltip && (
               <span className="material-symbols-outlined text-[13px] text-outline/50 cursor-help shrink-0" title={tooltip}>
@@ -2226,15 +2248,19 @@ function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, trend, too
               </span>
             )}
           </p>
-          <p className={`font-bold text-on-surface leading-none mt-1 truncate ${large ? 'text-title-lg sm:text-display-sm' : 'text-title-lg sm:text-headline-lg'}`}>
+          <div className={`grid h-[38px] w-[38px] shrink-0 place-items-center rounded-xl border border-current/10 ${iconBg}`}>
+            <span className={`material-symbols-outlined ${iconColor} text-[19px]`}>{icon}</span>
+          </div>
+      </div>
+          <p className={`truncate font-bold leading-none tracking-[-0.045em] text-[#101828] ${large ? 'text-[31px]' : 'text-[33px]'}`}>
             {value}
             {trend !== null && trend !== undefined && (
-              <span className={`ml-2 align-middle text-[12px] font-semibold ${trend >= 0 ? 'text-tertiary' : 'text-error'}`} title="Variação em relação ao período anterior">
+              <span className={`ml-2 inline-flex -translate-y-0.5 items-center rounded-full px-[7px] py-1 align-middle text-[11px] font-extrabold ${trend >= 0 ? 'bg-[#ecfdf3] text-[#12b76a]' : 'bg-[#fff1f0] text-[#f04438]'}`} title="Variação em relação ao período anterior">
                 {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
               </span>
             )}
           </p>
-          <p className="text-label-md font-medium text-outline mt-1 flex items-center gap-1">
+          <p className="mt-2 flex items-center gap-1 text-[12px] font-semibold text-[#98a2b3]">
             {sub}
             {subTooltip && (
               <span className="material-symbols-outlined text-[13px] text-outline/50 cursor-help shrink-0" title={subTooltip}>
@@ -2243,8 +2269,6 @@ function KpiCard({ icon, iconColor, iconBg, label, value, sub, large, trend, too
             )}
           </p>
           {subExtra && <div className="mt-1.5">{subExtra}</div>}
-        </div>
-      </div>
     </div>
   )
 }

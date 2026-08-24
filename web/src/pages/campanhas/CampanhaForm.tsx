@@ -13,7 +13,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 import { criarResolvedorIdDestaque, urlHttpValida } from '../../components/campanhas/DestaqueElementoSimulacao.logic'
-import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm'
+import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm.utils'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
   TIPOS_CAMPANHA,
@@ -25,7 +25,7 @@ import {
   hidratarFormState,
   montarPayloadCampanha,
   getStatus,
-} from './campanhaForm'
+} from './campanhaForm.utils'
 
 type SecaoDock = 'destino' | 'exibicao' | 'feedback' | 'segmentacao'
 type PosicaoMidia = 'topo' | 'antes_cta'
