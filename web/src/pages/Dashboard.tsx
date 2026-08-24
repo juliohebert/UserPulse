@@ -1099,7 +1099,7 @@ export function Dashboard() {
       )}
       {campanhaInativar && (
         <ConfirmDialog
-          title={`Inativar "${campanhaInativar.titulo}"?`}
+          title={`Inativar "${campanhaInativar.nome_interno}"?`}
           description="Ela deixará de ser exibida para os usuários, mas o histórico de respostas será preservado."
           confirmLabel="Inativar campanha"
           variant="danger"

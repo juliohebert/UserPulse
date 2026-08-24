@@ -1032,7 +1032,7 @@ export function CampanhasIndex() {
 
       {campanhaInativar && (
         <ConfirmDialog
-          title={`Desativar "${campanhaInativar.titulo}"?`}
+          title={`Desativar "${campanhaInativar.nome_interno}"?`}
           description="Ela deixará de ser exibida para os usuários, mas o histórico de respostas será preservado."
           confirmLabel="Desativar campanha"
           variant="danger"
@@ -1045,7 +1045,7 @@ export function CampanhasIndex() {
 
       {campanhaEncerrar && (
         <ConfirmDialog
-          title={`Encerrar "${campanhaEncerrar.titulo}"?`}
+          title={`Encerrar "${campanhaEncerrar.nome_interno}"?`}
           description="A vigência termina agora — ela para de ser exibida para os usuários, mas continua ATIVA (diferente de desativar) e o histórico de respostas é preservado."
           confirmLabel="Encerrar campanha"
           variant="danger"
