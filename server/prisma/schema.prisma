@@ -428,6 +428,7 @@ model Campanha {
   id                        String    @id @default(uuid())
   tenant_id                 String
   slug                      String
+  nome_interno              String
   titulo                    String
   // Eyebrow curto/negrito acima do título no modal. Quando
   // modo_exibicao = "destaque_elemento", este mesmo campo é reutilizado como

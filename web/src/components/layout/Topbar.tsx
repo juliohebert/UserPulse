@@ -124,13 +124,13 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
 
         const q = termo.toLowerCase()
         const campanhasFiltradas = campanhas
-          .filter(c => [c.titulo, c.subtitulo ?? '', c.slug, c.sistema, c.tela, c.tipo]
+          .filter(c => [c.nome_interno, c.titulo, c.subtitulo ?? '', c.slug, c.sistema, c.tela, c.tipo]
             .some(v => v.toLowerCase().includes(q)))
           .slice(0, 5)
           .map<ResultadoBusca>(c => ({
             id: `campanha-${c.id}`,
             tipo: 'campanha',
-            titulo: c.titulo,
+            titulo: c.nome_interno,
             subtitulo: `Campanha · ${c.sistema} · ${c.tela}`,
             icon: 'campaign',
             to: `/campanhas/${c.id}/dashboard`,

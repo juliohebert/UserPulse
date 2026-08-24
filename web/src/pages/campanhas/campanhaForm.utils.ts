@@ -43,6 +43,7 @@ export interface DestaqueFormItem {
 // Publicar/desativar/reativar são ações explícitas à parte (ver
 // CampanhaFormIndex/CampanhasIndex.tsx), nunca um campo deste formulário.
 export interface FormState {
+  nome_interno: string
   titulo: string
   // Eyebrow do modal; reutilizado como texto do badge quando
   // modo_exibicao === FORMATO_DESTAQUE_ELEMENTO (ver CampoDock "Texto do
@@ -98,6 +99,7 @@ export const FORMATO_DESTAQUE_ELEMENTO: FormatoExibicao = 'destaque_elemento'
 export const TIPOS_CAMPANHA = ['comunicado', 'melhoria', 'pesquisa']
 
 export const formInicial: FormState = {
+  nome_interno: '',
   titulo: 'Novidade no produto',
   subtitulo: 'Atualização importante',
   descricao: 'Conte para o usuário o que mudou, por que isso importa e qual é o próximo passo.',
@@ -246,6 +248,7 @@ export function resolverModoSegmentacao(form: Pick<FormState,
 // campanha antiga (ver campanhaForm.test.ts, round-trip).
 export function hidratarFormState(c: Campanha): FormState {
   return {
+    nome_interno: c.nome_interno,
     titulo: c.titulo,
     subtitulo: c.subtitulo ?? '',
     descricao: c.descricao,
@@ -369,6 +372,7 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
 
   return {
     ...form,
+    nome_interno: (form.nome_interno ?? '').trim(),
     permitir_fechar_modal: exigeSaidaObrigatoria ? true : form.permitir_fechar_modal,
     feedback_habilitado: form.feedback_habilitado,
     observacao_obrigatoria: form.observacao_obrigatoria,

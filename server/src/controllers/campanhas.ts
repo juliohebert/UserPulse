@@ -440,6 +440,7 @@ interface ResultadoElegibilidade {
   criterios: Criterio[]
   campanha_concorrente: {
     id: string
+    nome_interno: string
     titulo: string
     prioridade: number
     motivo: string
@@ -487,8 +488,8 @@ function getCamposObrigatorios(modo: string, formatoExibicao?: string): string[]
   return [...base, 'tela']
 }
 
-function gerarSlugBase(titulo: string): string {
-  return titulo
+function gerarSlugBase(nome: string): string {
+  return nome
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -784,13 +785,13 @@ export async function criar(req: Request, res: Response) {
     }
 
     const modo = resolverModoIdentificacao(modoExibicaoResolvido, String(req.body.modo_identificacao || '').trim())
-    const faltando = getCamposObrigatorios(modo, modoExibicaoResolvido).filter(c => !req.body[c]?.toString().trim())
+    const faltando = ['nome_interno', ...getCamposObrigatorios(modo, modoExibicaoResolvido)].filter(c => !req.body[c]?.toString().trim())
     if (faltando.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
     }
 
     const {
-      titulo, subtitulo, descricao, tipo, sistema, tela,
+      nome_interno, titulo, subtitulo, descricao, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
@@ -837,12 +838,14 @@ export async function criar(req: Request, res: Response) {
       if (limite) return res.status(403).json({ erro: limite })
     }
 
-    const slug = await slugUnico(tenantId, gerarSlugBase(titulo))
+    const nomeInterno = nome_interno.trim()
+    const slug = await slugUnico(tenantId, gerarSlugBase(nomeInterno))
 
     const campanha = await prisma.campanha.create({
       data: {
         tenant_id: tenantId,
         slug,
+        nome_interno: nomeInterno,
         titulo: titulo.trim(),
         subtitulo: subtitulo?.trim() || null,
         descricao: descricao.trim(),
@@ -954,13 +957,13 @@ export async function atualizar(req: Request, res: Response) {
     }
 
     const modoAtualizado = resolverModoIdentificacao(modoExibicaoAtualizado, String(req.body.modo_identificacao ?? existente.modo_identificacao ?? '').trim())
-    const vazios = getCamposObrigatorios(modoAtualizado, modoExibicaoAtualizado).filter(c => c in req.body && !req.body[c]?.toString().trim())
+    const vazios = ['nome_interno', ...getCamposObrigatorios(modoAtualizado, modoExibicaoAtualizado)].filter(c => c in req.body && !req.body[c]?.toString().trim())
     if (vazios.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
     }
 
     const {
-      titulo, subtitulo, descricao, tipo, sistema, tela,
+      nome_interno, titulo, subtitulo, descricao, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
@@ -1056,8 +1059,8 @@ export async function atualizar(req: Request, res: Response) {
     }
 
     let slug = existente.slug
-    if (titulo && titulo.trim() !== existente.titulo) {
-      slug = await slugUnico(tenantId, gerarSlugBase(titulo.trim()), id)
+    if (nome_interno !== undefined && nome_interno.trim() !== existente.nome_interno) {
+      slug = await slugUnico(tenantId, gerarSlugBase(nome_interno.trim()), id)
     }
 
     // Nested write única (Prisma resolve create/update/updateMany da relação
@@ -1073,7 +1076,8 @@ export async function atualizar(req: Request, res: Response) {
     const campanha = await prisma.campanha.update({
       where: { id },
       data: {
-        ...(titulo !== undefined && { titulo: titulo.trim(), slug }),
+        ...(nome_interno !== undefined && { nome_interno: nome_interno.trim(), ...(nome_interno.trim() !== existente.nome_interno ? { slug } : {}) }),
+        ...(titulo !== undefined && { titulo: titulo.trim() }),
         ...(subtitulo !== undefined && { subtitulo: subtitulo?.trim() || null }),
         ...(descricao !== undefined && { descricao: descricao.trim() }),
         ...(tipo !== undefined && { tipo: tipo.trim() }),
@@ -1229,8 +1233,9 @@ export async function duplicar(req: Request, res: Response) {
       if (limite) return res.status(403).json({ erro: limite })
     }
 
-    const tituloCopia = `Cópia de ${original.titulo}`
-    const slug = await slugUnico(tenantId, gerarSlugBase(tituloCopia))
+    const tituloCopia = original.titulo
+    const nomeInternoCopia = `Cópia de ${original.nome_interno}`
+    const slug = await slugUnico(tenantId, gerarSlugBase(nomeInternoCopia))
 
     // A cópia nasce em RASCUNHO para não publicar automaticamente e não herda
     // feedbacks, eventos, confirmações nem etapas de jornada da campanha original.
@@ -1238,6 +1243,7 @@ export async function duplicar(req: Request, res: Response) {
       data: {
         tenant_id: tenantId,
         slug,
+        nome_interno: nomeInternoCopia,
         titulo: tituloCopia,
         subtitulo: original.subtitulo,
         descricao: original.descricao,
@@ -1672,6 +1678,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
         if (!competitorBlocked) {
           campanhaConcorrente = {
             id: c.id,
+            nome_interno: c.nome_interno,
             titulo: c.titulo,
             prioridade: c.prioridade,
             motivo: `Prioridade ${c.prioridade} > ${campanha.prioridade}`,
@@ -1681,7 +1688,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
       }
 
       if (campanhaConcorrente) {
-        warn('Prioridade', `A campanha "${campanhaConcorrente.titulo}" (prioridade ${campanhaConcorrente.prioridade}) será exibida primeiro. Esta campanha não seria a primeira exibida nesta visita.`)
+        warn('Prioridade', `A campanha "${campanhaConcorrente.nome_interno}" (prioridade ${campanhaConcorrente.prioridade}) será exibida primeiro. Esta campanha não seria a primeira exibida nesta visita.`)
       } else {
         ok('Prioridade', 'Nenhuma campanha concorrente com maior prioridade para este contexto.')
       }
@@ -1694,7 +1701,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
       exibiria,
       motivo: firstBlock
         ?? (campanhaConcorrente
-          ? `A campanha "${campanhaConcorrente.titulo}" seria exibida antes desta.`
+          ? `A campanha "${campanhaConcorrente.nome_interno}" seria exibida antes desta.`
           : 'Campanha elegível para exibição.'),
       criterios,
       campanha_concorrente: campanhaConcorrente,
