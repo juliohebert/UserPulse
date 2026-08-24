@@ -4,6 +4,7 @@ const prisma = new PrismaClient()
 
 type CampanhaSeed = {
   slug: string
+  nome_interno: string
   titulo: string
   subtitulo?: string
   descricao: string
@@ -93,6 +94,7 @@ type EventoCampanhaSeed = {
 const campanhasSeed: CampanhaSeed[] = [
   {
     slug: 'quarkclinic-agenda-demo',
+    nome_interno: 'QuarkClinic — novidades da agenda (demo)',
     titulo: 'Novidades do QuarkClinic',
     subtitulo: 'Confira o que chegou de novo na agenda',
     descricao:
@@ -112,6 +114,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'quarkclinic-prontuario-novo',
+    nome_interno: 'QuarkClinic — novo prontuário',
     titulo: 'Novo prontuário disponível',
     subtitulo: 'Registro clínico mais rápido e organizado',
     descricao: 'O prontuário ganhou uma experiência mais limpa para registrar evolução, anexos e condutas em menos cliques.',
@@ -126,6 +129,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'quarkclinic-pesquisa-atendimento',
+    nome_interno: 'QuarkClinic — pesquisa de atendimento',
     titulo: 'Pesquisa rápida sobre atendimento',
     subtitulo: 'Ajude a melhorar o fluxo da recepção',
     descricao: 'Conte como está a experiência de atendimento e quais pontos podemos simplificar para sua equipe.',
@@ -138,6 +142,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'quarkclinic-faturamento-recursos',
+    nome_interno: 'QuarkClinic — recursos de faturamento',
     titulo: 'Melhorias no faturamento',
     subtitulo: 'Conciliação e repasses em destaque',
     descricao: 'Agora a tela de faturamento traz filtros por convênio, status de repasse e período de competência.',
@@ -151,6 +156,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'quarkclinic-estoque-alerta',
+    nome_interno: 'QuarkClinic — alerta de estoque mínimo',
     titulo: 'Alerta de estoque mínimo',
     subtitulo: 'Evite falta de materiais críticos',
     descricao: 'Configure alertas para materiais, medicamentos e insumos que exigem reposição antecipada.',
@@ -162,6 +168,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'userpulse-onboarding-widget',
+    nome_interno: 'UserPulse — checklist de implantação do widget',
     titulo: 'Checklist de implantação do widget',
     subtitulo: 'Confira os passos para publicar o UserPulse',
     descricao: 'Revise a instalação do script, public key, identificação de usuários e ambiente de homologação.',
@@ -178,6 +185,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'userpulse-feedback-campanhas',
+    nome_interno: 'UserPulse — leitura de feedbacks de campanhas',
     titulo: 'Como ler feedbacks de campanhas',
     subtitulo: 'Notas, observações e oportunidades',
     descricao: 'Use os feedbacks para entender adoção, objeções e melhorias percebidas pelos usuários.',
@@ -189,6 +197,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'userpulse-pesquisa-produto',
+    nome_interno: 'UserPulse — pesquisa de satisfação do produto',
     titulo: 'Pesquisa de satisfação do produto',
     subtitulo: 'Coleta genérica de percepção',
     descricao: 'Modelo de campanha para coletar opinião dos usuários após uma mudança importante no produto.',
@@ -619,6 +628,7 @@ async function seedCampanhas(tenant_id: string) {
     const data = {
       tenant_id,
       slug: item.slug,
+      nome_interno: item.nome_interno,
       titulo: item.titulo,
       subtitulo: item.subtitulo,
       descricao: item.descricao,
