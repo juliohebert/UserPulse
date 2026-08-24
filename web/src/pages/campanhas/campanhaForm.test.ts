@@ -11,7 +11,7 @@ import {
   rotaEditarCampanha,
   getStatus,
   type FormState,
-} from './campanhaForm'
+} from './campanhaForm.utils'
 
 // Compat com campanhas antigas criadas pelo Form.tsx legado (rotaEditarCampanha
 // passou a enviar TODAS as campanhas pro formulário canônico). Estas suítes cobrem
