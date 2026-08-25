@@ -22,6 +22,7 @@
 // verdade). Fora de escopo nesta tarefa — cobrança, gateway/checkout e
 // bloqueio automático por inadimplência continuam 100% manuais (ver
 // licença comercial em Tenant, ajustada à mão pelo super admin).
+import 'dotenv/config'
 import { PrismaClient, Prisma } from '@prisma/client'
 
 const prisma = new PrismaClient()
