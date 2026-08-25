@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { AvisoComercial } from './AvisoComercial'
+import { ModalContratacaoBloqueio } from './ModalContratacaoBloqueio'
 
 const STORAGE_KEY = 'userpulse:sidebar:collapsed'
 
@@ -23,7 +24,7 @@ export function Layout() {
     })
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-[#f5f7fb]">
       {sidebarMobileAberta && (
         <button
           type="button"
@@ -42,6 +43,7 @@ export function Layout() {
       <Topbar collapsed={collapsed} onOpenMobileSidebar={() => setSidebarMobileAberta(true)} />
       <main className={`ml-0 ${collapsed ? 'md:ml-24' : submoduloAberto ? 'md:ml-[296px]' : 'md:ml-[296px]'} pt-16 min-h-screen transition-[margin-left] duration-200`}>
         <AvisoComercial />
+        <ModalContratacaoBloqueio />
         <Outlet />
       </main>
     </div>

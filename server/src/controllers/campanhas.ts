@@ -66,7 +66,7 @@ export function resolverRemocaoCampanha(statusAtual: CampanhaStatus): ResultadoR
 // resolverRemocaoCampanha) — disponível só pra campanha ATIVA ainda não
 // encerrada. Nunca cria um 4º status: "Encerrada" continua sendo só uma
 // leitura de período (data_fim no passado) por cima de status=ATIVA, igual
-// getStatus no frontend (web/src/pages/campanhas2/campanhaForm.ts) já fazia
+// getStatus no frontend (web/src/pages/campanhas/campanhaForm.ts) já fazia
 // antes desta ação existir — aqui só define o `data_fim` que faz essa
 // leitura passar a valer. Função pura — decide o QUE fazer a partir de
 // status/data_fim atuais + `agora` (sempre injetado pelo caller, nunca
@@ -440,6 +440,7 @@ interface ResultadoElegibilidade {
   criterios: Criterio[]
   campanha_concorrente: {
     id: string
+    nome_interno: string
     titulo: string
     prioridade: number
     motivo: string
@@ -487,8 +488,8 @@ function getCamposObrigatorios(modo: string, formatoExibicao?: string): string[]
   return [...base, 'tela']
 }
 
-function gerarSlugBase(titulo: string): string {
-  return titulo
+function gerarSlugBase(nome: string): string {
+  return nome
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -784,13 +785,13 @@ export async function criar(req: Request, res: Response) {
     }
 
     const modo = resolverModoIdentificacao(modoExibicaoResolvido, String(req.body.modo_identificacao || '').trim())
-    const faltando = getCamposObrigatorios(modo, modoExibicaoResolvido).filter(c => !req.body[c]?.toString().trim())
+    const faltando = ['nome_interno', ...getCamposObrigatorios(modo, modoExibicaoResolvido)].filter(c => !req.body[c]?.toString().trim())
     if (faltando.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
     }
 
     const {
-      titulo, subtitulo, descricao, tipo, sistema, tela,
+      nome_interno, titulo, subtitulo, descricao, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
@@ -837,12 +838,14 @@ export async function criar(req: Request, res: Response) {
       if (limite) return res.status(403).json({ erro: limite })
     }
 
-    const slug = await slugUnico(tenantId, gerarSlugBase(titulo))
+    const nomeInterno = nome_interno.trim()
+    const slug = await slugUnico(tenantId, gerarSlugBase(nomeInterno))
 
     const campanha = await prisma.campanha.create({
       data: {
         tenant_id: tenantId,
         slug,
+        nome_interno: nomeInterno,
         titulo: titulo.trim(),
         subtitulo: subtitulo?.trim() || null,
         descricao: descricao.trim(),
@@ -954,13 +957,13 @@ export async function atualizar(req: Request, res: Response) {
     }
 
     const modoAtualizado = resolverModoIdentificacao(modoExibicaoAtualizado, String(req.body.modo_identificacao ?? existente.modo_identificacao ?? '').trim())
-    const vazios = getCamposObrigatorios(modoAtualizado, modoExibicaoAtualizado).filter(c => c in req.body && !req.body[c]?.toString().trim())
+    const vazios = ['nome_interno', ...getCamposObrigatorios(modoAtualizado, modoExibicaoAtualizado)].filter(c => c in req.body && !req.body[c]?.toString().trim())
     if (vazios.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
     }
 
     const {
-      titulo, subtitulo, descricao, tipo, sistema, tela,
+      nome_interno, titulo, subtitulo, descricao, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
@@ -1056,8 +1059,8 @@ export async function atualizar(req: Request, res: Response) {
     }
 
     let slug = existente.slug
-    if (titulo && titulo.trim() !== existente.titulo) {
-      slug = await slugUnico(tenantId, gerarSlugBase(titulo.trim()), id)
+    if (nome_interno !== undefined && nome_interno.trim() !== existente.nome_interno) {
+      slug = await slugUnico(tenantId, gerarSlugBase(nome_interno.trim()), id)
     }
 
     // Nested write única (Prisma resolve create/update/updateMany da relação
@@ -1073,7 +1076,8 @@ export async function atualizar(req: Request, res: Response) {
     const campanha = await prisma.campanha.update({
       where: { id },
       data: {
-        ...(titulo !== undefined && { titulo: titulo.trim(), slug }),
+        ...(nome_interno !== undefined && { nome_interno: nome_interno.trim(), ...(nome_interno.trim() !== existente.nome_interno ? { slug } : {}) }),
+        ...(titulo !== undefined && { titulo: titulo.trim() }),
         ...(subtitulo !== undefined && { subtitulo: subtitulo?.trim() || null }),
         ...(descricao !== undefined && { descricao: descricao.trim() }),
         ...(tipo !== undefined && { tipo: tipo.trim() }),
@@ -1144,6 +1148,126 @@ export async function atualizar(req: Request, res: Response) {
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao atualizar campanha.' })
+  }
+}
+
+// ─── Reordenação visual de prioridade ──────────────────────────────────────
+// Campanha não tem um "pai" comum pra agrupar um reindex-por-posição dentro
+// de um PUT único (diferente de TourPasso/EtapaJornada/CampanhaDestaqueItem),
+// por isso é um endpoint dedicado. `prioridade` só importa comparada dentro
+// do mesmo "grupo concorrente" (ver ranksFirst/competidores em
+// testarElegibilidade acima), então reordenar opera por grupo, nunca pelo
+// tenant inteiro — reindexar campanhas de grupos diferentes juntas não muda
+// elegibilidade nenhuma, só confunde a UI. Corpo sempre traz a lista INTEIRA
+// de ids do grupo na nova ordem (nunca um subconjunto), e `prioridade` é
+// sempre derivada da posição no array — nunca aceita valor explícito do
+// cliente. Primeiro id da lista = maior prioridade.
+export interface CampanhaGrupoInput {
+  id: string
+  sistema: string
+  tela: string | null
+  modo_identificacao: string
+  url_contem: string | null
+  gatilho: string
+  evento: string | null
+}
+
+// Mesma chave de "quem compete com quem" usada em testarElegibilidade/
+// competidores acima: sistema + (tela, se modo_identificacao=sistema_tela)
+// ou (url_contem, se modo_identificacao=url_contem) + gatilho(+evento, se
+// apos_evento). Campanha em modo data_cy nunca forma grupo — mesma limitação
+// documentada lá ("data_cy: can't verify remotely") — retorna null.
+export function chaveGrupoConcorrente(c: CampanhaGrupoInput): string | null {
+  const gatilhoParte = c.gatilho === 'apos_evento' && c.evento ? `apos_evento:${c.evento}` : 'ao_abrir_tela'
+  if (c.modo_identificacao === 'sistema_tela') {
+    return `${c.sistema}::tela::${c.tela ?? ''}::${gatilhoParte}`
+  }
+  if (c.modo_identificacao === 'url_contem' && c.url_contem) {
+    return `${c.sistema}::url::${c.url_contem}::${gatilhoParte}`
+  }
+  return null
+}
+
+// `idsDoGrupo` é o subconjunto (calculado pelo controller via
+// chaveGrupoConcorrente, tenant-scoped) que o corpo precisa bater
+// exatamente — nunca o total de campanhas do tenant.
+export function validarIdsReordenacao(idsBrutos: unknown, idsDoGrupo: string[]): { erro: string | null; ids: string[] } {
+  if (!Array.isArray(idsBrutos) || idsBrutos.length === 0) {
+    return { erro: 'Informe a lista de campanhas na nova ordem.', ids: [] }
+  }
+  const ids: string[] = []
+  for (const idBruto of idsBrutos) {
+    if (typeof idBruto !== 'string' || !idBruto.trim()) {
+      return { erro: 'Lista de campanhas inválida.', ids: [] }
+    }
+    ids.push(idBruto)
+  }
+  if (new Set(ids).size !== ids.length) {
+    return { erro: 'Lista de campanhas contém ids duplicados.', ids: [] }
+  }
+  const doGrupoSet = new Set(idsDoGrupo)
+  if (ids.length !== idsDoGrupo.length || ids.some(id => !doGrupoSet.has(id))) {
+    return { erro: 'A lista precisa conter exatamente todas as campanhas do grupo de prioridade selecionado.', ids: [] }
+  }
+  return { erro: null, ids }
+}
+
+export function calcularPrioridadesReordenadas(ids: string[]): Array<{ id: string; prioridade: number }> {
+  const total = ids.length
+  return ids.map((id, i) => ({ id, prioridade: total - i }))
+}
+
+const SELECT_GRUPO_CONCORRENTE = { id: true, sistema: true, tela: true, modo_identificacao: true, url_contem: true, gatilho: true, evento: true } as const
+
+export async function reordenar(req: Request, res: Response) {
+  try {
+    const tenantId = req.adminUser!.tenant_id
+    const tenant = req.adminUser!.tenant
+
+    const bloqueioEscrita = motivoBloqueioEscrita(tenant)
+    if (bloqueioEscrita) return res.status(403).json({ erro: bloqueioEscrita })
+
+    const idsBrutos = req.body.ids
+    if (!Array.isArray(idsBrutos) || idsBrutos.length === 0) {
+      return res.status(400).json({ erro: 'Informe a lista de campanhas na nova ordem.' })
+    }
+    const idsSolicitados = idsBrutos.filter((id): id is string => typeof id === 'string' && !!id.trim())
+    if (idsSolicitados.length !== idsBrutos.length) {
+      return res.status(400).json({ erro: 'Lista de campanhas inválida.' })
+    }
+
+    const campanhasSolicitadas = await prisma.campanha.findMany({
+      where: { id: { in: idsSolicitados }, tenant_id: tenantId },
+      select: SELECT_GRUPO_CONCORRENTE,
+    })
+    if (campanhasSolicitadas.length !== idsSolicitados.length) {
+      return res.status(400).json({ erro: 'Lista de campanhas inválida.' })
+    }
+
+    const chaves = new Set(campanhasSolicitadas.map(chaveGrupoConcorrente))
+    if (chaves.size !== 1 || chaves.has(null)) {
+      return res.status(400).json({ erro: 'As campanhas informadas não formam um grupo de prioridade válido.' })
+    }
+    const chave = campanhasSolicitadas.map(chaveGrupoConcorrente)[0] as string
+
+    const candidatosDoGrupo = await prisma.campanha.findMany({
+      where: { tenant_id: tenantId, sistema: campanhasSolicitadas[0].sistema },
+      select: SELECT_GRUPO_CONCORRENTE,
+    })
+    const idsDoGrupo = candidatosDoGrupo.filter(c => chaveGrupoConcorrente(c) === chave).map(c => c.id)
+
+    const { erro, ids } = validarIdsReordenacao(idsSolicitados, idsDoGrupo)
+    if (erro) return res.status(400).json({ erro })
+
+    const prioridades = calcularPrioridadesReordenadas(ids)
+    await prisma.$transaction(
+      prioridades.map(({ id, prioridade }) => prisma.campanha.update({ where: { id }, data: { prioridade } }))
+    )
+
+    res.json({ ok: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao reordenar campanhas.' })
   }
 }
 
@@ -1229,8 +1353,9 @@ export async function duplicar(req: Request, res: Response) {
       if (limite) return res.status(403).json({ erro: limite })
     }
 
-    const tituloCopia = `Cópia de ${original.titulo}`
-    const slug = await slugUnico(tenantId, gerarSlugBase(tituloCopia))
+    const tituloCopia = original.titulo
+    const nomeInternoCopia = `Cópia de ${original.nome_interno}`
+    const slug = await slugUnico(tenantId, gerarSlugBase(nomeInternoCopia))
 
     // A cópia nasce em RASCUNHO para não publicar automaticamente e não herda
     // feedbacks, eventos, confirmações nem etapas de jornada da campanha original.
@@ -1238,6 +1363,7 @@ export async function duplicar(req: Request, res: Response) {
       data: {
         tenant_id: tenantId,
         slug,
+        nome_interno: nomeInternoCopia,
         titulo: tituloCopia,
         subtitulo: original.subtitulo,
         descricao: original.descricao,
@@ -1672,6 +1798,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
         if (!competitorBlocked) {
           campanhaConcorrente = {
             id: c.id,
+            nome_interno: c.nome_interno,
             titulo: c.titulo,
             prioridade: c.prioridade,
             motivo: `Prioridade ${c.prioridade} > ${campanha.prioridade}`,
@@ -1681,7 +1808,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
       }
 
       if (campanhaConcorrente) {
-        warn('Prioridade', `A campanha "${campanhaConcorrente.titulo}" (prioridade ${campanhaConcorrente.prioridade}) será exibida primeiro. Esta campanha não seria a primeira exibida nesta visita.`)
+        warn('Prioridade', `A campanha "${campanhaConcorrente.nome_interno}" (prioridade ${campanhaConcorrente.prioridade}) será exibida primeiro. Esta campanha não seria a primeira exibida nesta visita.`)
       } else {
         ok('Prioridade', 'Nenhuma campanha concorrente com maior prioridade para este contexto.')
       }
@@ -1694,7 +1821,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
       exibiria,
       motivo: firstBlock
         ?? (campanhaConcorrente
-          ? `A campanha "${campanhaConcorrente.titulo}" seria exibida antes desta.`
+          ? `A campanha "${campanhaConcorrente.nome_interno}" seria exibida antes desta.`
           : 'Campanha elegível para exibição.'),
       criterios,
       campanha_concorrente: campanhaConcorrente,

@@ -11,10 +11,10 @@ import {
   rotaEditarCampanha,
   getStatus,
   type FormState,
-} from './campanhaForm'
+} from './campanhaForm.utils'
 
 // Compat com campanhas antigas criadas pelo Form.tsx legado (rotaEditarCampanha
-// passou a enviar TODAS as campanhas pro Campanhas 2). Estas suítes cobrem
+// passou a enviar TODAS as campanhas pro formulário canônico). Estas suítes cobrem
 // só a lógica pura (sem Prisma/DB/React) — hidratação (GET -> FormState) e
 // geração de payload (FormState -> POST/PUT); a integração real com o
 // backend é validada manualmente contra um servidor local, mesmo padrão das
@@ -72,9 +72,9 @@ function campanhaAntiga(over: Partial<Campanha> = {}): Campanha {
   }
 }
 
-describe('rotaEditarCampanha — sempre Campanhas 2', () => {
-  // /campanhas/:id/editar e /campanhas2/:id/editar renderizam o mesmo
-  // Campanhas2Index (App.tsx) — Form.tsx já foi removido do repositório.
+describe('rotaEditarCampanha — sempre o formulário canônico', () => {
+  // A rota canônica renderiza o CampanhaFormIndex (App.tsx) — Form.tsx
+  // legado já foi removido do repositório.
   test('modo_exibicao modal_automatica -> /campanhas/:id/editar', () => {
     assert.equal(rotaEditarCampanha(campanhaAntiga({ id: 'c1', modo_exibicao: 'modal_automatica' })), '/campanhas/c1/editar')
   })

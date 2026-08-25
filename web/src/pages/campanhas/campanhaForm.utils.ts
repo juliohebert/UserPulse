@@ -1,6 +1,6 @@
 import type { Campanha, StatusCampanha } from '../../types'
 
-// Lógica pura (sem React/JSX) do formulário de Campanhas 2 — hidratação
+// Lógica pura (sem React/JSX) do formulário canônico de campanhas — hidratação
 // (GET Campanha -> FormState), geração de payload (FormState -> POST/PUT) e
 // resolução do tipo de destino selecionado no dock. Extraída de Index.tsx
 // pra poder ser testada com node:test sem precisar montar componentes.
@@ -22,6 +22,10 @@ import type { Campanha, StatusCampanha } from '../../types'
 // (adicionado no form) nunca tem `id` -> backend trata como CREATE.
 export interface DestaqueFormItem {
   id?: string
+  // Identidade transitória da UI para itens ainda não persistidos. Não faz
+  // parte do payload; só evita remontar o card quando o objeto é copiado ao
+  // editar um campo.
+  chave_local?: string
   data_cy: string
   texto_badge: string
   titulo: string
@@ -37,8 +41,9 @@ export interface DestaqueFormItem {
 // server/src/controllers/campanhas.ts) e "Salvar alterações" preserva o
 // status atual (nenhuma chave `status` no payload = backend não mexe nele).
 // Publicar/desativar/reativar são ações explícitas à parte (ver
-// Campanhas2Index/campanhas/Index.tsx), nunca um campo deste formulário.
+// CampanhaFormIndex/CampanhasIndex.tsx), nunca um campo deste formulário.
 export interface FormState {
+  nome_interno: string
   titulo: string
   // Eyebrow do modal; reutilizado como texto do badge quando
   // modo_exibicao === FORMATO_DESTAQUE_ELEMENTO (ver CampoDock "Texto do
@@ -94,6 +99,7 @@ export const FORMATO_DESTAQUE_ELEMENTO: FormatoExibicao = 'destaque_elemento'
 export const TIPOS_CAMPANHA = ['comunicado', 'melhoria', 'pesquisa']
 
 export const formInicial: FormState = {
+  nome_interno: '',
   titulo: 'Novidade no produto',
   subtitulo: 'Atualização importante',
   descricao: 'Conte para o usuário o que mudou, por que isso importa e qual é o próximo passo.',
@@ -200,7 +206,7 @@ export function pareceUrlVideo(valor: string): boolean {
 // 4 formas de identificar quando/onde a campanha aparece. 'url' é a 4ª
 // opção (campo desta rodada) — campanhas antigas criadas pelo Form.tsx
 // legado podem ter modo_identificacao='url_contem' (destino por caminho de
-// URL), formato que o Campanhas 2 não representava até agora: sem esse
+// URL), formato que o fluxo anterior não representava até agora: sem esse
 // case, `resolverTipoDestino` caía no fallback 'tela', escondendo o
 // url_contem configurado e arriscando perdê-lo caso o usuário mexesse na
 // seção Destino (ver DockLateral em Index.tsx).
@@ -242,6 +248,7 @@ export function resolverModoSegmentacao(form: Pick<FormState,
 // campanha antiga (ver campanhaForm.test.ts, round-trip).
 export function hidratarFormState(c: Campanha): FormState {
   return {
+    nome_interno: c.nome_interno,
     titulo: c.titulo,
     subtitulo: c.subtitulo ?? '',
     descricao: c.descricao,
@@ -311,15 +318,13 @@ export function hidratarFormState(c: Campanha): FormState {
   }
 }
 
-// Campanhas 2 é o fluxo mantido pra edição — hidratarFormState/
+// O formulário canônico é o fluxo mantido pra edição — hidratarFormState/
 // montarPayloadCampanha acima cobrem com segurança todos os formatos que o
 // Form.tsx legado suportava (comunicado/modal, NPS, gatilho por tela/evento,
 // destino por data-cy/URL, feedback, segmentação, reexibição, vigência, CTA,
 // múltiplos destaques), então toda campanha edita por lá agora. Form.tsx já
-// foi removido do repositório (App.tsx aposentou a rota antiga em favor de
-// Campanhas2Index) — /campanhas/:id/editar e /campanhas2/:id/editar
-// renderizam o mesmo componente, esta função usa a primeira por já ser a
-// canônica em App.tsx. Vive neste módulo (e não em utils/campanha.ts, que
+// foi removido do repositório; App.tsx usa CampanhaFormIndex na rota
+// canônica. Vive neste módulo (e não em utils/campanha.ts, que
 // reexporta) porque utils/campanha.ts lê `import.meta.env`/`window` no
 // top-level e não pode ser importado fora do Vite — este arquivo precisa
 // continuar puro pra ser testável com node:test.
@@ -367,6 +372,7 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
 
   return {
     ...form,
+    nome_interno: (form.nome_interno ?? '').trim(),
     permitir_fechar_modal: exigeSaidaObrigatoria ? true : form.permitir_fechar_modal,
     feedback_habilitado: form.feedback_habilitado,
     observacao_obrigatoria: form.observacao_obrigatoria,

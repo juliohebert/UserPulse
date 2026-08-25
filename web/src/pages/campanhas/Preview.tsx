@@ -9,9 +9,9 @@ import { StatusBadge } from '../../components/ui/StatusBadge'
 import { gerarEmbed, gerarEmbedParts, getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
-import { DestaqueElementoSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
+import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 
-// Esta página não busca a aparência por sistema (diferente de campanhas2,
+// Esta página não busca a aparência por sistema (diferente do formulário de campanhas,
 // que usa a cor do tenant) — cobalto fixo, mesmo tom de {colors.primary} no
 // DESIGN.md, único usado nos outros elementos desta simulação (bg-primary).
 const CORACAO_SIMULACAO = '#0064e0'
@@ -40,6 +40,7 @@ export function CampanhaPreview() {
   const [copied, setCopied] = useState(false)
   const [telefone, setTelefone] = useState('')
   const [phoneDone, setPhoneDone] = useState(false)
+  const [indiceDestaque, setIndiceDestaque] = useState(0)
   const [publicando, setPublicando] = useState(false)
   const [erroPublicar, setErroPublicar] = useState<string | null>(null)
   const podeEscrever = podeGerenciarModulo(user, 'CAMPANHAS')
@@ -149,6 +150,9 @@ export function CampanhaPreview() {
   }
 
   const question = campanha.pergunta_feedback || 'Como podemos melhorar?'
+  const destaques = campanha.destaques && campanha.destaques.length > 0 ? campanha.destaques : null
+  const indiceDestaqueSeguro = destaques ? Math.min(indiceDestaque, destaques.length - 1) : 0
+  const destaqueSelecionado = destaques?.[indiceDestaqueSeguro]
   const embedCode = gerarEmbed(campanha, user?.tenant.public_key)
   const embedParts = gerarEmbedParts(campanha, user?.tenant.public_key)
   const initSection = [
@@ -170,7 +174,7 @@ export function CampanhaPreview() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-title-lg font-bold text-on-surface">{campanha.titulo}</h2>
+            <h2 className="text-title-lg font-bold text-on-surface">{campanha.nome_interno}</h2>
             <StatusBadge status={getStatus(campanha)} />
           </div>
           <p className="text-body-md text-on-surface-variant mt-0.5">Modo teste: nenhum feedback será registrado.</p>
@@ -232,17 +236,28 @@ export function CampanhaPreview() {
             <div className="absolute inset-0 z-10 bg-black/40" onClick={() => setOpen(false)} />
             <div className="relative z-20 flex min-h-[560px] items-center justify-center p-6">
             {campanha.modo_exibicao === 'destaque_elemento' ? (
-              <DestaqueElementoSimulacao
-                corAcao={CORACAO_SIMULACAO}
-                dataCyLabel={campanha.data_cy?.trim() ?? ''}
-                placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
-                badgeTexto={campanha.subtitulo?.trim() || 'Novo'}
-                titulo={campanha.titulo}
-                descricao={campanha.descricao}
-                ctaTexto={campanha.texto_botao && campanha.url_botao ? campanha.texto_botao : null}
-                permitirDispensar={campanha.permitir_fechar_modal !== false}
-                onFechar={() => setOpen(false)}
-              />
+              <div className="flex flex-col items-center gap-3">
+                {destaques && destaques.length > 1 && (
+                  <SeletorDestaqueSimulacao
+                    valor={indiceDestaqueSeguro}
+                    onChange={setIndiceDestaque}
+                    opcoes={destaques.map((item, indice) => ({ valor: indice, rotulo: item.titulo.trim() || `Destaque ${indice + 1}` }))}
+                  />
+                )}
+                <DestaqueElementoSimulacao
+                  corAcao={CORACAO_SIMULACAO}
+                  dataCyLabel={(destaqueSelecionado?.data_cy ?? campanha.data_cy ?? '').trim()}
+                  itemId={destaqueSelecionado?.id ?? `campaign-${campanha.id}`}
+                  placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
+                  badgeTexto={destaqueSelecionado?.texto_badge?.trim() || campanha.subtitulo?.trim() || 'Novo'}
+                  titulo={destaqueSelecionado?.titulo ?? campanha.titulo}
+                  descricao={destaqueSelecionado?.descricao ?? campanha.descricao}
+                  ctaTexto={destaqueSelecionado?.texto_botao ?? campanha.texto_botao}
+                  ctaUrl={destaqueSelecionado?.url_botao ?? campanha.url_botao}
+                  permitirDispensar={campanha.permitir_fechar_modal !== false}
+                  onFechar={() => setOpen(false)}
+                />
+              </div>
             ) : (
             <div className="w-full max-w-[520px] overflow-hidden rounded-2xl border border-outline-variant bg-surface-container-lowest shadow-2xl">
             {submitted ? (
@@ -694,7 +709,7 @@ export function CampanhaPreview() {
               <div className="rounded-xl border border-[#ffe082] bg-[#fff8e1] p-4">
                 <p className="text-label-sm text-[#e65100] font-semibold uppercase tracking-wider mb-2">Campanha concorrente com maior prioridade</p>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="min-w-0 text-body-md font-bold text-on-surface break-words">{eligResult.campanha_concorrente.titulo}</p>
+                  <p className="min-w-0 text-body-md font-bold text-on-surface break-words">{eligResult.campanha_concorrente.nome_interno}</p>
                   <span className="px-2.5 py-0.5 bg-[#ffe082] text-[#e65100] rounded-full text-label-sm font-bold shrink-0">
                     Prioridade {eligResult.campanha_concorrente.prioridade}
                   </span>

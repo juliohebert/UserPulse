@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { get, put, post, del } from '../services/api'
 import type {
   SituacaoBillingResposta, SituacaoAsaasDecisao, SituacaoComercialTenant,
@@ -156,6 +157,7 @@ function TrialCard({ ativo, trialFim, plano }: {
 
 export function MinhaAssinatura() {
   const { user } = useAuth()
+  const location = useLocation()
   const [situacao, setSituacao] = useState<SituacaoBillingResposta | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -163,7 +165,11 @@ export function MinhaAssinatura() {
   const [planos, setPlanos] = useState<PlanoContratavel[] | null>(null)
   const [planosLoading, setPlanosLoading] = useState(false)
   const [planosErro, setPlanosErro] = useState<string | null>(null)
-  const [planoSelecionadoId, setPlanoSelecionadoId] = useState<string | null>(null)
+  // Pré-seleção vinda da ModalContratacaoBloqueio (navigate com state) —
+  // apenas o valor inicial, o usuário pode trocar de plano normalmente depois.
+  const [planoSelecionadoId, setPlanoSelecionadoId] = useState<string | null>(
+    () => (location.state as { planoPreselecionadoId?: string } | null)?.planoPreselecionadoId ?? null
+  )
   // Correção de produto — forma de pagamento deixou de ser implícita
   // (UNDEFINED, escolhida na página do Asaas) e virou uma escolha explícita
   // aqui no UserPulse, sempre com um valor válido (CREDIT_CARD por padrão

@@ -77,6 +77,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // "sair" precisa funcionar mesmo com a sessão já inválida no servidor.
     await post('/auth/logout', {}).catch(() => {})
     setUser(null)
+    // ModalContratacaoBloqueio.tsx grava "fechada" em sessionStorage por
+    // tenant+usuário — limpa aqui pra reabrir normalmente após login de
+    // outro usuário/tenant na mesma aba, sem precisar saber qual era o
+    // usuário atual (já perdido acima em setUser(null)).
+    try {
+      for (let i = sessionStorage.length - 1; i >= 0; i--) {
+        const chave = sessionStorage.key(i)
+        if (chave?.startsWith('modal-bloqueio-fechada:')) sessionStorage.removeItem(chave)
+      }
+    } catch {}
   }
 
   // Resposta tem o mesmo formato de login/me (usuarioPublico) — já vem com

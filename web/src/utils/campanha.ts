@@ -2,7 +2,7 @@ import type { Campanha } from '../types'
 // Reexportadas daqui (não definidas neste arquivo) — ver o comentário em
 // campanhaForm.ts sobre por que elas precisam viver num módulo sem
 // import.meta.env/window no top-level.
-export { rotaEditarCampanha, getStatus } from '../pages/campanhas2/campanhaForm'
+export { rotaEditarCampanha, getStatus } from '../pages/campanhas/campanhaForm.utils'
 
 export function gerarSlug(titulo: string): string {
   return titulo

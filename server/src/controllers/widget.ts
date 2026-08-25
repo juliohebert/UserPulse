@@ -13,7 +13,7 @@ import { resolverTenantPublico } from '../lib/tenantGuards'
 // carregam esse campo, então o strip é defensivo/sem efeito atual — nenhum
 // desses modelos é consultado aqui), e a função não depende disso pra estar
 // correta. Não remove nem altera nenhum outro campo.
-const CHAVES_INTERNAS = new Set(['tenant_id', 'codigo'])
+const CHAVES_INTERNAS = new Set(['tenant_id', 'codigo', 'nome_interno'])
 
 export function ocultarTenantId<T>(valor: T): T {
   if (Array.isArray(valor)) {
@@ -1196,7 +1196,7 @@ export async function buscarJornadas(req: Request, res: Response) {
               orderBy: { ordem: 'asc' },
               include: {
                 tour: { include: { passos: { orderBy: { ordem: 'asc' } } } },
-                campanha: { select: { id: true, titulo: true, slug: true, ativo: true } },
+                campanha: { select: { id: true, nome_interno: true, titulo: true, slug: true, ativo: true } },
               },
             },
           },

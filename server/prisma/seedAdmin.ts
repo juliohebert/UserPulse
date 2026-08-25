@@ -11,6 +11,7 @@
 // status/plano; se não existir, cria um novo tenant em TRIAL de 14 dias —
 // esse é o caminho de "teste grátis" pra um cliente novo (ex.:
 // ADMIN_TENANT_SLUG=acme ADMIN_TENANT_NOME="Acme Ltda" ADMIN_EMAIL=...).
+import 'dotenv/config'
 import { AdminRole, PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
