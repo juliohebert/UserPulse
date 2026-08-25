@@ -12,7 +12,7 @@ Run from repo root unless noted.
 
 ```bash
 # First-time setup
-docker compose up -d --wait          # Postgres in a container (localhost:5432)
+docker compose up -d --wait          # Postgres in a container (localhost:5433, override with POSTGRES_PORT)
 npm run install:all                  # installs root + server + web
 cp server/.env.example server/.env   # set ADMIN_JWT_SECRET (openssl rand -hex 32) — server won't boot without it
 cd server && npm run db:migrate && npm run db:generate

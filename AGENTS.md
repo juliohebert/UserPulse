@@ -19,7 +19,7 @@
 
 ## Banco E Ambiente
 
-- `docker-compose.yml` fixa `container_name: userpulse-postgres` e porta `5432`; um container antigo com esse nome bloqueia `npm run db:up` mesmo parado.
+- `docker-compose.yml` não fixa `container_name` (evita conflito entre checkouts distintos do repo) e expõe o Postgres em `5433` por padrão (`POSTGRES_PORT` sobrescreve), para não colidir com outros projetos usando `5432`. `npm run db:up` (= `docker compose up -d --wait`) é idempotente: se o container já estiver saudável, não recria.
 - `server/.env.example` deixa `NODE_ENV=production`; em dev, ajuste se precisar da rota local `/test-embed.html`, pois o servidor retorna 404 para ela em produção.
 - `ADMIN_JWT_SECRET` é obrigatório no boot; `server/src/index.ts` chama `getSessionSecret()` e encerra o processo se faltar.
 - `npm run db:migrate` na raiz usa `prisma migrate deploy`; `npm run db:migrate --prefix server` usa `prisma migrate dev` e é interativo/cria migrations.

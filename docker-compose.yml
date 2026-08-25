@@ -1,13 +1,12 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: userpulse-postgres
     environment:
       POSTGRES_DB: userpulse
       POSTGRES_USER: userpulse
       POSTGRES_PASSWORD: userpulse
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - userpulse-postgres-data:/var/lib/postgresql/data
     healthcheck:

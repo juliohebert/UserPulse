@@ -1,0 +1,17 @@
+stages:
+  - build
+  - image
+  - publish
+  - deploy
+
+variables:
+  # --- Variáveis utilizadas no deployment.
+  NAMESPACE: quark-user-pulse
+  DEPLOYMENT: quark-user-pulse-deployment
+  CONTAINER: quark-user-pulse
+
+include:
+  # --- Include do manifesto de build e deployment.
+  project: 'infraestrutura/gitlab-pipelines'
+  ref: main
+  file: 'quark-user-pulse/.gitlab-ci.yml'
