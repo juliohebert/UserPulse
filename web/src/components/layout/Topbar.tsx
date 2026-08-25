@@ -203,9 +203,10 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
     navigate(to)
   }
 
-  const sair = () => {
+  const sair = async () => {
     setContaAberta(false)
-    void logout()
+    await logout()
+    navigate('/login', { replace: true })
   }
 
   return (
