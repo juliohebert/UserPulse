@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { PrismaClient } from '@prisma/client'
 import { createHash } from 'node:crypto'
 
@@ -149,6 +150,7 @@ const campanhasSeed: CampanhaSeed[] = [
   },
   {
     slug: 'quarkclinic-agenda-destaques',
+    nome_interno: 'QuarkClinic — atalhos inteligentes da agenda (destaques)',
     titulo: 'Atalhos inteligentes da agenda',
     subtitulo: 'Novo',
     descricao: 'Conheça recursos da agenda diretamente no ponto em que cada ação acontece.',
