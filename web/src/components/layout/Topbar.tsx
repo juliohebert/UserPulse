@@ -6,7 +6,6 @@ import { podeGerenciarModulo } from '../../utils/permissions'
 import { get } from '../../services/api'
 
 interface Props {
-  collapsed: boolean
   onOpenMobileSidebar: () => void
 }
 
@@ -40,7 +39,7 @@ function iniciais(nome: string): string {
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase()
 }
 
-export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
+export function Topbar({ onOpenMobileSidebar }: Props) {
   const [search, setSearch] = useState('')
   const [novoAberto, setNovoAberto] = useState(false)
   const [buscaAberta, setBuscaAberta] = useState(false)
@@ -211,8 +210,17 @@ export function Topbar({ collapsed, onOpenMobileSidebar }: Props) {
 
   return (
     <header
-      className={`fixed inset-x-0 top-0 h-16 bg-white border-b border-outline-variant flex justify-between items-center px-4 md:pr-8 ${collapsed ? 'md:pl-32' : 'md:pl-[324px]'} z-40 transition-[padding-left] duration-200`}
+      className="fixed inset-x-0 top-0 z-40 flex h-16 items-center justify-between border-b border-outline-variant bg-white px-4 md:pl-8 md:pr-8"
     >
+      <div className="mr-3 flex shrink-0 items-center gap-2.5 sm:mr-5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-white">
+          <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
+        </div>
+        <div className="hidden sm:block">
+          <p className="text-title-md font-bold leading-tight text-on-surface">UserPulse</p>
+          <p className="max-w-[150px] truncate text-label-md font-medium text-outline" title={user?.tenant.nome}>{user?.tenant.nome ?? 'UserPulse'}</p>
+        </div>
+      </div>
       <button
         type="button"
         onClick={onOpenMobileSidebar}
