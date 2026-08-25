@@ -116,7 +116,7 @@ function RailAction({ item, active, onClick }: { item: ActionItem; active: boole
 }
 
 export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = false, onCloseMobile }: Props) {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const location = useLocation()
   const rotaConfiguracoes = location.pathname === '/configuracoes' || location.pathname.startsWith('/configuracoes/')
   const [submoduloAberto, setSubmoduloAberto] = useState<'configuracoes' | null>(rotaConfiguracoes ? 'configuracoes' : null)
@@ -173,8 +173,13 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
 
   if (emConfiguracoes) {
     return (
-      <aside className={`fixed left-4 top-3 bottom-3 md:top-20 z-50 flex overflow-hidden rounded-3xl border border-outline-variant bg-white shadow-panel transition-[transform,width] duration-200 ${collapsed ? 'md:w-16' : 'md:w-[264px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}>
+      <aside className={`fixed left-4 top-3 bottom-3 z-50 flex overflow-hidden rounded-3xl border border-outline-variant bg-white shadow-panel transition-[transform,width] duration-200 ${collapsed ? 'md:w-16' : 'md:w-[264px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}>
         <div className="flex w-16 flex-col items-center px-2.5 py-4">
+          <div className="mb-7 flex h-10 items-center justify-center">
+            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white shrink-0">
+              <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
+            </div>
+          </div>
           <nav className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden">
             {itemsPrincipais.map(item => (
               'to' in item
@@ -182,6 +187,15 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
                 : <RailAction key={item.action} item={item} active onClick={abrirSubmoduloConfiguracoes} />
             ))}
           </nav>
+          <button
+            type="button"
+            onClick={() => logout()}
+            title="Sair"
+            aria-label="Sair"
+            className="mt-4 flex h-10 w-10 items-center justify-center rounded-2xl text-on-surface-variant transition-colors hover:bg-surface hover:text-error"
+          >
+            <span className="material-symbols-outlined text-[21px]">logout</span>
+          </button>
           {collapsed && (
             <button
               type="button"
@@ -251,8 +265,36 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
 
   return (
     <aside
-      className={`fixed left-4 top-3 bottom-3 md:top-20 w-[264px] ${collapsed ? 'md:w-16' : 'md:w-[264px]'} bg-white border border-outline-variant flex flex-col px-2.5 py-4 z-50 shadow-panel overflow-hidden rounded-3xl transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}
+      className={`fixed left-4 top-3 bottom-3 w-[264px] ${collapsed ? 'md:w-16' : 'md:w-[264px]'} bg-white border border-outline-variant flex flex-col px-2.5 py-4 z-50 shadow-panel overflow-hidden rounded-3xl transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}
     >
+      <div className={`mb-7 flex h-10 items-center ${collapsed ? 'justify-center' : 'justify-center md:justify-between md:px-1'}`}>
+        <div className={`flex h-10 items-center gap-3 min-w-0 ${collapsed ? 'md:pointer-events-none md:w-0 md:opacity-0' : 'md:w-auto md:opacity-100'}`}>
+          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white shrink-0">
+            <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
+          </div>
+          <div className={`overflow-hidden ${collapsed ? 'block max-w-[180px] opacity-100 md:hidden md:max-w-0 md:opacity-0' : 'block max-w-[180px] opacity-100'}`}>
+            <h1 className="text-title-md font-bold text-on-surface leading-tight whitespace-nowrap">UserPulse</h1>
+            <p className="text-label-md font-medium text-outline whitespace-nowrap truncate max-w-[170px]" title={user?.tenant.nome}>{user?.tenant.nome ?? 'UserPulse'}</p>
+          </div>
+        </div>
+        <button
+          onClick={onToggle}
+          title="Expandir sidebar"
+          aria-label="Expandir sidebar"
+          className={`p-2 rounded-full text-on-surface-variant hover:bg-surface transition-all duration-200 ease-out ${collapsed ? 'hidden md:flex' : 'hidden'}`}
+        >
+          <span className="material-symbols-outlined text-[21px]">left_panel_open</span>
+        </button>
+        <button
+          onClick={onToggle}
+          title="Recolher sidebar"
+          aria-label="Recolher sidebar"
+          className={`p-2 rounded-full text-on-surface-variant hover:bg-surface transition-colors shrink-0 ${collapsed ? 'hidden' : 'hidden md:flex'}`}
+        >
+          <span className="material-symbols-outlined text-[20px]">left_panel_close</span>
+        </button>
+      </div>
+
       <nav className="flex-1 overflow-y-auto overflow-x-hidden pr-0.5">
         <div className="space-y-2 animate-[mainMenuIn_140ms_ease-out_both]">
           {itemsPrincipais.map((item, index) => (
@@ -288,15 +330,15 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
         </div>
         <button
           type="button"
-          onClick={onToggle}
-          title={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
-          aria-label={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
-          className="hidden h-10 w-full items-center justify-start rounded-2xl text-on-surface-variant transition-colors hover:bg-surface hover:text-on-surface md:flex"
+          onClick={() => logout()}
+          title="Sair"
+          aria-label="Sair"
+          className="w-full flex items-center justify-start rounded-2xl text-on-surface-variant hover:bg-surface hover:text-error transition-colors"
         >
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl">
-            <span className="material-symbols-outlined text-[21px]">{collapsed ? 'left_panel_open' : 'left_panel_close'}</span>
+            <span className="material-symbols-outlined text-[21px]">logout</span>
           </span>
-          <span className={`overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-300 ease-out ${collapsed ? 'max-w-0 opacity-0 ml-0' : 'max-w-[170px] opacity-100 ml-2'}`}>Recolher menu</span>
+          <span className={`text-body-md overflow-hidden whitespace-nowrap transition-[max-width,opacity,margin] duration-300 ease-out ${collapsed ? 'max-w-[170px] opacity-100 ml-2 md:max-w-0 md:opacity-0 md:ml-0' : 'max-w-[170px] opacity-100 ml-2'}`}>Sair</span>
         </button>
       </div>
     </aside>
