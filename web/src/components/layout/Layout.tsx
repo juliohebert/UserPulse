@@ -40,7 +40,7 @@ export function Layout() {
         mobileOpen={sidebarMobileAberta}
         onCloseMobile={() => setSidebarMobileAberta(false)}
       />
-      <Topbar collapsed={collapsed} onOpenMobileSidebar={() => setSidebarMobileAberta(true)} />
+      <Topbar onOpenMobileSidebar={() => setSidebarMobileAberta(true)} />
       <main className={`ml-0 ${collapsed ? 'md:ml-24' : submoduloAberto ? 'md:ml-[296px]' : 'md:ml-[296px]'} pt-16 min-h-screen transition-[margin-left] duration-200`}>
         <AvisoComercial />
         <ModalContratacaoBloqueio />
