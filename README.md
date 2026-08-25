@@ -59,7 +59,7 @@ O painel de administração permite criar campanhas, acompanhar visualizações,
 docker compose up -d
 ```
 
-Cria o PostgreSQL em `localhost:5432` com usuário e banco `userpulse`.
+Cria o PostgreSQL em `localhost:5433` com usuário e banco `userpulse` (porta configurável via `POSTGRES_PORT`).
 
 ### 2. Variáveis de ambiente do servidor
 
@@ -72,7 +72,7 @@ cp server/.env.example server/.env
 O arquivo de exemplo já está configurado para o Docker local:
 
 ```env
-DATABASE_URL="postgresql://userpulse:userpulse@localhost:5432/userpulse?schema=public"
+DATABASE_URL="postgresql://userpulse:userpulse@localhost:5433/userpulse?schema=public"
 PORT=3333
 ```
 
