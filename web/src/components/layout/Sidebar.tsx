@@ -176,9 +176,22 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
       <aside className={`fixed left-4 top-3 bottom-3 z-50 flex overflow-hidden rounded-3xl border border-outline-variant bg-white shadow-panel transition-[transform,width] duration-200 ${collapsed ? 'md:w-16' : 'md:w-[264px]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}>
         <div className="flex w-16 flex-col items-center px-2.5 py-4">
           <div className="mb-7 flex h-10 items-center justify-center">
-            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white shrink-0">
-              <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
-            </div>
+            {collapsed ? (
+              <button
+                type="button"
+                onClick={onToggle}
+                title="Expandir sidebar"
+                aria-label="Expandir sidebar"
+                className="group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white"
+              >
+                <span className="material-symbols-outlined ms-fill text-[18px] transition-opacity group-hover:opacity-0">pulse_alert</span>
+                <span className="material-symbols-outlined absolute text-[20px] opacity-0 transition-opacity group-hover:opacity-100">left_panel_open</span>
+              </button>
+            ) : (
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary text-white">
+                <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
+              </div>
+            )}
           </div>
           <nav className="flex-1 space-y-2 overflow-y-auto overflow-x-hidden">
             {itemsPrincipais.map(item => (
@@ -196,28 +209,20 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
           >
             <span className="material-symbols-outlined text-[21px]">logout</span>
           </button>
-          {collapsed && (
-            <button
-              type="button"
-              onClick={onToggle}
-              title="Expandir sidebar"
-              aria-label="Expandir sidebar"
-              className="mt-2 hidden h-10 w-10 items-center justify-center rounded-2xl text-on-surface-variant transition-colors hover:bg-surface hover:text-on-surface md:flex"
-            >
-              <span className="material-symbols-outlined text-[21px]">left_panel_open</span>
-            </button>
-          )}
         </div>
 
         <div className={`${collapsed ? 'hidden md:hidden' : 'flex'} w-[200px] flex-col border-l border-outline-variant bg-surface px-3 py-4`}>
           <div className="mb-4 flex items-center justify-between gap-2 px-1">
             <div className="min-w-0">
               <p className="truncate text-title-md font-bold text-on-surface">Configurações</p>
-              <p className="truncate text-[11px] text-outline">Módulo do tenant</p>
             </div>
             <button
               type="button"
-              onClick={onToggle}
+              onClick={() => {
+                setSubmoduloAberto(null)
+                setExpandiuParaSubmodulo(false)
+                if (!collapsed) onToggle()
+              }}
               title="Recolher sidebar"
               aria-label="Recolher sidebar"
               className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface md:flex"
@@ -268,23 +273,28 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
       className={`fixed left-4 top-3 bottom-3 w-[264px] ${collapsed ? 'md:w-16' : 'md:w-[264px]'} bg-white border border-outline-variant flex flex-col px-2.5 py-4 z-50 shadow-panel overflow-hidden rounded-3xl transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}`}
     >
       <div className={`mb-7 flex h-10 items-center ${collapsed ? 'justify-center' : 'justify-center md:justify-between md:px-1'}`}>
-        <div className={`flex h-10 items-center gap-3 min-w-0 ${collapsed ? 'md:pointer-events-none md:w-0 md:opacity-0' : 'md:w-auto md:opacity-100'}`}>
-          <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-white shrink-0">
-            <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
-          </div>
-          <div className={`overflow-hidden ${collapsed ? 'block max-w-[180px] opacity-100 md:hidden md:max-w-0 md:opacity-0' : 'block max-w-[180px] opacity-100'}`}>
+        <div className="flex h-10 min-w-0 items-center gap-3">
+          {collapsed ? (
+            <button
+              type="button"
+              onClick={onToggle}
+              title="Expandir sidebar"
+              aria-label="Expandir sidebar"
+              className="group relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white"
+            >
+              <span className="material-symbols-outlined ms-fill text-[18px] transition-opacity group-hover:opacity-0">pulse_alert</span>
+              <span className="material-symbols-outlined absolute text-[20px] opacity-0 transition-opacity group-hover:opacity-100">left_panel_open</span>
+            </button>
+          ) : (
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white">
+              <span className="material-symbols-outlined ms-fill text-[18px]">pulse_alert</span>
+            </div>
+          )}
+          <div className={`overflow-hidden ${collapsed ? 'hidden' : 'block max-w-[180px] opacity-100'}`}>
             <h1 className="text-title-md font-bold text-on-surface leading-tight whitespace-nowrap">UserPulse</h1>
             <p className="text-label-md font-medium text-outline whitespace-nowrap truncate max-w-[170px]" title={user?.tenant.nome}>{user?.tenant.nome ?? 'UserPulse'}</p>
           </div>
         </div>
-        <button
-          onClick={onToggle}
-          title="Expandir sidebar"
-          aria-label="Expandir sidebar"
-          className={`p-2 rounded-full text-on-surface-variant hover:bg-surface transition-all duration-200 ease-out ${collapsed ? 'hidden md:flex' : 'hidden'}`}
-        >
-          <span className="material-symbols-outlined text-[21px]">left_panel_open</span>
-        </button>
         <button
           onClick={onToggle}
           title="Recolher sidebar"
