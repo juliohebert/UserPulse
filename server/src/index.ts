@@ -17,6 +17,7 @@ import adminTenantsRouter from './routes/adminTenants'
 import adminPlanosRouter from './routes/adminPlanos'
 import webhooksAsaasRouter from './routes/webhooksAsaas'
 import billingRouter from './routes/billing'
+import usuariosRouter from './routes/usuarios'
 import { requireAdminAuth } from './middleware/requireAdminAuth'
 import { requireSuperAdmin } from './middleware/requireSuperAdmin'
 import { requireAcessoOperacional } from './middleware/requireAcessoOperacional'
@@ -142,6 +143,13 @@ app.use('/api/dashboard', corsAdmin, requireAdminAuth, requireAcessoOperacional,
 // fica dentro do router, em cada rota (ver routes/billing.ts) — igual ao
 // padrão de /api/aparencia-widget acima.
 app.use('/api/billing', corsAdmin, requireAdminAuth, billingRouter)
+// Gestão de usuários self-service (ADMIN convida/edita/remove acesso do
+// próprio tenant) — guard de papel (ADMIN-only) fica dentro do router (ver
+// routes/usuarios.ts), mesmo padrão de /api/aparencia-widget/billing acima.
+// requireAcessoOperacional aplicado (diferente de billing): gerenciar
+// usuários não é o caminho de regularizar um trial vencido, então segue o
+// bloqueio operacional padrão.
+app.use('/api/usuarios', corsAdmin, requireAdminAuth, requireAcessoOperacional, usuariosRouter)
 // Painel Super Admin (gerenciar Tenants/Planos/teste grátis) — cross-tenant
 // de propósito, por isso vem depois de requireSuperAdmin, nunca só
 // requireAdminAuth como as demais rotas admin acima.

@@ -711,6 +711,49 @@ export interface AdminDoTenant {
   atualizado_em: string
 }
 
+// Gestão de usuários self-service (ver server/src/controllers/usuarios.ts,
+// montado em /api/usuarios) — ADMIN do próprio tenant convida/edita/remove
+// acessos sem depender do SUPER_ADMIN. usuarios reaproveita o mesmo recorte
+// de AdminDoTenant acima (mesmos campos devolvidos pelo backend); convites
+// lista os REENVIÁVEIS (aceito_em/cancelado_em null, inclusive expirados —
+// ver condicaoConviteReenviavel em server/src/lib/convites.ts) — `expirado`
+// distingue os dois pra UI oferecer "Reenviar"; capacidade.usados conta
+// ativos + convites PENDENTES (não expirados — ver contarUsoAcessos em
+// tenantGuards.ts) — limite null = sem limite, mesma convenção do resto do
+// projeto.
+export interface ConvitePendente {
+  id: string
+  email: string
+  role: AdminRole
+  criado_em: string
+  expires_at: string
+  convidado_por_nome: string | null
+  expirado: boolean
+}
+
+export interface UsuariosResposta {
+  usuarios: AdminDoTenant[]
+  convites: ConvitePendente[]
+  capacidade: { usados: number; limite: number | null }
+}
+
+// Resposta de POST /usuarios/convites.
+export interface ConviteCriado {
+  id: string
+  email: string
+  role: AdminRole
+  criado_em: string
+  expires_at: string
+}
+
+// Resposta de GET /auth/convite/:token (tela pública /convite/:token, ver
+// pages/AceitarConvite.tsx) — recorte mínimo, nunca id/tenant_id/token.
+export interface ConviteInfo {
+  tenantNome: string
+  email: string
+  role: AdminRole
+}
+
 // Fase 1/3 de permissões personalizadas por usuário — mesmos enums de
 // server/prisma/schema.prisma (ModuloPainel/NivelAcessoModulo). Billing/
 // Minha Assinatura nunca entra aqui (fica fora de CONFIGURACOES de

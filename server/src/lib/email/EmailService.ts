@@ -3,6 +3,7 @@ import { resolverEmailProvider } from './provider'
 import { montarEmailBoasVindas, type DadosBoasVindas } from './templates/boasVindas'
 import { montarEmailRedefinicaoSenha, type DadosRedefinicaoSenha } from './templates/redefinirSenha'
 import { montarEmailAlertaTrial, type DadosAlertaTrial } from './templates/alertaTrial'
+import { montarEmailConviteUsuario, type DadosConviteUsuario } from './templates/conviteUsuario'
 import type { MarcoAlertaTrial } from '../trialAlertas'
 
 // Camada de negócio: sabe qual template usar pra cada evento, nunca chama um
@@ -61,6 +62,20 @@ export class EmailService {
     const mensagem = montarEmailAlertaTrial(destinatario, marco, dados)
     if (!this.provider) {
       console.warn(`[email] Nenhum provider configurado — alerta de trial (${marco}) NÃO enviado para ${destinatario}.`)
+      return
+    }
+    await this.provider.enviar(mensagem, opcoes)
+  }
+
+  // Convite de acesso self-service (ver controllers/usuarios.ts) — mesmo
+  // padrão best-effort de enviarBoasVindas/enviarRedefinicaoSenha: sem
+  // provider, só loga e resolve (nunca lança, nunca impede a criação do
+  // convite em si). Nunca loga o token, mesmo raciocínio do e-mail de
+  // redefinição de senha.
+  async enviarConviteUsuario(destinatario: string, dados: DadosConviteUsuario, opcoes?: EnviarOpcoes): Promise<void> {
+    const mensagem = montarEmailConviteUsuario(destinatario, dados)
+    if (!this.provider) {
+      console.warn(`[email] Nenhum provider configurado — convite de acesso NÃO enviado para ${destinatario}.`)
       return
     }
     await this.provider.enviar(mensagem, opcoes)
