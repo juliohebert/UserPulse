@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { TourGuiado, TourGuiadoListaPaginada, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour } from '../../types'
+import type { TourGuiado, TourGuiadoListaPaginada, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour, Sistema } from '../../types'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
@@ -130,6 +130,7 @@ const CAMPOS_SEGMENTACAO: { value: CampoSegmentacaoTour; label: string }[] = [
   { value: 'usuario_email', label: 'E-mail do usuário' },
   { value: 'tela', label: 'Tela' },
   { value: 'sistema', label: 'Sistema' },
+  { value: 'dominio', label: 'Domínio' },
 ]
 
 const OPERADORES_SEGMENTACAO: { value: OperadorSegmentacaoTour; label: string; placeholder: string }[] = [
@@ -183,6 +184,47 @@ function extrairPassosDoJson(texto: string): { passos: PassoState[] } | { erro: 
 
 const field = 'w-full h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface outline-none transition-colors focus:border-2 focus:border-primary'
 const card = 'w-full bg-surface p-6 rounded-3xl border border-outline-variant'
+
+// Seleção múltipla a partir de Sistema.dominios (catálogo do sistema deste
+// tour) pro campo "dominio" da regra de segmentação — mesmo tratamento de
+// CampanhaForm.tsx (CampoDominiosDock): nunca texto livre, e valores já
+// salvos fora do catálogo atual (drift histórico) permanecem
+// selecionados/visíveis até uma ação explícita do usuário desmarcá-los.
+function CampoDominiosRegra({ catalogo, value, onChange }: {
+  catalogo: string[]
+  value: string[]
+  onChange: (value: string[]) => void
+}) {
+  const foraDoCatalogo = value.filter(v => !catalogo.includes(v))
+  const opcoes = [...catalogo, ...foraDoCatalogo]
+
+  function alternar(dominio: string) {
+    onChange(value.includes(dominio) ? value.filter(v => v !== dominio) : [...value, dominio])
+  }
+
+  if (opcoes.length === 0) {
+    return (
+      <p className="flex-1 text-[12px] leading-4 text-on-surface-variant">
+        Este sistema ainda não tem domínios cadastrados em Configurações → Sistemas.
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-1 flex-wrap gap-1.5">
+      {opcoes.map(dominio => (
+        <label
+          key={dominio}
+          className={`inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[12px] font-semibold leading-4 ${value.includes(dominio) ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant bg-white text-on-surface'}`}
+        >
+          <input type="checkbox" checked={value.includes(dominio)} onChange={() => alternar(dominio)} className="h-3 w-3 accent-primary" />
+          {dominio}
+          {!catalogo.includes(dominio) && <span className="text-[10px] font-normal text-on-surface-variant">(fora do catálogo)</span>}
+        </label>
+      ))}
+    </div>
+  )
+}
 
 // ─── Checklist de qualidade ─────────────────────────────────────────────────
 // Só orienta — não bloqueia nada além das validações que já existem em
@@ -606,6 +648,15 @@ export function TourForm() {
   // em vez de editar os passos existentes diretamente na lista abaixo.
   const [urlGravadorPendente, setUrlGravadorPendente] = useState<string | null>(null)
   const [copiadoPassosGravador, setCopiadoPassosGravador] = useState(false)
+
+  // Só pro catálogo de domínios da regra de segmentação campo "dominio" (ver
+  // CampoDominiosRegra abaixo) — Tour não tem seletor de sistema por
+  // catálogo, form.sistema continua texto livre, mas casa aqui com
+  // Sistema.identificador só pra saber quais domínios oferecer.
+  const [sistemasConfig, setSistemasConfig] = useState<Sistema[]>([])
+  useEffect(() => {
+    get<Sistema[]>('/sistemas?ativo=true').then(setSistemasConfig).catch(() => {})
+  }, [])
 
   // Fase 6E — ver comentário de carregandoLimite/limiteTours acima.
   useEffect(() => {
@@ -2012,24 +2063,43 @@ export function TourForm() {
                           size="sm"
                           value={regra.campo}
                           options={CAMPOS_SEGMENTACAO}
-                          onChange={v => atualizarRegraSegmentacao(index, { campo: v as CampoSegmentacaoTour })}
+                          onChange={v => atualizarRegraSegmentacao(index, {
+                            campo: v as CampoSegmentacaoTour,
+                            // "dominio" só faz sentido como seleção múltipla
+                            // contra o catálogo do Sistema (ver
+                            // CampoDominiosRegra abaixo) — força em_lista e
+                            // limpa o valor livre anterior, evitando um
+                            // valor de outro campo (ex.: um cliente_id) virar
+                            // "domínio" sem querer.
+                            ...(v === 'dominio' ? { operador: 'em_lista' as OperadorSegmentacaoTour, valor: '' } : {}),
+                          })}
                           placeholder="Campo…"
                         />
                       </div>
-                      <div className="sm:w-52 shrink-0">
-                        <Select
-                          size="sm"
-                          value={regra.operador}
-                          options={OPERADORES_SEGMENTACAO}
-                          onChange={v => atualizarRegraSegmentacao(index, { operador: v as OperadorSegmentacaoTour })}
+                      {regra.campo === 'dominio' ? (
+                        <CampoDominiosRegra
+                          catalogo={sistemasConfig.find(s => s.identificador === form.sistema.trim())?.dominios ?? []}
+                          value={regra.valor ? regra.valor.split(',').filter(Boolean) : []}
+                          onChange={valores => atualizarRegraSegmentacao(index, { operador: 'em_lista', valor: valores.join(',') })}
                         />
-                      </div>
-                      <input
-                        value={regra.valor}
-                        onChange={e => atualizarRegraSegmentacao(index, { valor: e.target.value })}
-                        placeholder={OPERADORES_SEGMENTACAO.find(o => o.value === regra.operador)?.placeholder}
-                        className={`${field} flex-1`}
-                      />
+                      ) : (
+                        <>
+                          <div className="sm:w-52 shrink-0">
+                            <Select
+                              size="sm"
+                              value={regra.operador}
+                              options={OPERADORES_SEGMENTACAO}
+                              onChange={v => atualizarRegraSegmentacao(index, { operador: v as OperadorSegmentacaoTour })}
+                            />
+                          </div>
+                          <input
+                            value={regra.valor}
+                            onChange={e => atualizarRegraSegmentacao(index, { valor: e.target.value })}
+                            placeholder={OPERADORES_SEGMENTACAO.find(o => o.value === regra.operador)?.placeholder}
+                            className={`${field} flex-1`}
+                          />
+                        </>
+                      )}
                       <button
                         type="button"
                         onClick={() => removerRegraSegmentacao(index)}

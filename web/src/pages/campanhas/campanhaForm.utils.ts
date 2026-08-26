@@ -85,6 +85,10 @@ export interface FormState {
   segmentar_perfis: string[]
   segmentar_usuario_tipos: string[]
   segmentar_estados: string[]
+  // Hostnames puros — independente do modo cliente/perfil (ver
+  // ModoSegmentacao abaixo): domínio é outro eixo de segmentação, não faz
+  // parte dessa lente de UI. Sempre visível/editável no form.
+  segmentar_dominios: string[]
   // Só usado/relevante quando modo_exibicao === FORMATO_DESTAQUE_ELEMENTO.
   // Substitui os campos únicos (subtitulo/titulo/descricao/texto_botao/
   // url_botao/data_cy) como fonte de verdade pra ESTE formato — eles
@@ -138,6 +142,7 @@ export const formInicial: FormState = {
   segmentar_perfis: [],
   segmentar_usuario_tipos: [],
   segmentar_estados: [],
+  segmentar_dominios: [],
   destaques: [],
 }
 
@@ -289,6 +294,7 @@ export function hidratarFormState(c: Campanha): FormState {
     segmentar_perfis: c.segmentar_perfis,
     segmentar_usuario_tipos: c.segmentar_usuario_tipos,
     segmentar_estados: c.segmentar_estados,
+    segmentar_dominios: c.segmentar_dominios,
     // destaques[] tem prioridade; sem nenhum item (campanha antiga que ainda
     // não passou pelo backfill, ou resposta de um endpoint que não inclui a
     // relação), cai pro fallback legado: 1 pseudo-item a partir dos campos

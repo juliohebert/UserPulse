@@ -3,6 +3,7 @@ import { CampanhaStatus } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { checarLimiteCampanhasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, planoEfetivoParaLimite } from '../lib/tenantGuards'
 import { filtroFeedbackGeralReexibicao } from './widget'
+import { normalizarDominio } from '../lib/dominio'
 
 // ─── Fase 1 dos 3 status de Campanha ───────────────────────────────────────
 // status é a fonte única de verdade do ciclo de vida (RASCUNHO nunca foi
@@ -708,6 +709,15 @@ function parseArray(v: unknown): string[] {
   return []
 }
 
+// Reexportada pra manter compatibilidade com campanhas.test.ts (import
+// { normalizarDominio } from './campanhas') — definição única agora vive em
+// lib/dominio.ts, compartilhada com tours.ts, sistemas.ts e jornadas.ts.
+export { normalizarDominio } from '../lib/dominio'
+
+function parseDominios(v: unknown): string[] {
+  return parseArray(v).map(normalizarDominio).filter(Boolean)
+}
+
 async function slugUnico(tenantId: string, base: string, ignorarId?: string): Promise<string> {
   let slug = base
   let contador = 1
@@ -801,6 +811,7 @@ export async function criar(req: Request, res: Response) {
       politica_reexibicao, reexibir_apos_dias,
       encerrar_apos_evento, evento_conclusao,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
+      segmentar_dominios,
     } = req.body
 
     const dataCyNormalizado = normalizarDataCy(data_cy)
@@ -885,6 +896,7 @@ export async function criar(req: Request, res: Response) {
         segmentar_perfis: parseArray(segmentar_perfis),
         segmentar_usuario_tipos: parseArray(segmentar_usuario_tipos),
         segmentar_estados: parseArray(segmentar_estados),
+        segmentar_dominios: parseDominios(segmentar_dominios),
         ...(listaDestaques.length > 0 && {
           destaques: { create: listaDestaques.map((item, i) => paraCriacaoDestaqueItem(item, tenantId, i + 1)) },
         }),
@@ -973,6 +985,7 @@ export async function atualizar(req: Request, res: Response) {
       politica_reexibicao, reexibir_apos_dias,
       encerrar_apos_evento, evento_conclusao,
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis, segmentar_usuario_tipos, segmentar_estados,
+      segmentar_dominios,
     } = req.body
 
     const dataCyNormalizado = data_cy !== undefined ? normalizarDataCy(data_cy) : normalizarDataCy(existente.data_cy)
@@ -1124,6 +1137,7 @@ export async function atualizar(req: Request, res: Response) {
         ...(segmentar_perfis !== undefined && { segmentar_perfis: parseArray(segmentar_perfis) }),
         ...(segmentar_usuario_tipos !== undefined && { segmentar_usuario_tipos: parseArray(segmentar_usuario_tipos) }),
         ...(segmentar_estados !== undefined && { segmentar_estados: parseArray(segmentar_estados) }),
+        ...(segmentar_dominios !== undefined && { segmentar_dominios: parseDominios(segmentar_dominios) }),
         ...(sincronizacao && {
           destaques: {
             ...(sincronizacao.idsParaRemover.length > 0 && {
@@ -1403,6 +1417,7 @@ export async function duplicar(req: Request, res: Response) {
         segmentar_perfis: original.segmentar_perfis,
         segmentar_usuario_tipos: original.segmentar_usuario_tipos,
         segmentar_estados: original.segmentar_estados,
+        segmentar_dominios: original.segmentar_dominios,
         ...(original.destaques.length > 0 && {
           destaques: {
             create: original.destaques.map(d => ({
@@ -1432,7 +1447,7 @@ export async function duplicar(req: Request, res: Response) {
 export async function testarElegibilidade(req: Request, res: Response) {
   try {
     const id = req.params.id as string
-    const { sistema, tela, url, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.body
+    const { sistema, tela, url, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado, dominio } = req.body
 
     const campanha = await prisma.campanha.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
@@ -1541,19 +1556,22 @@ export async function testarElegibilidade(req: Request, res: Response) {
       perfil: perfil ? String(perfil).trim() : '',
       usuario_tipo: usuario_tipo ? String(usuario_tipo).trim() : '',
       estado: estado ? String(estado).trim() : '',
+      dominio: dominio ? normalizarDominio(String(dominio)) : '',
     }
     ;[
-      { lista: campanha.segmentar_cliente_ids, valor: ctx.cliente_id, nome: 'Segmentação — cliente', chave: 'cliente_id' },
-      { lista: campanha.segmentar_unidade_ids, valor: ctx.unidade_id, nome: 'Segmentação — unidade', chave: 'unidade_id' },
-      { lista: campanha.segmentar_perfis, valor: ctx.perfil, nome: 'Segmentação — perfil', chave: 'Perfil' },
-      { lista: campanha.segmentar_usuario_tipos, valor: ctx.usuario_tipo, nome: 'Segmentação — tipo de usuário', chave: 'usuario_tipo' },
-      { lista: campanha.segmentar_estados, valor: ctx.estado, nome: 'Segmentação — estado', chave: 'Estado' },
-    ].forEach(({ lista, valor, nome, chave }) => {
+      { lista: campanha.segmentar_cliente_ids, valor: ctx.cliente_id, nome: 'Segmentação — cliente', chave: 'cliente_id', ci: false },
+      { lista: campanha.segmentar_unidade_ids, valor: ctx.unidade_id, nome: 'Segmentação — unidade', chave: 'unidade_id', ci: false },
+      { lista: campanha.segmentar_perfis, valor: ctx.perfil, nome: 'Segmentação — perfil', chave: 'Perfil', ci: false },
+      { lista: campanha.segmentar_usuario_tipos, valor: ctx.usuario_tipo, nome: 'Segmentação — tipo de usuário', chave: 'usuario_tipo', ci: false },
+      { lista: campanha.segmentar_estados, valor: ctx.estado, nome: 'Segmentação — estado', chave: 'Estado', ci: false },
+      { lista: campanha.segmentar_dominios, valor: ctx.dominio, nome: 'Segmentação — domínio', chave: 'domínio', ci: true },
+    ].forEach(({ lista, valor, nome, chave, ci }) => {
+      const bate = (v: string) => ci ? lista.some(d => d.toLowerCase() === v.toLowerCase()) : lista.includes(v)
       if (lista.length === 0) {
         ok(nome, `Sem restrição de ${chave}.`)
       } else if (!valor) {
         block(nome, `Segmentação ativa por ${chave}, mas nenhum valor informado.`, `Lista: [${lista.join(', ')}]`)
-      } else if (!lista.includes(valor)) {
+      } else if (!bate(valor)) {
         block(nome, `"${valor}" não está nos ${chave} permitidos.`, `Lista: [${lista.join(', ')}]`)
       } else {
         ok(nome, `"${valor}" está nos ${chave} permitidos.`)

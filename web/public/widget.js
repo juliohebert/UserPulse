@@ -2685,6 +2685,13 @@
   }
 
   function appendContexto(params, contexto) {
+    // Domínio atual sempre vai junto (não depende do objeto `contexto`
+    // configurado pelo host) — segmentação por domínio de Campanha
+    // (segmentar_dominios) precisa dele em toda requisição que carrega
+    // contexto, não só em /api/widget/candidatas. String(...) tolera um
+    // location.hostname ausente/undefined (nunca acontece num browser real,
+    // mas alguns sandboxes de teste stubam location sem esse campo).
+    params.set('dominio', String((window.location && window.location.hostname) || '').toLowerCase());
     if (!contexto) return;
     if (contexto.cliente_id) params.set('cliente_id', contexto.cliente_id);
     if (contexto.unidade_id) params.set('unidade_id', contexto.unidade_id);
@@ -2759,6 +2766,11 @@
       // Perfil/Estado — mesma grafia (maiúscula) usada pelo init()/CONTEXT_KEYS.
       case 'perfil': return (config.contexto && config.contexto.Perfil) || null;
       case 'estado': return (config.contexto && config.contexto.Estado) || null;
+      // Hostname puro (sem protocolo/porta/path) do sistema atual — mesmo
+      // formato normalizado gravado pelo admin em segmentacao_regras (ver
+      // normalizarDominioRegra em tours.ts), pra suportar o mesmo sistema
+      // rodando em múltiplos domínios/subdomínios.
+      case 'dominio': return String((window.location && window.location.hostname) || '').toLowerCase() || null;
       default: return null;
     }
   }

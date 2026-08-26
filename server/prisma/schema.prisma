@@ -249,6 +249,18 @@ model Sistema {
   url_base      String?
   ativo         Boolean  @default(true)
   padrao        Boolean  @default(false)
+  // Hostnames puros (sem protocolo/porta/path, normalizados via
+  // normalizarDominio em lib/dominio.ts) onde este mesmo sistema roda — ex.:
+  // QuarkClinic em ng.quarkclinic.com.br, gng.quarkclinic.com.br,
+  // profissional.quarkclinic.com.br. Alimenta só o catálogo mostrado no admin
+  // (multi-select de Campanha.segmentar_dominios/TourGuiado.segmentacao_regras
+  // campo "dominio"/Jornada.segmentar_dominios); nunca lido/validado no
+  // runtime público do widget (buscarCandidatas/buscarCampanha/buscarJornadas
+  // continuam comparando só o hostname atual contra o que foi salvo em cada
+  // campanha/tour/jornada, ver passaSegmentacao em widget.ts). Vazio = nenhum
+  // domínio cadastrado ainda para este sistema (não "todos os domínios" — essa
+  // semântica é exclusiva de segmentar_dominios/segmentacao_regras).
+  dominios      String[] @default([])
   criado_em     DateTime @default(now())
   atualizado_em DateTime @updatedAt
 
@@ -487,6 +499,12 @@ model Campanha {
   segmentar_perfis          String[]  @default([])
   segmentar_usuario_tipos   String[]  @default([])
   segmentar_estados         String[]  @default([])
+  // Segmentação por domínio (multi-URL do mesmo sistema, ex.: QuarkClinic em
+  // vários subdomínios) — lista de hostnames puros (sem protocolo/porta/
+  // path), sempre normalizados na gravação (ver normalizarDominio em
+  // campanhas.ts) e comparados em lowercase no widget/backend. Vazio = todos
+  // os domínios, mesmo padrão dos demais segmentar_*.
+  segmentar_dominios        String[]  @default([])
   criado_em                 DateTime  @default(now())
   atualizado_em             DateTime  @updatedAt
 
@@ -838,6 +856,12 @@ model Jornada {
   segmentar_perfis        String[] @default([])
   segmentar_usuario_tipos String[] @default([])
   segmentar_estados       String[] @default([])
+  // Mesmo padrão/normalização de Campanha.segmentar_dominios (ver
+  // normalizarDominio em lib/dominio.ts) — vazio = todos os domínios. Jornada
+  // não tem sistema/tela (é uma central aberta manualmente pelo usuário), mas
+  // o mesmo cenário de multi-URL (ex.: QuarkClinic) ainda se aplica: um
+  // domínio pode não querer expor a central de ajuda inteira.
+  segmentar_dominios      String[] @default([])
   criado_em               DateTime @default(now())
   atualizado_em           DateTime @updatedAt
 

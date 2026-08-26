@@ -2,11 +2,20 @@ import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { motivoBloqueioEscrita } from '../lib/tenantGuards'
+import { normalizarDominio } from '../lib/dominio'
 
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 function normalizarTexto(valor: unknown): string | null {
   return typeof valor === 'string' && valor.trim() ? valor.trim() : null
+}
+
+// Exportada pra ser testada diretamente em sistemas.test.ts — mesma
+// normalização compartilhada de campanhas.ts/tours.ts/jornadas.ts (ver
+// normalizarDominio em lib/dominio.ts).
+export function normalizarDominios(v: unknown): string[] {
+  const lista = Array.isArray(v) ? (v as unknown[]).map(String) : []
+  return lista.map(normalizarDominio).filter(Boolean)
 }
 
 function normalizarSlug(valor: string): string {
@@ -44,7 +53,8 @@ export async function listar(req: Request, res: Response) {
       include: { _count: { select: { telas: true, aparencias: true } } },
     })
     res.json(sistemas)
-  } catch {
+  } catch (err) {
+    console.error(err)
     res.status(500).json({ erro: 'Erro ao listar sistemas.' })
   }
 }
@@ -61,6 +71,7 @@ export async function criar(req: Request, res: Response) {
     const urlBase = normalizarTexto((req.body as { url_base?: unknown }).url_base)
     const ativo = (req.body as { ativo?: unknown }).ativo
     const padraoSolicitado = (req.body as { padrao?: unknown }).padrao === true
+    const dominios = normalizarDominios((req.body as { dominios?: unknown }).dominios)
 
     if (!nome || !slugBruto || !identificador) {
       res.status(400).json({ erro: 'nome, slug e identificador são obrigatórios.' })
@@ -87,6 +98,7 @@ export async function criar(req: Request, res: Response) {
           url_base: urlBase,
           ativo: ativo !== false,
           padrao,
+          dominios,
         },
         include: { _count: { select: { telas: true, aparencias: true } } },
       }),
@@ -94,6 +106,7 @@ export async function criar(req: Request, res: Response) {
     ])
     res.status(201).json(criado)
   } catch (err) {
+    console.error(err)
     const erro = erroUnicidade(err)
     if (erro) { res.status(409).json({ erro }); return }
     res.status(500).json({ erro: 'Erro ao criar sistema.' })
@@ -116,6 +129,7 @@ export async function atualizar(req: Request, res: Response) {
     const urlBase = normalizarTexto((req.body as { url_base?: unknown }).url_base)
     const ativo = (req.body as { ativo?: unknown }).ativo
     const padrao = (req.body as { padrao?: unknown }).padrao === true
+    const dominios = normalizarDominios((req.body as { dominios?: unknown }).dominios)
 
     if (!nome || !slugBruto || !identificador) {
       res.status(400).json({ erro: 'nome, slug e identificador são obrigatórios.' })
@@ -133,13 +147,14 @@ export async function atualizar(req: Request, res: Response) {
       return
     }
 
-    const [atualizado] = await prisma.$transaction([
-      ...(padrao ? [prisma.sistema.updateMany({ where: { tenant_id: req.adminUser!.tenant_id, id: { not: id } }, data: { padrao: false } })] : []),
-      prisma.sistema.update({
-        where: { id },
-        data: { nome, slug, identificador, descricao, url_base: urlBase, ativo: Boolean(ativo), padrao },
-        include: { _count: { select: { telas: true, aparencias: true } } },
-      }),
+    const atualizarSistema = prisma.sistema.update({
+      where: { id },
+      data: { nome, slug, identificador, descricao, url_base: urlBase, ativo: Boolean(ativo), padrao, dominios },
+      include: { _count: { select: { telas: true, aparencias: true } } },
+    })
+
+    const operacoes = [
+      atualizarSistema,
       prisma.telaCatalogo.updateMany({
         where: { tenant_id: req.adminUser!.tenant_id, sistema_id: id },
         data: { sistema: identificador },
@@ -148,9 +163,13 @@ export async function atualizar(req: Request, res: Response) {
         where: { tenant_id: req.adminUser!.tenant_id, sistema_id: id },
         data: { sistema: identificador },
       }),
-    ])
+      ...(padrao ? [prisma.sistema.updateMany({ where: { tenant_id: req.adminUser!.tenant_id, id: { not: id } }, data: { padrao: false } })] : []),
+    ]
+
+    const [atualizado] = await prisma.$transaction(operacoes)
     res.json(atualizado)
   } catch (err) {
+    console.error(err)
     const erro = erroUnicidade(err)
     if (erro) { res.status(409).json({ erro }); return }
     res.status(500).json({ erro: 'Erro ao atualizar sistema.' })
@@ -178,7 +197,8 @@ export async function remover(req: Request, res: Response) {
       if (proximo) await tx.sistema.update({ where: { id: proximo.id }, data: { padrao: true } })
     })
     res.status(204).send()
-  } catch {
+  } catch (err) {
+    console.error(err)
     res.status(500).json({ erro: 'Erro ao remover sistema.' })
   }
 }

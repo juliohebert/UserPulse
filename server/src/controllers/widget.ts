@@ -36,6 +36,7 @@ interface SegCtx {
   perfil?: string
   usuario_tipo?: string
   estado?: string
+  dominio?: string
 }
 
 interface SegCampanha {
@@ -44,20 +45,34 @@ interface SegCampanha {
   segmentar_perfis: string[]
   segmentar_usuario_tipos: string[]
   segmentar_estados: string[]
+  // Opcional: Jornada reusa este mesmo tipo/passaSegmentacao mas não tem
+  // coluna segmentar_dominios (só Campanha) — undefined aqui equivale a
+  // "sem restrição de domínio", mesmo comportamento de uma lista vazia.
+  segmentar_dominios?: string[]
 }
 
-function passaSegmentacao(campanha: SegCampanha, ctx: SegCtx): boolean {
+export function passaSegmentacao(campanha: SegCampanha, ctx: SegCtx): boolean {
   const check = (lista: string[], valor?: string) => {
     if (lista.length === 0) return true
     if (!valor) return false
     return lista.includes(valor)
+  }
+  // Domínio sempre comparado em lowercase nos dois lados — nunca confia que
+  // o valor salvo no admin já veio normalizado (defesa em profundidade, além
+  // da normalização em campanhas.ts na gravação).
+  const checkDominio = (lista: string[] | undefined, valor?: string) => {
+    if (!lista || lista.length === 0) return true
+    if (!valor) return false
+    const alvo = valor.toLowerCase()
+    return lista.some(d => d.toLowerCase() === alvo)
   }
   return (
     check(campanha.segmentar_cliente_ids, ctx.cliente_id) &&
     check(campanha.segmentar_unidade_ids, ctx.unidade_id) &&
     check(campanha.segmentar_perfis, ctx.perfil) &&
     check(campanha.segmentar_usuario_tipos, ctx.usuario_tipo) &&
-    check(campanha.segmentar_estados, ctx.estado)
+    check(campanha.segmentar_estados, ctx.estado) &&
+    checkDominio(campanha.segmentar_dominios, ctx.dominio)
   )
 }
 
@@ -304,7 +319,7 @@ async function verificarConclusaoGlobal(
 
 export async function buscarCampanha(req: Request, res: Response) {
   try {
-    const { public_key, slug, sistema, tela, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
+    const { public_key, slug, sistema, tela, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado, dominio } = req.query
 
     if (!slug && (!sistema || !tela)) {
       return res.status(400).json({ erro: 'Informe slug ou sistema+tela.' })
@@ -368,6 +383,7 @@ export async function buscarCampanha(req: Request, res: Response) {
       perfil: perfil ? String(perfil) : undefined,
       usuario_tipo: usuario_tipo ? String(usuario_tipo) : undefined,
       estado: estado ? String(estado) : undefined,
+      dominio: dominio ? String(dominio) : undefined,
     }
 
     if (!passaSegmentacao(campanha, ctx)) {
@@ -400,7 +416,7 @@ export async function buscarCampanha(req: Request, res: Response) {
 
 export async function buscarCandidatas(req: Request, res: Response) {
   try {
-    const { public_key, sistema, tela, gatilho, evento, usuario_id, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
+    const { public_key, sistema, tela, gatilho, evento, usuario_id, cliente_id, unidade_id, perfil, usuario_tipo, estado, dominio } = req.query
 
     if (!sistema) {
       return res.status(400).json({ erro: 'Informe sistema.' })
@@ -439,6 +455,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
       perfil: perfil ? String(perfil) : undefined,
       usuario_tipo: usuario_tipo ? String(usuario_tipo) : undefined,
       estado: estado ? String(estado) : undefined,
+      dominio: dominio ? String(dominio) : undefined,
     }
 
     const segmentadas = campanhas.filter(c => passaSegmentacao(c, ctx))
@@ -857,7 +874,7 @@ export async function registrarUtilidadeDestaque(req: Request, res: Response) {
 
 export async function registrarConclusaoEvento(req: Request, res: Response) {
   try {
-    const { public_key, evento, sistema, usuario_id, contexto } = req.body
+    const { public_key, evento, sistema, usuario_id, contexto, dominio } = req.body
 
     if (!evento || !sistema || !usuario_id) {
       return res.status(400).json({ erro: 'evento, sistema e usuario_id são obrigatórios.' })
@@ -879,6 +896,7 @@ export async function registrarConclusaoEvento(req: Request, res: Response) {
       perfil: contexto?.perfil ? String(contexto.perfil) : undefined,
       usuario_tipo: contexto?.usuario_tipo ? String(contexto.usuario_tipo) : undefined,
       estado: contexto?.estado ? String(contexto.estado) : undefined,
+      dominio: dominio ? String(dominio) : (contexto?.dominio ? String(contexto.dominio) : undefined),
     }
 
     // Limitation: only campaigns active at the time of track() are concluded here.
@@ -893,6 +911,7 @@ export async function registrarConclusaoEvento(req: Request, res: Response) {
         segmentar_perfis: true,
         segmentar_usuario_tipos: true,
         segmentar_estados: true,
+        segmentar_dominios: true,
       },
     })
 
@@ -1177,7 +1196,7 @@ const TIPOS_EVENTO_JORNADA = [
 
 export async function buscarJornadas(req: Request, res: Response) {
   try {
-    const { public_key, usuario_id, cliente_id, unidade_id, perfil, usuario_tipo, estado } = req.query
+    const { public_key, usuario_id, cliente_id, unidade_id, perfil, usuario_tipo, estado, dominio } = req.query
 
     // Antes da Fase 2, esta rota devolvia TODAS as jornadas ativas de TODOS os
     // tenants (Jornada não tem campo "sistema" — nunca teve filtro nenhum de
@@ -1210,6 +1229,7 @@ export async function buscarJornadas(req: Request, res: Response) {
       perfil: perfil ? String(perfil) : undefined,
       usuario_tipo: usuario_tipo ? String(usuario_tipo) : undefined,
       estado: estado ? String(estado) : undefined,
+      dominio: dominio ? String(dominio) : undefined,
     }
 
     const elegiveis = jornadas.filter(j => passaSegmentacao(j, ctx))

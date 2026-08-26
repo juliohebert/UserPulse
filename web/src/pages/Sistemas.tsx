@@ -14,9 +14,22 @@ const EMPTY_FORM = {
   url_base: '',
   ativo: true,
   padrao: false,
+  dominios: '',
 }
 
 type FormState = typeof EMPTY_FORM
+
+// String[] <-> texto separado por vírgula, mesmo padrão de edição usado nas
+// listas de segmentação de Campanha/Tour/Jornada — normalização real
+// (hostname puro, lowercase) acontece no backend (ver normalizarDominio em
+// lib/dominio.ts), aqui só faz split/trim.
+function dominiosParaTexto(dominios: string[] | null | undefined): string {
+  return (dominios ?? []).join(', ')
+}
+
+function textoParaDominios(texto: string): string[] {
+  return texto.split(',').map(item => item.trim()).filter(Boolean)
+}
 
 const field = 'h-11 w-full rounded-lg border border-[#ced0d4] bg-white px-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none placeholder:text-[#8595a4] focus:border-2 focus:border-[#0064e0]'
 const textareaField = 'w-full rounded-lg border border-[#ced0d4] bg-white px-3 py-3 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#1c1e21] outline-none placeholder:text-[#8595a4] focus:border-2 focus:border-[#0064e0]'
@@ -81,6 +94,7 @@ export function SistemasPage() {
       url_base: sistema.url_base ?? '',
       ativo: sistema.ativo,
       padrao: sistema.padrao,
+      dominios: dominiosParaTexto(sistema.dominios),
     })
     setFormError(null)
     setShowForm(true)
@@ -101,6 +115,7 @@ export function SistemasPage() {
         ...form,
         descricao: form.descricao.trim() || null,
         url_base: form.url_base.trim() || null,
+        dominios: textoParaDominios(form.dominios),
       }
       if (editando) await put(`/sistemas/${editando.id}`, payload)
       else await post('/sistemas', payload)
@@ -236,6 +251,13 @@ export function SistemasPage() {
               <div>
                 <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">URL base</label>
                 <input value={form.url_base} onChange={e => set('url_base', e.target.value)} placeholder="https://app.cliente.com" className={field} />
+              </div>
+              <div>
+                <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Domínios</label>
+                <input value={form.dominios} onChange={e => set('dominios', e.target.value)} placeholder="ng.quarkclinic.com.br, gng.quarkclinic.com.br" className={field} />
+                <p className="mt-1.5 text-[12px] leading-[1.33] text-[#5d6c7b]">
+                  Separe múltiplos domínios por vírgula. Use quando este mesmo sistema roda em várias URLs — as campanhas, tours e jornadas passam a poder restringir a exibição a um ou mais destes domínios.
+                </p>
               </div>
               <div>
                 <label className="mb-2 block text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-[#0a1317]">Descrição</label>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { Campanha, Jornada, TipoEtapaJornada, TourGuiado } from '../../types'
+import type { Campanha, Jornada, Sistema, TipoEtapaJornada, TourGuiado } from '../../types'
 import { LoadingSpinner, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
@@ -21,6 +21,12 @@ interface FormState {
   segmentar_perfis: string[]
   segmentar_usuario_tipos: string[]
   segmentar_estados: string[]
+  // Hostnames puros (sem protocolo/porta/path) — Jornada não tem sistema/tela
+  // (ver comentário no topo de widget.ts, seção Jornadas), então o catálogo
+  // oferecido aqui é a união de Sistema.dominios de TODOS os sistemas do
+  // tenant (ver sistemasDominiosUnificados em JornadaForm), não de um único
+  // sistema como em Campanha/Tour.
+  segmentar_dominios: string[]
 }
 
 const EMPTY: FormState = {
@@ -34,6 +40,7 @@ const EMPTY: FormState = {
   segmentar_perfis: [],
   segmentar_usuario_tipos: [],
   segmentar_estados: [],
+  segmentar_dominios: [],
 }
 
 interface EtapaFormState {
@@ -127,7 +134,7 @@ function pendenciasJornada(form: FormState, blocos: BlocoFormState[]): string[] 
 }
 
 function totalSegmentos(form: FormState): number {
-  return SEGMENTOS.reduce((total, segmento) => total + form[segmento.key].length, 0)
+  return SEGMENTOS.reduce((total, segmento) => total + form[segmento.key].length, 0) + form.segmentar_dominios.length
 }
 
 export function JornadaForm() {
@@ -166,6 +173,16 @@ export function JornadaForm() {
     get<Campanha[]>('/campanhas').then(setCampanhas).catch(() => {})
   }, [])
 
+  // Catálogo de domínios pro campo de segmentação abaixo — Jornada não tem
+  // sistema/tela (central aberta manualmente pelo usuário), então oferece a
+  // união de Sistema.dominios de TODOS os sistemas do tenant, não de um
+  // único sistema (diferente de CampanhaForm/tours Form.tsx).
+  const [sistemasConfig, setSistemasConfig] = useState<Sistema[]>([])
+  useEffect(() => {
+    get<Sistema[]>('/sistemas?ativo=true').then(setSistemasConfig).catch(() => {})
+  }, [])
+  const catalogoDominios = Array.from(new Set(sistemasConfig.flatMap(s => s.dominios)))
+
   useEffect(() => {
     get<Jornada[]>('/jornadas').then(setTodasJornadas).catch(() => {}).finally(() => setCarregandoLimite(false))
   }, [])
@@ -185,6 +202,7 @@ export function JornadaForm() {
           segmentar_perfis: j.segmentar_perfis ?? [],
           segmentar_usuario_tipos: j.segmentar_usuario_tipos ?? [],
           segmentar_estados: j.segmentar_estados ?? [],
+          segmentar_dominios: j.segmentar_dominios ?? [],
         })
         setSlug(j.slug)
         setBlocos(
@@ -295,6 +313,7 @@ export function JornadaForm() {
         segmentar_perfis: form.segmentar_perfis,
         segmentar_usuario_tipos: form.segmentar_usuario_tipos,
         segmentar_estados: form.segmentar_estados,
+        segmentar_dominios: form.segmentar_dominios,
         blocos: blocos.map(b => ({
           titulo: b.titulo.trim(),
           descricao: b.descricao.trim() || null,
@@ -448,7 +467,7 @@ export function JornadaForm() {
                 {selecaoAtual.tipo === 'jornada' && (
                   <PainelJornada form={form} slug={slug} isEdit={isEdit} segmentos={segmentos} onSet={set} onOpenSegmentacao={() => setSelecionado({ tipo: 'segmentacao' })} />
                 )}
-                {selecaoAtual.tipo === 'segmentacao' && <PainelSegmentacao form={form} onSet={set} />}
+                {selecaoAtual.tipo === 'segmentacao' && <PainelSegmentacao form={form} onSet={set} catalogoDominios={catalogoDominios} />}
                 {selecaoAtual.tipo === 'bloco' && blocos[selecaoAtual.blocoIndex] && (
                   <PainelBloco
                     bloco={blocos[selecaoAtual.blocoIndex]}
@@ -923,7 +942,7 @@ function PainelJornada({ form, slug, isEdit, segmentos, onSet, onOpenSegmentacao
   )
 }
 
-function PainelSegmentacao({ form, onSet }: { form: FormState; onSet: (key: keyof FormState, value: string | boolean | string[]) => void }) {
+function PainelSegmentacao({ form, onSet, catalogoDominios }: { form: FormState; onSet: (key: keyof FormState, value: string | boolean | string[]) => void; catalogoDominios: string[] }) {
   return (
     <div className="space-y-4">
       <p className="text-body-md text-on-surface-variant">Opcional. Deixe tudo vazio para exibir a jornada para todos os usuários.</p>
@@ -932,6 +951,54 @@ function PainelSegmentacao({ form, onSet }: { form: FormState; onSet: (key: keyo
           <label className="mb-1.5 block text-label-md font-bold text-on-surface-variant">{label}</label>
           <ChipInput values={form[key]} onChange={v => onSet(key, v)} placeholder={`${hint} — Enter ou vírgula`} />
         </div>
+      ))}
+      <div>
+        <label className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Domínios permitidos</label>
+        <CampoDominiosJornada
+          catalogo={catalogoDominios}
+          value={form.segmentar_dominios}
+          onChange={v => onSet('segmentar_dominios', v)}
+        />
+      </div>
+    </div>
+  )
+}
+
+// Jornada não tem sistema/tela (ver comentário de FormState.segmentar_dominios
+// acima) — o catálogo é a união de Sistema.dominios de todos os sistemas do
+// tenant, não de um único sistema como em CampanhaForm/tours Form.tsx. Mesmo
+// tratamento de preservar valores fora do catálogo atual (drift histórico).
+function CampoDominiosJornada({ catalogo, value, onChange }: {
+  catalogo: string[]
+  value: string[]
+  onChange: (value: string[]) => void
+}) {
+  const foraDoCatalogo = value.filter(v => !catalogo.includes(v))
+  const opcoes = [...catalogo, ...foraDoCatalogo]
+
+  function alternar(dominio: string) {
+    onChange(value.includes(dominio) ? value.filter(v => v !== dominio) : [...value, dominio])
+  }
+
+  if (opcoes.length === 0) {
+    return (
+      <p className="rounded-xl border border-dashed border-outline-variant bg-surface-container-low/60 p-3 text-body-sm text-on-surface-variant">
+        Nenhum domínio cadastrado ainda em nenhum sistema (Configurações → Sistemas). Cadastre lá pra poder restringir esta jornada a um ou mais domínios.
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {opcoes.map(dominio => (
+        <label
+          key={dominio}
+          className={`inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-label-sm font-semibold ${value.includes(dominio) ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant bg-white text-on-surface'}`}
+        >
+          <input type="checkbox" checked={value.includes(dominio)} onChange={() => alternar(dominio)} className="h-3 w-3 accent-primary" />
+          {dominio}
+          {!catalogo.includes(dominio) && <span className="text-[10px] font-normal text-on-surface-variant">(fora do catálogo)</span>}
+        </label>
       ))}
     </div>
   )

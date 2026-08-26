@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent, FormEvent } from 'react'
+import type { DragEvent, FormEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
@@ -222,6 +222,72 @@ function CampoListaDock({ label, value, onChange, hint }: {
   )
 }
 
+// Segmentação por domínio (multi-URL do mesmo sistema, ex.: QuarkClinic) —
+// seleção múltipla a partir de Sistema.dominios (catálogo do sistema
+// selecionado nesta campanha), nunca texto livre: evita erro de digitação
+// que silenciosamente nunca bateria no runtime do widget. Valores já salvos
+// que não estão mais no catálogo atual (drift histórico, ou Sistema editado
+// depois) permanecem selecionados/visíveis — nunca removidos automaticamente
+// ao carregar o form; só uma ação explícita do usuário (desmarcar) os tira.
+function CampoDominiosDock({ catalogo, value, onChange, onGerenciarSistemas }: {
+  catalogo: string[]
+  value: string[]
+  onChange: (value: string[]) => void
+  onGerenciarSistemas?: () => void
+}) {
+  const foraDoCatalogo = value.filter(v => !catalogo.includes(v))
+  const opcoes = [...catalogo, ...foraDoCatalogo]
+
+  function alternar(dominio: string) {
+    onChange(value.includes(dominio) ? value.filter(v => v !== dominio) : [...value, dominio])
+  }
+
+  if (opcoes.length === 0) {
+    return (
+      <CampoWrapperDock label="Domínios permitidos">
+        <p className="rounded-lg border border-dashed border-[#ced0d4] bg-white px-3 py-2.5 text-[13px] leading-5 text-[#5d6c7b]">
+          Este sistema ainda não tem domínios cadastrados.{' '}
+          {onGerenciarSistemas ? (
+            <button type="button" onClick={onGerenciarSistemas} className="font-bold text-[#0064e0] underline">
+              Cadastre em Configurações → Sistemas
+            </button>
+          ) : (
+            'Peça a um administrador para cadastrá-los em Configurações → Sistemas.'
+          )}
+          {' '}pra poder restringir esta campanha a um ou mais deles.
+        </p>
+      </CampoWrapperDock>
+    )
+  }
+
+  return (
+    <CampoWrapperDock label="Domínios permitidos" hint="Vazio = todos os domínios cadastrados no sistema.">
+      <div className="flex flex-wrap gap-2">
+        {opcoes.map(dominio => (
+          <label
+            key={dominio}
+            className={`inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold leading-4 ${value.includes(dominio) ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#ced0d4] bg-white text-[#1c1e21]'}`}
+          >
+            <input type="checkbox" checked={value.includes(dominio)} onChange={() => alternar(dominio)} className="h-3.5 w-3.5 accent-[#0064e0]" />
+            {dominio}
+            {!catalogo.includes(dominio) && <span className="text-[11px] font-normal text-[#8595a4]">(fora do catálogo atual)</span>}
+          </label>
+        ))}
+      </div>
+    </CampoWrapperDock>
+  )
+}
+
+function CampoWrapperDock({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[13px] font-bold leading-4 text-[#1c1e21]">{label}</span>
+      {children}
+      {hint && <span className="mt-2 block text-[12px] leading-4 text-[#8595a4]">{hint}</span>}
+    </label>
+  )
+}
+
 function alvoTelaCatalogo(tela: TelaCatalogo): string {
   return tela.tela ?? tela.url_contem ?? tela.data_cy ?? 'Sem alvo definido'
 }
@@ -340,10 +406,11 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
   )
 }
 
-function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editando, temGrupoConcorrente, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview, onDefinirPrioridade }: {
+function DockLateral({ secao, form, catalogoTelas, sistemasConfig, temSistemas, salvando, editando, temGrupoConcorrente, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview, onDefinirPrioridade }: {
   secao: SecaoDock
   form: FormState
   catalogoTelas: TelaCatalogo[]
+  sistemasConfig: Sistema[]
   temSistemas: boolean
   salvando: boolean
   editando: boolean
@@ -1072,6 +1139,13 @@ function DockLateral({ secao, form, catalogoTelas, temSistemas, salvando, editan
               <CampoListaDock label="Estados permitidos" value={form.segmentar_estados} onChange={valor => setCampo('segmentar_estados', valor)} hint="Ex.: SP, RJ, MG." />
             </div>
           )}
+
+          <CampoDominiosDock
+            catalogo={sistemasConfig.find(s => s.identificador === sistemaSelecionado)?.dominios ?? []}
+            value={form.segmentar_dominios}
+            onChange={valor => setCampo('segmentar_dominios', valor)}
+            onGerenciarSistemas={onGerenciarSistemas}
+          />
         </div>
       )}
       </div>
@@ -2310,6 +2384,7 @@ export function CampanhaFormIndex() {
           secao={secaoDock}
           form={form}
           catalogoTelas={catalogoTelas}
+          sistemasConfig={sistemasConfig}
           temSistemas={sistemasConfig.length > 0}
           salvando={salvando}
           editando={Boolean(id)}

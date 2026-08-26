@@ -60,7 +60,7 @@ describe('validarSegmentacaoRegras — regras válidas', () => {
   const camposSugeridos = [
     'cliente_id', 'unidade_id', 'organizacao_id', 'clinica_id',
     'usuario_tipo', 'perfil', 'estado', 'usuario_id', 'usuario_email',
-    'tela', 'sistema',
+    'tela', 'sistema', 'dominio',
   ]
   for (const campo of camposSugeridos) {
     test(`campo sugerido "${campo}" é aceito`, () => {
@@ -75,6 +75,31 @@ describe('validarSegmentacaoRegras — regras válidas', () => {
       assert.equal(r.erro, null)
     })
   }
+})
+
+// campo "dominio" normaliza pra hostname puro na gravação — trim + lowercase
+// + strip de protocolo/porta/path (ver normalizarDominioRegra em tours.ts e
+// normalizarDominio em campanhas.ts, mesma regra nos dois arquivos).
+describe('validarSegmentacaoRegras — normalização do campo "dominio"', () => {
+  test('URL completa com protocolo/porta/path é reduzida a hostname puro em lowercase', () => {
+    const r = validarSegmentacaoRegras([
+      { campo: 'dominio', operador: 'igual', valor: ' HTTPS://NG.QuarkClinic.com.br:8443/caminho/x ' },
+    ])
+    assert.equal(r.erro, null)
+    assert.equal(r.lista?.[0].valor, 'ng.quarkclinic.com.br')
+  })
+
+  test('hostname já puro só é trimado/lowercased', () => {
+    const r = validarSegmentacaoRegras([{ campo: 'dominio', operador: 'igual', valor: ' Profissional.QuarkClinic.com.br ' }])
+    assert.equal(r.lista?.[0].valor, 'profissional.quarkclinic.com.br')
+  })
+
+  test('operador em_lista normaliza cada domínio da lista separadamente', () => {
+    const r = validarSegmentacaoRegras([
+      { campo: 'dominio', operador: 'em_lista', valor: 'https://NG.quarkclinic.com.br, GNG.quarkclinic.com.br/app' },
+    ])
+    assert.equal(r.lista?.[0].valor, 'ng.quarkclinic.com.br,gng.quarkclinic.com.br')
+  })
 })
 
 describe('validarSegmentacaoRegras — regras inválidas (400 no controller)', () => {

@@ -52,6 +52,9 @@ export interface Campanha {
   segmentar_perfis: string[]
   segmentar_usuario_tipos: string[]
   segmentar_estados: string[]
+  // Hostnames puros (sem protocolo/porta/path) — mesmo sistema rodando em
+  // múltiplos domínios/subdomínios (ex.: QuarkClinic). Vazio = todos.
+  segmentar_dominios: string[]
   criado_em: string
   atualizado_em: string
   _count?: { feedbacks: number }
@@ -237,6 +240,10 @@ export interface Sistema {
   url_base: string | null
   ativo: boolean
   padrao: boolean
+  // Hostnames puros (sem protocolo/porta/path) onde este sistema roda — ex.:
+  // QuarkClinic em vários subdomínios. Alimenta o multi-select de domínio em
+  // Campanha/TourGuiado/Jornada; vazio = nenhum domínio cadastrado ainda.
+  dominios: string[]
   criado_em: string
   atualizado_em: string
   _count?: { telas: number; aparencias: number }
@@ -290,7 +297,7 @@ export interface TourPasso {
 export type CampoSegmentacaoTour =
   | 'cliente_id' | 'unidade_id' | 'organizacao_id' | 'clinica_id'
   | 'usuario_tipo' | 'perfil' | 'estado' | 'usuario_id' | 'usuario_email'
-  | 'tela' | 'sistema'
+  | 'tela' | 'sistema' | 'dominio'
 
 export type OperadorSegmentacaoTour = 'igual' | 'diferente' | 'contem' | 'em_lista'
 
@@ -497,6 +504,9 @@ export interface Jornada {
   segmentar_perfis: string[]
   segmentar_usuario_tipos: string[]
   segmentar_estados: string[]
+  // Hostnames puros (sem protocolo/porta/path) — mesmo sistema rodando em
+  // múltiplos domínios/subdomínios. Vazio = todos.
+  segmentar_dominios: string[]
   criado_em: string
   atualizado_em: string
   blocos?: BlocoJornada[]
