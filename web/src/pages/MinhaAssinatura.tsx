@@ -511,15 +511,17 @@ export function MinhaAssinatura() {
   const planoSelecionado = planos?.find(p => p.id === planoSelecionadoId) ?? null
 
   return (
-    <>
-      <div className="w-full px-4 lg:px-margin-desktop py-5 max-w-[1280px]">
-        <h2 className="text-title-lg font-bold text-on-surface">Minha Assinatura</h2>
-        <p className="text-body-md text-on-surface-variant mt-0.5">
-          Situação do seu plano e pagamento via Pix ou cartão diretamente pela página segura do Asaas.
-        </p>
-      </div>
+    <div>
+      <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
+        <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-visible">
+          <div className="px-5 py-4 border-b border-outline-variant/30">
+            <h3 className="text-title-lg font-bold text-on-surface">Minha Assinatura</h3>
+            <p className="text-body-md text-on-surface-variant mt-0.5">
+              Situação do seu plano e pagamento via Pix ou cartão diretamente pela página segura do Asaas.
+            </p>
+          </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1280px] space-y-4">
+          <div className="p-5 space-y-4">
         {loading && <LoadingSpinner />}
         {!loading && erro && <ErrorState message={erro} onRetry={carregar} />}
 
@@ -1219,7 +1221,9 @@ export function MinhaAssinatura() {
           </>
           )
         })()}
+          </div>
+        </div>
       </section>
-    </>
+    </div>
   )
 }

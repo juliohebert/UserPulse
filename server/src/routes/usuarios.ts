@@ -11,6 +11,7 @@ import * as usuarios from '../controllers/usuarios'
 const router = Router()
 
 router.get('/', requireEscritaConfiguracao, usuarios.listar)
+router.post('/', requireEscritaConfiguracao, usuarios.criarUsuarioComSenha)
 router.post('/convites', requireEscritaConfiguracao, usuarios.criarConvite)
 router.delete('/convites/:id', requireEscritaConfiguracao, usuarios.cancelarConvite)
 router.post('/convites/:id/reenviar', requireEscritaConfiguracao, usuarios.reenviarConvite)
