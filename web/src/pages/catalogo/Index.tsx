@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { get, post, put } from '../../services/api'
 import type { Sistema, TelaCatalogo } from '../../types'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
+import { Button } from '../../components/ui/Button'
+import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
 import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, formTelaCatalogoDeTela, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
@@ -18,12 +20,10 @@ const MODO_LABEL: Record<string, string> = {
   data_cy: 'Elemento da tela (data-cy)',
 }
 
-const botaoPrimario = 'inline-flex items-center justify-center gap-2 rounded-[100px] bg-[#0064e0] px-[30px] py-[14px] text-[14px] font-bold leading-[1.43] tracking-[-0.14px] text-white active:bg-[#0457cb] disabled:bg-[#bcc0c4]'
-
 function AtivoBadge({ ativo }: { ativo: boolean }) {
   return ativo
-    ? <span className="inline-flex w-[76px] justify-center rounded-[100px] bg-[#31a24c] px-3 py-1 text-[12px] font-bold uppercase leading-[1.33] text-white">Ativa</span>
-    : <span className="inline-flex w-[76px] justify-center rounded-[100px] bg-[#ced0d4] px-3 py-1 text-[12px] font-bold uppercase leading-[1.33] text-[#444950]">Inativa</span>
+    ? <span className="inline-flex w-[76px] justify-center rounded-full bg-tertiary px-3 py-1 text-label-sm font-bold uppercase text-on-tertiary">Ativa</span>
+    : <span className="inline-flex w-[76px] justify-center rounded-full bg-surface-dim px-3 py-1 text-label-sm font-bold uppercase text-on-surface-variant">Inativa</span>
 }
 
 function nomeSistema(tela: TelaCatalogo): string {
@@ -152,136 +152,154 @@ export function CatalogoTelasIndex() {
   )
 
   return (
-    <div className="bg-white px-4 py-6 text-[#1c1e21] lg:px-margin-desktop lg:py-8">
-      {/* Header */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-[28px] font-semibold leading-[1.21] text-[#0a1317]">Catálogo de Telas</h2>
-          <p className="mt-1 text-[16px] leading-[1.5] tracking-[-0.16px] text-[#4b4c4f]">
-            Telas cadastradas para preenchimento automático em campanhas.
-          </p>
+    <div>
+      <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
+        <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-visible">
+          <div className="px-5 py-4 border-b border-outline-variant/30 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h3 className="text-title-lg font-bold text-on-surface">Catálogo de Telas</h3>
+              <p className="text-body-md text-on-surface-variant mt-0.5">
+                Telas cadastradas para preenchimento automático em campanhas.
+              </p>
+            </div>
+            {podeGerenciar && (
+              <Button onClick={openNova} variant="gradient" size="lg" className="shrink-0" iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}>
+                Nova Tela
+              </Button>
+            )}
+          </div>
+
+          <div className="p-5">
+            {/* Busca */}
+            <div className="relative mb-5 max-w-md">
+              <span className="material-symbols-outlined pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[18px] text-outline">search</span>
+              <input
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+                placeholder="Buscar por nome, sistema ou URL…"
+                className="h-11 w-full rounded-full border border-outline-variant bg-surface-container-low pl-11 pr-10 text-body-sm text-on-surface outline-none placeholder:text-on-surface-variant focus:border-primary focus:bg-surface focus:ring-2 focus:ring-primary/10"
+              />
+              {busca && (
+                <button
+                  onClick={() => setBusca('')}
+                  title="Limpar busca"
+                  aria-label="Limpar busca"
+                  className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                >
+                  <span className="material-symbols-outlined text-[18px] leading-none">close</span>
+                </button>
+              )}
+            </div>
+
+            {/* Conteúdo */}
+            {loading && <LoadingSpinner />}
+
+            {!loading && error && (
+              <div className="flex items-center gap-2 p-3 rounded-xl text-body-md bg-error-container text-on-error-container">
+                <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
+                {error}
+              </div>
+            )}
+
+            {!loading && !error && filtradas.length === 0 && (
+              <div className="rounded-2xl border border-outline-variant bg-surface px-6 py-16 text-center">
+                <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <span className="material-symbols-outlined text-[24px] leading-none">grid_view</span>
+                </span>
+                <p className="text-body-md text-on-surface-variant">
+                  {busca ? 'Nenhuma tela encontrada para essa busca.' : 'Nenhuma tela cadastrada ainda.'}
+                </p>
+                {!busca && podeGerenciar && (
+                  <Button onClick={openNova} variant="gradient" size="md" className="mt-5" iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}>
+                    Nova Tela
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {!loading && !error && filtradas.length > 0 && (
+              <div className="min-h-[calc(100vh-320px)] overflow-x-auto rounded-2xl border border-outline-variant bg-surface">
+                <table className="min-w-full table-fixed text-left">
+                  <thead className="bg-surface-container-low/50">
+                    <tr className="text-[11px] font-bold uppercase tracking-wide text-on-surface-variant">
+                      <th className="w-[15%] px-4 py-3">Sistema</th>
+                      <th className="w-[40%] px-4 py-3">Tela (tipo)</th>
+                      <th className="w-[30%] px-4 py-3">Alvo</th>
+                      <th className="w-[96px] px-4 py-3">Status</th>
+                      <th className="w-[100px] px-4 py-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/40">
+                    {telasOrdenadas.map(tela => (
+                      <tr key={tela.id} className="group hover:bg-surface-container-low/60 transition-colors">
+                        <td className="px-4 py-3 align-middle">
+                          <div className="min-w-[150px]">
+                            <span className="truncate text-body-md text-on-surface">{nomeSistema(tela)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-middle">
+                          <div className="flex min-w-[180px] items-center gap-2">
+                            <span className="group/tipo relative flex h-8 w-8 shrink-0 cursor-help items-center justify-center rounded-full bg-primary/10 text-primary" tabIndex={0}>
+                              <span className="material-symbols-outlined text-[18px] leading-none">{MODO_ICONE[tela.modo_identificacao] ?? 'link'}</span>
+                              <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-full bg-on-surface px-3 py-2 text-label-sm font-bold text-surface group-hover/tipo:block group-focus/tipo:block">
+                                {MODO_LABEL[tela.modo_identificacao] ?? tela.modo_identificacao}
+                              </span>
+                            </span>
+                            <span className="text-body-md text-on-surface">{tela.nome}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 align-middle">
+                          <span className="block truncate font-mono text-label-sm text-on-surface-variant" title={alvoTela(tela)}>{alvoTela(tela)}</span>
+                        </td>
+                        <td className="px-4 py-3 align-middle">
+                          <AtivoBadge ativo={tela.ativo} />
+                        </td>
+                        <td className="px-4 py-3 align-middle text-right">
+                          {podeGerenciar && (
+                            <div className="flex items-center justify-end gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
+                              <TooltipIconButton
+                                label="Editar"
+                                onClick={() => openEditar(tela)}
+                                ariaLabel={`Editar ${tela.nome}`}
+                                className="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high rounded-full transition-all"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">edit</span>
+                              </TooltipIconButton>
+                              {tela.ativo ? (
+                                <TooltipIconButton
+                                  label="Inativar"
+                                  onClick={() => toggleAtivo(tela)}
+                                  ariaLabel={`Inativar ${tela.nome}`}
+                                  className="p-2 text-on-surface-variant hover:text-error hover:bg-error-container rounded-full transition-all"
+                                >
+                                  <span className={`material-symbols-outlined text-[18px] ${toggling === tela.id ? 'animate-spin' : ''}`}>
+                                    {toggling === tela.id ? 'progress_activity' : 'block'}
+                                  </span>
+                                </TooltipIconButton>
+                              ) : (
+                                <TooltipIconButton
+                                  label="Reativar"
+                                  onClick={() => toggleAtivo(tela)}
+                                  ariaLabel={`Reativar ${tela.nome}`}
+                                  className="p-2 text-on-surface-variant hover:text-tertiary hover:bg-tertiary/10 rounded-full transition-all"
+                                >
+                                  <span className={`material-symbols-outlined text-[18px] ${toggling === tela.id ? 'animate-spin' : ''}`}>
+                                    {toggling === tela.id ? 'progress_activity' : 'check_circle'}
+                                  </span>
+                                </TooltipIconButton>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
-        {podeGerenciar && (
-          <button type="button" onClick={openNova} className={botaoPrimario}>
-            <span className="material-symbols-outlined text-[18px] leading-none">add</span>
-            Nova Tela
-          </button>
-        )}
-      </div>
-
-      {/* Busca */}
-      <div className="relative mb-5 max-w-md">
-        <span className="material-symbols-outlined pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[18px] text-[#5d6c7b]">search</span>
-        <input
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
-            placeholder="Buscar por nome, sistema ou URL…"
-          className="h-11 w-full rounded-[100px] border border-[#dee3e9] bg-[#f1f4f7] pl-11 pr-10 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#1c1e21] outline-none placeholder:text-[#5d6c7b] focus:border-[#1876f2] focus:bg-white focus:ring-2 focus:ring-[#1876f2]/10"
-        />
-        {busca && (
-          <button
-            onClick={() => setBusca('')}
-            title="Limpar busca"
-            aria-label="Limpar busca"
-            className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-[#5d6c7b] active:bg-[#dee3e9]"
-          >
-            <span className="material-symbols-outlined text-[18px] leading-none">close</span>
-          </button>
-        )}
-      </div>
-
-      {/* Conteúdo */}
-      {loading && <LoadingSpinner />}
-
-      {!loading && error && (
-        <div className="rounded-[24px] border border-[#f0284a] bg-white p-4 text-[14px] leading-[1.43] tracking-[-0.14px] text-[#e41e3f]">{error}</div>
-      )}
-
-      {!loading && !error && filtradas.length === 0 && (
-        <div className="rounded-[32px] border border-[#dee3e9] bg-white px-6 py-16 text-center">
-          <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#e8f2ff] text-[#0064e0]">
-            <span className="material-symbols-outlined text-[24px] leading-none">grid_view</span>
-          </span>
-          <p className="text-[16px] leading-[1.5] tracking-[-0.16px] text-[#4b4c4f]">
-            {busca ? 'Nenhuma tela encontrada para essa busca.' : 'Nenhuma tela cadastrada ainda.'}
-          </p>
-          {!busca && podeGerenciar && (
-            <button type="button" onClick={openNova} className={`${botaoPrimario} mt-5`}>
-              <span className="material-symbols-outlined text-[18px] leading-none">add</span>
-              Nova Tela
-            </button>
-          )}
-        </div>
-      )}
-
-      {!loading && !error && filtradas.length > 0 && (
-        <div className="min-h-[calc(100vh-220px)] overflow-x-auto rounded-[32px] border border-[#dee3e9] bg-white">
-          <table className="min-w-full table-fixed text-left">
-            <thead className="bg-[#f1f4f7]">
-              <tr className="text-[12px] font-bold uppercase leading-[1.33] tracking-[0.08em] text-[#5d6c7b]">
-                <th className="w-[15%] px-4 py-3">Sistema</th>
-                <th className="w-[40%] px-4 py-3">Tela (tipo)</th>
-                <th className="w-[30%] px-4 py-3">Alvo</th>
-                <th className="w-[96px] px-4 py-3">Status</th>
-                <th className="w-[100px] px-4 py-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#dee3e9]">
-              {telasOrdenadas.map(tela => (
-                <tr key={tela.id} className="bg-white">
-                  <td className="px-4 py-3 align-middle">
-                    <div className="min-w-[150px]">
-                      <span className="truncate text-[16px] leading-[1.5] tracking-[-0.16px] text-[#0a1317]">{nomeSistema(tela)}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 align-middle">
-                    <div className="flex min-w-[180px] items-center gap-2">
-                      <span className="group/tipo relative flex h-8 w-8 shrink-0 cursor-help items-center justify-center rounded-full bg-[#e8f2ff] text-[#0064e0]" tabIndex={0}>
-                        <span className="material-symbols-outlined text-[18px] leading-none">{MODO_ICONE[tela.modo_identificacao] ?? 'link'}</span>
-                        <span className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-[100px] bg-[#0a1317] px-3 py-2 text-[12px] font-bold leading-[1.33] text-white group-hover/tipo:block group-focus/tipo:block">
-                          {MODO_LABEL[tela.modo_identificacao] ?? tela.modo_identificacao}
-                        </span>
-                      </span>
-                      <span className="text-[16px] leading-[1.5] tracking-[-0.16px] text-[#0a1317]">{tela.nome}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 align-middle">
-                    <span className="block truncate font-mono text-[12px] leading-[1.33] text-[#5d6c7b]" title={alvoTela(tela)}>{alvoTela(tela)}</span>
-                  </td>
-                  <td className="px-4 py-3 align-middle">
-                    <AtivoBadge ativo={tela.ativo} />
-                  </td>
-                  <td className="px-4 py-3 align-middle">
-                    {podeGerenciar && (
-                      <div className="flex w-[80px] items-center justify-end gap-2">
-                        <button
-                          onClick={() => openEditar(tela)}
-                          title="Editar"
-                          aria-label={`Editar ${tela.nome}`}
-                          className="flex h-9 w-9 items-center justify-center rounded-full border border-[#dee3e9] text-[#1c1e21] active:bg-[#f1f4f7]"
-                        >
-                          <span className="material-symbols-outlined text-[18px] leading-none">edit</span>
-                        </button>
-                        <button
-                          onClick={() => toggleAtivo(tela)}
-                          disabled={toggling === tela.id}
-                          title={tela.ativo ? 'Inativar' : 'Reativar'}
-                          aria-label={`${tela.ativo ? 'Inativar' : 'Reativar'} ${tela.nome}`}
-                          className={`flex h-9 w-9 items-center justify-center rounded-full border border-[#dee3e9] active:bg-[#f1f4f7] disabled:opacity-50 ${tela.ativo ? 'text-[#e41e3f]' : 'text-[#31a24c]'}`}
-                        >
-                          <span className={`material-symbols-outlined text-[18px] leading-none ${toggling === tela.id ? 'animate-spin' : ''}`}>
-                            {toggling === tela.id ? 'progress_activity' : tela.ativo ? 'block' : 'check_circle'}
-                          </span>
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </section>
 
       {showForm && (
         <TelaCatalogoModal

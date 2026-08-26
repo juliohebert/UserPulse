@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { validarPayloadConvite, alvoIgualUsuarioLogado } from './usuarios'
+import { validarPayloadConvite, validarPayloadCriacaoDireta, alvoIgualUsuarioLogado } from './usuarios'
 
 describe('validarPayloadConvite — validação pura do payload (sem Prisma/IO)', () => {
   test('email e role válidos passam, normalizando e-mail e role, sem permissões', () => {
@@ -61,6 +61,70 @@ describe('validarPayloadConvite — validação pura do payload (sem Prisma/IO)'
     const resultado = validarPayloadConvite({
       email: 'a@b.com', role: 'editor',
       permissoes: [{ modulo: 'INEXISTENTE', nivel: 'GERENCIAR' }],
+    })
+    assert.equal(resultado.ok, false)
+  })
+})
+
+describe('validarPayloadCriacaoDireta — validação pura do payload (sem Prisma/IO)', () => {
+  const SENHA_FORTE = 'Senha123!'
+
+  test('payload válido passa, normalizando nome/e-mail/role, sem permissões', () => {
+    const resultado = validarPayloadCriacaoDireta({
+      nome: '  Fulano  ', email: '  Novo@Empresa.com ', role: 'editor', senha: SENHA_FORTE, confirmar_senha: SENHA_FORTE,
+    })
+    assert.deepEqual(resultado, {
+      ok: true,
+      data: { nome: 'Fulano', email: 'novo@empresa.com', role: 'EDITOR', senha: SENHA_FORTE, permissoes: null },
+    })
+  })
+  test('nome ausente é rejeitado', () => {
+    const resultado = validarPayloadCriacaoDireta({ email: 'a@b.com', role: 'EDITOR', senha: SENHA_FORTE, confirmar_senha: SENHA_FORTE })
+    assert.equal(resultado.ok, false)
+  })
+  test('email malformado é rejeitado', () => {
+    const resultado = validarPayloadCriacaoDireta({ nome: 'Fulano', email: 'nao-e-email', role: 'EDITOR', senha: SENHA_FORTE, confirmar_senha: SENHA_FORTE })
+    assert.equal(resultado.ok, false)
+  })
+  test('role inválida é rejeitada', () => {
+    const resultado = validarPayloadCriacaoDireta({ nome: 'Fulano', email: 'a@b.com', role: 'GERENTE', senha: SENHA_FORTE, confirmar_senha: SENHA_FORTE })
+    assert.equal(resultado.ok, false)
+  })
+  // SUPER_ADMIN nunca é aceito aqui, mesma regra de validarPayloadConvite —
+  // nunca elevável por este fluxo self-service.
+  test('role SUPER_ADMIN é rejeitada', () => {
+    const resultado = validarPayloadCriacaoDireta({ nome: 'Fulano', email: 'a@b.com', role: 'SUPER_ADMIN', senha: SENHA_FORTE, confirmar_senha: SENHA_FORTE })
+    assert.equal(resultado.ok, false)
+  })
+  test('senha ou confirmar_senha ausente é rejeitado', () => {
+    assert.equal(validarPayloadCriacaoDireta({ nome: 'Fulano', email: 'a@b.com', role: 'EDITOR', senha: SENHA_FORTE }).ok, false)
+    assert.equal(validarPayloadCriacaoDireta({ nome: 'Fulano', email: 'a@b.com', role: 'EDITOR', confirmar_senha: SENHA_FORTE }).ok, false)
+  })
+  test('senha e confirmar_senha diferentes são rejeitadas', () => {
+    const resultado = validarPayloadCriacaoDireta({
+      nome: 'Fulano', email: 'a@b.com', role: 'EDITOR', senha: SENHA_FORTE, confirmar_senha: 'Outra123!',
+    })
+    assert.equal(resultado.ok, false)
+  })
+  test('senha fraca é rejeitada (mesma política de motivoSenhaFraca)', () => {
+    const resultado = validarPayloadCriacaoDireta({
+      nome: 'Fulano', email: 'a@b.com', role: 'EDITOR', senha: '12345678', confirmar_senha: '12345678',
+    })
+    assert.equal(resultado.ok, false)
+  })
+  test('permissoes válida é aceita e normalizada junto com o resto', () => {
+    const resultado = validarPayloadCriacaoDireta({
+      nome: 'Fulano', email: 'a@b.com', role: 'editor', senha: SENHA_FORTE, confirmar_senha: SENHA_FORTE,
+      permissoes: [{ modulo: 'CAMPANHAS', nivel: 'GERENCIAR' }],
+    })
+    assert.deepEqual(resultado, {
+      ok: true,
+      data: { nome: 'Fulano', email: 'a@b.com', role: 'EDITOR', senha: SENHA_FORTE, permissoes: [{ modulo: 'CAMPANHAS', nivel: 'GERENCIAR' }] },
+    })
+  })
+  test('permissoes malformada é rejeitada (não é array)', () => {
+    const resultado = validarPayloadCriacaoDireta({
+      nome: 'Fulano', email: 'a@b.com', role: 'editor', senha: SENHA_FORTE, confirmar_senha: SENHA_FORTE, permissoes: 'nao-e-array',
     })
     assert.equal(resultado.ok, false)
   })

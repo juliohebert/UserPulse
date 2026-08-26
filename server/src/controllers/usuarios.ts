@@ -1,4 +1,5 @@
 import { Request, Response } from 'express'
+import bcrypt from 'bcryptjs'
 import { AdminRole, Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { checarLimiteAcessosComConvites, comLockDeCapacidade, contarUsoAcessos, planoEfetivoParaLimite } from '../lib/tenantGuards'
@@ -9,7 +10,13 @@ import {
 import { emailService } from '../lib/email/EmailService'
 import { validarPayloadPermissoes, montarRespostaPermissoes } from './adminTenantsPermissoes'
 import { ROLES_ACESSO_CLIENTE } from './adminTenants'
+import { motivoSenhaFraca } from './auth'
 import type { PermissaoModuloLinha } from '../lib/permissoesModulo'
+
+// Mesmo custo de hash usado em auth.ts/adminTenants.ts — sem lib
+// compartilhada de bcrypt no projeto ainda, duplicar essa constante é o
+// padrão já existente (ver comentário equivalente em adminTenants.ts).
+const SALT_ROUNDS = 10
 
 // Gestão de usuários self-service (ADMIN do próprio tenant convida/edita/
 // remove acessos, sem depender do SUPER_ADMIN) — ver routes/usuarios.ts,
@@ -194,6 +201,131 @@ export async function criarConvite(req: Request, res: Response) {
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao criar convite.' })
+  }
+}
+
+// ─── Validação pura do payload de criação direta com senha temporária (sem
+// Prisma/IO) — segunda forma de criar acesso, alternativa ao convite por
+// e-mail acima (ver criarUsuarioComSenha). Mesma regra de senha forte do
+// resto do app (motivoSenhaFraca, auth.ts) — nunca uma segunda política.
+export interface DadosCriacaoDiretaValidados {
+  nome: string
+  email: string
+  role: AdminRole
+  senha: string
+  permissoes: PermissaoModuloLinha[] | null
+}
+
+export function validarPayloadCriacaoDireta(
+  body: { nome?: string; email?: string; role?: string; senha?: string; confirmar_senha?: string; permissoes?: unknown }
+): { ok: true; data: DadosCriacaoDiretaValidados } | { ok: false; erro: string } {
+  if (!body.nome?.trim()) {
+    return { ok: false, erro: 'nome é obrigatório.' }
+  }
+  const email = body.email?.trim().toLowerCase()
+  if (!email || !EMAIL_REGEX.test(email)) {
+    return { ok: false, erro: 'email é obrigatório e precisa ser válido.' }
+  }
+  const role = (body.role?.trim().toUpperCase() || '') as AdminRole
+  if (!ROLES_ACESSO_CLIENTE.has(role)) {
+    return { ok: false, erro: `role inválida. Valores aceitos: ${[...ROLES_ACESSO_CLIENTE].join(', ')}.` }
+  }
+  if (!body.senha || !body.confirmar_senha) {
+    return { ok: false, erro: 'senha e confirmar_senha são obrigatórios.' }
+  }
+  if (body.senha !== body.confirmar_senha) {
+    return { ok: false, erro: 'As senhas não coincidem.' }
+  }
+  const motivoSenha = motivoSenhaFraca(body.senha)
+  if (motivoSenha) {
+    return { ok: false, erro: motivoSenha }
+  }
+  if (body.permissoes === undefined) {
+    return { ok: true, data: { nome: body.nome.trim(), email, role, senha: body.senha, permissoes: null } }
+  }
+  const validacaoPermissoes = validarPayloadPermissoes({ permissoes: body.permissoes })
+  if (!validacaoPermissoes.ok) {
+    return { ok: false, erro: validacaoPermissoes.erro }
+  }
+  return { ok: true, data: { nome: body.nome.trim(), email, role, senha: body.senha, permissoes: validacaoPermissoes.permissoes } }
+}
+
+// ─── POST / — cria um acesso imediatamente com senha temporária ───────────
+// Segunda forma de criar acesso (ver Usuarios.tsx, "Criar com senha
+// temporária"), alternativa ao convite por e-mail (criarConvite acima) — o
+// próprio ADMIN já define nome/e-mail/senha na hora, sem depender do
+// destinatário aceitar um link. senha_temporaria:true força a troca
+// obrigatória no primeiro login pelo fluxo já existente (POST
+// /auth/trocar-senha, requireAdminAuth não bloqueia outras rotas por essa
+// flag — só o front redireciona via RequireSenhaAtualizada), exatamente
+// igual ao acesso criado pelo SUPER_ADMIN em adminTenants.ts. Mesmas
+// checagens de duplicidade/capacidade/lock de criarConvite: usuário ativo
+// já consome uma vaga imediatamente (nunca fica "pendente").
+export async function criarUsuarioComSenha(req: Request, res: Response) {
+  try {
+    const tenantId = req.adminUser!.tenant_id
+    const tenant = req.adminUser!.tenant
+
+    const validacao = validarPayloadCriacaoDireta(
+      req.body as { nome?: string; email?: string; role?: string; senha?: string; confirmar_senha?: string; permissoes?: unknown }
+    )
+    if (!validacao.ok) { res.status(400).json({ erro: validacao.erro }); return }
+    const { nome, email: emailNormalizado, role: roleNormalizada, senha, permissoes } = validacao.data
+
+    const usuarioExistente = await prisma.adminUser.findFirst({ where: { tenant_id: tenantId, email: emailNormalizado, ativo: true } })
+    if (usuarioExistente) { res.status(409).json({ erro: 'Este e-mail já tem um acesso ativo neste workspace.' }); return }
+
+    const convitePendenteExistente = await prisma.conviteUsuario.findFirst({
+      where: { tenant_id: tenantId, email: emailNormalizado, ...condicaoConvitePendente() },
+    })
+    if (convitePendenteExistente) {
+      res.status(409).json({ erro: 'Já existe um convite pendente para este e-mail. Cancele o convite antes de criar o acesso diretamente.' })
+      return
+    }
+
+    const password_hash = await bcrypt.hash(senha, SALT_ROUNDS)
+    const temPermissoes = Array.isArray(permissoes) && permissoes.length > 0
+
+    let criado
+    try {
+      // Mesma checagem de capacidade + lock de criarConvite (comLockDeCapacidade
+      // em tenantGuards.ts) — nunca checar limite fora da transaction que
+      // escreve, ou duas criações concorrentes podem ambas passar antes de
+      // qualquer uma commitar. Permissões aplicadas na MESMA transaction que
+      // cria o AdminUser (mesmo raciocínio de aceitarConvite em auth.ts).
+      criado = await comLockDeCapacidade(tenantId, async tx => {
+        const limiteErro = await checarLimiteAcessosComConvites(tenantId, planoEfetivoParaLimite(tenant), tx)
+        if (limiteErro) throw new LimiteCapacidadeAtingido(limiteErro)
+        return tx.adminUser.create({
+          data: {
+            nome,
+            email: emailNormalizado,
+            password_hash,
+            role: roleNormalizada,
+            tenant_id: tenantId,
+            ativo: true,
+            senha_temporaria: true,
+            permissoes_personalizadas: temPermissoes,
+            ...(temPermissoes
+              ? { permissoes: { createMany: { data: permissoes!.map(p => ({ modulo: p.modulo, nivel: p.nivel })) } } }
+              : {}),
+          },
+          select: SELECAO_USUARIO,
+        })
+      })
+    } catch (err) {
+      if (err instanceof LimiteCapacidadeAtingido) { res.status(400).json({ erro: err.message }); return }
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        res.status(409).json({ erro: 'Este e-mail já está cadastrado.' })
+        return
+      }
+      throw err
+    }
+
+    res.status(201).json(criado)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao criar acesso.' })
   }
 }
 

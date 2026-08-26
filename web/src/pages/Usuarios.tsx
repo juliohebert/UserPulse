@@ -95,12 +95,23 @@ export function Usuarios() {
   }
   useEffect(() => () => { if (sucessoTimeout.current) clearTimeout(sucessoTimeout.current) }, [])
 
-  // ─── Convidar ─────────────────────────────────────────────────────────
+  // ─── Adicionar usuário — duas formas de criar acesso (ver
+  // criarUsuarioComSenha/criarConvite em server/src/controllers/usuarios.ts):
+  // "convite" manda um e-mail com link pra a própria pessoa definir a senha
+  // (fluxo original, inalterado); "senha" cria o AdminUser imediatamente com
+  // uma senha temporária definida pelo ADMIN, forçando troca no primeiro
+  // login pelo fluxo já existente (POST /auth/trocar-senha). `modoAdicionar`
+  // só decide qual formulário/rota usar — nome/role/permissões são
+  // compartilhados pelas duas variáveis de estado abaixo, sem duplicar.
   const [mostrarConvite, setMostrarConvite] = useState(false)
+  const [modoAdicionar, setModoAdicionar] = useState<'convite' | 'senha'>('convite')
+  const [conviteNome, setConviteNome] = useState('')
   const [conviteEmail, setConviteEmail] = useState('')
   const [conviteRole, setConviteRole] = useState<AdminRole>('EDITOR')
   const [convitePersonalizarPermissoes, setConvitePersonalizarPermissoes] = useState(false)
   const [conviteMatriz, setConviteMatriz] = useState<MatrizPermissoes>(() => matrizInicialPorRole('EDITOR'))
+  const [conviteSenha, setConviteSenha] = useState('')
+  const [conviteConfirmarSenha, setConviteConfirmarSenha] = useState('')
   const [convidando, setConvidando] = useState(false)
   const [conviteErro, setConviteErro] = useState<string | null>(null)
 
@@ -142,12 +153,16 @@ export function Usuarios() {
     : ''
   const capacidadeAtingida = dados?.capacidade.limite != null && dados.capacidade.usados >= dados.capacidade.limite
 
-  // ─── Convidar ─────────────────────────────────────────────────────────
+  // ─── Adicionar usuário ──────────────────────────────────────────────────
   const abrirConvite = () => {
+    setModoAdicionar('convite')
+    setConviteNome('')
     setConviteEmail('')
     setConviteRole('EDITOR')
     setConvitePersonalizarPermissoes(false)
     setConviteMatriz(matrizInicialPorRole('EDITOR'))
+    setConviteSenha('')
+    setConviteConfirmarSenha('')
     setConviteErro(null)
     setMostrarConvite(true)
   }
@@ -181,6 +196,37 @@ export function Usuarios() {
       carregar()
     } catch (e) {
       setConviteErro(e instanceof Error ? e.message : 'Erro ao enviar convite.')
+    } finally {
+      setConvidando(false)
+    }
+  }
+
+  // Segunda forma de criar acesso — cria o AdminUser imediatamente com
+  // senha_temporaria:true (ver criarUsuarioComSenha em
+  // server/src/controllers/usuarios.ts), sem passar pelo link de convite.
+  const criarComSenha = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (convidando) return
+    if (conviteSenha !== conviteConfirmarSenha) {
+      setConviteErro('As senhas não coincidem.')
+      return
+    }
+    setConvidando(true)
+    setConviteErro(null)
+    try {
+      await post('/usuarios', {
+        nome: conviteNome.trim(),
+        email: conviteEmail.trim(),
+        role: conviteRole,
+        senha: conviteSenha,
+        confirmar_senha: conviteConfirmarSenha,
+        ...(convitePersonalizarPermissoes ? montarPayloadPermissoes(conviteMatriz) : {}),
+      })
+      setMostrarConvite(false)
+      mostrarSucesso(`Usuário ${conviteNome.trim()} criado com senha temporária.`)
+      carregar()
+    } catch (e) {
+      setConviteErro(e instanceof Error ? e.message : 'Erro ao criar usuário.')
     } finally {
       setConvidando(false)
     }
@@ -324,38 +370,53 @@ export function Usuarios() {
   if (!dados) return null
 
   return (
-    <div className="w-full px-4 lg:px-margin-desktop py-6 space-y-6 max-w-[1280px]">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h1 className="text-headline-sm font-bold text-on-surface">Usuários</h1>
-          <p className="text-body-md text-on-surface-variant mt-1">Gerencie quem tem acesso a este workspace.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className={`px-3 py-1.5 rounded-full text-label-md font-semibold ${capacidadeAtingida ? 'bg-error-container text-on-error-container' : 'bg-surface-container-low text-on-surface-variant border border-outline-variant'}`}>
-            {capacidadeTexto}
-          </span>
-          <Button onClick={abrirConvite} disabled={capacidadeAtingida} iconLeft={<span className="material-symbols-outlined text-[18px]">person_add</span>}>
-            Convidar
-          </Button>
-        </div>
-      </div>
+    <div>
+      <section className="px-4 lg:px-margin-desktop py-5 overflow-x-hidden">
+        {sucesso && (
+          <div className="mb-4 flex items-center gap-2 p-3 rounded-xl text-body-md bg-tertiary/10 text-tertiary">
+            <span className="material-symbols-outlined text-[18px] shrink-0">check_circle</span>
+            {sucesso}
+          </div>
+        )}
 
-      {sucesso && (
-        <p className="flex items-center gap-2 p-3 rounded-xl bg-tertiary/10 text-tertiary text-body-sm">
-          <span className="material-symbols-outlined text-[18px] shrink-0">check_circle</span>
-          {sucesso}
-        </p>
-      )}
+        {error && (
+          <div className="mb-4 flex items-center gap-2 p-3 rounded-xl text-body-md bg-error-container text-on-error-container">
+            <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
+            {error}
+          </div>
+        )}
 
-      {capacidadeAtingida && (
-        <p className="p-3 rounded-xl bg-error-container text-on-error-container text-body-sm">
-          Limite de acessos do plano atingido. Remova um acesso ou fale com o suporte para aumentar seu plano.
-        </p>
-      )}
+        <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-visible">
+          <div className="px-5 py-4 border-b border-outline-variant/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-title-lg font-bold text-on-surface">Usuários</h3>
+              <p className="text-body-md text-on-surface-variant mt-0.5">Gerencie quem tem acesso a este workspace.</p>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <span className={`px-3 py-1.5 rounded-full text-label-md font-semibold ${capacidadeAtingida ? 'bg-error-container text-on-error-container' : 'bg-surface-container-low text-on-surface-variant border border-outline-variant'}`}>
+                {capacidadeTexto}
+              </span>
+              <Button
+                onClick={abrirConvite}
+                disabled={capacidadeAtingida}
+                variant="gradient"
+                size="lg"
+                className="shrink-0"
+                iconLeft={<span className="material-symbols-outlined text-[18px]">person_add</span>}
+              >
+                Adicionar usuário
+              </Button>
+            </div>
+          </div>
 
-      {error && <p className="p-3 rounded-xl bg-error-container text-on-error-container text-body-sm">{error}</p>}
+          {capacidadeAtingida && (
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-outline-variant/30 bg-error-container/30 text-on-error-container text-body-sm">
+              <span className="material-symbols-outlined text-[18px] shrink-0">warning</span>
+              Limite de acessos do plano atingido. Remova um acesso ou fale com o suporte para aumentar seu plano.
+            </div>
+          )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 p-5">
       <div className={card}>
         <h2 className="text-title-md font-bold text-on-surface mb-4">Acessos</h2>
         {dados.usuarios.length === 0 ? (
@@ -429,20 +490,56 @@ export function Usuarios() {
           </div>
         )}
       </div>
-      </div>
+          </div>
+        </div>
+      </section>
 
-      {/* Modal "Convidar" */}
+      {/* Modal "Adicionar usuário" — duas formas de criar acesso */}
       {mostrarConvite && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40">
           <div className="bg-surface rounded-2xl shadow-xl w-full max-w-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b border-outline-variant">
-              <h3 className="text-title-md font-bold text-on-surface">Convidar acesso</h3>
+              <h3 className="text-title-md font-bold text-on-surface">Adicionar usuário</h3>
               <button onClick={() => setMostrarConvite(false)} title="Fechar" aria-label="Fechar" className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors">
                 <span className="material-symbols-outlined text-[20px]">close</span>
               </button>
             </div>
-            <form onSubmit={enviarConvite} className="px-5 py-4 space-y-4">
+            <form onSubmit={modoAdicionar === 'convite' ? enviarConvite : criarComSenha} className="px-5 py-4 space-y-4">
               {conviteErro && <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md">{conviteErro}</div>}
+
+              {/* Alternância entre as duas formas de criar acesso */}
+              <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-surface-container-low border border-outline-variant/60">
+                <button
+                  type="button"
+                  disabled={convidando}
+                  onClick={() => setModoAdicionar('convite')}
+                  className={`py-2 rounded-lg text-label-md font-semibold transition-colors ${modoAdicionar === 'convite' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant'}`}
+                >
+                  Enviar convite por e-mail
+                </button>
+                <button
+                  type="button"
+                  disabled={convidando}
+                  onClick={() => setModoAdicionar('senha')}
+                  className={`py-2 rounded-lg text-label-md font-semibold transition-colors ${modoAdicionar === 'senha' ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant'}`}
+                >
+                  Criar com senha temporária
+                </button>
+              </div>
+
+              {modoAdicionar === 'senha' && (
+                <div>
+                  <label className="block text-label-md text-on-surface-variant mb-1.5">Nome <span className="text-error">*</span></label>
+                  <input
+                    required
+                    value={conviteNome}
+                    onChange={e => setConviteNome(e.target.value)}
+                    placeholder="Nome completo"
+                    className={field}
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block text-label-md text-on-surface-variant mb-1.5">E-mail <span className="text-error">*</span></label>
                 <input
@@ -459,7 +556,34 @@ export function Usuarios() {
                 <Select value={conviteRole} options={ROLE_OPCOES} onChange={v => alterarConviteRole(v as AdminRole)} />
               </div>
 
-              <p className="text-[12px] text-on-surface-variant">{CONVITE_VALIDADE_DIAS_TEXTO}</p>
+              {modoAdicionar === 'convite' ? (
+                <p className="text-[12px] text-on-surface-variant">{CONVITE_VALIDADE_DIAS_TEXTO}</p>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-label-md text-on-surface-variant mb-1.5">Senha temporária <span className="text-error">*</span></label>
+                    <input
+                      required
+                      type="password"
+                      value={conviteSenha}
+                      onChange={e => setConviteSenha(e.target.value)}
+                      placeholder="Mínimo 8 caracteres, maiúscula, minúscula, número e símbolo"
+                      className={field}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-label-md text-on-surface-variant mb-1.5">Confirmar senha <span className="text-error">*</span></label>
+                    <input
+                      required
+                      type="password"
+                      value={conviteConfirmarSenha}
+                      onChange={e => setConviteConfirmarSenha(e.target.value)}
+                      className={field}
+                    />
+                  </div>
+                  <p className="text-[12px] text-on-surface-variant">O usuário deverá alterar esta senha no primeiro acesso.</p>
+                </>
+              )}
 
               <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-surface-container-low border border-outline-variant/60">
                 <ToggleSwitch checked={convitePersonalizarPermissoes} onChange={setConvitePersonalizarPermissoes} disabled={convidando} />
@@ -467,7 +591,7 @@ export function Usuarios() {
                   onClick={() => !convidando && setConvitePersonalizarPermissoes(v => !v)}
                   className="text-body-md text-on-surface cursor-pointer select-none"
                 >
-                  Personalizar permissões deste convite
+                  {modoAdicionar === 'convite' ? 'Personalizar permissões deste convite' : 'Personalizar permissões deste usuário'}
                 </label>
               </div>
 
@@ -493,7 +617,11 @@ export function Usuarios() {
 
               <div className="flex justify-end gap-2 pt-1">
                 <Button type="button" onClick={() => setMostrarConvite(false)} variant="ghost" disabled={convidando}>Cancelar</Button>
-                <Button type="submit" disabled={convidando} size="md">{convidando ? 'Enviando…' : 'Enviar convite'}</Button>
+                <Button type="submit" disabled={convidando} size="md">
+                  {modoAdicionar === 'convite'
+                    ? (convidando ? 'Enviando…' : 'Enviar convite')
+                    : (convidando ? 'Criando…' : 'Criar usuário')}
+                </Button>
               </div>
             </form>
           </div>
