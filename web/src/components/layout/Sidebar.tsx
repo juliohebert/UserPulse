@@ -15,6 +15,10 @@ type Item = LinkItem | ActionItem
 // separadamente, com seu próprio guard.
 const ITEM_CONFIGURACOES: ActionItem = { icon: 'settings', label: 'Configurações', action: 'configuracoes' }
 const ITEM_MINHA_ASSINATURA: LinkItem = { icon: 'receipt_long', label: 'Minha Assinatura', to: '/minha-assinatura' }
+// Gestão de usuários self-service — só ADMIN (nunca SUPER_ADMIN/EDITOR/
+// VIEWER), regra explícita da tarefa (diferente de Minha Assinatura, que
+// segue podeEscreverConfiguracao/inclui SUPER_ADMIN).
+const ITEM_USUARIOS: LinkItem = { icon: 'group', label: 'Usuários', to: '/usuarios' }
 
 const navItemsSubmoduloConfiguracao: LinkItem[] = [
   { icon: 'palette', label: 'Aparência', to: '/configuracoes/aparencia' },
@@ -168,6 +172,7 @@ export function Sidebar({ collapsed, onToggle, onSubmoduloChange, mobileOpen = f
     // fechada da Fase 4) — continua na regra antiga de billing, não
     // personalizável.
     ...(podeEscreverConfiguracao(user?.role) ? [ITEM_MINHA_ASSINATURA] : []),
+    ...(user?.role === 'ADMIN' ? [ITEM_USUARIOS] : []),
     ...(user?.role === 'SUPER_ADMIN' ? [{ icon: 'admin_panel_settings', label: 'Gestão SaaS', to: '/admin/tenants' }] : []),
   ]
 

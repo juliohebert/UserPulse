@@ -10,6 +10,7 @@ import {
   REDEFINICAO_SENHA_VALIDADE_MINUTOS, calcularExpiracaoRedefinicaoSenha,
   condicaoTokenAtivo, gerarTokenRedefinicaoSenha, hashTokenRedefinicaoSenha,
 } from '../lib/passwordReset'
+import { condicaoConvitePendente, hashTokenConvite } from '../lib/convites'
 
 // Mesmo custo de hash usado em adminTenants.ts/seedAdmin.ts.
 const SALT_ROUNDS = 10
@@ -763,5 +764,116 @@ export async function redefinirSenha(req: Request, res: Response) {
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao redefinir senha.' })
+  }
+}
+
+// ─── Aceite de convite de acesso self-service (ver controllers/usuarios.ts,
+// criarConvite) — segundo par de rotas públicas fora de sessão, mesmo
+// motivo dos dois pares acima: quem chega aqui ainda não tem conta. 404
+// genérico sempre que o convite não é resolvível (inexistente, expirado,
+// já aceito, cancelado) — nunca diferencia qual desses é o motivo real.
+
+export async function obterConvite(req: Request, res: Response) {
+  try {
+    const token = (req.params.token as string | undefined)?.trim()
+    if (!token) { res.status(404).json({ erro: 'Convite inválido ou expirado.' }); return }
+
+    const convite = await prisma.conviteUsuario.findFirst({
+      where: { token_hash: hashTokenConvite(token), ...condicaoConvitePendente() },
+      include: { tenant: { select: { nome: true } } },
+    })
+    if (!convite) { res.status(404).json({ erro: 'Convite inválido ou expirado.' }); return }
+
+    res.json({ tenantNome: convite.tenant.nome, email: convite.email, role: convite.role })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao consultar convite.' })
+  }
+}
+
+interface AceitarConviteBody {
+  nome?: string
+  senha?: string
+}
+
+// Mesma sentinela de TokenRedefinicaoInvalido acima — nunca escapa da
+// função, sempre capturada logo depois do $transaction.
+class ConviteInvalido extends Error {}
+
+// Consumo atômico do convite (UPDATE condicional, não SELECT-então-UPDATE) —
+// mesmo raciocínio de redefinirSenha acima: duas aceitações concorrentes do
+// MESMO convite nunca criam dois AdminUser, a segunda sempre vê count===0
+// porque a primeira já commitou aceito_em preenchido.
+export async function aceitarConvite(req: Request, res: Response) {
+  try {
+    const token = (req.params.token as string | undefined)?.trim()
+    const { nome, senha } = req.body as AceitarConviteBody
+    if (!token) { res.status(404).json({ erro: 'Convite inválido ou expirado.' }); return }
+    if (!nome?.trim() || !senha) { res.status(400).json({ erro: 'nome e senha são obrigatórios.' }); return }
+    const motivoSenha = motivoSenhaFraca(senha)
+    if (motivoSenha) { res.status(400).json({ erro: motivoSenha }); return }
+
+    const tokenHash = hashTokenConvite(token)
+    const password_hash = await bcrypt.hash(senha, SALT_ROUNDS)
+    const agora = new Date()
+
+    try {
+      await prisma.$transaction(async tx => {
+        const consumo = await tx.conviteUsuario.updateMany({
+          where: { token_hash: tokenHash, ...condicaoConvitePendente(agora) },
+          data: { aceito_em: agora },
+        })
+        if (consumo.count === 0) throw new ConviteInvalido()
+
+        const convite = await tx.conviteUsuario.findUniqueOrThrow({ where: { token_hash: tokenHash } })
+
+        // Permissões escolhidas no convite (ver criarConvite em
+        // controllers/usuarios.ts, permissoes_pendentes) — aplicadas na
+        // MESMA transaction que cria o AdminUser, nunca em passo separado
+        // (ou um crash no meio deixaria o usuário criado sem as permissões
+        // que ele deveria ter). null/vazio = convite sem personalização,
+        // usuário nasce só com a role (comportamento anterior, inalterado).
+        const permissoesPendentes = convite.permissoes_pendentes as unknown as PermissaoModuloLinha[] | null
+        const temPermissoesPendentes = Array.isArray(permissoesPendentes) && permissoesPendentes.length > 0
+
+        // O próprio usuário define a senha aqui (nunca temporária) —
+        // diferente do acesso criado pelo SUPER_ADMIN em adminTenants.ts,
+        // que sempre nasce com senha_temporaria:true.
+        return tx.adminUser.create({
+          data: {
+            nome: nome.trim(),
+            email: convite.email,
+            password_hash,
+            role: convite.role,
+            tenant_id: convite.tenant_id,
+            ativo: true,
+            senha_temporaria: false,
+            permissoes_personalizadas: temPermissoesPendentes,
+            ...(temPermissoesPendentes
+              ? { permissoes: { createMany: { data: permissoesPendentes!.map(p => ({ modulo: p.modulo, nivel: p.nivel })) } } }
+              : {}),
+          },
+          include: { tenant: { include: { plano: true } } },
+        })
+      })
+    } catch (err) {
+      if (err instanceof ConviteInvalido) {
+        res.status(400).json({ erro: 'Convite inválido ou expirado.' })
+        return
+      }
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        res.status(409).json({ erro: 'Este e-mail já está cadastrado. Faça login ou recupere sua senha.' })
+        return
+      }
+      throw err
+    }
+
+    // Nunca autentica automaticamente (mesma regra de redefinirSenha acima) —
+    // o front redireciona pro /login depois de aceitar (regra explícita da
+    // tarefa).
+    res.status(201).json({ mensagem: 'Convite aceito. Faça login com sua nova senha.' })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao aceitar convite.' })
   }
 }

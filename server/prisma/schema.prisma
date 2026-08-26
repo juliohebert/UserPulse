@@ -235,6 +235,7 @@ model Tenant {
   telasCatalogo     TelaCatalogo[]
   eventosUsuario    EventoUsuario[]
   trialEmailAlertas TrialEmailAlerta[]
+  convites          ConviteUsuario[]
 
   @@map("tenants")
 }
@@ -382,9 +383,47 @@ model AdminUser {
   tenant               Tenant                @relation(fields: [tenant_id], references: [id])
   passwordResetTokens  PasswordResetToken[]
   permissoes           AdminUserPermissao[]
+  convitesEnviados     ConviteUsuario[]
 
   @@index([tenant_id])
   @@map("admin_users")
+}
+
+// Convite de acesso self-service (ADMIN do próprio tenant convida um novo
+// usuário, sem depender do SUPER_ADMIN — ver controllers/usuarios.ts).
+// Token gerado com o MESMO padrão de PasswordResetToken (32 bytes, hash
+// SHA-256 persistido, bruto só na URL do e-mail — ver lib/convites.ts).
+// "Pendente" = aceito_em null, cancelado_em null e expires_at ainda no
+// futuro (ver condicaoConvitePendente em lib/convites.ts) — os três juntos
+// definem se um convite ainda consome uma vaga de acesso do plano (ver
+// contarUsoAcessos em tenantGuards.ts). convidado_por_id é opcional com
+// onDelete: SetNull — é só um registro histórico de quem convidou, nunca
+// uma dependência funcional do convite em si; Cascade apagaria o convite
+// inteiro (inclusive já aceito) só porque quem convidou foi removido depois
+// — SetNull preserva o convite e só perde a atribuição de autoria.
+// permissoes_pendentes guarda a matriz de permissões escolhida no convite
+// (mesmo formato de PermissaoModuloLinha[]/validarPayloadPermissoes em
+// adminTenantsPermissoes.ts) — aplicada em AdminUserPermissao só quando o
+// convite é aceito (ver aceitarConvite em controllers/auth.ts). null =
+// convite sem personalização, usuário nasce só com a role.
+model ConviteUsuario {
+  id                   String    @id @default(uuid())
+  tenant_id            String
+  email                String
+  role                 AdminRole
+  token_hash           String    @unique
+  convidado_por_id     String?
+  expires_at           DateTime
+  aceito_em            DateTime?
+  cancelado_em         DateTime?
+  permissoes_pendentes Json?
+  criado_em            DateTime  @default(now())
+
+  tenant       Tenant     @relation(fields: [tenant_id], references: [id])
+  convidadoPor AdminUser? @relation(fields: [convidado_por_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id])
+  @@map("convites_usuario")
 }
 
 // Override por módulo de um AdminUser específico — só é lido/aplicado

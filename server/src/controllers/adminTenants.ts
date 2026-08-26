@@ -13,7 +13,9 @@ const STATUS_VALIDOS = new Set<TenantStatus>(['TRIAL', 'ACTIVE', 'EXPIRED', 'SUS
 // Papéis que o Super Admin pode atribuir a um usuário DO CLIENTE — SUPER_ADMIN
 // nunca é aceito por essas rotas (criar/editar acesso), mesmo que alguém
 // force o valor no body: só existe fora desse fluxo (seedAdmin.ts/login).
-const ROLES_ACESSO_CLIENTE = new Set<AdminRole>(['ADMIN', 'EDITOR', 'VIEWER'])
+// Exportada — controllers/usuarios.ts (fluxo self-service) reusa a mesma
+// constante, nunca uma segunda declaração divergente.
+export const ROLES_ACESSO_CLIENTE = new Set<AdminRole>(['ADMIN', 'EDITOR', 'VIEWER'])
 
 interface TenantBody {
   nome?: string

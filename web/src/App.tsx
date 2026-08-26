@@ -30,6 +30,8 @@ import { JornadaForm } from './pages/jornadas/Form'
 import { AparenciaWidgetPage } from './pages/AparenciaWidget'
 import { SistemasPage } from './pages/Sistemas'
 import { MinhaAssinatura } from './pages/MinhaAssinatura'
+import { Usuarios } from './pages/Usuarios'
+import { AceitarConvitePage } from './pages/AceitarConvite'
 import { AdminTenantsIndex } from './pages/admin/Tenants'
 import { AdminPlanosIndex } from './pages/admin/Planos'
 
@@ -45,6 +47,10 @@ export default function App() {
       {/* "Esqueci minha senha" — mesmo motivo, sem sessão ainda. */}
       <Route path="esqueci-senha" element={<EsqueciSenhaPage />} />
       <Route path="redefinir-senha" element={<RedefinirSenhaPage />} />
+      {/* Aceite de convite de acesso self-service — mesmo motivo: quem
+          chega aqui ainda não tem conta (ver server/src/routes/auth.ts,
+          convite criado em controllers/usuarios.ts). */}
+      <Route path="convite/:token" element={<AceitarConvitePage />} />
       {/* Todo o painel exige sessão — RequireAuth redireciona pra /login sem
           usuário logado (ver web/src/components/auth/RequireAuth.tsx). */}
       <Route element={<RequireAuth />}>
@@ -136,6 +142,14 @@ export default function App() {
                 routes/billing.ts, nunca tocado pela Fase 1/2/4). */}
             <Route element={<RequireEscritaConfiguracao />}>
               <Route path="minha-assinatura" element={<MinhaAssinatura />} />
+            </Route>
+
+            {/* Gestão de usuários self-service — mesmo guard de Minha
+                Assinatura (ADMIN-only dentro do próprio tenant, sem
+                personalização, ver requireEscritaConfiguracao em
+                routes/usuarios.ts). */}
+            <Route element={<RequireEscritaConfiguracao />}>
+              <Route path="usuarios" element={<Usuarios />} />
             </Route>
 
             {/* Painel Super Admin — RequireSuperAdmin manda ADMIN comum de

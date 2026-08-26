@@ -1,6 +1,7 @@
 import { Plano, Prisma, Tenant } from '@prisma/client'
 import prisma from './prisma'
 import { downgradeAgendamentoCompleto } from '../services/asaasClient'
+import { condicaoConvitePendente } from './convites'
 
 // ─── Fase 2 do widget multi-tenant: resolução de tenant por public_key ──────
 // Usado só pelas rotas públicas do widget (widget.ts), nunca pelo admin
@@ -243,6 +244,78 @@ export async function checarLimiteUsuariosAdmin(tenantId: string, plano: Plano |
     return `Limite de ${plano.limite_usuarios_admin} usuário(s) admin do plano atingido.`
   }
   return null
+}
+
+// Uso de acessos do novo fluxo self-service de convite (ver
+// controllers/usuarios.ts) — DIFERENTE de checarLimiteUsuariosAdmin acima
+// (que só conta AdminUser ativo e é usada exclusivamente pela criação
+// direta via Gestão SaaS/SUPER_ADMIN, path separado, fora de escopo
+// unificar agora). Aqui a "vaga" é consumida tanto por um AdminUser já
+// ativo quanto por um convite ainda pendente (aceito_em/cancelado_em null,
+// não expirado — ver condicaoConvitePendente em lib/convites.ts) — sem
+// contar convites pendentes, dava pra estourar o limite do plano mandando
+// vários convites de uma vez, todos aceitos ao mesmo tempo depois.
+// `db` é injetável (default o client global) — quando chamada de dentro de
+// comLockDeCapacidade, o caller passa o `tx` da transaction em vez do
+// client global, pra contar dentro do MESMO lock que protege a escrita
+// (ver comentário de comLockDeCapacidade acima: contar fora da transaction
+// que escreve não serializa nada). `excluirConviteId` desconsidera um
+// convite específico da contagem de pendentes — usado só pelo reenvio
+// (POST /usuarios/convites/:id/reenviar, ver controllers/usuarios.ts):
+// um convite AINDA pendente (não expirado) já consome sua vaga hoje, então
+// reenviar (só trocar token/prazo, sem criar vaga nova) não pode ser
+// barrado por causa da própria vaga que ele já ocupa — mesmo raciocínio de
+// excluirId em checarLimiteCampanhasAtivas/checarLimiteToursAtivos acima,
+// aplicado aqui a convite em vez de campanha/tour.
+export async function contarUsoAcessos(
+  tenantId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+  excluirConviteId?: string
+): Promise<number> {
+  const [ativos, convitesPendentes] = await Promise.all([
+    db.adminUser.count({ where: { tenant_id: tenantId, ativo: true } }),
+    db.conviteUsuario.count({
+      where: { tenant_id: tenantId, ...condicaoConvitePendente(), ...(excluirConviteId ? { id: { not: excluirConviteId } } : {}) },
+    }),
+  ])
+  return ativos + convitesPendentes
+}
+
+// Decisão de capacidade pro fluxo self-service de convite — usada SÓ por
+// POST /usuarios/convites (ver controllers/usuarios.ts), nunca pela criação
+// direta via Gestão SaaS (essa continua em checarLimiteUsuariosAdmin,
+// acima). limite nulo/undefined = sem limite, mesma convenção do resto
+// deste arquivo.
+export async function checarLimiteAcessosComConvites(
+  tenantId: string,
+  plano: Plano | null,
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+  excluirConviteId?: string
+): Promise<string | null> {
+  if (!plano?.limite_usuarios_admin) return null
+  const total = await contarUsoAcessos(tenantId, db, excluirConviteId)
+  // Reaproveita motivoLimiteAtivosAtingido (decisão pura já testada em
+  // tenantGuards.test.ts) — nunca uma segunda implementação da mesma
+  // comparação `total >= limite`.
+  return motivoLimiteAtivosAtingido(plano.limite_usuarios_admin, total, 'acesso(s)')
+}
+
+// Lock de capacidade reutilizável pro fluxo self-service de convite (ver
+// controllers/usuarios.ts) — sem isto, duas requisições concorrentes (dois
+// convites simultâneos, ou um convite e uma reativação ao mesmo tempo)
+// poderiam checar checarLimiteAcessosComConvites ANTES uma da outra, ambas
+// verem "ainda cabe" e as duas escreverem, estourando o limite do plano
+// (race condition clássica de check-then-act). `SELECT ... FOR UPDATE` na
+// linha do tenant serializa qualquer chamada concorrente que passe por
+// aqui — a segunda só entra na callback depois que a primeira transaction
+// inteira (checagem + escrita) já commitou. Nunca checar capacidade fora
+// da transaction que faz a escrita correspondente, ou o lock não protege
+// nada.
+export async function comLockDeCapacidade<T>(tenantId: string, cb: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM tenants WHERE id = ${tenantId} FOR UPDATE`
+    return cb(tx)
+  })
 }
 
 // ─── Fase 8B (fundação) — capacidade efetiva durante downgrade agendado ────

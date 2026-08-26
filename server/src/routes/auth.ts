@@ -19,5 +19,10 @@ router.post('/cadastro', auth.cadastro)
 // não tem sessão (ver auth.ts, esqueciSenha/redefinirSenha).
 router.post('/esqueci-senha', auth.esqueciSenha)
 router.post('/redefinir-senha', auth.redefinirSenha)
+// Aceite de convite de acesso self-service — públicas pelo mesmo motivo:
+// quem chega aqui ainda não tem sessão (ver auth.ts, obterConvite/
+// aceitarConvite; convite criado em controllers/usuarios.ts).
+router.get('/convite/:token', auth.obterConvite)
+router.post('/convite/:token/aceitar', auth.aceitarConvite)
 
 export default router
