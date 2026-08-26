@@ -392,7 +392,10 @@ export function CampanhasIndex() {
   // Só grupos com 2+ campanhas concorrentes (mesma sistema/tela ou
   // url_contem + gatilho, ver grupoConcorrente.ts) fazem sentido pra
   // reordenar — sem nenhum, a opção nem aparece na listagem.
-  const gruposConcorrentes = useMemo(() => agruparCampanhasConcorrentes(campanhas), [campanhas])
+  const gruposConcorrentes = useMemo(
+    () => agruparCampanhasConcorrentes(campanhas.filter(c => getStatus(c) === 'ativa')),
+    [campanhas],
+  )
 
   const termoBusca = buscaNome.trim().toLowerCase()
   const sistemas = [...new Set(campanhas.map(c => c.sistema).filter(Boolean))]
