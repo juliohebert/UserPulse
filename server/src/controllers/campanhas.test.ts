@@ -20,6 +20,7 @@ import {
   chaveGrupoConcorrente,
   validarIdsReordenacao,
   calcularPrioridadesReordenadas,
+  normalizarDominio,
   type CampanhaGrupoInput,
   type DestaqueItemInput,
 } from './campanhas'
@@ -625,5 +626,21 @@ describe('calcularPrioridadesReordenadas', () => {
 
   test('lista com 1 item -> prioridade 1', () => {
     assert.deepEqual(calcularPrioridadesReordenadas(['único']), [{ id: 'único', prioridade: 1 }])
+  })
+})
+
+// segmentar_dominios (multi-URL do mesmo sistema, ex.: QuarkClinic) — mesma
+// normalização usada por normalizarDominioRegra em tours.ts.
+describe('normalizarDominio', () => {
+  test('URL completa com protocolo/porta/path é reduzida a hostname puro em lowercase', () => {
+    assert.equal(normalizarDominio(' HTTPS://NG.QuarkClinic.com.br:8443/caminho/x '), 'ng.quarkclinic.com.br')
+  })
+
+  test('hostname já puro só é trimado/lowercased', () => {
+    assert.equal(normalizarDominio(' Profissional.QuarkClinic.com.br '), 'profissional.quarkclinic.com.br')
+  })
+
+  test('hostname com porta mas sem protocolo remove a porta', () => {
+    assert.equal(normalizarDominio('gng.quarkclinic.com.br:3000'), 'gng.quarkclinic.com.br')
   })
 })

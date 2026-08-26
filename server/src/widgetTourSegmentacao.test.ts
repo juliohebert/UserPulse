@@ -37,7 +37,7 @@ before(() => {
     },
   }
   sandbox.window = {
-    location: { search: '', href: 'http://localhost/', pathname: '/', hash: '' },
+    location: { search: '', href: 'http://localhost/', pathname: '/', hash: '', hostname: 'ng.quarkclinic.com.br' },
     localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     addEventListener() {},
     removeEventListener() {},
@@ -192,5 +192,32 @@ describe('avaliarSegmentacaoTour (widget.js) — múltiplas regras usam AND', ()
     )
     assert.equal(r.ok, true)
     assert.equal(r.motivo, 'atendida')
+  })
+})
+
+// campo "dominio" resolve pra window.location.hostname.toLowerCase() (mesmo
+// sistema em várias URLs, ex.: QuarkClinic) — regra.valor já vem normalizado
+// (hostname puro em lowercase) da gravação no admin (ver
+// normalizarDominioRegra em tours.ts); sandbox.window.location.hostname
+// acima simula o hostname atual do sistema integrado.
+describe('avaliarSegmentacaoTour (widget.js) — campo "dominio"', () => {
+  test('bate quando window.location.hostname corresponde ao valor da regra', () => {
+    const r = avaliarSegmentacaoTour(tour([{ campo: 'dominio', operador: 'igual', valor: 'ng.quarkclinic.com.br' }]), config())
+    assert.equal(r.ok, true)
+    assert.equal(r.motivo, 'atendida')
+  })
+
+  test('não bate em domínio diferente', () => {
+    const r = avaliarSegmentacaoTour(tour([{ campo: 'dominio', operador: 'igual', valor: 'gng.quarkclinic.com.br' }]), config())
+    assert.equal(r.ok, false)
+    assert.equal(r.regraFalhou?.campo, 'dominio')
+  })
+
+  test('em_lista aceita quando o hostname atual está entre os domínios permitidos', () => {
+    const r = avaliarSegmentacaoTour(
+      tour([{ campo: 'dominio', operador: 'em_lista', valor: 'gng.quarkclinic.com.br,ng.quarkclinic.com.br' }]),
+      config()
+    )
+    assert.equal(r.ok, true)
   })
 })

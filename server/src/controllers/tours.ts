@@ -9,6 +9,7 @@ import {
   motivoRecursoNaoPermitido,
   planoEfetivoParaLimite,
 } from '../lib/tenantGuards'
+import { normalizarDominio } from '../lib/dominio'
 
 const MODOS_IDENTIFICACAO = ['sistema_tela', 'data_cy', 'url_contem']
 // 'area' reaproveita o mesmo mecanismo de localização de 'css' (o runtime do
@@ -34,7 +35,7 @@ const TIPOS_EVENTO_TOUR = ['inicio', 'passo_visualizado', 'elemento_nao_encontra
 const CAMPOS_SEGMENTACAO = [
   'cliente_id', 'unidade_id', 'organizacao_id', 'clinica_id',
   'usuario_tipo', 'perfil', 'estado', 'usuario_id', 'usuario_email',
-  'tela', 'sistema',
+  'tela', 'sistema', 'dominio',
 ]
 const OPERADORES_SEGMENTACAO = ['igual', 'diferente', 'contem', 'em_lista']
 
@@ -70,7 +71,15 @@ export function validarSegmentacaoRegras(regras: unknown): { erro: string | null
     if (!valor) {
       return { erro: `Regra de segmentação ${i + 1}: valor é obrigatório.`, lista: null }
     }
-    lista.push({ campo, operador, valor })
+    const valorNormalizado = campo === 'dominio'
+      ? (operador === 'em_lista'
+        ? valor.split(',').map(normalizarDominio).filter(Boolean).join(',')
+        : normalizarDominio(valor))
+      : valor
+    if (!valorNormalizado) {
+      return { erro: `Regra de segmentação ${i + 1}: valor é obrigatório.`, lista: null }
+    }
+    lista.push({ campo, operador, valor: valorNormalizado })
   }
   return { erro: null, lista }
 }

@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { checarLimiteJornadasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, motivoRecursoNaoPermitido, planoEfetivoParaLimite } from '../lib/tenantGuards'
+import { normalizarDominio } from '../lib/dominio'
 
 const TIPOS_ETAPA = ['tour', 'campanha', 'link']
 
@@ -33,6 +34,17 @@ interface BlocoValidado {
   obrigatorio?: boolean
   ativo?: boolean
   etapas: EtapaInput[]
+}
+
+// Exportada pra ser testada diretamente em jornadas.test.ts — mesma
+// normalização de campanhas.ts/sistemas.ts (ver normalizarDominio em
+// lib/dominio.ts). Nunca valida contra Sistema.dominios: um valor salvo aqui
+// que não esteja mais no catálogo atual do Sistema continua sendo
+// persistido/aceito sem filtro (drift histórico é responsabilidade da UI, ver
+// comentário em jornadas/Form.tsx).
+export function parseDominios(v: unknown): string[] {
+  const lista = Array.isArray(v) ? (v as unknown[]).map(String) : []
+  return lista.map(normalizarDominio).filter(Boolean)
 }
 
 function gerarSlugBase(titulo: string): string {
@@ -230,7 +242,7 @@ export async function criar(req: Request, res: Response) {
     const { titulo, descricao, ativo, permitir_refazer, permitir_pacotes_fora_ordem, blocos } = req.body
     const {
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis,
-      segmentar_usuario_tipos, segmentar_estados,
+      segmentar_usuario_tipos, segmentar_estados, segmentar_dominios,
     } = req.body
 
     if (!titulo?.trim()) {
@@ -273,6 +285,7 @@ export async function criar(req: Request, res: Response) {
         segmentar_perfis: Array.isArray(segmentar_perfis) ? segmentar_perfis : [],
         segmentar_usuario_tipos: Array.isArray(segmentar_usuario_tipos) ? segmentar_usuario_tipos : [],
         segmentar_estados: Array.isArray(segmentar_estados) ? segmentar_estados : [],
+        segmentar_dominios: parseDominios(segmentar_dominios),
         blocos: {
           create: listaBlocos.map((b, i) => montarDadosBloco(b, i)),
         },
@@ -300,7 +313,7 @@ export async function atualizar(req: Request, res: Response) {
     const { titulo, descricao, ativo, permitir_refazer, permitir_pacotes_fora_ordem, blocos } = req.body
     const {
       segmentar_cliente_ids, segmentar_unidade_ids, segmentar_perfis,
-      segmentar_usuario_tipos, segmentar_estados,
+      segmentar_usuario_tipos, segmentar_estados, segmentar_dominios,
     } = req.body
 
     if (titulo !== undefined && !titulo?.trim()) {
@@ -354,6 +367,7 @@ export async function atualizar(req: Request, res: Response) {
           ...(segmentar_perfis !== undefined && { segmentar_perfis: Array.isArray(segmentar_perfis) ? segmentar_perfis : [] }),
           ...(segmentar_usuario_tipos !== undefined && { segmentar_usuario_tipos: Array.isArray(segmentar_usuario_tipos) ? segmentar_usuario_tipos : [] }),
           ...(segmentar_estados !== undefined && { segmentar_estados: Array.isArray(segmentar_estados) ? segmentar_estados : [] }),
+          ...(segmentar_dominios !== undefined && { segmentar_dominios: parseDominios(segmentar_dominios) }),
           ...(listaBlocos && {
             blocos: {
               create: listaBlocos.map((b, i) => montarDadosBloco(b, i)),

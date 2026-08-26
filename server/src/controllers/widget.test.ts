@@ -6,6 +6,7 @@ import {
   validarDestaqueItemEvento, TIPOS_EVENTO_CAMPANHA,
   validarAvaliacaoFeedback, TIPOS_AVALIACAO_FEEDBACK,
   filtroFeedbackGeralReexibicao,
+  passaSegmentacao,
 } from './widget'
 
 const DIA_MS = 86_400_000
@@ -546,5 +547,70 @@ describe('filtroFeedbackGeralReexibicao', () => {
     const historico = controller.indexOf('verificarHistorico(campanha')
     assert.ok(ownership >= 0)
     assert.ok(historico > ownership)
+  })
+})
+
+// segmentar_dominios (multi-URL do mesmo sistema, ex.: QuarkClinic) —
+// comparado em lowercase nos dois lados (nunca confia que o valor salvo no
+// admin já veio normalizado, defesa em profundidade além da normalização em
+// campanhas.ts). Jornada reusa o mesmo passaSegmentacao/SegCampanha sem essa
+// coluna — segmentar_dominios undefined equivale a lista vazia.
+describe('passaSegmentacao — segmentar_dominios', () => {
+  function campanhaBase(overrides: Partial<Parameters<typeof passaSegmentacao>[0]> = {}) {
+    return {
+      segmentar_cliente_ids: [],
+      segmentar_unidade_ids: [],
+      segmentar_perfis: [],
+      segmentar_usuario_tipos: [],
+      segmentar_estados: [],
+      ...overrides,
+    }
+  }
+
+  test('lista vazia (padrão) = todos os domínios', () => {
+    assert.equal(passaSegmentacao(campanhaBase(), {}), true)
+    assert.equal(passaSegmentacao(campanhaBase(), { dominio: 'ng.quarkclinic.com.br' }), true)
+  })
+
+  test('domínio do contexto bate com a lista, comparando em lowercase', () => {
+    const campanha = campanhaBase({ segmentar_dominios: ['ng.quarkclinic.com.br'] })
+    assert.equal(passaSegmentacao(campanha, { dominio: 'NG.QuarkClinic.com.br' }), true)
+  })
+
+  test('lista com valor salvo fora do padrão (defesa em profundidade) ainda compara em lowercase', () => {
+    const campanha = campanhaBase({ segmentar_dominios: ['NG.QuarkClinic.com.br'] })
+    assert.equal(passaSegmentacao(campanha, { dominio: 'ng.quarkclinic.com.br' }), true)
+  })
+
+  test('domínio fora da lista bloqueia', () => {
+    const campanha = campanhaBase({ segmentar_dominios: ['ng.quarkclinic.com.br'] })
+    assert.equal(passaSegmentacao(campanha, { dominio: 'gng.quarkclinic.com.br' }), false)
+  })
+
+  test('lista restrita sem domínio no contexto bloqueia', () => {
+    const campanha = campanhaBase({ segmentar_dominios: ['ng.quarkclinic.com.br'] })
+    assert.equal(passaSegmentacao(campanha, {}), false)
+  })
+
+  test('segmentar_dominios undefined (Jornada) equivale a sem restrição', () => {
+    assert.equal(passaSegmentacao(campanhaBase(), { dominio: 'qualquer.dominio.com' }), true)
+  })
+})
+
+// registrarConclusaoEvento (encerrar_apos_evento) precisa considerar
+// segmentar_dominios como os demais segmentar_* — mesmo comportamento validado
+// acima em passaSegmentacao, aqui só garantimos que o controller de fato busca
+// a coluna e monta ctx.dominio (a partir do body ou de contexto.dominio).
+describe('registrarConclusaoEvento — segmentação por domínio', () => {
+  const inicio = FONTE_WIDGET.indexOf('export async function registrarConclusaoEvento')
+  const fim = FONTE_WIDGET.indexOf('export async function registrarEventoUsuario')
+  const controller = FONTE_WIDGET.slice(inicio, fim)
+
+  test('select da query inclui segmentar_dominios', () => {
+    assert.ok(controller.includes('segmentar_dominios: true'))
+  })
+
+  test('ctx.dominio é montado a partir do body ou de contexto.dominio', () => {
+    assert.ok(/dominio:\s*dominio\s*\?\s*String\(dominio\)\s*:\s*\(contexto\?\.dominio/.test(controller))
   })
 })
