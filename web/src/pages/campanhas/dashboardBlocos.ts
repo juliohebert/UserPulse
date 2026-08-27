@@ -69,6 +69,10 @@ export interface BlocosDashboard {
   distribuicaoNotas: boolean
   secaoRespostas: boolean
   desempenhoDestaques: boolean
+  // Bloco "por conteúdo" (CampanhaConteudoItem) — mecanismo independente de
+  // desempenhoDestaques, nunca os dois juntos: só aparece pra formato que
+  // NÃO é destaque_elemento (destaque_elemento usa desempenhoDestaques).
+  desempenhoConteudos: boolean
   // Sempre true pra destaque_elemento, mesmo sem nenhuma avaliação ainda —
   // a seção não deve sumir por quantidade zero (ver empty state no JSX).
   avaliacoesDestaques: boolean
@@ -130,6 +134,7 @@ export function blocosDashboardVisiveis(modoExibicao: string): BlocosDashboard {
     distribuicaoNotas: !destaque,
     secaoRespostas: !destaque,
     desempenhoDestaques: destaque,
+    desempenhoConteudos: !destaque,
     avaliacoesDestaques: destaque,
     interacoesDetalhadas: true,
     filtroDestaque: destaque,

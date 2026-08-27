@@ -57,6 +57,10 @@ describe('blocosDashboardVisiveis — destaque_elemento não renderiza blocos de
     assert.equal(blocos.avaliacoesDestaques, true)
   })
 
+  test('NÃO mostra o bloco "por conteúdo" — esse é exclusivo de formato não-destaque', () => {
+    assert.equal(blocos.desempenhoConteudos, false)
+  })
+
   test('"Interações detalhadas" continua visível — não é exclusivo de nenhum tipo', () => {
     assert.equal(blocos.interacoesDetalhadas, true)
   })
@@ -103,6 +107,7 @@ describe('blocosDashboardVisiveis — outros tipos de campanha continuam com o r
     assert.equal(blocos.kpiDestaque, false)
     assert.equal(blocos.desempenhoDestaques, false)
     assert.equal(blocos.avaliacoesDestaques, false)
+    assert.equal(blocos.desempenhoConteudos, true, 'bloco "por conteúdo" aparece pra formato não-destaque')
     assert.equal(blocos.interacoesDetalhadas, true)
     assert.equal(blocos.filtroDestaque, false, 'filtro/coluna "Destaque" não deve aparecer pra campanha tradicional')
   })
@@ -135,8 +140,17 @@ describe('blocosDashboardVisiveis — outros tipos de campanha continuam com o r
       assert.equal(blocos.secaoRespostas, true, `modo_exibicao="${modo}" deveria mostrar Respostas`)
       assert.equal(blocos.kpiDestaque, false, `modo_exibicao="${modo}" não deveria mostrar KPIs de destaque`)
       assert.equal(blocos.filtroDestaque, false, `modo_exibicao="${modo}" não deveria mostrar filtro "Destaque"`)
+      assert.equal(blocos.desempenhoDestaques, false, `modo_exibicao="${modo}" não deveria mostrar "Desempenho dos destaques"`)
+      assert.equal(blocos.desempenhoConteudos, true, `modo_exibicao="${modo}" deveria mostrar o bloco "por conteúdo"`)
       assert.equal(blocos.opcoesTipoEvento.some(o => o.value === 'Interação' || o.value === 'Dispensa'), false,
         `modo_exibicao="${modo}" não deveria oferecer tipos de evento exclusivos de destaque`)
+    }
+  })
+
+  test('desempenhoConteudos e desempenhoDestaques são mutuamente exclusivos — nunca os dois true, nunca os dois false', () => {
+    for (const modo of ['destaque_elemento', 'modal_automatica', '', 'banner', 'outro_formato_futuro']) {
+      const blocos = blocosDashboardVisiveis(modo)
+      assert.notEqual(blocos.desempenhoConteudos, blocos.desempenhoDestaques, `modo_exibicao="${modo}"`)
     }
   })
 

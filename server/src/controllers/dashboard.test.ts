@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { montarDesempenhoDestaques, normalizarAtividadeDiaSemana, normalizarSerieImpressao, whereFeedbackNps, whereUtilidadeDestaque } from './dashboard'
+import { montarDesempenhoConteudos, montarDesempenhoDestaques, normalizarAtividadeDiaSemana, normalizarSerieImpressao, whereFeedbackNps, whereUtilidadeDestaque } from './dashboard'
 
 // buscarDashboard() em si é integration-only (várias queries Prisma
 // combinadas com Promise.all) — testado manualmente contra um servidor
@@ -271,5 +271,111 @@ describe('agregados visuais do dashboard', () => {
     assert.deepEqual(normalizarSerieImpressao([
       { data: '2026-08-18', visualizacoes: 3 },
     ]), [{ data: '2026-08-18', visualizacoes: 3 }])
+  })
+})
+
+// ─── Etapa 4 — desempenho por conteúdo (montarDesempenhoConteudos) ──────────
+// Mesma natureza de montarDesempenhoDestaques: função pura que MOLDA o
+// resultado a partir dos itens (ordenados por `ordem` ASC pelo caller) + dois
+// groupBy já resolvidos pelo Prisma (totais clique_cta por conteúdo, e as
+// combinações distintas conteudo_item_id+tipo_evento+usuario_id pra únicos).
+// V1: só clique_cta, sem CTR, sem visualização por item.
+function conteudo(id: string, titulo: string, ordem: number, url_botao: string | null = 'https://x.com') {
+  return { id, titulo, ordem, url_botao }
+}
+function total(conteudo_item_id: string | null, count: number, tipo_evento = 'clique_cta') {
+  return { conteudo_item_id, tipo_evento, _count: { id: count } }
+}
+function unico(conteudo_item_id: string | null, usuario_id: string | null, tipo_evento = 'clique_cta') {
+  return { conteudo_item_id, tipo_evento, usuario_id }
+}
+
+describe('montarDesempenhoConteudos', () => {
+  test('lista de itens vazia -> array vazio, mesmo com eventos soltos', () => {
+    const r = montarDesempenhoConteudos([], [total('c1', 5)], [unico('c1', 'u1')])
+    assert.deepEqual(r, [])
+  })
+
+  test('vários conteúdos com contagens diferentes — cada total cai no conteúdo certo', () => {
+    const itens = [conteudo('c1', 'Primeiro', 1), conteudo('c2', 'Segundo', 2), conteudo('c3', 'Terceiro', 3)]
+    const totais = [total('c1', 7), total('c2', 2), total('c3', 0)]
+    const r = montarDesempenhoConteudos(itens, totais, [])
+    const porId = new Map(r.map(l => [l.conteudo_item_id, l]))
+    assert.equal(porId.get('c1')!.cliques_cta, 7)
+    assert.equal(porId.get('c2')!.cliques_cta, 2)
+    assert.equal(porId.get('c3')!.cliques_cta, 0)
+  })
+
+  test('conteúdo com zero cliques permanece no resultado (nunca some)', () => {
+    const r = montarDesempenhoConteudos([conteudo('c1', 'A', 1), conteudo('c2', 'B', 2)], [total('c1', 3)], [unico('c1', 'u1')])
+    assert.equal(r.length, 2)
+    const c2 = r.find(l => l.conteudo_item_id === 'c2')!
+    assert.equal(c2.cliques_cta, 0)
+    assert.equal(c2.cliques_cta_unicos, 0)
+  })
+
+  test('únicos isolados por conteúdo — o mesmo usuário clicando em 2 conteúdos conta 1 em CADA, nunca soma cruzado', () => {
+    const itens = [conteudo('c1', 'A', 1), conteudo('c2', 'B', 2)]
+    const unicos = [
+      unico('c1', 'u1'), unico('c1', 'u2'),
+      unico('c2', 'u1'),
+    ]
+    const r = montarDesempenhoConteudos(itens, [], unicos)
+    const porId = new Map(r.map(l => [l.conteudo_item_id, l]))
+    assert.equal(porId.get('c1')!.cliques_cta_unicos, 2)
+    assert.equal(porId.get('c2')!.cliques_cta_unicos, 1)
+  })
+
+  test('conteúdo sem CTA (url_botao null) -> tem_cta false', () => {
+    const r = montarDesempenhoConteudos([conteudo('c1', 'Sem CTA', 1, null)], [], [])
+    assert.equal(r[0].tem_cta, false)
+  })
+
+  test('url_botao preenchida com texto_botao vazio -> tem_cta true (texto pode cair no default "Saiba mais")', () => {
+    // montarDesempenhoConteudos só recebe url_botao — o texto nem chega aqui.
+    const r = montarDesempenhoConteudos([conteudo('c1', 'Com CTA', 1, 'https://exemplo.com')], [], [])
+    assert.equal(r[0].tem_cta, true)
+  })
+
+  test('url_botao string vazia / só espaços -> tem_cta false', () => {
+    const r = montarDesempenhoConteudos(
+      [conteudo('c1', 'A', 1, ''), conteudo('c2', 'B', 2, '   ')],
+      [], [],
+    )
+    assert.equal(r[0].tem_cta, false)
+    assert.equal(r[1].tem_cta, false)
+  })
+
+  test('ordem de saída preserva a ordem de entrada (itens já vêm por `ordem` ASC do caller)', () => {
+    const itens = [conteudo('c3', 'Terceiro', 3), conteudo('c1', 'Primeiro', 1), conteudo('c2', 'Segundo', 2)]
+    const r = montarDesempenhoConteudos(itens, [], [])
+    assert.deepEqual(r.map(l => l.conteudo_item_id), ['c3', 'c1', 'c2'])
+    assert.deepEqual(r.map(l => l.ordem), [3, 1, 2])
+  })
+
+  test('bucket null (evento antigo / fallback / conteúdo removido) nunca vira uma linha de conteúdo', () => {
+    const itens = [conteudo('c1', 'A', 1)]
+    const totais = [total(null, 99), total('c1', 4)]
+    const unicos = [unico(null, 'u1'), unico('c1', 'u1')]
+    const r = montarDesempenhoConteudos(itens, totais, unicos)
+    assert.equal(r.length, 1)
+    assert.equal(r[0].conteudo_item_id, 'c1')
+    assert.equal(r[0].cliques_cta, 4)
+    assert.equal(r[0].cliques_cta_unicos, 1)
+  })
+
+  test('id de total/único que não está na lista de itens é ignorado (defesa contra dado inconsistente)', () => {
+    const r = montarDesempenhoConteudos([conteudo('c1', 'A', 1)], [total('c-fantasma', 10)], [unico('c-fantasma', 'u1')])
+    assert.equal(r.length, 1)
+    assert.equal(r[0].cliques_cta, 0)
+  })
+
+  test('tipo_evento diferente de clique_cta é ignorado (defesa extra — as queries já filtram)', () => {
+    const itens = [conteudo('c1', 'A', 1)]
+    const totais = [total('c1', 8, 'visualizacao'), total('c1', 3, 'clique_cta')]
+    const unicos = [unico('c1', 'u1', 'visualizacao'), unico('c1', 'u2', 'clique_cta')]
+    const r = montarDesempenhoConteudos(itens, totais, unicos)
+    assert.equal(r[0].cliques_cta, 3)
+    assert.equal(r[0].cliques_cta_unicos, 1)
   })
 })

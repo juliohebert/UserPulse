@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, getBlob } from '../../services/api'
-import type { AvaliacaoDestaqueItem, DashboardData, DesempenhoDestaqueItem, EventoCampanha, Feedback } from '../../types'
+import type { AvaliacaoDestaqueItem, DashboardData, DesempenhoConteudoItem, DesempenhoDestaqueItem, EventoCampanha, Feedback } from '../../types'
 import { formatDateTime, getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
@@ -96,6 +96,10 @@ const TOOLTIP_AVALIACOES_DESTAQUES = [
   'Sim ou Não é a avaliação do usuário; o comentário é opcional.',
   'Independente do feedback geral da campanha (NPS ou CSAT).',
 ].join('\n')
+
+// ─── ajuda contextual — "Cliques CTA por conteúdo" ─────────────────────────
+const TOOLTIP_CLIQUES_POR_CONTEUDO =
+  'Mostra os cliques nos CTAs de cada conteúdo. Esta métrica não representa visualizações individuais dos conteúdos.'
 
 // ─── period filter ─────────────────────────────────────────────────────────────
 
@@ -390,6 +394,10 @@ export function CampanhaDashboard() {
   const temFiltroEvento = filtroEvento !== 'Todos' || filtroDestaque !== '' || buscaEvento !== ''
 
   const blocos = blocosDashboardVisiveis(data?.campanha.modo_exibicao ?? '')
+  // Cliques CTA por conteúdo (só formato não-destaque) — o backend já devolve
+  // em ordem de `ordem` ASC, então nunca reordenamos aqui.
+  const desempenhoConteudos = data?.desempenho_conteudos ?? []
+  const cliquesCtaSemConteudo = data?.cliques_cta_sem_conteudo ?? 0
   const desempenhoDestaques = data?.desempenho_destaques ?? []
   const destaquesOrdenados = useMemo(() => [...desempenhoDestaques].sort((a, b) => {
     if (a.ativo !== b.ativo) return a.ativo ? -1 : 1
@@ -1319,6 +1327,89 @@ export function CampanhaDashboard() {
             </>
           )}
 
+          {/* ── Seção: Cliques CTA por conteúdo (só formato não-destaque) ───── */}
+          {/* Mesma posição relativa que "Desempenho/Avaliações dos destaques"
+              ocupam pro formato destaque_elemento — os dois blocos nunca
+              coexistem (blocos.desempenhoConteudos === !destaque). Aparece com
+              pelo menos 1 conteúdo OU quando há cliques legados sem conteúdo
+              identificado. */}
+          {blocos.desempenhoConteudos && (desempenhoConteudos.length > 0 || cliquesCtaSemConteudo > 0) && (
+            <>
+              <SectionTitle icon="ads_click" tooltip={TOOLTIP_CLIQUES_POR_CONTEUDO}>Cliques CTA por conteúdo</SectionTitle>
+              <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden mb-6">
+                {/* Desktop/tablet largo (>= md): tabela */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-surface-container-low border-b border-outline-variant">
+                      <tr>
+                        {['#', 'Conteúdo', 'Cliques CTA', 'Cliques únicos'].map(h => (
+                          <th key={h} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-outline-variant/30">
+                      {desempenhoConteudos.map(item => (
+                        <tr key={item.conteudo_item_id} className="hover:bg-surface-container-low/50 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-outline">{item.ordem}</td>
+                          <td className="px-4 py-3 align-middle max-w-[280px]">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[13px] truncate text-on-surface" title={item.titulo}>{item.titulo}</span>
+                              {!item.tem_cta && (
+                                <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-outline-variant/30 text-outline">
+                                  Sem CTA
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-on-surface">
+                            {item.tem_cta ? item.cliques_cta.toLocaleString('pt-BR') : <span className="text-outline">—</span>}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-on-surface">
+                            {item.tem_cta ? item.cliques_cta_unicos.toLocaleString('pt-BR') : <span className="text-outline">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                      {cliquesCtaSemConteudo > 0 && (
+                        <tr className="hover:bg-surface-container-low/50 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-outline">—</td>
+                          <td className="px-4 py-3 align-middle max-w-[280px]">
+                            <span className="text-[13px] text-outline italic">Cliques anteriores sem identificação do conteúdo</span>
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-outline">
+                            {cliquesCtaSemConteudo.toLocaleString('pt-BR')}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-outline">—</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile (< md): cards — mesmo padrão de RespostaCard/InteracaoCard/AvaliacaoDestaqueCard */}
+                <div className="md:hidden divide-y divide-outline-variant/20">
+                  {desempenhoConteudos.map(item => (
+                    <ConteudoCliquesCard key={item.conteudo_item_id} item={item} />
+                  ))}
+                  {cliquesCtaSemConteudo > 0 && (
+                    <div className="p-4">
+                      <span className="text-[13px] text-outline italic block">Cliques anteriores sem identificação do conteúdo</span>
+                      <div className="mt-3 pt-3 border-t border-outline-variant/20 grid grid-cols-2 gap-x-3 gap-y-2.5">
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Cliques CTA</p>
+                          <span className="text-[13px] block text-outline">{cliquesCtaSemConteudo.toLocaleString('pt-BR')}</span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Cliques únicos</p>
+                          <span className="text-[13px] block text-outline">—</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
           {/* ── Seção: Interações ─────────────────────────────────────────── */}
           <SectionTitle icon="touch_app">Interações</SectionTitle>
 
@@ -2180,6 +2271,39 @@ function AvaliacaoDestaqueCard({ a, destaqueTitulo, destaqueRemovido }: {
           <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Unidade</p>
           <span className={`text-[13px] block truncate ${unidade ? 'text-on-surface' : 'text-outline italic'}`} title={unidade ?? undefined}>
             {unidade ?? NI}
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Card de "Cliques CTA por conteúdo" pra telas mobile (< md) — mesma lógica de
+// substituição da tabela que InteracaoCard/AvaliacaoDestaqueCard já usam acima.
+function ConteudoCliquesCard({ item }: { item: DesempenhoConteudoItem }) {
+  return (
+    <div className="p-4">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-outline shrink-0">#{item.ordem}</span>
+        <span className="text-[13px] truncate text-on-surface" title={item.titulo}>{item.titulo}</span>
+        {!item.tem_cta && (
+          <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-outline-variant/30 text-outline">
+            Sem CTA
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-outline-variant/20 grid grid-cols-2 gap-x-3 gap-y-2.5">
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Cliques CTA</p>
+          <span className={`text-[13px] block ${item.tem_cta ? 'text-on-surface' : 'text-outline'}`}>
+            {item.tem_cta ? item.cliques_cta.toLocaleString('pt-BR') : '—'}
+          </span>
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Cliques únicos</p>
+          <span className={`text-[13px] block ${item.tem_cta ? 'text-on-surface' : 'text-outline'}`}>
+            {item.tem_cta ? item.cliques_cta_unicos.toLocaleString('pt-BR') : '—'}
           </span>
         </div>
       </div>

@@ -548,9 +548,38 @@ export function validarDestaqueItemEvento(
   return { erro: null, destaqueItemId: destaqueItemIdBruto }
 }
 
+// Etapa 3 de analytics por conteúdo — espelha validarDestaqueItemEvento
+// acima: mesma decisão pura de ownership/isolamento, só que pro
+// conteudo_item_id (atribuir o clique no CTA ao CampanhaConteudoItem que o
+// originou, ver data-up-conteudo-id em widget.js). Mecanismo TOTALMENTE
+// independente de destaque_item_id — nunca um valida ou substitui o outro,
+// os dois podem coexistir nulos no mesmo evento. Quem chama busca o item só
+// por id (sem where campanha_id, mesmo raciocínio da função de destaque),
+// então a comparação `itemEncontrado.campanha_id === campanhaId` AQUI é o
+// único ponto que impede um conteúdo de outra campanha (ou de outro tenant)
+// de ser aceito. conteudo_item_id ausente/vazio é válido (clique legado, ou
+// fallback do widget que renderiza o CTA sem id, ou qualquer evento que não
+// seja clique em conteúdo) — só valida quando algo de fato foi enviado.
+export function validarConteudoItemEvento(
+  conteudoItemIdBruto: unknown,
+  itemEncontrado: { id: string; campanha_id: string } | null,
+  campanhaId: string
+): { erro: string | null; conteudoItemId: string | null } {
+  if (conteudoItemIdBruto === undefined || conteudoItemIdBruto === null || conteudoItemIdBruto === '') {
+    return { erro: null, conteudoItemId: null }
+  }
+  if (typeof conteudoItemIdBruto !== 'string') {
+    return { erro: 'conteudo_item_id inválido.', conteudoItemId: null }
+  }
+  if (!itemEncontrado || itemEncontrado.id !== conteudoItemIdBruto || itemEncontrado.campanha_id !== campanhaId) {
+    return { erro: 'conteudo_item_id não pertence a esta campanha.', conteudoItemId: null }
+  }
+  return { erro: null, conteudoItemId: conteudoItemIdBruto }
+}
+
 export async function registrarEvento(req: Request, res: Response) {
   try {
-    const { public_key, campanha_id, tipo_evento, destaque_item_id, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
+    const { public_key, campanha_id, tipo_evento, destaque_item_id, conteudo_item_id, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
 
     if (!campanha_id) return res.status(400).json({ erro: 'campanha_id é obrigatório.' })
     if (!tipo_evento) return res.status(400).json({ erro: 'tipo_evento é obrigatório.' })
@@ -578,11 +607,21 @@ export async function registrarEvento(req: Request, res: Response) {
     const { erro: erroItem, destaqueItemId } = validarDestaqueItemEvento(destaque_item_id, itemDestaque, campanha_id)
     if (erroItem) return res.status(400).json({ erro: erroItem })
 
+    // Mesmo raciocínio da busca de destaque acima — só por id, ownership fica
+    // com validarConteudoItemEvento. Independente do bloco de destaque: os
+    // dois validam/persistem em paralelo e ambos podem terminar null.
+    const itemConteudo = conteudo_item_id
+      ? await prisma.campanhaConteudoItem.findUnique({ where: { id: String(conteudo_item_id) } })
+      : null
+    const { erro: erroConteudo, conteudoItemId } = validarConteudoItemEvento(conteudo_item_id, itemConteudo, campanha_id)
+    if (erroConteudo) return res.status(400).json({ erro: erroConteudo })
+
     await prisma.eventoCampanha.create({
       data: {
         campanha_id,
         tipo_evento,
         destaque_item_id: destaqueItemId,
+        conteudo_item_id: conteudoItemId,
         usuario_id: usuario_id || null,
         sistema: sistema || null,
         tela: tela || null,

@@ -630,7 +630,8 @@ model CampanhaConteudoItem {
   criado_em     DateTime @default(now())
   atualizado_em DateTime @updatedAt
 
-  campanha Campanha @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
+  campanha Campanha         @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
+  eventos  EventoCampanha[]
 
   @@index([campanha_id, ordem])
   @@index([tenant_id])
@@ -782,12 +783,23 @@ model AparenciaWidget {
 // só protege contra o caso extremo de o item em si ser apagado por outro
 // caminho; o histórico do evento nunca é perdido de qualquer forma (a FK
 // nunca é RESTRICT/CASCADE aqui).
+//
+// conteudo_item_id (Etapa 1 de analytics por conteúdo — tracking por item do
+// carrossel SCROLL/SLIDES) segue o MESMO padrão de destaque_item_id acima
+// (opcional, sem tenant_id próprio, isolamento via campanha_id), mas é um
+// mecanismo independente — nunca misturar com destaque_item_id. Diferença
+// relevante: CampanhaConteudoItem é hard-deletado de verdade quando removido
+// da configuração (não tem `ativo`, ver campanhas.ts), então aqui o SetNull
+// é o que de fato preserva o histórico do evento quando o item some — o
+// evento fica com conteudo_item_id nulo em vez de ser apagado em cascata.
+// Sem backfill: eventos antigos ficam com conteudo_item_id nulo.
 model EventoCampanha {
   id               String   @id @default(uuid())
   campanha_id      String
   tipo_evento      String
   usuario_id       String?
   destaque_item_id String?
+  conteudo_item_id String?
   sistema          String?
   tela             String?
   navegador        String?
@@ -797,6 +809,7 @@ model EventoCampanha {
 
   campanha     Campanha              @relation(fields: [campanha_id], references: [id])
   destaqueItem CampanhaDestaqueItem? @relation(fields: [destaque_item_id], references: [id], onDelete: SetNull)
+  conteudoItem CampanhaConteudoItem? @relation(fields: [conteudo_item_id], references: [id], onDelete: SetNull)
 
   // Nomes explícitos (map) curtos de propósito — o nome default do Prisma
   // pra este segundo índice bate quase exatamente no limite de 63
@@ -804,6 +817,7 @@ model EventoCampanha {
   // de truncamento entre este arquivo e a migration hand-written.
   @@index([campanha_id, tipo_evento, criado_em], map: "evt_campanha_tipo_criado_idx")
   @@index([campanha_id, destaque_item_id, tipo_evento], map: "evt_campanha_item_tipo_idx")
+  @@index([campanha_id, conteudo_item_id, tipo_evento], map: "evt_campanha_conteudo_tipo_idx")
   @@map("eventos_campanha")
 }
 
