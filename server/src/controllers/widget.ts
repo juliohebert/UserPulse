@@ -370,7 +370,20 @@ export async function buscarCampanha(req: Request, res: Response) {
       // Campanha (data_cy/titulo/descricao/...) continuam na resposta —
       // servem de fallback pro widget quando `destaques` vier vazio (campanha
       // ainda não migrada).
-      include: { destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
+      //
+      // Múltiplos conteúdos (Etapa 2/widget Etapa 3) — mecanismo
+      // independente de `destaques` acima, nunca misturar os dois. Sem
+      // filtro de `ativo` (CampanhaConteudoItem não tem essa coluna — ver
+      // schema.prisma, "remover" um conteúdo já é DELETE de verdade).
+      // Faltava aqui: controllers/campanhas.ts (rotas administrativas) já
+      // incluía `conteudos`, mas as rotas públicas do widget nunca foram
+      // atualizadas — conteudoResolverItens (widget.js) sempre caía no
+      // fallback legado por falta deste include, mesmo com itens reais
+      // persistidos.
+      include: {
+        destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } },
+        conteudos: { orderBy: { ordem: 'asc' } },
+      },
     })
 
     if (!campanha) {
@@ -445,8 +458,12 @@ export async function buscarCandidatas(req: Request, res: Response) {
         ...filtroData,
       },
       orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
-      // Ver comentário equivalente em buscarCampanha logo acima.
-      include: { destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
+      // Ver comentário equivalente (destaques + conteudos) em buscarCampanha
+      // logo acima.
+      include: {
+        destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } },
+        conteudos: { orderBy: { ordem: 'asc' } },
+      },
     })
 
     const ctx: SegCtx = {

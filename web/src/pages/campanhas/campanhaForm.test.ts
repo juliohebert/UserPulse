@@ -66,6 +66,7 @@ function campanhaAntiga(over: Partial<Campanha> = {}): Campanha {
     segmentar_perfis: ['gestor'],
     segmentar_usuario_tipos: ['admin'],
     segmentar_estados: ['SP', 'RJ'],
+    modo_navegacao: 'SCROLL',
     criado_em: '2026-01-01T00:00:00.000Z',
     atualizado_em: '2026-01-05T00:00:00.000Z',
     ...over,

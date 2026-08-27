@@ -64,6 +64,15 @@ export interface Campanha {
   // CampanhaForm.tsx (mesma lógica de destaqueElementoResolverItens em
   // widget.js) para campanhas antigas que ainda não têm nenhuma linha aqui.
   destaques?: CampanhaDestaqueItem[]
+  // Etapa 7 — múltiplos conteúdos por campanha (carrossel SCROLL/SLIDES do
+  // próprio modal). Mecanismo independente de `destaques`/destaque_elemento
+  // acima — nunca misturar os dois. `modo_navegacao` sempre vem preenchido
+  // pelo backend (default "SCROLL"); `conteudos` ausente/vazio não significa
+  // "sem conteúdo": ver fallback em campanhaForm.utils.ts (hidratarFormState,
+  // mesma lógica de conteudoResolverItens em widget.js) para campanhas
+  // antigas que ainda não têm nenhuma linha aqui.
+  modo_navegacao: string
+  conteudos?: CampanhaConteudoItem[]
 }
 
 export interface CampanhaDestaqueItem {
@@ -77,6 +86,23 @@ export interface CampanhaDestaqueItem {
   texto_botao: string | null
   url_botao: string | null
   ativo: boolean
+  criado_em: string
+  atualizado_em: string
+}
+
+// Espelha CampanhaConteudoItem (server/prisma/schema.prisma) — sem `ativo`
+// (decisão explícita da Etapa 1: "remover" um conteúdo é DELETE de verdade,
+// nunca soft-delete, diferente de CampanhaDestaqueItem acima).
+export interface CampanhaConteudoItem {
+  id: string
+  campanha_id: string
+  ordem: number
+  titulo: string
+  descricao: string
+  imagem_url: string | null
+  video_url: string | null
+  texto_botao: string | null
+  url_botao: string | null
   criado_em: string
   atualizado_em: string
 }

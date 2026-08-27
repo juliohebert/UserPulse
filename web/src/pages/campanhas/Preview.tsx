@@ -10,6 +10,7 @@ import { gerarEmbed, gerarEmbedParts, getStatus, rotaEditarCampanha } from '../.
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
+import { resolverConteudosPreview } from './campanhaForm.utils'
 
 // Esta página não busca a aparência por sistema (diferente do formulário de campanhas,
 // que usa a cor do tenant) — cobalto fixo, mesmo tom de {colors.primary} no
@@ -41,6 +42,11 @@ export function CampanhaPreview() {
   const [telefone, setTelefone] = useState('')
   const [phoneDone, setPhoneDone] = useState(false)
   const [indiceDestaque, setIndiceDestaque] = useState(0)
+  // Etapa 8 — índice do conteúdo atual em SLIDES, só nesta sessão de
+  // preview (nunca persistido — mesmo raciocínio de state.conteudoSlideIndex
+  // no widget). Reseta pra 0 sempre que a campanha recarrega/reabre (ver
+  // load()/resetSimulation abaixo), assim como nota/observacao/etc.
+  const [indiceConteudo, setIndiceConteudo] = useState(0)
   const [publicando, setPublicando] = useState(false)
   const [erroPublicar, setErroPublicar] = useState<string | null>(null)
   const podeEscrever = podeGerenciarModulo(user, 'CAMPANHAS')
@@ -65,6 +71,7 @@ export function CampanhaPreview() {
         setNota(null)
         setObservacao('')
         setSubmitted(false)
+        setIndiceConteudo(0)
         setEligResult(null)
         setEligError(null)
         const modo = c.modo_identificacao || 'sistema_tela'
@@ -98,6 +105,7 @@ export function CampanhaPreview() {
     setSubmitted(false)
     setTelefone('')
     setPhoneDone(false)
+    setIndiceConteudo(0)
     window.setTimeout(() => setOpen(true), Math.max(0, campanha?.atraso_ms ?? 800))
   }
 
@@ -154,6 +162,36 @@ export function CampanhaPreview() {
   const destaques = campanha.destaques && campanha.destaques.length > 0 ? campanha.destaques : null
   const indiceDestaqueSeguro = destaques ? Math.min(indiceDestaque, destaques.length - 1) : 0
   const destaqueSelecionado = destaques?.[indiceDestaqueSeguro]
+
+  // Etapa 8 — mesma resolução de fallback usada em PreviewCampanhaModal
+  // (CampanhaForm.tsx), via resolverConteudosPreview: `campanha.conteudos`
+  // (já persistido no backend) tem prioridade; sem nenhum item, cai pro
+  // pseudo-item legado.
+  const conteudosPreview = resolverConteudosPreview(
+    (campanha.conteudos ?? []).map(item => ({
+      id: item.id,
+      titulo: item.titulo,
+      descricao: item.descricao,
+      imagem_url: item.imagem_url ?? '',
+      video_url: item.video_url ?? '',
+      texto_botao: item.texto_botao ?? '',
+      url_botao: item.url_botao ?? '',
+    })),
+    {
+      titulo: campanha.titulo,
+      descricao: campanha.descricao,
+      imagem_url: campanha.imagem_url ?? '',
+      video_url: campanha.video_url ?? '',
+      texto_botao: campanha.texto_botao ?? '',
+      url_botao: campanha.url_botao ?? '',
+    }
+  )
+  // SLIDES só ganha controles com mais de 1 item — 1 único conteúdo (novo ou
+  // fallback legado) renderiza exatamente como o preview de sempre.
+  const usaSlidesConteudo = campanha.modo_navegacao === 'SLIDES' && conteudosPreview.length > 1
+  const indiceConteudoSeguro = Math.min(indiceConteudo, conteudosPreview.length - 1)
+  const itensConteudoExibidos = usaSlidesConteudo ? [conteudosPreview[indiceConteudoSeguro]] : conteudosPreview
+  const mostrarTituloPorConteudo = conteudosPreview.length > 1
   const embedCode = gerarEmbed(campanha, user?.tenant.public_key)
   const embedParts = gerarEmbedParts(campanha, user?.tenant.public_key)
   const initSection = [
@@ -330,28 +368,60 @@ export function CampanhaPreview() {
                     <p className="text-label-md font-bold text-primary">{campanha.subtitulo}</p>
                   )}
 
-                  {/* Mídia */}
-                  {campanha.video_url ? (
-                    <div className="aspect-video overflow-hidden rounded-xl bg-surface-container">
-                      <iframe src={campanha.video_url} title="Vídeo da campanha" className="h-full w-full border-0" />
+                  {itensConteudoExibidos.map((item, indice) => (
+                    <div key={item.id ?? `conteudo-preview-${indice}`} className="space-y-4">
+                      {mostrarTituloPorConteudo && item.titulo.trim() && (
+                        <p className="text-body-md font-bold text-on-surface">{item.titulo.trim()}</p>
+                      )}
+
+                      {/* Mídia */}
+                      {item.video_url ? (
+                        <div className="aspect-video overflow-hidden rounded-xl bg-surface-container">
+                          <iframe src={item.video_url} title="Vídeo da campanha" className="h-full w-full border-0" />
+                        </div>
+                      ) : item.imagem_url ? (
+                        <img src={item.imagem_url} alt="" className="max-h-52 w-full rounded-xl border border-outline-variant/30 object-cover" />
+                      ) : null}
+
+                      {item.descricao && <p className="text-body-md text-on-surface-variant leading-relaxed">{item.descricao}</p>}
+
+                      {/* CTA */}
+                      {item.texto_botao && item.url_botao && (
+                        <a
+                          href={item.url_botao}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center justify-center gap-2 w-full rounded-xl bg-secondary py-3 text-label-md font-bold text-on-secondary hover:opacity-90 transition-opacity"
+                        >
+                          {item.texto_botao}
+                          <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                        </a>
+                      )}
                     </div>
-                  ) : campanha.imagem_url ? (
-                    <img src={campanha.imagem_url} alt="" className="max-h-52 w-full rounded-xl border border-outline-variant/30 object-cover" />
-                  ) : null}
+                  ))}
 
-                  <p className="text-body-md text-on-surface-variant leading-relaxed">{campanha.descricao}</p>
-
-                  {/* CTA */}
-                  {campanha.texto_botao && campanha.url_botao && (
-                    <a
-                      href={campanha.url_botao}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center justify-center gap-2 w-full rounded-xl bg-secondary py-3 text-label-md font-bold text-on-secondary hover:opacity-90 transition-opacity"
-                    >
-                      {campanha.texto_botao}
-                      <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-                    </a>
+                  {usaSlidesConteudo && (
+                    <div className="flex items-center justify-between gap-3 border-t border-outline-variant/40 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => setIndiceConteudo(i => Math.max(0, i - 1))}
+                        disabled={indiceConteudoSeguro === 0}
+                        aria-label="Conteúdo anterior"
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition hover:bg-surface-container-high hover:text-on-surface disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                      </button>
+                      <span className="text-label-md font-bold text-outline">{indiceConteudoSeguro + 1} de {conteudosPreview.length}</span>
+                      <button
+                        type="button"
+                        onClick={() => setIndiceConteudo(i => Math.min(conteudosPreview.length - 1, i + 1))}
+                        disabled={indiceConteudoSeguro === conteudosPreview.length - 1}
+                        aria-label="Próximo conteúdo"
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition hover:bg-surface-container-high hover:text-on-surface disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                      </button>
+                    </div>
                   )}
 
                   {/* Feedback */}

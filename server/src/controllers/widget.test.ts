@@ -258,6 +258,33 @@ describe('ocultarTenantId — nunca deixa tenant_id vazar numa resposta pública
     assert.equal(saida.blocos[0].etapas[0].tour.titulo, 'Tour')
   })
 
+  // Cobre a correção do bug em que buscarCandidatas/buscarCampanha não
+  // incluíam `conteudos` (Etapa 2/3 de múltiplos conteúdos) — as rotas
+  // administrativas (controllers/campanhas.ts) já incluíam, mas as rotas
+  // públicas do widget não, então conteudoResolverItens (widget.js) sempre
+  // caía no fallback legado mesmo com itens reais persistidos. Mesmo
+  // tratamento de `destaques` (teste "objetos aninhados" acima) — nunca um
+  // mecanismo à parte dentro de ocultarTenantId.
+  test('remove tenant_id de cada item de campanha.conteudos, preservando ordem e campos', () => {
+    const entrada = {
+      id: 'c1',
+      tenant_id: 't1',
+      titulo: 'Campanha com múltiplos conteúdos',
+      conteudos: [
+        { id: 'ci1', tenant_id: 't1', campanha_id: 'c1', ordem: 1, titulo: 'Item 1' },
+        { id: 'ci2', tenant_id: 't1', campanha_id: 'c1', ordem: 2, titulo: 'Item 2' },
+      ],
+    }
+    const saida = ocultarTenantId(entrada)
+    assert.equal('tenant_id' in saida, false)
+    assert.equal(saida.conteudos.length, 2)
+    assert.equal(saida.conteudos.every((item: { tenant_id?: string }) => !('tenant_id' in item)), true)
+    assert.deepEqual(saida.conteudos.map((item: { ordem: number; titulo: string }) => ({ ordem: item.ordem, titulo: item.titulo })), [
+      { ordem: 1, titulo: 'Item 1' },
+      { ordem: 2, titulo: 'Item 2' },
+    ])
+  })
+
   test('preserva campos com nome parecido (tour_id, campanha_id) — só remove "tenant_id" exato', () => {
     const entrada = { id: 'e1', tour_id: 'tour1', campanha_id: null, tenant_id: 't1' }
     const saida = ocultarTenantId(entrada)
