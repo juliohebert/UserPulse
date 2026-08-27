@@ -11,6 +11,12 @@
     nota: null,
     observacao: '',
     confirmacaoMarcada: false,
+    // Etapa 5 — índice do item atual em SLIDES (modo_navegacao). Só existe
+    // no runtime da campanha aberta (nunca persistido em localStorage/
+    // servidor) — toda reabertura reseta pra 0 junto com nota/observacao/
+    // etc acima (ver os mesmos pontos de reset em doClose/init()/abertura
+    // de campanha). Sem efeito em SCROLL, que ignora este campo.
+    conteudoSlideIndex: 0,
     submitting: false,
     submitted: false,
     error: '',
@@ -238,6 +244,25 @@
       '.up-action{display:flex;width:100%;min-height:42px;align-items:center;justify-content:center;border:0;border-radius:12px;cursor:pointer;background:var(--up-primary, #6b38d4);color:#fff;text-decoration:none;font-size:12px;line-height:16px;font-weight:800;transition:opacity .15s ease,transform .15s ease}',
       '.up-action:hover{opacity:.92}',
       '.up-action:active{transform:scale(.98)}',
+      // Etapa 4 — múltiplos conteúdos, modo SCROLL. Mesmo gap (12px) e cor de
+      // borda (rgba(194,198,214,.45)) já usados em .up-body/.up-media acima —
+      // sem introduzir nenhum token novo. Com 1 único item (fallback legado
+      // ou campanha com só 1 conteúdo), .up-conteudo-item+.up-conteudo-item
+      // nunca casa (não há um segundo item), então o layout fica idêntico ao
+      // anterior (sem separador nem título extra — ver renderModal).
+      '.up-conteudo-item{display:flex;flex-direction:column;gap:12px}',
+      '.up-conteudo-item+.up-conteudo-item{padding-top:16px;border-top:1px solid rgba(194,198,214,.45)}',
+      '.up-conteudo-titulo{margin:0;color:#0b1c30;font-size:15px;line-height:20px;font-weight:800}',
+      // Etapa 5 — controles SLIDES: discretos, mesmo padrão visual de
+      // .up-close (fundo transparente, hover #eff4ff) e mesma cor de texto
+      // secundário já usada em .up-tour-btn-text (#6b7180) — nenhum token
+      // novo. Sem swipe/teclado ainda (só os botões).
+      '.up-slides-nav{display:flex;align-items:center;justify-content:space-between;gap:8px}',
+      '.up-slide-btn{border:0;background:transparent;color:#0b1c30;padding:4px;border-radius:8px;cursor:pointer;line-height:0;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background-color .15s ease,opacity .15s ease}',
+      '.up-slide-btn svg{width:18px;height:18px;fill:currentColor;display:block}',
+      '.up-slide-btn:hover{background:#eff4ff}',
+      '.up-slide-btn:disabled{opacity:.3;cursor:not-allowed;background:transparent}',
+      '.up-slides-indicador{color:#6b7180;font-size:12px;font-weight:700}',
       '.up-scale{display:flex;gap:4px;width:100%}',
       '.up-score{flex:1;min-width:22px;height:34px;border-radius:8px;border:1px solid #c2c6d6;background:#fff;color:#424754;font-size:12px;font-weight:800;cursor:pointer;transition:background .15s ease,border-color .15s ease,color .15s ease,transform .15s ease}',
       '.up-score:hover{background:var(--up-primary-soft, #d8e2ff);border-color:var(--up-primary, #0058be);color:var(--up-primary, #0058be);transform:translateY(-1px)}',
@@ -1096,6 +1121,126 @@
     return '<div><div class="up-scale">' + buttons.join('') + '</div><div class="up-scale-labels"><span>Ruim</span><span>Excelente</span></div></div>';
   }
 
+  // ─── Etapa 3 — múltiplos conteúdos por campanha (fundação, sem mudança de
+  // render ainda) ──────────────────────────────────────────────────────────
+  // Mecanismo independente de destaqueElementoResolverItens acima (nunca
+  // misturar os dois): isto é o carrossel de conteúdo do próprio modal
+  // (Campanha.modo_navegacao SCROLL/SLIDES), não o destaque_elemento (badges
+  // sobre elementos da página). Funções puras — sem DOM/rede/localStorage,
+  // testáveis via vm puro (ver server/src/widgetCampanhaConteudos.test.ts).
+
+  var MODOS_NAVEGACAO_CAMPANHA = { SCROLL: true, SLIDES: true };
+
+  // SCROLL é o default/fallback pra qualquer valor ausente/desconhecido —
+  // nunca lança nem deixa a campanha sem modo de navegação. Nunca muta
+  // `campanha`.
+  function conteudoResolverModoNavegacao(campanha) {
+    var modo = campanha && typeof campanha.modo_navegacao === 'string' ? campanha.modo_navegacao : '';
+    return MODOS_NAVEGACAO_CAMPANHA[modo] ? modo : 'SCROLL';
+  }
+
+  // Etapa 6 — swipe horizontal em SLIDES. Threshold simples em pixels (não
+  // percentual da largura do modal, que muda por viewport) — 40px é
+  // deslocamento suficiente pra distinguir um swipe intencional de um toque
+  // acidental/trêmulo, mas pequeno o bastante pra não exigir um gesto
+  // exagerado. `|deltaX| > |deltaY|` garante que o gesto é PREDOMINANTEMENTE
+  // horizontal antes de sequer olhar o threshold — um scroll vertical normal
+  // (deltaY grande, deltaX pequeno) nunca é interpretado como swipe, mesmo
+  // que por acaso ultrapasse 40px de deriva horizontal. Função pura: só
+  // decide a DIREÇÃO a partir do deslocamento total (fim - início); quem
+  // chama (touchend, ver bindEvents) decide se pode de fato mover (limites
+  // primeiro/último) via conteudoMoverSlide — nunca decidido aqui.
+  var SWIPE_THRESHOLD_X = 40;
+
+  function conteudoResolverDirecaoSwipe(deltaX, deltaY) {
+    if (Math.abs(deltaX) < SWIPE_THRESHOLD_X) return null;
+    if (Math.abs(deltaX) <= Math.abs(deltaY)) return null;
+    return deltaX < 0 ? 'next' : 'prev';
+  }
+
+  // Resolve a lista de itens de conteúdo a exibir pra uma campanha. Mesmo
+  // raciocínio de destaqueElementoResolverItens: `conteudos` (Etapa 2, N
+  // itens independentes, já ordenados pelo backend) tem prioridade; sem
+  // nenhum item ali (campanha antiga que nunca teve `conteudos`, ou resposta
+  // em cache de antes dessa etapa existir), cai pro fallback legado — um
+  // único pseudo-item montado a partir dos campos antigos da própria
+  // Campanha. Nunca muta `campanha`; tolera campos ausentes/null (viram
+  // null/'' no pseudo-item, igual ao dado que já vinha do backend antes
+  // desta etapa).
+  function conteudoResolverItens(campanha) {
+    if (!campanha) return [];
+    if (Array.isArray(campanha.conteudos) && campanha.conteudos.length > 0) {
+      return campanha.conteudos;
+    }
+    return [{
+      id: null,
+      titulo: campanha.titulo,
+      descricao: campanha.descricao,
+      imagem_url: campanha.imagem_url || null,
+      video_url: campanha.video_url || null,
+      texto_botao: campanha.texto_botao || null,
+      url_botao: campanha.url_botao || null,
+    }];
+  }
+
+  // Corpo de UM item de conteúdo (mídia/título/descrição/CTA) — reaproveitado
+  // por conteudoRenderScroll (todos os itens) e conteudoRenderSlides (só o
+  // item atual). `mostrarTitulo` é decidido pelo caller: só true quando a
+  // campanha tem de fato mais de 1 conteúdo — com 1 único item (fallback
+  // legado ou campanha com só 1 conteúdo), o título nunca aparece aqui,
+  // porque já vem do cabeçalho geral (up-title em renderModal) — evita
+  // duplicar visualmente o mesmo título.
+  function conteudoRenderItemHtml(item, mostrarTitulo) {
+    var itemMedia = '';
+    if (item.video_url) {
+      itemMedia = '<div class="up-media" data-up-media="true"><iframe src="' + escapeHtml(item.video_url) + '" title="Video da campanha" tabindex="-1" loading="lazy" allowfullscreen></iframe></div>';
+    } else if (item.imagem_url) {
+      itemMedia = '<div class="up-media"><img src="' + escapeHtml(item.imagem_url) + '" alt=""></div>';
+    }
+    var itemTitulo = mostrarTitulo && item.titulo ? '<p class="up-conteudo-titulo">' + escapeHtml(item.titulo) + '</p>' : '';
+    var itemDescricao = item.descricao ? '<p class="up-description">' + escapeHtml(item.descricao) + '</p>' : '';
+    var itemAction = (item.texto_botao && item.url_botao)
+      ? '<button type="button" class="up-action" data-up-cta="true" data-up-url="' + escapeHtml(item.url_botao) + '">' + escapeHtml(item.texto_botao) + '</button>'
+      : '';
+    return itemTitulo + itemMedia + itemDescricao + itemAction;
+  }
+
+  // Renderiza os itens já resolvidos (ver conteudoResolverItens) no modo
+  // SCROLL — sequência vertical simples, sem nenhum controle de navegação.
+  // Função pura (só depende de `itens` + escapeHtml, nenhum estado do
+  // widget) pra ser testável direto, sem precisar montar um init() completo
+  // — ver server/src/widgetCampanhaConteudos.test.ts.
+  function conteudoRenderScroll(itens) {
+    var multiplosConteudos = itens.length > 1;
+    return itens.map(function (item) {
+      return '<div class="up-conteudo-item">' + conteudoRenderItemHtml(item, multiplosConteudos) + '</div>';
+    }).join('');
+  }
+
+  // Etapa 5 — modo SLIDES: mostra só 1 item por vez (o de `indiceAtual`),
+  // com anterior/próximo + indicador "X de N". Com 1 único item (ou menos),
+  // cai pra conteudoRenderScroll — nunca ganha controles de navegação pra
+  // um carrossel de 1 item só, mesma regra de compatibilidade documentada
+  // acima. Função pura: `indiceAtual` é sempre clampado aqui (defesa extra,
+  // nunca deixa estourar os limites do array mesmo com um índice inválido).
+  // Swipe/touch e teclado ficam pra uma etapa futura (só os botões
+  // anterior/próximo funcionam por enquanto, ver bindEvents).
+  function conteudoRenderSlides(itens, indiceAtual) {
+    if (itens.length <= 1) return conteudoRenderScroll(itens);
+    var total = itens.length;
+    var indice = Math.max(0, Math.min(Number(indiceAtual) || 0, total - 1));
+    var item = itens[indice];
+    var corpo = '<div class="up-conteudo-item">' + conteudoRenderItemHtml(item, true) + '</div>';
+    var nav = [
+      '<div class="up-slides-nav">',
+      '<button type="button" class="up-slide-btn" data-up-slide-prev="true" aria-label="Conteúdo anterior"' + (indice === 0 ? ' disabled' : '') + '>' + icon('arrow_back') + '</button>',
+      '<span class="up-slides-indicador">' + (indice + 1) + ' de ' + total + '</span>',
+      '<button type="button" class="up-slide-btn" data-up-slide-next="true" aria-label="Próximo conteúdo"' + (indice === total - 1 ? ' disabled' : '') + '>' + icon('arrow_forward') + '</button>',
+      '</div>',
+    ].join('');
+    return corpo + nav;
+  }
+
   function renderModal(animate) {
     var campanha = state.campanha;
     if (!state.open) return '';
@@ -1137,20 +1282,19 @@
     }
 
     var question = campanha.pergunta_feedback || 'Como podemos melhorar?';
-    var description = campanha.descricao || '';
-    var media = '';
-    var action = '';
     var feedback = '';
 
-    if (campanha.video_url) {
-      media = '<div class="up-media" data-up-media="true"><iframe src="' + escapeHtml(campanha.video_url) + '" title="Video da campanha" tabindex="-1" loading="lazy" allowfullscreen></iframe></div>';
-    } else if (campanha.imagem_url) {
-      media = '<div class="up-media"><img src="' + escapeHtml(campanha.imagem_url) + '" alt=""></div>';
-    }
-
-    if (campanha.texto_botao && campanha.url_botao) {
-      action = '<button type="button" class="up-action" data-up-cta="true" data-up-url="' + escapeHtml(campanha.url_botao) + '">' + escapeHtml(campanha.texto_botao) + '</button>';
-    }
+    // Etapa 4/5 — múltiplos conteúdos. conteudoResolverItens cobre o
+    // fallback pra campanha antiga sem `conteudos` (1 pseudo-item com os
+    // campos legados); conteudoResolverModoNavegacao decide SCROLL/SLIDES
+    // (SLIDES com <=1 item cai pra SCROLL dentro de conteudoRenderSlides —
+    // nunca ganha controles de navegação à toa). state.conteudoSlideIndex só
+    // é lido aqui (nunca escrito por renderModal) — quem avança/volta é o
+    // clique em [data-up-slide-prev]/[data-up-slide-next], ver bindEvents.
+    var itensConteudo = conteudoResolverItens(campanha);
+    var conteudos = conteudoResolverModoNavegacao(campanha) === 'SLIDES'
+      ? conteudoRenderSlides(itensConteudo, state.conteudoSlideIndex)
+      : conteudoRenderScroll(itensConteudo);
 
     if (campanha.exige_confirmacao_leitura) {
       feedback = [
@@ -1185,9 +1329,7 @@
       '</div>',
       '<div class="up-body">',
       campanha.subtitulo ? '<p class="up-subtitle">' + escapeHtml(campanha.subtitulo) + '</p>' : '',
-      media,
-      description ? '<p class="up-description">' + escapeHtml(description) + '</p>' : '',
-      action,
+      conteudos,
       feedback,
       '</div>',
       '</div>',
@@ -2464,6 +2606,7 @@
     state.nota = null;
     state.observacao = '';
     state.confirmacaoMarcada = false;
+    state.conteudoSlideIndex = 0;
     state.error = '';
     render();
   }
@@ -2479,15 +2622,67 @@
     }, delayMs != null ? delayMs : AUTO_CLOSE_MS);
   }
 
+  // Etapa 6 — mesma atualização de state.conteudoSlideIndex usada pelos
+  // botões anterior/próximo E pelo swipe (touchend, ver bindEvents) — um
+  // único ponto de decisão de limites (nunca deixa o índice sair de
+  // [0, total-1]), nunca dispara render() nem muda o índice quando já está
+  // na borda. Retorna se de fato moveu (não usado hoje, mas evita duplicar
+  // a checagem de limite no caller).
+  function conteudoMoverSlide(delta) {
+    var total = conteudoResolverItens(state.campanha).length;
+    var novoIndice = state.conteudoSlideIndex + delta;
+    if (novoIndice < 0 || novoIndice >= total) return false;
+    state.conteudoSlideIndex = novoIndice;
+    render();
+    return true;
+  }
+
   function bindEvents() {
     if (!state.root) return;
+
+    // Etapa 6 — swipe horizontal em SLIDES. Só touchstart/touchend (sem
+    // touchmove): dá pra decidir a direção só com o ponto inicial e final do
+    // gesto, sem precisar rastrear o movimento inteiro. Nunca chama
+    // preventDefault em nenhum dos dois — o scroll vertical nativo de
+    // .up-body (overflow-y:auto) continua funcionando normalmente durante
+    // qualquer toque, mesmo um que acabe virando swipe; só o `click`
+    // sintetizado depois é que já era prevenido/interrompido antes desta
+    // etapa (ver stopPropagation abaixo, comportamento inalterado). Estado
+    // do gesto vive em variáveis de módulo (não em `state`) — são só
+    // coordenadas transitórias de UM toque em andamento, nunca lidas fora
+    // daqui.
+    var swipeAtivo = false;
+    var swipeStartX = 0;
+    var swipeStartY = 0;
 
     // Impede que eventos de ponteiro dentro do widget propaguem para a página hospedeira.
     state.root.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
     state.root.addEventListener('mousedown',   function (e) { e.stopPropagation(); });
     state.root.addEventListener('mouseup',     function (e) { e.stopPropagation(); });
-    state.root.addEventListener('touchstart',  function (e) { e.stopPropagation(); });
-    state.root.addEventListener('touchend',    function (e) { e.stopPropagation(); });
+    state.root.addEventListener('touchstart', function (e) {
+      e.stopPropagation();
+      if (e.touches && e.touches.length === 1) {
+        swipeAtivo = true;
+        swipeStartX = e.touches[0].clientX;
+        swipeStartY = e.touches[0].clientY;
+      } else {
+        swipeAtivo = false;
+      }
+    });
+    state.root.addEventListener('touchend', function (e) {
+      e.stopPropagation();
+      if (!swipeAtivo) return;
+      swipeAtivo = false;
+      // Swipe só conta em SLIDES com mais de 1 item — mesma regra de
+      // compatibilidade dos botões/indicador (conteudoRenderSlides).
+      if (conteudoResolverModoNavegacao(state.campanha) !== 'SLIDES') return;
+      if (conteudoResolverItens(state.campanha).length <= 1) return;
+      var touch = e.changedTouches && e.changedTouches[0];
+      if (!touch) return;
+      var direcao = conteudoResolverDirecaoSwipe(touch.clientX - swipeStartX, touch.clientY - swipeStartY);
+      if (direcao === 'next') conteudoMoverSlide(1);
+      else if (direcao === 'prev') conteudoMoverSlide(-1);
+    });
     state.root.addEventListener('wheel',       function (e) { e.stopPropagation(); });
 
     // O body já está com overflow:hidden enquanto a modal está aberta, mas como fallback:
@@ -2521,6 +2716,27 @@
         event.preventDefault();
         event.stopPropagation();
         doClose();
+        return;
+      }
+
+      // Etapa 5/6 — navegação SLIDES (só troca o índice local, nunca
+      // persistido — ver comentário de state.conteudoSlideIndex).
+      // conteudoMoverSlide já cuida do clamp de limites (mesma função usada
+      // pelo swipe, ver bindEvents acima) — um clique disparado num botão
+      // que já deveria estar `disabled` (ex.: harness de teste que não
+      // respeita o atributo) nunca estoura os limites nem gera nenhum
+      // evento/analytics (fora de escopo desta etapa).
+      if (target.closest('[data-up-slide-prev]')) {
+        event.preventDefault();
+        event.stopPropagation();
+        conteudoMoverSlide(-1);
+        return;
+      }
+
+      if (target.closest('[data-up-slide-next]')) {
+        event.preventDefault();
+        event.stopPropagation();
+        conteudoMoverSlide(1);
         return;
       }
 
@@ -3065,6 +3281,7 @@
     state.nota = null;
     state.observacao = '';
     state.confirmacaoMarcada = false;
+    state.conteudoSlideIndex = 0;
     state.submitting = false;
     state.submitted = false;
     state.error = '';
@@ -3320,6 +3537,7 @@
           state.nota = null;
           state.observacao = '';
           state.confirmacaoMarcada = false;
+          state.conteudoSlideIndex = 0;
           state.submitting = false;
           state.submitted = false;
           state.error = '';
@@ -3379,6 +3597,7 @@
           state.nota = null;
           state.observacao = '';
           state.confirmacaoMarcada = false;
+          state.conteudoSlideIndex = 0;
           state.submitting = false;
           state.submitted = false;
           state.error = '';
@@ -3468,6 +3687,7 @@
           state.nota = null;
           state.observacao = '';
           state.confirmacaoMarcada = false;
+          state.conteudoSlideIndex = 0;
           state.submitting = false;
           state.submitted = false;
           state.error = '';
@@ -10849,6 +11069,14 @@
     // clique real no badge/CTA/fechar num harness de teste (vm), sem expor
     // destaqueElementoInstancias inteiro.
     destaqueElementoResolverItens: destaqueElementoResolverItens,
+    // Etapa 3 — múltiplos conteúdos por campanha (fundação): funções puras,
+    // mecanismo independente de destaqueElementoResolverItens acima. Ver
+    // server/src/widgetCampanhaConteudos.test.ts.
+    conteudoResolverItens: conteudoResolverItens,
+    conteudoResolverModoNavegacao: conteudoResolverModoNavegacao,
+    conteudoRenderScroll: conteudoRenderScroll,
+    conteudoRenderSlides: conteudoRenderSlides,
+    conteudoResolverDirecaoSwipe: conteudoResolverDirecaoSwipe,
     destaqueElementoMontar: destaqueElementoMontar,
     destaqueElementoMontarTodos: destaqueElementoMontarTodos,
     destaqueElementoGetTestClickListener: destaqueElementoGetTestClickListener,

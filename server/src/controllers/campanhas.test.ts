@@ -21,8 +21,15 @@ import {
   validarIdsReordenacao,
   calcularPrioridadesReordenadas,
   normalizarDominio,
+  validarModoNavegacao,
+  validarConteudos,
+  validarOwnershipConteudos,
+  sincronizarConteudos,
+  paraCriacaoConteudoItem,
+  paraAtualizacaoConteudoItem,
   type CampanhaGrupoInput,
   type DestaqueItemInput,
+  type ConteudoItemInput,
 } from './campanhas'
 
 // Fase 1 de adoção — "Destaque em elemento" (ver CLAUDE.md). Só funções
@@ -327,6 +334,205 @@ describe('paraCriacaoDestaqueItem', () => {
   test('ativo default true quando não informado; respeita false explícito', () => {
     assert.equal(paraCriacaoDestaqueItem({ data_cy: 'x', titulo: 'T' }, 't1', 1).ativo, true)
     assert.equal(paraCriacaoDestaqueItem({ data_cy: 'x', titulo: 'T', ativo: false }, 't1', 1).ativo, false)
+  })
+})
+
+// Etapa 2 — múltiplos conteúdos por campanha (Campanha.modo_navegacao +
+// CampanhaConteudoItem). Mecanismo independente de destaques/
+// CampanhaDestaqueItem acima — só funções puras aqui (sem Prisma/DB), mesmo
+// limite documentado no resto desta suíte.
+describe('validarModoNavegacao', () => {
+  test('SCROLL e SLIDES são válidos', () => {
+    assert.equal(validarModoNavegacao('SCROLL'), null)
+    assert.equal(validarModoNavegacao('SLIDES'), null)
+  })
+
+  test('qualquer outro valor é inválido', () => {
+    assert.notEqual(validarModoNavegacao('CARROSSEL'), null)
+    assert.notEqual(validarModoNavegacao(''), null)
+    assert.notEqual(validarModoNavegacao('scroll'), null)
+  })
+})
+
+describe('validarConteudos', () => {
+  const item = (over: Partial<ConteudoItemInput> = {}): ConteudoItemInput => ({
+    titulo: 'Título', descricao: 'Descrição do conteúdo.', ...over,
+  })
+
+  test('não-array -> inválido', () => {
+    assert.notEqual(validarConteudos(undefined).erro, null)
+    assert.notEqual(validarConteudos(null).erro, null)
+    assert.notEqual(validarConteudos('conteudo').erro, null)
+  })
+
+  test('0 itens -> inválido (mínimo 1)', () => {
+    const { erro, lista } = validarConteudos([])
+    assert.notEqual(erro, null)
+    assert.match(erro as string, /entre 1 e 10/i)
+    assert.deepEqual(lista, [])
+  })
+
+  test('11 itens -> inválido (máximo 10)', () => {
+    const onze = Array.from({ length: 11 }, () => item())
+    const { erro } = validarConteudos(onze)
+    assert.notEqual(erro, null)
+    assert.match(erro as string, /entre 1 e 10/i)
+  })
+
+  test('10 itens -> válido (limite máximo permitido)', () => {
+    const dez = Array.from({ length: 10 }, () => item())
+    const { erro, lista } = validarConteudos(dez)
+    assert.equal(erro, null)
+    assert.equal(lista.length, 10)
+  })
+
+  test('1 item válido -> ok', () => {
+    const { erro, lista } = validarConteudos([item()])
+    assert.equal(erro, null)
+    assert.equal(lista.length, 1)
+  })
+
+  test('título ausente/vazio -> inválido', () => {
+    assert.notEqual(validarConteudos([item({ titulo: '' })]).erro, null)
+    assert.notEqual(validarConteudos([item({ titulo: undefined })]).erro, null)
+  })
+
+  test('descrição ausente/vazia -> inválido', () => {
+    assert.notEqual(validarConteudos([item({ descricao: '' })]).erro, null)
+    assert.notEqual(validarConteudos([item({ descricao: undefined })]).erro, null)
+  })
+
+  test('sem imagem nem vídeo -> válido (mídia é opcional, mesma regra dos campos legados)', () => {
+    const { erro } = validarConteudos([item()])
+    assert.equal(erro, null)
+  })
+
+  test('só imagem, ou só vídeo -> válido', () => {
+    assert.equal(validarConteudos([item({ imagem_url: 'https://x.com/a.png' })]).erro, null)
+    assert.equal(validarConteudos([item({ video_url: 'https://x.com/a.mp4' })]).erro, null)
+  })
+
+  test('imagem E vídeo juntos -> inválido', () => {
+    const { erro } = validarConteudos([item({ imagem_url: 'https://x.com/a.png', video_url: 'https://x.com/a.mp4' })])
+    assert.notEqual(erro, null)
+    assert.match(erro as string, /nunca os dois/i)
+  })
+
+  test('texto_botao e url_botao ausentes juntos -> válido (CTA opcional)', () => {
+    assert.equal(validarConteudos([item({ texto_botao: undefined, url_botao: undefined })]).erro, null)
+  })
+
+  test('texto_botao e url_botao presentes juntos -> válido', () => {
+    assert.equal(validarConteudos([item({ texto_botao: 'Saiba mais', url_botao: 'https://x.com' })]).erro, null)
+  })
+
+  test('texto_botao sem url_botao (ou vice-versa) -> inválido', () => {
+    assert.notEqual(validarConteudos([item({ texto_botao: 'Saiba mais', url_botao: undefined })]).erro, null)
+    assert.notEqual(validarConteudos([item({ texto_botao: undefined, url_botao: 'https://x.com' })]).erro, null)
+  })
+
+  test('item não-objeto (string/número/array solto na lista) -> inválido', () => {
+    assert.notEqual(validarConteudos(['x']).erro, null)
+    assert.notEqual(validarConteudos([123]).erro, null)
+    assert.notEqual(validarConteudos([[1, 2]]).erro, null)
+  })
+
+  test('erro aponta o índice 1-based do item inválido', () => {
+    const { erro } = validarConteudos([item(), item({ titulo: '' })])
+    assert.match(erro as string, /Conteúdo 2/)
+  })
+
+  test('id ausente é válido (item novo, vira CREATE); id string não-vazia é preservado', () => {
+    assert.equal(validarConteudos([item()]).lista[0].id, undefined)
+    assert.equal(validarConteudos([item({ id: 'item-123' })]).lista[0].id, 'item-123')
+  })
+
+  test('id vazio/não-string -> inválido', () => {
+    assert.notEqual(validarConteudos([item({ id: '' })]).erro, null)
+    assert.notEqual(validarConteudos([item({ id: 123 })]).erro, null)
+  })
+})
+
+describe('validarOwnershipConteudos', () => {
+  const item = (over: Partial<ConteudoItemInput> = {}): ConteudoItemInput => ({
+    titulo: 'Título', descricao: 'Descrição.', ...over,
+  })
+
+  test('lista sem nenhum id -> sempre ok, mesmo com idsExistentes vazio (caso de criar())', () => {
+    assert.equal(validarOwnershipConteudos([], [item(), item()]), null)
+  })
+
+  test('id presente em idsExistentes -> ok', () => {
+    assert.equal(validarOwnershipConteudos(['id-a', 'id-b'], [item({ id: 'id-a' })]), null)
+  })
+
+  test('id que não pertence à campanha atual -> rejeitado', () => {
+    const erro = validarOwnershipConteudos(['id-a'], [item({ id: 'id-de-outra-campanha' })])
+    assert.notEqual(erro, null)
+    assert.match(erro as string, /não pertence/)
+  })
+
+  test('em criar() (idsExistentes=[]), qualquer id enviado é rejeitado', () => {
+    assert.notEqual(validarOwnershipConteudos([], [item({ id: 'id-emprestado' })]), null)
+  })
+})
+
+describe('sincronizarConteudos', () => {
+  const item = (over: Partial<ConteudoItemInput> = {}): ConteudoItemInput => ({
+    titulo: 'Título', descricao: 'Descrição.', ...over,
+  })
+
+  test('todos os itens sem id -> tudo vai para paraCriar, nada para atualizar/remover', () => {
+    const r = sincronizarConteudos([], [item(), item()])
+    assert.equal(r.paraCriar.length, 2)
+    assert.equal(r.paraAtualizar.length, 0)
+    assert.equal(r.idsParaRemover.length, 0)
+  })
+
+  test('item com id reconhecido -> paraAtualizar, preservando o id e a nova ordem (reordenação)', () => {
+    const r = sincronizarConteudos(['id-a', 'id-b'], [item({ id: 'id-b' }), item({ id: 'id-a' })])
+    assert.deepEqual(r.paraAtualizar.map(x => x.id), ['id-b', 'id-a'])
+    assert.deepEqual(r.paraAtualizar.map(x => x.ordem), [1, 2])
+    assert.equal(r.idsParaRemover.length, 0)
+  })
+
+  test('id existente que não veio na nova lista -> idsParaRemover', () => {
+    const r = sincronizarConteudos(['id-a', 'id-b'], [item({ id: 'id-a' })])
+    assert.deepEqual(r.idsParaRemover, ['id-b'])
+  })
+
+  test('mistura: mantém um, remove outro, cria um novo', () => {
+    const r = sincronizarConteudos(['id-a', 'id-b'], [item({ id: 'id-a' }), item()])
+    assert.deepEqual(r.paraAtualizar.map(x => x.id), ['id-a'])
+    assert.equal(r.paraCriar.length, 1)
+    assert.deepEqual(r.idsParaRemover, ['id-b'])
+  })
+})
+
+describe('paraCriacaoConteudoItem / paraAtualizacaoConteudoItem', () => {
+  test('paraCriacaoConteudoItem usa o tenantId e a ordem passados por parâmetro, nunca o que vier no item', () => {
+    const itemMalicioso = { titulo: 'T', descricao: 'D', tenant_id: 'tenant-invasor', campanha_id: 'campanha-de-outro' } as ConteudoItemInput
+    const resultado = paraCriacaoConteudoItem(itemMalicioso, 'tenant-correto', 3)
+    assert.equal(resultado.tenant_id, 'tenant-correto')
+    assert.equal(resultado.ordem, 3)
+    assert.equal('campanha_id' in resultado, false)
+  })
+
+  test('paraAtualizacaoConteudoItem não inclui tenant_id nem id', () => {
+    const resultado = paraAtualizacaoConteudoItem({ id: 'id-1', titulo: 'T', descricao: 'D' }, 2) as Record<string, unknown>
+    assert.equal('tenant_id' in resultado, false)
+    assert.equal('id' in resultado, false)
+    assert.equal(resultado.ordem, 2)
+  })
+
+  test('faz trim nos textos e normaliza campos opcionais ausentes para null', () => {
+    const resultado = paraCriacaoConteudoItem({ titulo: '  Título  ', descricao: '  Descrição  ' }, 't1', 1)
+    assert.equal(resultado.titulo, 'Título')
+    assert.equal(resultado.descricao, 'Descrição')
+    assert.equal(resultado.imagem_url, null)
+    assert.equal(resultado.video_url, null)
+    assert.equal(resultado.texto_botao, null)
+    assert.equal(resultado.url_botao, null)
   })
 })
 

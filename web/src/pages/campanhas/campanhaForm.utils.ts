@@ -35,6 +35,34 @@ export interface DestaqueFormItem {
   url_botao: string
 }
 
+// Etapa 7 — múltiplos conteúdos por campanha (carrossel SCROLL/SLIDES do
+// próprio modal, ver web/public/widget.js conteudoResolverItens/Render*).
+// Mecanismo independente de DestaqueFormItem acima (destaque_elemento nunca
+// usa isto, e vice-versa) — espelha CampanhaConteudoItem (server/prisma/
+// schema.prisma) sem tenant_id/campanha_id (ordem é a posição no array).
+// Mesmo raciocínio de `id`/`chave_local` de DestaqueFormItem: item já salvo
+// preserva `id` (permite o backend fazer UPDATE por identidade em vez de
+// delete+recreate); item novo (adicionado no form) nunca tem `id` -> CREATE.
+export interface ConteudoFormItem {
+  id?: string
+  chave_local?: string
+  titulo: string
+  descricao: string
+  // Mutuamente exclusivos (nunca os dois preenchidos ao mesmo tempo — mesma
+  // regra de validarConteudos no backend). A UI edita os dois através de um
+  // único campo de link (ver aplicarLinkMidiaConteudo em CampanhaForm.tsx),
+  // que decide qual dos dois preencher a partir de pareceUrlVideo — mesmo
+  // padrão já usado pelo campo de mídia único (aplicarLinkMidia).
+  imagem_url: string
+  video_url: string
+  cta_habilitado: boolean
+  texto_botao: string
+  url_botao: string
+}
+
+export const MODOS_NAVEGACAO_CONTEUDO = ['SCROLL', 'SLIDES'] as const
+export type ModoNavegacaoConteudo = typeof MODOS_NAVEGACAO_CONTEUDO[number]
+
 // `status` de propósito NÃO é um campo de FormState (Fase 2 dos 3 status) —
 // o builder nunca decide status por um checkbox solto: criação sempre nasce
 // RASCUNHO (decidido só pelo backend, ver criar() em
@@ -95,6 +123,15 @@ export interface FormState {
   // continuam existindo no schema/payload como espelho do primeiro item (ver
   // montarPayloadCampanha e o comentário em server/src/controllers/campanhas.ts).
   destaques: DestaqueFormItem[]
+  // Etapa 7 — relevantes só fora de FORMATO_DESTAQUE_ELEMENTO (destaque_
+  // elemento nunca usa carrossel de conteúdo). Campos legados acima
+  // (titulo/descricao/imagem_url/video_url/texto_botao/url_botao) nunca são
+  // apagados/sobrescritos por causa de `conteudos` — as duas estruturas são
+  // independentes no payload (ver montarPayloadCampanha); o widget é quem
+  // decide qual usar (conteudos[] tem prioridade, campos legados são só
+  // fallback — ver conteudoResolverItens em widget.js).
+  modo_navegacao: ModoNavegacaoConteudo
+  conteudos: ConteudoFormItem[]
 }
 
 export type FormatoExibicao = 'modal_automatica' | 'destaque_elemento'
@@ -144,6 +181,19 @@ export const formInicial: FormState = {
   segmentar_estados: [],
   segmentar_dominios: [],
   destaques: [],
+  modo_navegacao: 'SCROLL',
+  // Sempre nasce com 1 item (regra de mínimo 1 conteúdo) — seedado a partir
+  // dos próprios campos legados acima, mesmo raciocínio do backfill de
+  // hidratarFormState abaixo pra campanha existente sem `conteudos`.
+  conteudos: [{
+    titulo: 'Novidade no produto',
+    descricao: 'Conte para o usuário o que mudou, por que isso importa e qual é o próximo passo.',
+    imagem_url: '',
+    video_url: '',
+    cta_habilitado: true,
+    texto_botao: 'Saiba mais',
+    url_botao: '',
+  }],
 }
 
 export function normalizarUrl(valor: string): string {
@@ -321,6 +371,33 @@ export function hidratarFormState(c: Campanha): FormState {
             url_botao: c.url_botao ?? '',
           }]
         : [],
+    // Etapa 7 — mesmo raciocínio de fallback de `destaques` acima
+    // (conteudoResolverItens em widget.js): conteudos[] tem prioridade;
+    // sem nenhum item (campanha antiga que nunca teve `conteudos`, ou
+    // resposta de um endpoint que não inclui a relação), inicializa o editor
+    // com 1 pseudo-item a partir dos campos legados — nunca apaga/altera
+    // esses campos, só espelha pra dar um ponto de partida editável.
+    modo_navegacao: c.modo_navegacao === 'SLIDES' ? 'SLIDES' : 'SCROLL',
+    conteudos: c.conteudos && c.conteudos.length > 0
+      ? c.conteudos.map(item => ({
+          id: item.id,
+          titulo: item.titulo,
+          descricao: item.descricao,
+          imagem_url: item.imagem_url ?? '',
+          video_url: item.video_url ?? '',
+          cta_habilitado: Boolean(item.texto_botao || item.url_botao),
+          texto_botao: item.texto_botao ?? '',
+          url_botao: item.url_botao ?? '',
+        }))
+      : [{
+          titulo: c.titulo,
+          descricao: c.descricao,
+          imagem_url: c.imagem_url ?? '',
+          video_url: c.video_url ?? '',
+          cta_habilitado: Boolean(c.texto_botao || c.url_botao),
+          texto_botao: c.texto_botao ?? '',
+          url_botao: c.url_botao ?? '',
+        }],
   }
 }
 
@@ -424,5 +501,48 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
         url_botao: item.cta_habilitado ? (normalizarUrl(item.url_botao) || null) : null,
       })),
     }),
+    // Etapa 7 — múltiplos conteúdos (independente do bloco de destaques
+    // acima). Fora de FORMATO_DESTAQUE_ELEMENTO só: destaque_elemento já tem
+    // seu próprio mecanismo de N itens (destaques) e nunca renderiza
+    // conteudos[] no widget — mandar aqui só criaria linhas órfãs no banco.
+    ...(form.modo_exibicao !== FORMATO_DESTAQUE_ELEMENTO && {
+      modo_navegacao: form.modo_navegacao,
+      conteudos: form.conteudos.map(item => ({
+        // Mesmo raciocínio de destaques acima: preserva o id de itens já
+        // existentes -> UPDATE; item novo (sem id) -> CREATE.
+        ...(item.id && { id: item.id }),
+        titulo: item.titulo.trim(),
+        descricao: item.descricao.trim(),
+        imagem_url: normalizarUrl(item.imagem_url) || null,
+        video_url: converterVideoEmbed(item.video_url) || null,
+        texto_botao: item.cta_habilitado ? (item.texto_botao.trim() || null) : null,
+        url_botao: item.cta_habilitado ? (normalizarUrl(item.url_botao) || null) : null,
+      })),
+    }),
   }
+}
+
+// ─── Etapa 8 — resolução de conteúdos pros previews (React) ────────────────
+// Helper único e pequeno, reaproveitado pelos dois previews da campanha
+// (PreviewCampanhaModal em CampanhaForm.tsx, que trabalha com FormState
+// ainda não salvo; CampanhaPreview em Preview.tsx, que trabalha com a
+// Campanha já persistida) — mesma regra de fallback já usada no backend
+// (conteudoResolverItens em server/src/controllers/campanhas.ts, embora lá
+// a decisão seja "tem linha na relação?") e no widget (conteudoResolverItens
+// em web/public/widget.js): `conteudos` tem prioridade; vazio cai pro
+// pseudo-item legado. Cada preview normaliza sua própria fonte (FormState ou
+// Campanha) pra este formato antes de chamar — o helper em si não conhece
+// nenhum dos dois tipos, só decide qual lista usar.
+export interface ConteudoPreviewItem {
+  id?: string
+  titulo: string
+  descricao: string
+  imagem_url: string
+  video_url: string
+  texto_botao: string
+  url_botao: string
+}
+
+export function resolverConteudosPreview(conteudos: ConteudoPreviewItem[], legado: ConteudoPreviewItem): ConteudoPreviewItem[] {
+  return conteudos.length > 0 ? conteudos : [legado]
 }

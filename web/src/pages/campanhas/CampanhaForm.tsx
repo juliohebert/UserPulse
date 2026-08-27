@@ -15,7 +15,7 @@ import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../compo
 import { criarResolvedorIdDestaque, urlHttpValida } from '../../components/campanhas/DestaqueElementoSimulacao.logic'
 import { ReordenarPrioridade } from './ReordenarPrioridade'
 import { chaveGrupoConcorrente } from './grupoConcorrente'
-import type { DestaqueFormItem, FormState, FormatoExibicao, ModoSegmentacao, TipoDestino } from './campanhaForm.utils'
+import type { ConteudoFormItem, DestaqueFormItem, FormState, FormatoExibicao, ModoNavegacaoConteudo, ModoSegmentacao, TipoDestino } from './campanhaForm.utils'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
   TIPOS_CAMPANHA,
@@ -26,6 +26,7 @@ import {
   resolverModoSegmentacao,
   hidratarFormState,
   montarPayloadCampanha,
+  resolverConteudosPreview,
   getStatus,
 } from './campanhaForm.utils'
 
@@ -236,7 +237,11 @@ function CampoDominiosDock({ catalogo, value, onChange, onGerenciarSistemas }: {
   onGerenciarSistemas?: () => void
 }) {
   const foraDoCatalogo = value.filter(v => !catalogo.includes(v))
-  const opcoes = [...catalogo, ...foraDoCatalogo]
+  // Dedupe defensivo — Sistema.dominios (catálogo, editado como texto livre
+  // separado por vírgula em Sistemas.tsx) pode ter uma entrada duplicada por
+  // engano. `value`/segmentação continuam intocados — isto só evita repetir a
+  // MESMA opção na lista exibida.
+  const opcoes = Array.from(new Set([...catalogo, ...foraDoCatalogo]))
 
   function alternar(dominio: string) {
     onChange(value.includes(dominio) ? value.filter(v => v !== dominio) : [...value, dominio])
@@ -261,18 +266,24 @@ function CampoDominiosDock({ catalogo, value, onChange, onGerenciarSistemas }: {
   }
 
   return (
-    <CampoWrapperDock label="Domínios permitidos" hint="Vazio = todos os domínios cadastrados no sistema.">
+    <CampoWrapperDock label="Domínios permitidos" hint="Nenhum selecionado = todos os domínios cadastrados no sistema.">
       <div className="flex flex-wrap gap-2">
-        {opcoes.map(dominio => (
-          <label
-            key={dominio}
-            className={`inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold leading-4 ${value.includes(dominio) ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#ced0d4] bg-white text-[#1c1e21]'}`}
-          >
-            <input type="checkbox" checked={value.includes(dominio)} onChange={() => alternar(dominio)} className="h-3.5 w-3.5 accent-[#0064e0]" />
-            {dominio}
-            {!catalogo.includes(dominio) && <span className="text-[11px] font-normal text-[#8595a4]">(fora do catálogo atual)</span>}
-          </label>
-        ))}
+        {opcoes.map(dominio => {
+          const selecionado = value.includes(dominio)
+          return (
+            <button
+              key={dominio}
+              type="button"
+              aria-pressed={selecionado}
+              onClick={() => alternar(dominio)}
+              className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold leading-4 transition-colors ${selecionado ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be] hover:bg-[#e2ecff]' : 'border-[#ced0d4] bg-white text-[#1c1e21] hover:bg-[#f2f3f5]'}`}
+            >
+              {selecionado && <IconeCheck />}
+              {dominio}
+              {!catalogo.includes(dominio) && <span className="text-[11px] font-normal text-[#8595a4]">(fora do catálogo atual)</span>}
+            </button>
+          )
+        })}
       </div>
     </CampoWrapperDock>
   )
@@ -280,11 +291,19 @@ function CampoDominiosDock({ catalogo, value, onChange, onGerenciarSistemas }: {
 
 function CampoWrapperDock({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <label className="block">
+    <div className="block">
       <span className="mb-1.5 block text-[13px] font-bold leading-4 text-[#1c1e21]">{label}</span>
       {children}
       {hint && <span className="mt-2 block text-[12px] leading-4 text-[#8595a4]">{hint}</span>}
-    </label>
+    </div>
+  )
+}
+
+function IconeCheck() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 shrink-0">
+      <path d="M3 8.5l3 3 7-7.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 
@@ -406,7 +425,11 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
   )
 }
 
-function DockLateral({ secao, form, catalogoTelas, sistemasConfig, temSistemas, salvando, editando, temGrupoConcorrente, setCampo, setSecao, onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview, onDefinirPrioridade }: {
+function DockLateral({
+  secao, form, catalogoTelas, sistemasConfig, temSistemas, salvando, editando, temGrupoConcorrente, setCampo, setSecao,
+  onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview, onDefinirPrioridade,
+  conteudoAtivo, onSelecionarConteudo, conteudosMax, adicionarConteudo, removerConteudo, moverConteudo, selecionarModoNavegacao, camposConteudo, resolverIdConteudo,
+}: {
   secao: SecaoDock
   form: FormState
   catalogoTelas: TelaCatalogo[]
@@ -430,6 +453,20 @@ function DockLateral({ secao, form, catalogoTelas, sistemasConfig, temSistemas, 
   onLimpar: () => void
   onPreview: () => void
   onDefinirPrioridade: () => void
+  // Etapa 9 — estado/handlers de `conteudos` levantados pra CampanhaFormIndex
+  // (antes viviam só aqui): CardEditavel (o Preview editável) também precisa
+  // do MESMO índice ativo e das mesmas mutações, pra Preview e dock nunca
+  // divergirem sobre "qual conteúdo está selecionado" nem duplicarem estado
+  // (ver comentário em CampanhaFormIndex).
+  conteudoAtivo: number | null
+  onSelecionarConteudo: (indice: number | null) => void
+  conteudosMax: number
+  adicionarConteudo: () => void
+  removerConteudo: (indice: number) => void
+  moverConteudo: (indice: number, direcao: -1 | 1) => void
+  selecionarModoNavegacao: (modo: ModoNavegacaoConteudo) => void
+  camposConteudo: (indice: number) => ReactNode
+  resolverIdConteudo: (item: ConteudoFormItem) => string
 }) {
   // Inicializado a partir do form já hidratado (DockLateral só monta depois
   // que carregandoCampanha vira false — ver early return em Index) em vez
@@ -472,14 +509,18 @@ function DockLateral({ secao, form, catalogoTelas, sistemasConfig, temSistemas, 
   function atualizarDestaque<K extends keyof DestaqueFormItem>(indice: number, campo: K, valor: DestaqueFormItem[K]) {
     setCampo('destaques', form.destaques.map((item, i) => (i === indice ? { ...item, [campo]: valor } : item)))
   }
+
   // Destaque em elemento não tem feedback/confirmação nesta fase (fora de
   // escopo — ver comentário em selecionarFormatoExibicao) — a aba some em
   // vez de mostrar opções que não fazem sentido pro formato.
+  // Ordem das abas (fluxo natural: o que mostrar -> onde mostrar -> pra quem
+  // mostrar -> que resposta coletar) — só a ORDEM de exibição/navegação, sem
+  // mudar conteúdo, validação, estado ou payload de nenhuma etapa.
   const secoes: Array<{ id: SecaoDock; label: string }> = [
-    { id: 'destino', label: 'Destino' },
-    ...(formatoExibicao === FORMATO_DESTAQUE_ELEMENTO ? [] : [{ id: 'feedback' as const, label: 'Feedback' }]),
     { id: 'exibicao', label: 'Exibição' },
+    { id: 'destino', label: 'Destino' },
     { id: 'segmentacao', label: 'Segmentação' },
+    ...(formatoExibicao === FORMATO_DESTAQUE_ELEMENTO ? [] : [{ id: 'feedback' as const, label: 'Feedback' }]),
   ]
 
   const sistemaSelecionado = form.sistema.trim()
@@ -838,7 +879,7 @@ function DockLateral({ secao, form, catalogoTelas, sistemasConfig, temSistemas, 
             </div>
           </div>
 
-          {formatoExibicao === FORMATO_DESTAQUE_ELEMENTO && (
+          {formatoExibicao === FORMATO_DESTAQUE_ELEMENTO ? (
             <div className="space-y-3 rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-[14px] font-bold text-[#0a1317]">Destaques da campanha</span>
@@ -932,6 +973,84 @@ function DockLateral({ secao, form, catalogoTelas, sistemasConfig, temSistemas, 
               })}
 
               <p className="text-[11px] font-semibold leading-4 text-[#8595a4]">O usuário sempre pode dispensar cada destaque — não é possível torná-lo obrigatório.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3">
+              <div>
+                <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Modo de navegação</span>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {[
+                    { id: 'SCROLL' as ModoNavegacaoConteudo, icon: 'view_agenda', titulo: 'Sequência (SCROLL)', desc: 'Os conteúdos aparecem em sequência vertical, um abaixo do outro.' },
+                    { id: 'SLIDES' as ModoNavegacaoConteudo, icon: 'view_carousel', titulo: 'Slides', desc: 'O usuário navega com anterior/próximo (e arrastando no celular).' },
+                  ].map(opcao => (
+                    <button
+                      key={opcao.id}
+                      type="button"
+                      onClick={() => selecionarModoNavegacao(opcao.id)}
+                      className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${form.modo_navegacao === opcao.id ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
+                    >
+                      <span className={`material-symbols-outlined mt-0.5 text-[20px] ${form.modo_navegacao === opcao.id ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
+                      <span className="min-w-0">
+                        <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
+                        <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">{opcao.desc}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-[#eef1f5] pt-3">
+                <span className="text-[14px] font-bold text-[#0a1317]">Conteúdos da campanha</span>
+                <button
+                  type="button"
+                  onClick={adicionarConteudo}
+                  disabled={form.conteudos.length >= conteudosMax}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#0064e0] px-3 py-1.5 text-[12px] font-bold text-white transition hover:bg-[#0457cb] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <span className="material-symbols-outlined text-[16px]">add</span>
+                  Adicionar conteúdo
+                </button>
+              </div>
+
+              {form.conteudos.map((item, indice) => {
+                const expandido = conteudoAtivo === indice
+                return (
+                  <div key={item.id ?? resolverIdConteudo(item)} className="rounded-xl border border-[#dee3e9] bg-white p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onSelecionarConteudo(expandido ? null : indice)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <p className="truncate text-[13px] font-bold text-[#1c1e21]">{item.titulo.trim() || `Conteúdo ${indice + 1}`}</p>
+                        <p className="truncate text-[11px] font-semibold text-[#8595a4]">Conteúdo {indice + 1} de {form.conteudos.length}</p>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button type="button" onClick={() => moverConteudo(indice, -1)} disabled={indice === 0} title="Subir" aria-label="Subir conteúdo" className="flex h-7 w-7 items-center justify-center rounded-lg text-[#5d6c7b] transition hover:bg-[#f1f4f7] disabled:cursor-not-allowed disabled:opacity-30">
+                          <span className="material-symbols-outlined text-[18px]">arrow_upward</span>
+                        </button>
+                        <button type="button" onClick={() => moverConteudo(indice, 1)} disabled={indice === form.conteudos.length - 1} title="Descer" aria-label="Descer conteúdo" className="flex h-7 w-7 items-center justify-center rounded-lg text-[#5d6c7b] transition hover:bg-[#f1f4f7] disabled:cursor-not-allowed disabled:opacity-30">
+                          <span className="material-symbols-outlined text-[18px]">arrow_downward</span>
+                        </button>
+                        <button type="button" onClick={() => onSelecionarConteudo(expandido ? null : indice)} title="Editar" aria-label="Editar conteúdo" className="flex h-7 w-7 items-center justify-center rounded-lg text-[#5d6c7b] transition hover:bg-[#f1f4f7]">
+                          <span className="material-symbols-outlined text-[18px]">edit</span>
+                        </button>
+                        <button type="button" onClick={() => removerConteudo(indice)} disabled={form.conteudos.length <= 1} title="Remover" aria-label="Remover conteúdo" className="flex h-7 w-7 items-center justify-center rounded-lg text-[#e41e3f] transition hover:bg-[#fdecef] disabled:cursor-not-allowed disabled:opacity-30">
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {expandido && (
+                      <div className="mt-3 space-y-3 border-t border-[#eef1f5] pt-3">
+                        {camposConteudo(indice)}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              <p className="text-[11px] font-semibold leading-4 text-[#8595a4]">Cada bloco é um conteúdo/melhoria mostrado ao usuário — mínimo 1, máximo {conteudosMax}.</p>
             </div>
           )}
 
@@ -1232,12 +1351,14 @@ function DestaqueElementoCard({ form, sistemas, sistemaPadraoIdentificador, apar
   )
 }
 
-function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, embedUrl, mostrarMidia, mediaPosition, arrastandoMidia, setCampo, onDragStartMedia, onMostrarMidia, onRemoverMidia, onMoverMidia, onFecharPreview, onGerenciarSistemas, modo = 'construtor' }: {
+function CardEditavel({
+  form, sistemas, sistemaPadraoIdentificador, aparencia, mostrarMidia, mediaPosition, arrastandoMidia, setCampo, onDragStartMedia, onMostrarMidia, onRemoverMidia, onMoverMidia, onFecharPreview, onGerenciarSistemas, modo = 'construtor',
+  conteudoAtivo, onSelecionarConteudo, onAtualizarConteudo, onAplicarLinkMidiaConteudo,
+}: {
   form: FormState
   sistemas: string[]
   sistemaPadraoIdentificador?: string
   aparencia: AparenciaCard | null
-  embedUrl: string
   mostrarMidia: boolean
   mediaPosition: PosicaoMidia
   arrastandoMidia: boolean
@@ -1249,19 +1370,45 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
   onFecharPreview?: () => void
   onGerenciarSistemas?: () => void
   modo?: 'construtor' | 'preview'
+  // Etapa 9 — MESMO índice de conteúdo ativo do dock (ver CampanhaFormIndex/
+  // DockLateral), nunca um segundo estado independente. Título/subtítulo do
+  // cabeçalho continuam ligados a form.titulo/form.subtitulo (identidade da
+  // campanha, sempre global — mesma coisa que o widget renderiza uma única
+  // vez no up-title, ver widget.js); mídia/descrição/CTA do CORPO passam a
+  // ser sempre os do conteúdo ATIVO (form.conteudos[indiceAtivo]), nunca mais
+  // os campos legados soltos — únicafonte de verdade com o dock.
+  conteudoAtivo: number | null
+  onSelecionarConteudo: (indice: number) => void
+  onAtualizarConteudo: <K extends keyof ConteudoFormItem>(indice: number, campo: K, valor: ConteudoFormItem[K]) => void
+  onAplicarLinkMidiaConteudo: (indice: number, valor: string) => void
 }) {
   const preview = modo === 'preview'
-  const temVideo = Boolean(embedUrl)
-  const temImagem = Boolean(form.imagem_url.trim())
-  const ctaHabilitado = form.cta_habilitado
-  const textoCta = form.texto_botao.trim() || 'Saiba mais'
   const corAcao = corSistemaValida(aparencia?.cor_principal)
   const corSubtitulo = corTextoSistemaLegivel(corAcao)
   const iconeCampanha = iconeTipoCampanha(form.tipo)
   const midiaRef = useRef<HTMLDivElement>(null)
   const descricaoRef = useRef<HTMLTextAreaElement>(null)
+
+  // Índice ativo sempre um valor válido (clamp defensivo — nunca estoura os
+  // limites do array, mesmo que conteudoAtivo aponte pra um item já
+  // removido). form.conteudos tem sempre >= 1 item (ver formInicial/
+  // hidratarFormState), então itemAtivo nunca é undefined na prática.
+  const indiceAtivo = Math.min(conteudoAtivo ?? 0, Math.max(0, form.conteudos.length - 1))
+  // Fallback defensivo pro caso patológico de conteudos=[] (nunca deveria
+  // acontecer — formInicial/hidratarFormState sempre semeiam >= 1 item) —
+  // nunca deixa o corpo do card quebrar em runtime.
+  const itemAtivo = form.conteudos[indiceAtivo] ?? {
+    titulo: '', descricao: '', imagem_url: '', video_url: '', cta_habilitado: false, texto_botao: '', url_botao: '',
+  }
+  const multiConteudo = form.conteudos.length > 1
+  const modoSlides = form.modo_navegacao === 'SLIDES' && multiConteudo
+  const embedUrlAtivo = itemAtivo.video_url.trim() ? converterVideoEmbed(itemAtivo.video_url) : ''
+  const temVideo = Boolean(embedUrlAtivo)
+  const temImagem = Boolean(itemAtivo.imagem_url.trim())
+  const ctaHabilitado = itemAtivo.cta_habilitado
+  const textoCta = itemAtivo.texto_botao.trim() || 'Saiba mais'
   const [editandoMidia, setEditandoMidia] = useState(false)
-  const [linkMidiaInline, setLinkMidiaInline] = useState(form.video_url || form.imagem_url)
+  const [linkMidiaInline, setLinkMidiaInline] = useState(itemAtivo.video_url || itemAtivo.imagem_url)
   const [notaFeedbackPreview, setNotaFeedbackPreview] = useState<number | null>(null)
   const [observacaoFeedbackPreview, setObservacaoFeedbackPreview] = useState('')
   const [confirmadoConstrutor, setConfirmadoConstrutor] = useState(false)
@@ -1270,32 +1417,29 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
 
   useEffect(() => {
     if (editandoMidia) return
-    setLinkMidiaInline(form.video_url || form.imagem_url)
-  }, [editandoMidia, form.video_url, form.imagem_url])
+    setLinkMidiaInline(itemAtivo.video_url || itemAtivo.imagem_url)
+  }, [editandoMidia, itemAtivo.video_url, itemAtivo.imagem_url])
+
+  // Trocar o conteúdo ativo (navegação SLIDES, clique num bloco em SCROLL ou
+  // seleção pelo dock) sempre sai do modo de edição de mídia/link do item
+  // anterior — o próximo useEffect acima já resincroniza linkMidiaInline pro
+  // novo item ativo. Mesmo raciocínio de "estado único parametrizado pelo
+  // ativo": nunca duplica editandoMidia/editandoLinkCta por item.
+  useEffect(() => {
+    setEditandoMidia(false)
+    setEditandoLinkCta(false)
+  }, [indiceAtivo])
 
   useEffect(() => {
     const textarea = descricaoRef.current
     if (!textarea) return
     textarea.style.height = 'auto'
     textarea.style.height = `${textarea.scrollHeight}px`
-  }, [form.descricao])
+  }, [itemAtivo.descricao])
 
   function aplicarLinkMidia(valor: string) {
-    const link = valor.trim()
     setLinkMidiaInline(valor)
-    if (!link) {
-      setCampo('video_url', '')
-      setCampo('imagem_url', '')
-      return
-    }
-    const deveSerVideo = pareceUrlVideo(link)
-    if (deveSerVideo) {
-      setCampo('video_url', link)
-      setCampo('imagem_url', '')
-    } else {
-      setCampo('imagem_url', link)
-      setCampo('video_url', '')
-    }
+    onAplicarLinkMidiaConteudo(indiceAtivo, valor)
   }
 
   function simularEnvioConstrutor() {
@@ -1313,7 +1457,61 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
   }
 
   function alternarCta() {
-    setCampo('cta_habilitado', !ctaHabilitado)
+    onAtualizarConteudo(indiceAtivo, 'cta_habilitado', !ctaHabilitado)
+  }
+
+  // Etapa 9 — representação estática/clicável de um conteúdo QUE NÃO é o
+  // ativo, usada só em SCROLL com 2+ itens (SLIDES nunca mostra outros
+  // itens). Clicar torna o item ativo — a partir daí ele passa a usar a
+  // MESMA edição rica de sempre (blocoMidia/blocoDescricao/blocoCta acima,
+  // já ligados a itemAtivo). Nunca duplica o estado de edição (editandoMidia
+  // etc.) — este bloco nunca entra em modo de edição, só exibe.
+  // Card-resumo compacto (linha única, altura fixa) — nunca a mídia/
+  // descrição em tamanho real (isso é só do item ATIVO, ver blocoMidia/
+  // blocoDescricao/blocoCta acima). Miniatura fixa (imagem real, ícone de
+  // vídeo, ou ícone genérico quando não há mídia — nunca uma área vazia
+  // grande), trecho truncado de 1 linha da descrição, badge do CTA (nunca o
+  // botão em tamanho real) e um ícone de lápis só pra deixar claro que o
+  // bloco é clicável/editável.
+  function renderItemEstatico(indice: number) {
+    const item = form.conteudos[indice]
+    const temVideoItem = Boolean(item.video_url.trim())
+    const temImagemItem = Boolean(item.imagem_url.trim())
+    const temCtaItem = Boolean(item.cta_habilitado && item.texto_botao.trim() && item.url_botao.trim())
+    const tituloItem = item.titulo.trim() || `Conteúdo ${indice + 1}`
+    const descricaoItem = item.descricao.trim()
+    return (
+      <button
+        type="button"
+        onClick={() => onSelecionarConteudo(indice)}
+        aria-label={`Editar conteúdo ${indice + 1}`}
+        title="Clique para editar este conteúdo"
+        className="flex w-full items-center gap-3 rounded-xl border border-outline-variant/50 p-3 text-left transition hover:border-primary/50 hover:bg-surface-container-low/50"
+      >
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container text-outline">
+          {temImagemItem ? (
+            <img src={item.imagem_url} alt="" className="h-full w-full object-cover" />
+          ) : temVideoItem ? (
+            <span className="material-symbols-outlined text-[22px]">play_circle</span>
+          ) : (
+            <span className="material-symbols-outlined text-[22px]">notes</span>
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-body-md font-bold text-on-surface">{tituloItem}</span>
+          <span className={`block truncate text-body-sm ${descricaoItem ? 'text-on-surface-variant' : 'italic text-outline'}`}>
+            {descricaoItem || 'Sem descrição'}
+          </span>
+          {temCtaItem && (
+            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-label-sm font-bold text-primary">
+              <span className="material-symbols-outlined text-[12px]">link</span>
+              {item.texto_botao.trim()}
+            </span>
+          )}
+        </span>
+        <span className="material-symbols-outlined shrink-0 text-[18px] text-outline">edit</span>
+      </button>
+    )
   }
 
   function permitirSoltarMidia(event: DragEvent<HTMLElement>) {
@@ -1400,9 +1598,9 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
       <div className="relative aspect-video overflow-visible rounded-3xl border border-dashed border-[#ced0d4] bg-[#f1f4f7] transition hover:border-[#0064e0] focus-within:border-[#0064e0]">
         <div className="h-full overflow-hidden rounded-3xl">
           {temVideo && !editandoMidia ? (
-            <iframe src={embedUrl} title="Vídeo da campanha" className="pointer-events-none h-full w-full" allowFullScreen />
+            <iframe src={embedUrlAtivo} title="Vídeo da campanha" className="pointer-events-none h-full w-full" allowFullScreen />
           ) : temImagem && !editandoMidia ? (
-            <img src={form.imagem_url} alt="" className="h-full w-full object-cover" />
+            <img src={itemAtivo.imagem_url} alt="" className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full flex-col items-center justify-center px-6 py-6 text-center text-[#5d6c7b]">
               <div className="w-full max-w-[360px] rounded-2xl border border-[#dee3e9] bg-white p-4">
@@ -1434,7 +1632,7 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
         {!preview && (temVideo || temImagem) && !editandoMidia && (
           <button
             type="button"
-            onClick={() => { setLinkMidiaInline(form.video_url || form.imagem_url); setEditandoMidia(true) }}
+            onClick={() => { setLinkMidiaInline(itemAtivo.video_url || itemAtivo.imagem_url); setEditandoMidia(true) }}
             className="absolute left-3 top-3 z-10 rounded-full border border-[#ced0d4] bg-white/95 px-3 py-1.5 text-[12px] font-semibold text-[#1c1e21] opacity-0 transition hover:border-[#0064e0] hover:text-[#0064e0] focus:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
           >
             Editar
@@ -1447,13 +1645,13 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
 
   const blocoDescricao = preview ? (
     <p className="m-0 whitespace-pre-wrap text-body-md leading-snug text-on-surface-variant">
-      {form.descricao || 'Descrição da campanha.'}
+      {itemAtivo.descricao || 'Descrição da campanha.'}
     </p>
   ) : (
     <textarea
       ref={descricaoRef}
-      value={form.descricao}
-      onChange={e => setCampo('descricao', e.target.value)}
+      value={itemAtivo.descricao}
+      onChange={e => onAtualizarConteudo(indiceAtivo, 'descricao', e.target.value)}
       required
       rows={1}
       aria-label="Descrição da campanha"
@@ -1527,18 +1725,27 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
         ) : (
           <div style={{ backgroundColor: corAcao }} className="flex min-h-[42px] flex-1 items-center rounded-lg px-4 py-2 text-white transition hover:opacity-90">
             <input
-              value={form.texto_botao}
-              onChange={e => setCampo('texto_botao', e.target.value)}
-              onBlur={() => { if (!form.texto_botao.trim()) setCampo('texto_botao', 'Saiba mais') }}
+              value={itemAtivo.texto_botao}
+              onChange={e => onAtualizarConteudo(indiceAtivo, 'texto_botao', e.target.value)}
+              onBlur={() => { if (!itemAtivo.texto_botao.trim()) onAtualizarConteudo(indiceAtivo, 'texto_botao', 'Saiba mais') }}
               aria-label="Texto do CTA"
               placeholder={textoCta}
               className="w-full border-0 bg-transparent p-0 text-center text-label-md font-bold text-inherit outline-none placeholder:text-current placeholder:opacity-80 focus:ring-0"
             />
           </div>
         )) : !preview ? (
-          <div className="flex min-h-[42px] flex-1 items-center justify-center rounded-lg border border-dashed border-outline-variant bg-surface-container-low px-4 py-2 text-[12px] font-semibold text-outline">
-            CTA desabilitado
-          </div>
+          // Etapa 10 — ação discreta pra habilitar o CTA do conteúdo ATIVO
+          // direto pelo Preview (mesmo alternarCta/itemAtivo de sempre — já
+          // opera sobre form.conteudos[indiceAtivo], então SCROLL e SLIDES
+          // se comportam igual, e trocar de conteúdo nunca afeta outro item).
+          <button
+            type="button"
+            onClick={alternarCta}
+            className="flex min-h-[42px] flex-1 items-center justify-center gap-1 rounded-lg border border-dashed border-outline-variant bg-surface-container-low px-4 py-2 text-[12px] font-semibold text-outline transition hover:border-primary hover:text-primary"
+          >
+            <span className="material-symbols-outlined text-[16px]">add</span>
+            Adicionar botão de ação
+          </button>
         ) : null}
         {!preview && ctaHabilitado && (
           <button
@@ -1546,7 +1753,7 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
             onClick={() => setEditandoLinkCta(prev => !prev)}
             aria-label="Editar link do CTA"
             title="Editar link do CTA"
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${form.url_botao.trim() ? 'border-primary bg-primary text-on-primary' : 'border-outline-variant bg-surface-container-lowest text-outline hover:border-primary hover:text-primary'}`}
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition ${itemAtivo.url_botao.trim() ? 'border-primary bg-primary text-on-primary' : 'border-outline-variant bg-surface-container-lowest text-outline hover:border-primary hover:text-primary'}`}
           >
             <span className="material-symbols-outlined text-[20px]">link</span>
           </button>
@@ -1571,8 +1778,8 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
       )}
       {!preview && ctaHabilitado && (editandoLinkCta ? (
         <input
-          value={form.url_botao}
-          onChange={e => setCampo('url_botao', e.target.value)}
+          value={itemAtivo.url_botao}
+          onChange={e => onAtualizarConteudo(indiceAtivo, 'url_botao', e.target.value)}
           autoFocus
           aria-label="Link do CTA"
           placeholder="https://..."
@@ -1652,10 +1859,61 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
               className="w-full truncate border-0 bg-transparent p-0 text-label-md font-bold outline-none placeholder:text-outline focus:ring-0"
             />
           )}
+          {/* Etapa 9 — SCROLL com 2+ conteúdos: itens antes do ativo aparecem
+              estáticos/clicáveis (renderItemEstatico), na mesma ordem de
+              sempre. SLIDES nunca mostra outros itens (só o ativo). */}
+          {multiConteudo && !modoSlides && form.conteudos.slice(0, indiceAtivo).map((_, i) => (
+            <div key={form.conteudos[i].id ?? `conteudo-preview-${i}`}>{renderItemEstatico(i)}</div>
+          ))}
+
+          {multiConteudo && (
+            preview ? (
+              itemAtivo.titulo.trim() && <p className="m-0 text-body-md font-bold text-on-surface">{itemAtivo.titulo.trim()}</p>
+            ) : (
+              <input
+                value={itemAtivo.titulo}
+                onChange={e => onAtualizarConteudo(indiceAtivo, 'titulo', e.target.value)}
+                aria-label={`Título do conteúdo ${indiceAtivo + 1}`}
+                placeholder={`Título do conteúdo ${indiceAtivo + 1}`}
+                className="w-full border-0 bg-transparent p-0 text-body-md font-bold text-on-surface outline-none placeholder:text-outline focus:ring-0"
+              />
+            )
+          )}
           {mostrarMidia ? (mediaPosition === 'topo' ? blocoMidia : pontoMidia('topo')) : (mediaPosition === 'topo' ? pontoMidia('topo') : null)}
           {blocoDescricao}
           {mostrarMidia ? (mediaPosition === 'antes_cta' ? blocoMidia : pontoMidia('antes_cta')) : (mediaPosition === 'antes_cta' ? pontoMidia('antes_cta') : null)}
           {blocoCta}
+
+          {multiConteudo && !modoSlides && form.conteudos.slice(indiceAtivo + 1).map((_, i) => (
+            <div key={form.conteudos[indiceAtivo + 1 + i].id ?? `conteudo-preview-${indiceAtivo + 1 + i}`}>{renderItemEstatico(indiceAtivo + 1 + i)}</div>
+          ))}
+
+          {/* SLIDES com 2+ conteúdos: só o ativo aparece, com
+              anterior/próximo + indicador "X de N" (sem swipe no Preview,
+              mesma decisão da Etapa 8). */}
+          {modoSlides && (
+            <div className="flex items-center justify-between gap-3 border-t border-outline-variant/40 pt-3">
+              <button
+                type="button"
+                onClick={() => onSelecionarConteudo(Math.max(0, indiceAtivo - 1))}
+                disabled={indiceAtivo === 0}
+                aria-label="Conteúdo anterior"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-outline transition hover:bg-surface-container-high hover:text-on-surface disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+              </button>
+              <span className="text-label-md font-bold text-outline">{indiceAtivo + 1} de {form.conteudos.length}</span>
+              <button
+                type="button"
+                onClick={() => onSelecionarConteudo(Math.min(form.conteudos.length - 1, indiceAtivo + 1))}
+                disabled={indiceAtivo === form.conteudos.length - 1}
+                aria-label="Próximo conteúdo"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-outline transition hover:bg-surface-container-high hover:text-on-surface disabled:cursor-not-allowed disabled:opacity-30"
+              >
+                <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+              </button>
+            </div>
+          )}
           {form.exige_confirmacao_leitura ? (
             <div className="border-t border-outline-variant/40 pt-3">
               {mensagemSimulacao && (
@@ -1696,10 +1954,9 @@ function CardEditavel({ form, sistemas, sistemaPadraoIdentificador, aparencia, e
   )
 }
 
-function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
+function PreviewCampanhaModal({ form, aparencia, onClose }: {
   form: FormState
   aparencia: AparenciaCard | null
-  embedUrl: string
   onClose: () => void
 }) {
   const [nota, setNota] = useState<number | null>(null)
@@ -1708,6 +1965,10 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
   const [erro, setErro] = useState('')
   const [enviado, setEnviado] = useState(false)
   const [indicePreviewDestaque, setIndicePreviewDestaque] = useState(0)
+  // Etapa 8 — índice do conteúdo atual em SLIDES, só nesta sessão de preview
+  // (nunca persistido — mesmo raciocínio de state.conteudoSlideIndex no
+  // widget). Sempre começa em 0 (primeiro conteúdo).
+  const [indicePreviewConteudo, setIndicePreviewConteudo] = useState(0)
   const resolverIdDestaque = useRef(criarResolvedorIdDestaque()).current
   const corAcao = corSistemaValida(aparencia?.cor_principal)
   const pergunta = form.pergunta_feedback.trim() || 'Como podemos melhorar?'
@@ -1715,9 +1976,37 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
   const titulo = form.titulo.trim() || 'Título da campanha'
   const iconeCampanha = iconeTipoCampanha(form.tipo)
   const subtitulo = form.subtitulo.trim()
-  const imagemUrl = form.imagem_url.trim()
-  const temCta = Boolean(form.texto_botao.trim() && form.url_botao.trim())
   const feedbackHabilitado = form.feedback_habilitado !== false
+
+  // Etapa 8 — mesma resolução de fallback usada em CampanhaPreview
+  // (Preview.tsx), via resolverConteudosPreview: `form.conteudos` (inclusive
+  // alterações ainda não salvas, já que isto é o FormState em edição) tem
+  // prioridade; sem nenhum item, cai pro pseudo-item legado.
+  const conteudosPreview = resolverConteudosPreview(
+    form.conteudos.map(item => ({
+      id: item.id,
+      titulo: item.titulo,
+      descricao: item.descricao,
+      imagem_url: item.imagem_url,
+      video_url: item.video_url,
+      texto_botao: item.cta_habilitado ? item.texto_botao : '',
+      url_botao: item.cta_habilitado ? item.url_botao : '',
+    })),
+    {
+      titulo: form.titulo,
+      descricao: form.descricao,
+      imagem_url: form.imagem_url,
+      video_url: form.video_url,
+      texto_botao: form.cta_habilitado ? form.texto_botao : '',
+      url_botao: form.cta_habilitado ? form.url_botao : '',
+    }
+  )
+  // SLIDES só ganha controles com mais de 1 item — 1 único conteúdo (novo ou
+  // fallback legado) renderiza exatamente como o preview de sempre.
+  const usaSlidesPreview = form.modo_navegacao === 'SLIDES' && conteudosPreview.length > 1
+  const indiceConteudoSeguro = Math.min(indicePreviewConteudo, conteudosPreview.length - 1)
+  const itensConteudoExibidos = usaSlidesPreview ? [conteudosPreview[indiceConteudoSeguro]] : conteudosPreview
+  const mostrarTituloPorConteudo = conteudosPreview.length > 1
 
   function simularEnvio() {
     if (nota === null) return
@@ -1809,22 +2098,59 @@ function PreviewCampanhaModal({ form, aparencia, embedUrl, onClose }: {
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-5 pt-[18px]">
               {subtitulo && <p className="m-0 text-[13px] font-extrabold leading-[18px]" style={{ color: corAcao }}>{subtitulo}</p>}
 
-              {embedUrl ? (
-                <div className="relative h-0 w-full overflow-hidden rounded-xl border border-[rgba(194,198,214,.45)] bg-[#eff4ff] pb-[56.25%]">
-                  <iframe src={embedUrl} title="Vídeo da campanha" tabIndex={-1} loading="lazy" allowFullScreen className="absolute left-0 top-0 block h-full w-full border-0" />
-                </div>
-              ) : imagemUrl ? (
-                <div className="w-full overflow-hidden rounded-xl border border-[rgba(194,198,214,.45)] bg-[#eff4ff]">
-                  <img src={imagemUrl} alt="" className="block h-auto w-full object-contain" />
-                </div>
-              ) : null}
+              {itensConteudoExibidos.map((item, indice) => {
+                const itemEmbedUrl = item.video_url.trim() ? converterVideoEmbed(item.video_url) : ''
+                const itemImagemUrl = item.imagem_url.trim()
+                const itemDescricao = item.descricao.trim()
+                const itemTemCta = Boolean(item.texto_botao.trim() && item.url_botao.trim())
+                return (
+                  <div key={item.id ?? `conteudo-preview-${indice}`} className="space-y-3">
+                    {mostrarTituloPorConteudo && item.titulo.trim() && (
+                      <p className="m-0 text-[14px] font-extrabold leading-5 text-[#0b1c30]">{item.titulo.trim()}</p>
+                    )}
+                    {itemEmbedUrl ? (
+                      <div className="relative h-0 w-full overflow-hidden rounded-xl border border-[rgba(194,198,214,.45)] bg-[#eff4ff] pb-[56.25%]">
+                        <iframe src={itemEmbedUrl} title="Vídeo da campanha" tabIndex={-1} loading="lazy" allowFullScreen className="absolute left-0 top-0 block h-full w-full border-0" />
+                      </div>
+                    ) : itemImagemUrl ? (
+                      <div className="w-full overflow-hidden rounded-xl border border-[rgba(194,198,214,.45)] bg-[#eff4ff]">
+                        <img src={itemImagemUrl} alt="" className="block h-auto w-full object-contain" />
+                      </div>
+                    ) : null}
 
-              {descricao && <p className="m-0 whitespace-pre-wrap text-[14px] leading-[21px] text-[#424754]">{descricao}</p>}
+                    {itemDescricao && <p className="m-0 whitespace-pre-wrap text-[14px] leading-[21px] text-[#424754]">{itemDescricao}</p>}
 
-              {temCta && (
-                <button type="button" style={{ backgroundColor: corAcao }} className="flex min-h-[42px] w-full items-center justify-center rounded-xl border-0 text-[12px] font-extrabold leading-4 text-white transition hover:opacity-90">
-                  {form.texto_botao.trim()}
-                </button>
+                    {itemTemCta && (
+                      <button type="button" style={{ backgroundColor: corAcao }} className="flex min-h-[42px] w-full items-center justify-center rounded-xl border-0 text-[12px] font-extrabold leading-4 text-white transition hover:opacity-90">
+                        {item.texto_botao.trim()}
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+
+              {usaSlidesPreview && (
+                <div className="flex items-center justify-between gap-3 border-t border-[rgba(194,198,214,.45)] pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setIndicePreviewConteudo(i => Math.max(0, i - 1))}
+                    disabled={indiceConteudoSeguro === 0}
+                    aria-label="Conteúdo anterior"
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-[#727785] transition hover:bg-[#eff4ff] hover:text-[#0b1c30] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">chevron_left</span>
+                  </button>
+                  <span className="text-[12px] font-bold text-[#727785]">{indiceConteudoSeguro + 1} de {conteudosPreview.length}</span>
+                  <button
+                    type="button"
+                    onClick={() => setIndicePreviewConteudo(i => Math.min(conteudosPreview.length - 1, i + 1))}
+                    disabled={indiceConteudoSeguro === conteudosPreview.length - 1}
+                    aria-label="Próximo conteúdo"
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-[#727785] transition hover:bg-[#eff4ff] hover:text-[#0b1c30] disabled:cursor-not-allowed disabled:opacity-30"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">chevron_right</span>
+                  </button>
+                </div>
               )}
 
               {form.exige_confirmacao_leitura ? (
@@ -1911,7 +2237,124 @@ export function CampanhaFormIndex() {
   const [formNovaTela, setFormNovaTela] = useState(TELA_CATALOGO_EMPTY_FORM)
   const [salvandoNovaTela, setSalvandoNovaTela] = useState(false)
   const [erroNovaTela, setErroNovaTela] = useState<string | null>(null)
-  const [secaoDock, setSecaoDock] = useState<SecaoDock>('destino')
+  // Etapa inicial (nova campanha e edição, sem deep-link pra etapa
+  // específica existente hoje) — acompanha a 1ª aba da ordem visual atual
+  // (ver `secoes` em DockLateral: Exibição -> Destino -> Segmentação ->
+  // Feedback).
+  const [secaoDock, setSecaoDock] = useState<SecaoDock>('exibicao')
+
+  // Etapa 9 — único índice de "conteúdo ativo", levantado pra este nível
+  // (antes vivia só dentro de DockLateral) justamente pra Preview
+  // (CardEditavel) e o dock nunca terem estados divergentes sobre "qual
+  // conteúdo está selecionado" — nunca duplicar em dois `useState` separados.
+  // Começa fechado/sem seleção (null): com 1 único conteúdo (caso mais
+  // comum), o card nasce resumido "Conteúdo 1 de 1" e o Preview edita o
+  // primeiro item sem forçar nenhuma seleção visível no dock.
+  const [conteudoAtivo, setConteudoAtivo] = useState<number | null>(null)
+  const resolverIdConteudo = useRef(criarResolvedorIdDestaque()).current
+  const CONTEUDOS_MAX = 10
+
+  function adicionarConteudo() {
+    if (form.conteudos.length >= CONTEUDOS_MAX) return
+    const novoIndice = form.conteudos.length
+    setCampo('conteudos', [...form.conteudos, {
+      titulo: '', descricao: '', imagem_url: '', video_url: '', cta_habilitado: false, texto_botao: '', url_botao: '',
+    }])
+    setConteudoAtivo(novoIndice)
+  }
+
+  function removerConteudo(indice: number) {
+    if (form.conteudos.length <= 1) return // sempre precisa de pelo menos 1
+    const novaLista = form.conteudos.filter((_, i) => i !== indice)
+    setCampo('conteudos', novaLista)
+    // Voltar a 1 único conteúdo normaliza modo_navegacao (SLIDES só faz
+    // sentido com 2+ itens) — o seletor continua visível, só o valor muda.
+    if (novaLista.length <= 1) setCampo('modo_navegacao', 'SCROLL')
+    setConteudoAtivo(prev => {
+      if (prev === null) return null
+      if (prev === indice) return Math.min(indice, novaLista.length - 1) // remover o ativo seleciona um item válido restante
+      return prev > indice ? prev - 1 : prev
+    })
+  }
+
+  function moverConteudo(indice: number, direcao: -1 | 1) {
+    const alvo = indice + direcao
+    if (alvo < 0 || alvo >= form.conteudos.length) return
+    const lista = form.conteudos.slice()
+    const temp = lista[indice]
+    lista[indice] = lista[alvo]
+    lista[alvo] = temp
+    setCampo('conteudos', lista)
+    setConteudoAtivo(prev => (prev === indice ? alvo : prev === alvo ? indice : prev))
+  }
+
+  function atualizarConteudo<K extends keyof ConteudoFormItem>(indice: number, campo: K, valor: ConteudoFormItem[K]) {
+    setCampo('conteudos', form.conteudos.map((item, i) => (i === indice ? { ...item, [campo]: valor } : item)))
+  }
+
+  // Mesmo raciocínio de aplicarLinkMidia (CardEditavel, campo único legado):
+  // um único campo de link decide se é imagem ou vídeo via pareceUrlVideo —
+  // nunca os dois preenchidos ao mesmo tempo (mesma regra do backend,
+  // validarConteudos). Precisa ser 1 setCampo só (não 2 chamadas de
+  // atualizarConteudo em sequência): duas chamadas leriam `form.conteudos`
+  // desatualizado entre si (state ainda não re-renderizado), perdendo a
+  // primeira mudança.
+  function aplicarLinkMidiaConteudo(indice: number, valor: string) {
+    const link = valor.trim()
+    const video = link && pareceUrlVideo(link) ? link : ''
+    const imagem = link && !video ? link : ''
+    setCampo('conteudos', form.conteudos.map((item, i) => (i === indice ? { ...item, video_url: video, imagem_url: imagem } : item)))
+  }
+
+  function selecionarModoNavegacao(modo: ModoNavegacaoConteudo) {
+    setCampo('modo_navegacao', modo)
+  }
+
+  // Campos de UM conteúdo (título/descrição/mídia/CTA) — usados só pelo dock
+  // (lista de cards); CardEditavel (Preview) tem sua PRÓPRIA renderização
+  // rica (mídia arrastável, editor de link do CTA etc.), não reaproveita
+  // isto. Função comum (JSX inline), NUNCA um componente React
+  // (`<CamposConteudo/>`): declará-la como componente criaria um tipo novo a
+  // cada render, remontando os inputs e perdendo o foco a cada tecla.
+  function camposConteudo(indice: number) {
+    const item = form.conteudos[indice]
+    if (!item) return null
+    return (
+      <>
+        <CampoDock label="Título" value={item.titulo} onChange={valor => atualizarConteudo(indice, 'titulo', valor)} placeholder="Título deste conteúdo" />
+        <label className="block">
+          <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Descrição</span>
+          <textarea
+            value={item.descricao}
+            onChange={event => atualizarConteudo(indice, 'descricao', event.target.value)}
+            rows={3}
+            placeholder="Descreva esta melhoria ou conteúdo para o usuário."
+            className="w-full rounded-lg border border-[#ced0d4] bg-white px-3 py-2 text-[14px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
+          />
+        </label>
+        <CampoDock
+          label="Imagem ou vídeo (link)"
+          value={item.video_url || item.imagem_url}
+          onChange={valor => aplicarLinkMidiaConteudo(indice, valor)}
+          placeholder="https://..."
+          hint="YouTube, Vimeo e Loom viram vídeo; outros links viram imagem. Nunca os dois ao mesmo tempo. Opcional."
+        />
+        <CampoBooleanoDock label="Mostrar botão de ação (CTA)" checked={item.cta_habilitado} onChange={valor => atualizarConteudo(indice, 'cta_habilitado', valor)} />
+        {item.cta_habilitado && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <CampoDock label="Texto do botão" value={item.texto_botao} onChange={valor => atualizarConteudo(indice, 'texto_botao', valor)} placeholder="Saiba mais" />
+            <CampoDock
+              label="Link do botão"
+              value={item.url_botao}
+              onChange={valor => atualizarConteudo(indice, 'url_botao', valor)}
+              placeholder="https://"
+              error={!urlHttpValida(item.url_botao) ? 'Informe uma URL válida iniciando com http:// ou https://.' : undefined}
+            />
+          </div>
+        )}
+      </>
+    )
+  }
 
   // Ações de status (Fase 2 dos 3 status) — fora do FormState de propósito
   // (ver comentário no topo de campanhaForm.ts: status nunca viaja no
@@ -1950,7 +2393,6 @@ export function CampanhaFormIndex() {
     return membros.length >= 2 ? { chave, campanhas: membros } : null
   }, [campanhaAtual, campanhasExistentes])
 
-  const embedUrl = useMemo(() => converterVideoEmbed(form.video_url), [form.video_url])
   const aparenciaAtual = useMemo(() => {
     const chave = form.sistema.trim()
     return (chave ? aparencias[chave] : null) ?? aparenciaDefault
@@ -2133,6 +2575,7 @@ export function CampanhaFormIndex() {
     setForm({ ...formInicial, sistema: sistemaPadrao?.identificador ?? '' })
     setMostrarMidia(true)
     setMediaPosition('topo')
+    setConteudoAtivo(null)
   }
 
   useEffect(() => {
@@ -2149,9 +2592,12 @@ export function CampanhaFormIndex() {
     }
   }, [catalogoTelas, form.data_cy, form.modo_identificacao, form.sistema, form.tela, form.url_contem])
 
+  // Etapa 9 — opera sobre o conteúdo ATIVO (form.conteudos[indiceAtivo]),
+  // nunca mais os campos legados soltos. Mesmo clamp defensivo de
+  // CardEditavel (nunca estoura os limites do array).
   function removerMidia() {
-    setCampo('video_url', '')
-    setCampo('imagem_url', '')
+    const indiceAtivo = Math.min(conteudoAtivo ?? 0, Math.max(0, form.conteudos.length - 1))
+    aplicarLinkMidiaConteudo(indiceAtivo, '')
     setMostrarMidia(false)
     setArrastandoMidia(false)
   }
@@ -2364,7 +2810,6 @@ export function CampanhaFormIndex() {
                 sistemas={sistemas}
                 sistemaPadraoIdentificador={sistemaPadraoIdentificador}
                 aparencia={aparenciaAtual}
-                embedUrl={embedUrl}
                 mostrarMidia={mostrarMidia}
                 mediaPosition={mediaPosition}
                 arrastandoMidia={arrastandoMidia}
@@ -2374,6 +2819,10 @@ export function CampanhaFormIndex() {
                 onRemoverMidia={removerMidia}
                 onMoverMidia={moverMidia}
                 onGerenciarSistemas={podeGerenciarConfiguracoes ? () => navigate('/configuracoes/sistemas') : undefined}
+                conteudoAtivo={conteudoAtivo}
+                onSelecionarConteudo={setConteudoAtivo}
+                onAtualizarConteudo={atualizarConteudo}
+                onAplicarLinkMidiaConteudo={aplicarLinkMidiaConteudo}
               />
             )}
           </div>
@@ -2397,6 +2846,15 @@ export function CampanhaFormIndex() {
           onLimpar={limparConstrutor}
           onPreview={() => setPreviewAberto(true)}
           onDefinirPrioridade={() => setReordenarAberto(true)}
+          conteudoAtivo={conteudoAtivo}
+          onSelecionarConteudo={setConteudoAtivo}
+          conteudosMax={CONTEUDOS_MAX}
+          adicionarConteudo={adicionarConteudo}
+          removerConteudo={removerConteudo}
+          moverConteudo={moverConteudo}
+          selecionarModoNavegacao={selecionarModoNavegacao}
+          camposConteudo={camposConteudo}
+          resolverIdConteudo={resolverIdConteudo}
         />
       </form>
 
@@ -2426,7 +2884,6 @@ export function CampanhaFormIndex() {
         <PreviewCampanhaModal
           form={form}
           aparencia={aparenciaAtual}
-          embedUrl={embedUrl}
           onClose={() => setPreviewAberto(false)}
         />
       )}

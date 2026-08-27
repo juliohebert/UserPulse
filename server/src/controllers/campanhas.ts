@@ -703,6 +703,148 @@ export function paraAtualizacaoDestaqueItem(item: DestaqueItemInput, ordem: numb
   return camposEditaveisDestaqueItem(item, ordem)
 }
 
+// ─── Múltiplos conteúdos por campanha (Etapa 2) ────────────────────────────
+// Mecanismo independente de `destaques`/CampanhaDestaqueItem acima (nunca
+// misturar os dois): isto é o carrossel de conteúdo do próprio modal
+// (Campanha.modo_navegacao SCROLL/SLIDES), não o destaque_elemento (badges
+// sobre elementos da página). Sem backfill nesta etapa — os campos legados
+// de Campanha (titulo/descricao/imagem_url/video_url/texto_botao/url_botao)
+// continuam existindo e servem de fallback pra qualquer campanha que ainda
+// não tenha nenhuma linha em `conteudos` (fallback fica a cargo do widget
+// numa etapa futura, não desta). `ativo` não existe em CampanhaConteudoItem
+// (decisão explícita da tarefa) — diferente de destaques, "remover" aqui é
+// DELETE de verdade, nunca soft-delete.
+const MODOS_NAVEGACAO_VALIDOS = new Set(['SCROLL', 'SLIDES'])
+
+export function validarModoNavegacao(modo: string): string | null {
+  if (!MODOS_NAVEGACAO_VALIDOS.has(modo)) {
+    return `modo_navegacao inválido. Valores aceitos: ${[...MODOS_NAVEGACAO_VALIDOS].join(', ')}.`
+  }
+  return null
+}
+
+const CONTEUDOS_MIN = 1
+const CONTEUDOS_MAX = 10
+
+export interface ConteudoItemInput {
+  id?: unknown
+  titulo?: unknown
+  descricao?: unknown
+  imagem_url?: unknown
+  video_url?: unknown
+  texto_botao?: unknown
+  url_botao?: unknown
+}
+
+// Mesmo padrão de validarDestaques acima: valida a lista inteira antes de
+// tocar no banco, devolve o primeiro erro encontrado (índice 1-based) e a
+// lista tipada. `ordem` nunca vem do cliente — é sempre a posição no array
+// (ver criar/atualizar), então reordenar é só reenviar a lista na nova
+// ordem. Só é chamada quando `conteudos` de fato veio no corpo (ver
+// criar()/atualizar()) — daí a regra de 1 a 10 itens valer sempre que esta
+// função roda, inclusive lista vazia.
+export function validarConteudos(conteudos: unknown): { erro: string | null; lista: ConteudoItemInput[] } {
+  if (!Array.isArray(conteudos)) {
+    return { erro: 'conteudos deve ser uma lista.', lista: [] }
+  }
+  if (conteudos.length < CONTEUDOS_MIN || conteudos.length > CONTEUDOS_MAX) {
+    return { erro: `Uma campanha deve ter entre ${CONTEUDOS_MIN} e ${CONTEUDOS_MAX} conteúdos.`, lista: [] }
+  }
+  for (const [i, itemBruto] of conteudos.entries()) {
+    if (!itemBruto || typeof itemBruto !== 'object' || Array.isArray(itemBruto)) {
+      return { erro: `Conteúdo ${i + 1}: dados inválidos.`, lista: [] }
+    }
+    const item = itemBruto as ConteudoItemInput
+    if (item.id !== undefined && (typeof item.id !== 'string' || !item.id.trim())) {
+      return { erro: `Conteúdo ${i + 1}: id inválido.`, lista: [] }
+    }
+    if (typeof item.titulo !== 'string' || !item.titulo.trim()) {
+      return { erro: `Conteúdo ${i + 1}: título é obrigatório.`, lista: [] }
+    }
+    if (typeof item.descricao !== 'string' || !item.descricao.trim()) {
+      return { erro: `Conteúdo ${i + 1}: descrição é obrigatória.`, lista: [] }
+    }
+    // Mídia opcional (mesma regra dos campos legados de Campanha, que também
+    // nunca exigem imagem_url/video_url) — só imagem E vídeo juntos é que
+    // nunca foi permitido.
+    const temImagem = typeof item.imagem_url === 'string' && item.imagem_url.trim() !== ''
+    const temVideo = typeof item.video_url === 'string' && item.video_url.trim() !== ''
+    if (temImagem && temVideo) {
+      return { erro: `Conteúdo ${i + 1}: informe imagem ou vídeo, nunca os dois.`, lista: [] }
+    }
+    // texto_botao/url_botao só fazem sentido juntos — um CTA sem link ou um
+    // link sem texto de botão nunca é uma combinação válida.
+    const temTextoBotao = typeof item.texto_botao === 'string' && item.texto_botao.trim() !== ''
+    const temUrlBotao = typeof item.url_botao === 'string' && item.url_botao.trim() !== ''
+    if (temTextoBotao !== temUrlBotao) {
+      return { erro: `Conteúdo ${i + 1}: texto_botao e url_botao devem ser preenchidos juntos ou deixados em branco.`, lista: [] }
+    }
+  }
+  return { erro: null, lista: conteudos as ConteudoItemInput[] }
+}
+
+// Mesmo raciocínio de validarOwnershipDestaques acima — idsExistentes sempre
+// vem de uma consulta já escopada por tenant_id + campanha_id.
+export function validarOwnershipConteudos(idsExistentes: string[], lista: ConteudoItemInput[]): string | null {
+  const validos = new Set(idsExistentes)
+  for (const [i, item] of lista.entries()) {
+    if (typeof item.id === 'string' && item.id && !validos.has(item.id)) {
+      return `Conteúdo ${i + 1}: item não pertence a esta campanha.`
+    }
+  }
+  return null
+}
+
+// Mesmo raciocínio de sincronizarDestaques acima (sincronização por
+// identidade, nunca delete+recreate total) — só muda o que acontece com
+// idsParaRemover: sem `ativo` em CampanhaConteudoItem, o caller (atualizar())
+// usa DELETE de verdade em vez de marcar ativo:false.
+export interface SincronizacaoConteudos {
+  paraCriar: Array<{ ordem: number; item: ConteudoItemInput }>
+  paraAtualizar: Array<{ id: string; ordem: number; item: ConteudoItemInput }>
+  idsParaRemover: string[]
+}
+
+export function sincronizarConteudos(idsExistentes: string[], novaLista: ConteudoItemInput[]): SincronizacaoConteudos {
+  const idsMantidos = new Set<string>()
+  const paraCriar: SincronizacaoConteudos['paraCriar'] = []
+  const paraAtualizar: SincronizacaoConteudos['paraAtualizar'] = []
+  novaLista.forEach((item, i) => {
+    const ordem = i + 1
+    const id = typeof item.id === 'string' && item.id ? item.id : null
+    if (id) {
+      idsMantidos.add(id)
+      paraAtualizar.push({ id, ordem, item })
+    } else {
+      paraCriar.push({ ordem, item })
+    }
+  })
+  const idsParaRemover = idsExistentes.filter(id => !idsMantidos.has(id))
+  return { paraCriar, paraAtualizar, idsParaRemover }
+}
+
+function camposEditaveisConteudoItem(item: ConteudoItemInput, ordem: number) {
+  return {
+    ordem,
+    titulo: String(item.titulo).trim(),
+    descricao: typeof item.descricao === 'string' ? item.descricao.trim() : '',
+    imagem_url: typeof item.imagem_url === 'string' && item.imagem_url.trim() ? item.imagem_url.trim() : null,
+    video_url: typeof item.video_url === 'string' && item.video_url.trim() ? item.video_url.trim() : null,
+    texto_botao: typeof item.texto_botao === 'string' && item.texto_botao.trim() ? item.texto_botao.trim() : null,
+    url_botao: typeof item.url_botao === 'string' && item.url_botao.trim() ? item.url_botao.trim() : null,
+  }
+}
+
+// Mesmo raciocínio de paraCriacaoDestaqueItem acima — nunca aceita tenant_id/
+// campanha_id vindos do cliente.
+export function paraCriacaoConteudoItem(item: ConteudoItemInput, tenantId: string, ordem: number) {
+  return { tenant_id: tenantId, ...camposEditaveisConteudoItem(item, ordem) }
+}
+
+export function paraAtualizacaoConteudoItem(item: ConteudoItemInput, ordem: number) {
+  return camposEditaveisConteudoItem(item, ordem)
+}
+
 function parseArray(v: unknown): string[] {
   if (Array.isArray(v)) return (v as unknown[]).map(String).filter(s => s.trim())
   if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean)
@@ -736,7 +878,7 @@ export async function listar(req: Request, res: Response) {
     const campanhas = await prisma.campanha.findMany({
       where: { tenant_id: req.adminUser!.tenant_id },
       orderBy: { criado_em: 'desc' },
-      include: { _count: { select: { feedbacks: true } } },
+      include: { _count: { select: { feedbacks: true } }, conteudos: { orderBy: { ordem: 'asc' } } },
     })
     res.json(campanhas)
   } catch (err) {
@@ -754,7 +896,11 @@ export async function buscarPorId(req: Request, res: Response) {
       // eventos) nunca voltam a aparecer no formulário de edição — do ponto
       // de vista do admin, "remover e salvar" continua parecendo uma
       // remoção de verdade.
-      include: { _count: { select: { feedbacks: true } }, destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } } },
+      include: {
+        _count: { select: { feedbacks: true } },
+        destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } },
+        conteudos: { orderBy: { ordem: 'asc' } },
+      },
     })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
     res.json(campanha)
@@ -798,6 +944,24 @@ export async function criar(req: Request, res: Response) {
     const faltando = ['nome_interno', ...getCamposObrigatorios(modo, modoExibicaoResolvido)].filter(c => !req.body[c]?.toString().trim())
     if (faltando.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
+    }
+
+    // Etapa 2 — múltiplos conteúdos (independente de modo_exibicao/destaques
+    // acima). `conteudos` é totalmente opcional na criação: sem ele, a
+    // campanha nasce só com os campos legados, exatamente como hoje.
+    const modoNavegacaoResolvido = String(req.body.modo_navegacao || 'SCROLL').trim().toUpperCase() || 'SCROLL'
+    const erroModoNavegacao = validarModoNavegacao(modoNavegacaoResolvido)
+    if (erroModoNavegacao) return res.status(400).json({ erro: erroModoNavegacao })
+
+    let listaConteudos: ConteudoItemInput[] = []
+    if (req.body.conteudos !== undefined) {
+      const { erro: erroConteudos, lista } = validarConteudos(req.body.conteudos)
+      if (erroConteudos) return res.status(400).json({ erro: erroConteudos })
+      // Campanha nova não tem itens prévios (idsExistentes=[]) — qualquer id
+      // "emprestado" enviado num payload de criação é rejeitado aqui.
+      const erroOwnershipConteudos = validarOwnershipConteudos([], lista)
+      if (erroOwnershipConteudos) return res.status(400).json({ erro: erroOwnershipConteudos })
+      listaConteudos = lista
     }
 
     const {
@@ -897,11 +1061,15 @@ export async function criar(req: Request, res: Response) {
         segmentar_usuario_tipos: parseArray(segmentar_usuario_tipos),
         segmentar_estados: parseArray(segmentar_estados),
         segmentar_dominios: parseDominios(segmentar_dominios),
+        modo_navegacao: modoNavegacaoResolvido,
         ...(listaDestaques.length > 0 && {
           destaques: { create: listaDestaques.map((item, i) => paraCriacaoDestaqueItem(item, tenantId, i + 1)) },
         }),
+        ...(listaConteudos.length > 0 && {
+          conteudos: { create: listaConteudos.map((item, i) => paraCriacaoConteudoItem(item, tenantId, i + 1)) },
+        }),
       },
-      include: { destaques: { orderBy: { ordem: 'asc' } } },
+      include: { destaques: { orderBy: { ordem: 'asc' } }, conteudos: { orderBy: { ordem: 'asc' } } },
     })
 
     res.status(201).json(campanha)
@@ -926,7 +1094,10 @@ export async function atualizar(req: Request, res: Response) {
     // como removido" (e regravado ativo:false de novo) a cada save só
     // porque o form nunca o reenvia (buscarPorId também não devolve
     // inativos, então o form nunca teria como reenviá-lo mesmo se quisesse).
-    const existente = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId }, include: { destaques: { where: { ativo: true } } } })
+    const existente = await prisma.campanha.findFirst({
+      where: { id, tenant_id: tenantId },
+      include: { destaques: { where: { ativo: true } }, conteudos: true },
+    })
     if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
     const modoExibicaoAtualizado = req.body.modo_exibicao !== undefined
@@ -966,6 +1137,32 @@ export async function atualizar(req: Request, res: Response) {
       } else if (existente.destaques.length === 0) {
         return res.status(400).json({ erro: 'Para o formato "Destaque em elemento", adicione ao menos 1 destaque.' })
       }
+    }
+
+    // Etapa 2 — múltiplos conteúdos (independente do bloco de destaques
+    // acima). `modo_navegacao` só é recalculado/validado quando vem no
+    // corpo; sem ele, mantém o valor já persistido. `conteudos` só é
+    // sincronizado quando de fato reenviado (mesmo raciocínio de `destaques`
+    // acima) — omitir o campo (ex.: toggle rápido de status na listagem)
+    // nunca mexe nos itens existentes.
+    const modoNavegacaoAtualizado = req.body.modo_navegacao !== undefined
+      ? (String(req.body.modo_navegacao).trim().toUpperCase() || 'SCROLL')
+      : existente.modo_navegacao
+    if (req.body.modo_navegacao !== undefined) {
+      const erroModoNavegacao = validarModoNavegacao(modoNavegacaoAtualizado)
+      if (erroModoNavegacao) return res.status(400).json({ erro: erroModoNavegacao })
+    }
+
+    let sincronizacaoConteudos: SincronizacaoConteudos | null = null
+    if (req.body.conteudos !== undefined) {
+      const { erro: erroConteudos, lista } = validarConteudos(req.body.conteudos)
+      if (erroConteudos) return res.status(400).json({ erro: erroConteudos })
+      // idsExistentes vem de uma consulta já escopada por tenant_id (linha
+      // acima, `existente`) — mesmo raciocínio de idsExistentes de destaques.
+      const idsExistentesConteudos = existente.conteudos.map(c => c.id)
+      const erroOwnershipConteudos = validarOwnershipConteudos(idsExistentesConteudos, lista)
+      if (erroOwnershipConteudos) return res.status(400).json({ erro: erroOwnershipConteudos })
+      sincronizacaoConteudos = sincronizarConteudos(idsExistentesConteudos, lista)
     }
 
     const modoAtualizado = resolverModoIdentificacao(modoExibicaoAtualizado, String(req.body.modo_identificacao ?? existente.modo_identificacao ?? '').trim())
@@ -1138,6 +1335,7 @@ export async function atualizar(req: Request, res: Response) {
         ...(segmentar_usuario_tipos !== undefined && { segmentar_usuario_tipos: parseArray(segmentar_usuario_tipos) }),
         ...(segmentar_estados !== undefined && { segmentar_estados: parseArray(segmentar_estados) }),
         ...(segmentar_dominios !== undefined && { segmentar_dominios: parseDominios(segmentar_dominios) }),
+        ...(req.body.modo_navegacao !== undefined && { modo_navegacao: modoNavegacaoAtualizado }),
         ...(sincronizacao && {
           destaques: {
             ...(sincronizacao.idsParaRemover.length > 0 && {
@@ -1154,8 +1352,27 @@ export async function atualizar(req: Request, res: Response) {
             }),
           },
         }),
+        // Sem `ativo` em CampanhaConteudoItem (decisão da tarefa) — itens que
+        // saíram da lista são removidos de verdade (deleteMany), diferente do
+        // updateMany{ativo:false} de destaques acima.
+        ...(sincronizacaoConteudos && {
+          conteudos: {
+            ...(sincronizacaoConteudos.idsParaRemover.length > 0 && {
+              deleteMany: { id: { in: sincronizacaoConteudos.idsParaRemover } },
+            }),
+            ...(sincronizacaoConteudos.paraAtualizar.length > 0 && {
+              update: sincronizacaoConteudos.paraAtualizar.map(({ id, ordem, item }) => ({
+                where: { id },
+                data: paraAtualizacaoConteudoItem(item, ordem),
+              })),
+            }),
+            ...(sincronizacaoConteudos.paraCriar.length > 0 && {
+              create: sincronizacaoConteudos.paraCriar.map(({ ordem, item }) => paraCriacaoConteudoItem(item, tenantId, ordem)),
+            }),
+          },
+        }),
       },
-      include: { destaques: { orderBy: { ordem: 'asc' } } },
+      include: { destaques: { orderBy: { ordem: 'asc' } }, conteudos: { orderBy: { ordem: 'asc' } } },
     })
 
     res.json(campanha)
@@ -1354,7 +1571,13 @@ export async function duplicar(req: Request, res: Response) {
     // Só os destaques ATIVOS — a cópia reflete o que está configurado hoje,
     // nunca itens já removidos (ativo:false) que só existem pra preservar
     // histórico de eventos da campanha original.
-    const original = await prisma.campanha.findFirst({ where: { id, tenant_id: tenantId }, include: { destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } } } })
+    const original = await prisma.campanha.findFirst({
+      where: { id, tenant_id: tenantId },
+      include: {
+        destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } },
+        conteudos: { orderBy: { ordem: 'asc' } },
+      },
+    })
     if (!original) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
     // Fase 6D — a cópia nasce sempre em RASCUNHO (ver `status`/`ativo` abaixo),
@@ -1418,6 +1641,7 @@ export async function duplicar(req: Request, res: Response) {
         segmentar_usuario_tipos: original.segmentar_usuario_tipos,
         segmentar_estados: original.segmentar_estados,
         segmentar_dominios: original.segmentar_dominios,
+        modo_navegacao: original.modo_navegacao,
         ...(original.destaques.length > 0 && {
           destaques: {
             create: original.destaques.map(d => ({
@@ -1433,8 +1657,26 @@ export async function duplicar(req: Request, res: Response) {
             })),
           },
         }),
+        ...(original.conteudos.length > 0 && {
+          conteudos: {
+            create: original.conteudos.map(c => ({
+              tenant_id: tenantId,
+              ordem: c.ordem,
+              titulo: c.titulo,
+              descricao: c.descricao,
+              imagem_url: c.imagem_url,
+              video_url: c.video_url,
+              texto_botao: c.texto_botao,
+              url_botao: c.url_botao,
+            })),
+          },
+        }),
       },
-      include: { _count: { select: { feedbacks: true } }, destaques: { orderBy: { ordem: 'asc' } } },
+      include: {
+        _count: { select: { feedbacks: true } },
+        destaques: { orderBy: { ordem: 'asc' } },
+        conteudos: { orderBy: { ordem: 'asc' } },
+      },
     })
 
     res.status(201).json(copia)
