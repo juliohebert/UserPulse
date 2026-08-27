@@ -426,9 +426,14 @@ describe('validarConteudos', () => {
     assert.equal(validarConteudos([item({ texto_botao: 'Saiba mais', url_botao: 'https://x.com' })]).erro, null)
   })
 
-  test('texto_botao sem url_botao (ou vice-versa) -> inválido', () => {
+  test('texto_botao sem url_botao -> inválido', () => {
     assert.notEqual(validarConteudos([item({ texto_botao: 'Saiba mais', url_botao: undefined })]).erro, null)
-    assert.notEqual(validarConteudos([item({ texto_botao: undefined, url_botao: 'https://x.com' })]).erro, null)
+  })
+
+  test('url_botao sem texto_botao -> válido, texto_botao normalizado para "Saiba mais"', () => {
+    const { erro, lista } = validarConteudos([item({ texto_botao: undefined, url_botao: 'https://x.com' })])
+    assert.equal(erro, null)
+    assert.equal(lista[0].texto_botao, 'Saiba mais')
   })
 
   test('item não-objeto (string/número/array solto na lista) -> inválido', () => {

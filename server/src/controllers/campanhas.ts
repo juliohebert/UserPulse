@@ -772,12 +772,16 @@ export function validarConteudos(conteudos: unknown): { erro: string | null; lis
     if (temImagem && temVideo) {
       return { erro: `Conteúdo ${i + 1}: informe imagem ou vídeo, nunca os dois.`, lista: [] }
     }
-    // texto_botao/url_botao só fazem sentido juntos — um CTA sem link ou um
-    // link sem texto de botão nunca é uma combinação válida.
+    // url_botao sozinha é um CTA válido (texto_botao normalizado para "Saiba
+    // mais" logo abaixo) — só texto_botao sem url_botao continua inválido,
+    // pois um botão sem destino não faz sentido.
     const temTextoBotao = typeof item.texto_botao === 'string' && item.texto_botao.trim() !== ''
     const temUrlBotao = typeof item.url_botao === 'string' && item.url_botao.trim() !== ''
-    if (temTextoBotao !== temUrlBotao) {
-      return { erro: `Conteúdo ${i + 1}: texto_botao e url_botao devem ser preenchidos juntos ou deixados em branco.`, lista: [] }
+    if (temTextoBotao && !temUrlBotao) {
+      return { erro: `Conteúdo ${i + 1}: texto_botao não pode ser preenchido sem url_botao.`, lista: [] }
+    }
+    if (temUrlBotao && !temTextoBotao) {
+      item.texto_botao = 'Saiba mais'
     }
   }
   return { erro: null, lista: conteudos as ConteudoItemInput[] }
