@@ -174,6 +174,22 @@ export interface DesempenhoDestaqueItem {
   percentual_util: number | null
 }
 
+// Desempenho por conteúdo (CampanhaConteudoItem) — carrossel SCROLL/SLIDES do
+// modal, mecanismo independente de DesempenhoDestaqueItem acima (nunca
+// misturar os dois). V1 só cobre clique_cta: sem visualização por item, sem
+// CTR por conteúdo. tem_cta = o conteúdo tem URL de CTA (o texto pode cair no
+// default "Saiba mais"). Só não-vazio pra campanhas modo_exibicao !==
+// 'destaque_elemento'; ver montarDesempenhoConteudos em
+// server/src/controllers/dashboard.ts.
+export interface DesempenhoConteudoItem {
+  conteudo_item_id: string
+  titulo: string
+  ordem: number
+  tem_cta: boolean
+  cliques_cta: number
+  cliques_cta_unicos: number
+}
+
 // Uma avaliação de utilidade de destaque ("Essa melhoria foi útil?") —
 // sempre Feedback com tipo_avaliacao='utilidade_destaque' no backend, nunca
 // misturado com NPS/CSAT (ver Feedback abaixo, que continua exclusivo de
@@ -225,6 +241,11 @@ export interface DashboardData {
     avaliacoes: number
     sim: number
   }
+  // Só não-vazio pra campanhas modo_exibicao !== 'destaque_elemento'.
+  desempenho_conteudos: DesempenhoConteudoItem[]
+  // Cliques no CTA sem conteúdo identificado (eventos antigos, fallback
+  // legado do widget, ou conteúdo já removido). 0 pra destaque_elemento.
+  cliques_cta_sem_conteudo: number
   quotes_nps: Feedback[]
   // Idem — só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   avaliacoes_destaques: AvaliacaoDestaqueItem[]

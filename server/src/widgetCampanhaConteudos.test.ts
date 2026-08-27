@@ -442,3 +442,80 @@ describe('conteudoResolverDirecaoSwipe (widget.js)', () => {
     assert.equal(conteudoResolverDirecaoSwipe(-45, 45), null)
   })
 })
+
+// ─── Etapa 2 de analytics por conteúdo — data-up-conteudo-id no CTA ─────────
+// conteudoRenderItemHtml (via conteudoRenderScroll/conteudoRenderSlides)
+// carimba no botão do CTA o id do CampanhaConteudoItem que o originou, pra o
+// clique poder ser atribuído ao item certo no backend/dashboard (etapas
+// seguintes). Só quando o item tem id de verdade: no fallback legado
+// (conteudoResolverItens monta 1 pseudo-item com id:null) o atributo é
+// omitido e o clique segue sendo registrado sem conteudo_item_id. Mecanismo
+// independente de destaque_item_id (destaque_elemento nunca passa por aqui).
+describe('data-up-conteudo-id no CTA de conteúdo (widget.js)', () => {
+  const cta = { texto_botao: 'Ver', url_botao: 'https://x.com' }
+
+  test('SCROLL — item persistido: CTA carrega data-up-conteudo-id com o id do item', () => {
+    const campanha: Campanha = {
+      conteudos: [{ id: 'c1', titulo: 'Único', descricao: 'D', ...cta }],
+    }
+    const html = conteudoRenderScroll(conteudoResolverItens(campanha))
+    assert.match(html, /data-up-cta="true"/)
+    assert.match(html, /data-up-conteudo-id="c1"/)
+  })
+
+  test('SCROLL — fallback legado (id ausente/null): CTA não emite data-up-conteudo-id, mas o CTA continua presente', () => {
+    const campanha: Campanha = {
+      titulo: 'Boas-vindas', descricao: 'Bem-vindo!', ...cta,
+    }
+    const html = conteudoRenderScroll(conteudoResolverItens(campanha))
+    assert.match(html, /up-action/)
+    assert.match(html, /data-up-cta="true"/)
+    assert.doesNotMatch(html, /data-up-conteudo-id/)
+  })
+
+  test('SCROLL — conteúdos diferentes carregam ids diferentes, cada um no seu próprio CTA', () => {
+    const campanha: Campanha = {
+      conteudos: [
+        { id: 'c1', titulo: 'Primeiro', descricao: 'D1', ...cta },
+        { id: 'c2', titulo: 'Segundo', descricao: 'D2', texto_botao: 'Ver 2', url_botao: 'https://x.com/2' },
+      ],
+    }
+    const html = conteudoRenderScroll(conteudoResolverItens(campanha))
+    assert.match(html, /data-up-conteudo-id="c1"/)
+    assert.match(html, /data-up-conteudo-id="c2"/)
+    assert.ok(html.indexOf('data-up-conteudo-id="c1"') < html.indexOf('data-up-conteudo-id="c2"'), 'ordem preservada')
+  })
+
+  test('SCROLL — item sem CTA não gera atributo (sem botão, sem data-up-conteudo-id)', () => {
+    const html = conteudoRenderScroll([{ id: 'c1', titulo: 'T', descricao: 'D' }])
+    assert.doesNotMatch(html, /up-action/)
+    assert.doesNotMatch(html, /data-up-conteudo-id/)
+  })
+
+  test('SLIDES — o CTA exibido carrega o data-up-conteudo-id do item do índice atual', () => {
+    const itens: ConteudoItem[] = [
+      { id: 'c1', titulo: 'Primeiro', descricao: 'D1', texto_botao: 'Ver 1', url_botao: 'https://x.com/1' },
+      { id: 'c2', titulo: 'Segundo', descricao: 'D2', texto_botao: 'Ver 2', url_botao: 'https://x.com/2' },
+      { id: 'c3', titulo: 'Terceiro', descricao: 'D3', texto_botao: 'Ver 3', url_botao: 'https://x.com/3' },
+    ]
+    const slide0 = conteudoRenderSlides(itens, 0)
+    assert.match(slide0, /data-up-conteudo-id="c1"/)
+    assert.doesNotMatch(slide0, /data-up-conteudo-id="c2"/)
+    assert.doesNotMatch(slide0, /data-up-conteudo-id="c3"/)
+
+    const slide1 = conteudoRenderSlides(itens, 1)
+    assert.match(slide1, /data-up-conteudo-id="c2"/)
+    assert.doesNotMatch(slide1, /data-up-conteudo-id="c1"/)
+    assert.doesNotMatch(slide1, /data-up-conteudo-id="c3"/)
+  })
+
+  test('SLIDES — item do índice atual sem CTA não emite atributo, e os outros itens continuam ocultos', () => {
+    const itens: ConteudoItem[] = [
+      { id: 'c1', titulo: 'Primeiro', descricao: 'D1' },
+      { id: 'c2', titulo: 'Segundo', descricao: 'D2', texto_botao: 'Ver 2', url_botao: 'https://x.com/2' },
+    ]
+    const slide0 = conteudoRenderSlides(itens, 0)
+    assert.doesNotMatch(slide0, /up-action/)
+    assert.doesNotMatch(slide0, /data-up-conteudo-id/)
+  })
+})

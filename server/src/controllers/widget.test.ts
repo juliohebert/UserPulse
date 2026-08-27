@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import {
   avaliarPoliticaReexibicao, avaliarReexibicaoPorDias, construirFiltroCandidatas, fonteReferenciaReexibicao, ocultarTenantId,
-  validarDestaqueItemEvento, TIPOS_EVENTO_CAMPANHA,
+  validarDestaqueItemEvento, validarConteudoItemEvento, TIPOS_EVENTO_CAMPANHA,
   validarAvaliacaoFeedback, TIPOS_AVALIACAO_FEEDBACK,
   filtroFeedbackGeralReexibicao,
   passaSegmentacao,
@@ -417,6 +417,80 @@ describe('validarDestaqueItemEvento', () => {
     const item = { id: 'item-diferente', campanha_id: 'camp-1' }
     const r = validarDestaqueItemEvento('item-1', item, 'camp-1')
     assert.notEqual(r.erro, null)
+  })
+})
+
+// Etapa 3 — tracking por conteúdo (conteudo_item_id em EventoCampanha).
+// validarConteudoItemEvento espelha validarDestaqueItemEvento: mesma decisão
+// pura de ownership/isolamento, mecanismo independente (nunca um valida ou
+// substitui o outro). A query real (registrarEvento) busca o CampanhaConteudoItem
+// só por id — esta função pura é o único ponto que garante que um conteúdo de
+// outra campanha/tenant nunca é aceito.
+describe('validarConteudoItemEvento', () => {
+  test('conteudo_item_id ausente/null/vazio -> válido, sem item (clique legado, fallback do widget, ou evento que não é de conteúdo)', () => {
+    assert.deepEqual(validarConteudoItemEvento(undefined, null, 'camp-1'), { erro: null, conteudoItemId: null })
+    assert.deepEqual(validarConteudoItemEvento(null, null, 'camp-1'), { erro: null, conteudoItemId: null })
+    assert.deepEqual(validarConteudoItemEvento('', null, 'camp-1'), { erro: null, conteudoItemId: null })
+  })
+
+  test('tipo errado (não string) -> inválido', () => {
+    const r = validarConteudoItemEvento(123, null, 'camp-1')
+    assert.notEqual(r.erro, null)
+    assert.equal(r.conteudoItemId, null)
+  })
+
+  test('id válido, conteúdo pertence à campanha do evento -> aceito', () => {
+    const item = { id: 'cont-1', campanha_id: 'camp-1' }
+    const r = validarConteudoItemEvento('cont-1', item, 'camp-1')
+    assert.equal(r.erro, null)
+    assert.equal(r.conteudoItemId, 'cont-1')
+  })
+
+  test('ownership: conteúdo existe mas pertence a OUTRA campanha -> rejeitado de forma segura (conteudoItemId null)', () => {
+    const item = { id: 'cont-1', campanha_id: 'camp-outra' }
+    const r = validarConteudoItemEvento('cont-1', item, 'camp-1')
+    assert.notEqual(r.erro, null)
+    assert.equal(r.conteudoItemId, null)
+  })
+
+  test('isolamento de tenant: conteúdo de campanha de outro tenant -> rejeitado pelo mesmo caminho do ownership', () => {
+    const itemDeOutroTenant = { id: 'cont-vazado', campanha_id: 'camp-de-outro-tenant' }
+    const r = validarConteudoItemEvento('cont-vazado', itemDeOutroTenant, 'camp-do-tenant-atual')
+    assert.notEqual(r.erro, null)
+    assert.equal(r.conteudoItemId, null)
+  })
+
+  test('id inexistente (não encontrado em nenhuma campanha) -> rejeitado, consistente com validarDestaqueItemEvento', () => {
+    const rConteudo = validarConteudoItemEvento('id-que-nao-existe', null, 'camp-1')
+    const rDestaque = validarDestaqueItemEvento('id-que-nao-existe', null, 'camp-1')
+    assert.notEqual(rConteudo.erro, null)
+    assert.equal(rConteudo.conteudoItemId, null)
+    // Mesmo comportamento (rejeita, id nulo) das duas funções pro caso "não existe".
+    assert.equal(rDestaque.erro !== null, rConteudo.erro !== null)
+  })
+
+  test('id retornado pela query não bate com o id enviado (defesa extra) -> rejeitado', () => {
+    const item = { id: 'cont-diferente', campanha_id: 'camp-1' }
+    const r = validarConteudoItemEvento('cont-1', item, 'camp-1')
+    assert.notEqual(r.erro, null)
+  })
+
+  test('conteudo_item_id e destaque_item_id são independentes: um id de destaque não é aceito como conteúdo, e vice-versa; ambos podem coexistir nulos', () => {
+    // Um id que só existe como destaque nunca é encontrado na busca de
+    // conteúdo (itemEncontrado=null) -> rejeitado, sem afetar a decisão de destaque.
+    const soDestaque = validarConteudoItemEvento('destaque-1', null, 'camp-1')
+    assert.notEqual(soDestaque.erro, null)
+    assert.equal(soDestaque.conteudoItemId, null)
+
+    // Um id que só existe como conteúdo idem no caminho de destaque.
+    const soConteudo = validarDestaqueItemEvento('cont-1', null, 'camp-1')
+    assert.notEqual(soConteudo.erro, null)
+    assert.equal(soConteudo.destaqueItemId, null)
+
+    // Evento sem nenhum dos dois (modal_automatica com CTA legado): as duas
+    // funções aceitam e devolvem null cada uma, sem interferência.
+    assert.deepEqual(validarDestaqueItemEvento(undefined, null, 'camp-1'), { erro: null, destaqueItemId: null })
+    assert.deepEqual(validarConteudoItemEvento(undefined, null, 'camp-1'), { erro: null, conteudoItemId: null })
   })
 })
 

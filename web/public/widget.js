@@ -146,11 +146,19 @@
   // instância tem seu próprio item). Tudo dentro de try/catch: falha de
   // rastreamento (erro síncrono ou de rede via .catch) nunca pode quebrar o
   // site do cliente onde o widget está embarcado.
-  function registrarEvento(tipoEvento, campanhaParam, configParam, destaqueItemId) {
+  //
+  // `opcoes` (Etapa 2 de analytics por conteúdo) é um objeto opcional no
+  // final — todos os call sites atuais chamam com no máximo 4 argumentos, daí
+  // `opcoes` fica undefined e nada muda. Hoje só carrega `conteudo_item_id`
+  // (clique no CTA de um conteúdo do carrossel SCROLL/SLIDES), enviado apenas
+  // quando existe. Independente de destaque_item_id — nunca um substitui o
+  // outro.
+  function registrarEvento(tipoEvento, campanhaParam, configParam, destaqueItemId, opcoes) {
     try {
       var campanha = campanhaParam || state.campanha;
       var config = configParam || state.config;
       if (!campanha || !config) return;
+      var conteudoItemId = opcoes && opcoes.conteudo_item_id ? opcoes.conteudo_item_id : undefined;
       fetch(apiUrl('/api/widget/evento'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -159,6 +167,7 @@
           campanha_id: campanha.id,
           tipo_evento: tipoEvento,
           destaque_item_id: destaqueItemId || undefined,
+          conteudo_item_id: conteudoItemId,
           usuario_id: config.usuario_id || undefined,
           sistema: config.sistema || undefined,
           tela: config.tela || undefined,
@@ -1199,8 +1208,16 @@
     }
     var itemTitulo = mostrarTitulo && item.titulo ? '<p class="up-conteudo-titulo">' + escapeHtml(item.titulo) + '</p>' : '';
     var itemDescricao = item.descricao ? '<p class="up-description">' + escapeHtml(item.descricao) + '</p>' : '';
+    // Etapa 2 de analytics por conteúdo — o CTA carrega o id do
+    // CampanhaConteudoItem que o originou, pro clique poder ser atribuído ao
+    // item certo (ver handler [data-up-cta] em bindEvents). Só quando o item
+    // tem id de verdade: no fallback legado (conteudoResolverItens monta 1
+    // pseudo-item com id:null) o atributo é omitido — o clique continua sendo
+    // registrado, só sem conteudo_item_id. Mecanismo independente de
+    // destaque_item_id (destaque_elemento nunca renderiza por aqui).
+    var conteudoIdAttr = item.id ? ' data-up-conteudo-id="' + escapeHtml(String(item.id)) + '"' : '';
     var itemAction = (item.texto_botao && item.url_botao)
-      ? '<button type="button" class="up-action" data-up-cta="true" data-up-url="' + escapeHtml(item.url_botao) + '">' + escapeHtml(item.texto_botao) + '</button>'
+      ? '<button type="button" class="up-action" data-up-cta="true" data-up-url="' + escapeHtml(item.url_botao) + '"' + conteudoIdAttr + '>' + escapeHtml(item.texto_botao) + '</button>'
       : '';
     return itemTitulo + itemMedia + itemDescricao + itemAction;
   }
@@ -2756,7 +2773,12 @@
         event.stopPropagation();
         var ctaUrl = ctaButton.getAttribute('data-up-url');
         if (ctaUrl) window.open(ctaUrl, '_blank', 'noopener');
-        registrarEvento('clique_cta');
+        // Etapa 2 de analytics por conteúdo — atribui o clique ao
+        // CampanhaConteudoItem que renderizou este CTA (ver conteudoIdAttr em
+        // conteudoRenderItemHtml). Ausente no fallback legado (id:null) — aí
+        // o clique é registrado sem conteudo_item_id, igual a antes.
+        var ctaConteudoId = ctaButton.getAttribute('data-up-conteudo-id');
+        registrarEvento('clique_cta', null, null, null, ctaConteudoId ? { conteudo_item_id: ctaConteudoId } : undefined);
         return;
       }
 

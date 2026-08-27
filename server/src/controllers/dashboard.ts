@@ -122,6 +122,71 @@ export function montarDesempenhoDestaques(
   return Array.from(porItem.values())
 }
 
+// ─── Desempenho por conteúdo (Etapa 4 — analytics por CampanhaConteudoItem) ─
+// Mecanismo independente de montarDesempenhoDestaques acima (nunca misturar
+// os dois): isto é o carrossel de conteúdo do próprio modal (SCROLL/SLIDES),
+// não o destaque_elemento. V1 só cobre clique_cta — sem visualização por
+// item, sem CTR por conteúdo (não há denominador confiável por item). Função
+// pura: recebe os resultados já agregados pelo Prisma, não toca no banco.
+// Mesma mecânica de "únicos" das outras seções: o groupBy de 3 colunas
+// (conteudo_item_id, tipo_evento, usuario_id) já vem deduplicado — contar
+// quantas linhas caem em cada conteúdo aqui é só um tally, nunca distinct em JS.
+export interface DesempenhoConteudoItem {
+  conteudo_item_id: string
+  titulo: string
+  ordem: number
+  // true só quando o conteúdo tem URL de CTA — o texto pode cair no default
+  // "Saiba mais" no widget, então NÃO se exige texto_botao aqui.
+  tem_cta: boolean
+  cliques_cta: number
+  cliques_cta_unicos: number
+}
+
+export function montarDesempenhoConteudos(
+  // Sempre ordenados por `ordem` ASC pelo caller — o Map preserva a ordem de
+  // inserção, então o array de saída mantém a mesma ordem.
+  itens: Array<{ id: string; titulo: string; ordem: number; url_botao: string | null }>,
+  totaisPorItem: Array<{ conteudo_item_id: string | null; tipo_evento: string; _count: { id: number } }>,
+  unicosPorItem: Array<{ conteudo_item_id: string | null; tipo_evento: string; usuario_id: string | null }>
+): DesempenhoConteudoItem[] {
+  const porItem = new Map<string, DesempenhoConteudoItem>()
+  for (const item of itens) {
+    porItem.set(item.id, {
+      conteudo_item_id: item.id,
+      titulo: item.titulo,
+      ordem: item.ordem,
+      tem_cta: typeof item.url_botao === 'string' && item.url_botao.trim() !== '',
+      cliques_cta: 0,
+      cliques_cta_unicos: 0,
+    })
+  }
+
+  for (const t of totaisPorItem) {
+    // Bucket null (eventos antigos / fallback legado / conteúdo removido)
+    // nunca vira uma linha de conteúdo — quem contabiliza isso é
+    // cliques_cta_sem_conteudo, calculado à parte no controller.
+    if (!t.conteudo_item_id) continue
+    if (t.tipo_evento !== 'clique_cta') continue
+    const alvo = porItem.get(t.conteudo_item_id)
+    if (!alvo) continue
+    alvo.cliques_cta = t._count.id
+  }
+
+  const contagemUnicos = new Map<string, number>()
+  for (const u of unicosPorItem) {
+    if (!u.conteudo_item_id || !u.usuario_id) continue
+    if (u.tipo_evento !== 'clique_cta') continue
+    contagemUnicos.set(u.conteudo_item_id, (contagemUnicos.get(u.conteudo_item_id) ?? 0) + 1)
+  }
+  for (const [itemId, contagem] of contagemUnicos) {
+    const alvo = porItem.get(itemId)
+    if (!alvo) continue
+    alvo.cliques_cta_unicos = contagem
+  }
+
+  return Array.from(porItem.values())
+}
+
 // Toda leitura de "Nota Média"/distribuição/respostas recentes/respondentes
 // únicos deste dashboard só faz sentido pro cálculo de NPS — centraliza o
 // filtro aqui pra nunca esquecer tipo_avaliacao numa query nova e pra nunca
@@ -313,6 +378,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       destaqueAvaliacoesPeriodo,
       quotePromotor,
       quoteDetrator,
+      itensConteudo, totaisPorConteudo, unicosPorConteudo, cliques_cta_sem_conteudo,
     ] = await Promise.all([
       prisma.feedback.aggregate({
         where: feedbackPeriodoWhere,
@@ -450,6 +516,45 @@ export async function buscarDashboard(req: Request, res: Response) {
         where: { ...feedbackPeriodoWhere, nota: { lte: 6 }, observacao: { not: '' } },
         orderBy: { criado_em: 'desc' },
       }),
+
+      // ─── Desempenho por conteúdo (Etapa 4) — só campanhas que NÃO são
+      // destaque_elemento. Sem filtro de `ativo` (CampanhaConteudoItem não
+      // tem essa coluna — "remover" um conteúdo já é DELETE de verdade).
+      // Ordenado por `ordem` ASC, base de montarDesempenhoConteudos.
+      ehDestaqueElemento
+        ? Promise.resolve([])
+        : prisma.campanhaConteudoItem.findMany({
+            where: { campanha_id: id },
+            orderBy: { ordem: 'asc' },
+            select: { id: true, titulo: true, ordem: true, url_botao: true },
+          }),
+      // Total de clique_cta por conteúdo — mesmo padrão do groupBy de
+      // destaque, restrito a clique_cta e a eventos que carregam conteudo_item_id.
+      ehDestaqueElemento
+        ? Promise.resolve([])
+        : prisma.eventoCampanha.groupBy({
+            by: ['conteudo_item_id', 'tipo_evento'],
+            where: { ...eventosPeriodoWhere, tipo_evento: 'clique_cta', conteudo_item_id: { not: null } },
+            _count: { id: true },
+          }),
+      // Únicos por conteúdo — groupBy de 3 colunas (já deduplicado pelo
+      // banco), só usuario_id não-null; consolidação por conteúdo é feita em
+      // montarDesempenhoConteudos.
+      ehDestaqueElemento
+        ? Promise.resolve([])
+        : prisma.eventoCampanha.groupBy({
+            by: ['conteudo_item_id', 'tipo_evento', 'usuario_id'],
+            where: { ...eventosPeriodoWhere, tipo_evento: 'clique_cta', conteudo_item_id: { not: null }, usuario_id: { not: null } },
+          }),
+      // Bucket "sem conteúdo": clique_cta com conteudo_item_id nulo — eventos
+      // antigos, fallback legado do widget, ou conteúdo já removido. Nunca
+      // vira uma linha de conteúdo (ver montarDesempenhoConteudos). 0 pra
+      // destaque_elemento, que não usa este mecanismo.
+      ehDestaqueElemento
+        ? Promise.resolve(0)
+        : prisma.eventoCampanha.count({
+            where: { ...eventosPeriodoWhere, tipo_evento: 'clique_cta', conteudo_item_id: null },
+          }),
     ])
 
     const distribuicao: Record<string, number> = {}
@@ -473,6 +578,12 @@ export async function buscarDashboard(req: Request, res: Response) {
     const desempenho_destaques = ehDestaqueElemento
       ? montarDesempenhoDestaques(itensDestaque, totaisPorItem, unicosPorItem, utilidadePorItem)
       : []
+    // Etapa 4 — desempenho por conteúdo. Só pra campanha que NÃO é
+    // destaque_elemento; campanha sem conteúdos -> itensConteudo vazio ->
+    // array vazio. Não altera nenhum KPI geral nem o bloco de destaque.
+    const desempenho_conteudos = ehDestaqueElemento
+      ? []
+      : montarDesempenhoConteudos(itensConteudo, totaisPorConteudo, unicosPorConteudo)
     const destaqueResumoPeriodo = {
       interacoes: destaqueEventosPeriodo.find(item => item.tipo_evento === 'interacao_badge')?._count.id ?? 0,
       dispensas: destaqueEventosPeriodo.find(item => item.tipo_evento === 'dispensa')?._count.id ?? 0,
@@ -539,6 +650,8 @@ export async function buscarDashboard(req: Request, res: Response) {
       cliques_unicos,
       respondentes_unicos,
       desempenho_destaques,
+      desempenho_conteudos,
+      cliques_cta_sem_conteudo,
       destaque_resumo_periodo: destaqueResumoPeriodo,
       quotes_nps: [quotePromotor, quoteDetrator].filter(Boolean),
       // Só não-vazio pra campanhas destaque_elemento — ver ehDestaqueElemento.
