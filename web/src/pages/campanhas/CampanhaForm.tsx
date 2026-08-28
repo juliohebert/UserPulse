@@ -28,9 +28,39 @@ import {
   montarPayloadCampanha,
   resolverConteudosPreview,
   getStatus,
+  combinarDataHoraISO,
 } from './campanhaForm.utils'
 
-type SecaoDock = 'destino' | 'exibicao' | 'feedback' | 'segmentacao'
+type SecaoDock = 'agendamento' | 'destino' | 'exibicao' | 'feedback' | 'segmentacao'
+
+// Validação client-side da vigência — a validação final é do backend
+// (parseDataVigencia / validarPeriodoVigencia em campanhas.ts). Só impede
+// submeter combinações obviamente incompletas/inválidas, com mensagem clara.
+// Início e fim são independentes: nenhum obriga o outro. Quando o usuário
+// escolhe "Em uma data e horário", data E hora são obrigatórias — nunca se
+// assume 00:00 aqui (o submit não deve chegar em combinarDataHoraISO com
+// hora vazia nesses modos).
+function validarVigenciaForm(form: Pick<FormState,
+  'modo_inicio' | 'modo_fim' | 'data_inicio_data' | 'data_inicio_hora' | 'data_fim_data' | 'data_fim_hora'
+>): string | null {
+  if (form.modo_inicio === 'agendado') {
+    if (!form.data_inicio_data.trim()) return 'Escolha a data de início da campanha ou selecione "Ao publicar".'
+    if (!form.data_inicio_hora.trim()) return 'Informe a hora de início da campanha.'
+  }
+  if (form.modo_fim === 'em_data') {
+    if (!form.data_fim_data.trim()) return 'Escolha a data de término da campanha ou selecione "Sem data final".'
+    if (!form.data_fim_hora.trim()) return 'Informe a hora de término da campanha.'
+  }
+  // Chega aqui só com data+hora preenchidas nos dois lados.
+  if (form.modo_inicio === 'agendado' && form.modo_fim === 'em_data') {
+    const inicio = new Date(combinarDataHoraISO(form.data_inicio_data, form.data_inicio_hora)).getTime()
+    const fim = new Date(combinarDataHoraISO(form.data_fim_data, form.data_fim_hora)).getTime()
+    if (Number.isFinite(inicio) && Number.isFinite(fim) && inicio >= fim) {
+      return 'A data de início deve ser anterior à data de término.'
+    }
+  }
+  return null
+}
 type PosicaoMidia = 'topo' | 'antes_cta'
 type FrequenciaExibicao = 'uma_vez' | 'ate_responder' | 'reexibir_depois'
 type AcaoFinalCampanha = 'feedback' | 'confirmacao' | 'visualizacao'
@@ -426,7 +456,7 @@ function SeletorTelaCatalogo({ telas, selecionada, disabled, onSelecionar, onCri
 }
 
 function DockLateral({
-  secao, form, catalogoTelas, sistemasConfig, temSistemas, salvando, editando, temGrupoConcorrente, setCampo, setSecao,
+  secao, form, catalogoTelas, sistemasConfig, temSistemas, salvando, editando, temGrupoConcorrente, campanhaEncerrada, setCampo, setSecao,
   onSelecionarTela, onAdicionarTela, onGerenciarSistemas, onLimpar, onPreview, onDefinirPrioridade,
   conteudoAtivo, onSelecionarConteudo, conteudosMax, adicionarConteudo, removerConteudo, moverConteudo, selecionarModoNavegacao, camposConteudo, resolverIdConteudo,
 }: {
@@ -437,6 +467,10 @@ function DockLateral({
   temSistemas: boolean
   salvando: boolean
   editando: boolean
+  // true só quando editando uma campanha cuja leitura de período já é
+  // "Encerrada" (getStatus) — a aba de vigência vira somente-leitura pro fim
+  // (regra: só existe Encerrar, nunca Reabrir por edição de data_fim).
+  campanhaEncerrada: boolean
   // Só true quando a campanha já salva tem 1+ concorrente (mesmo grupo, ver
   // chaveGrupoConcorrente em grupoConcorrente.ts) — controla se o botão
   // "Definir prioridade de exibição" aparece abaixo.
@@ -518,6 +552,7 @@ function DockLateral({
   // mudar conteúdo, validação, estado ou payload de nenhuma etapa.
   const secoes: Array<{ id: SecaoDock; label: string }> = [
     { id: 'exibicao', label: 'Exibição' },
+    { id: 'agendamento', label: 'Agendamento e vigência' },
     { id: 'destino', label: 'Destino' },
     { id: 'segmentacao', label: 'Segmentação' },
     ...(formatoExibicao === FORMATO_DESTAQUE_ELEMENTO ? [] : [{ id: 'feedback' as const, label: 'Feedback' }]),
@@ -1131,6 +1166,131 @@ function DockLateral({
           )}
         </div>
       )}
+
+      {secao === 'agendamento' && (() => {
+        // Início e fim são INDEPENDENTES — trocar um nunca mexe no outro.
+        // "Ao publicar" mantém modo_inicio='imediato' (data_inicio: null no
+        // payload); "Sem data final" mantém modo_fim='sem_data' (data_fim: null).
+        // Os pares (data, hora) preservam o valor já digitado ao alternar de
+        // modo, então voltar pra "Em uma data e horário" reaproveita o que
+        // estava lá. A validação de ordem é só um aviso aqui — o backend
+        // valida de verdade (parseDataVigencia / validarPeriodoVigencia).
+        const inicioMs = form.modo_inicio === 'agendado' && form.data_inicio_data.trim()
+          ? new Date(combinarDataHoraISO(form.data_inicio_data, form.data_inicio_hora)).getTime()
+          : NaN
+        const fimMs = form.modo_fim === 'em_data' && form.data_fim_data.trim()
+          ? new Date(combinarDataHoraISO(form.data_fim_data, form.data_fim_hora)).getTime()
+          : NaN
+        const ordemInvalida = Number.isFinite(inicioMs) && Number.isFinite(fimMs) && inicioMs >= fimMs
+        const encerramentoLegivel = [
+          form.data_fim_data ? form.data_fim_data.split('-').reverse().join('/') : '—',
+          form.data_fim_hora ? `às ${form.data_fim_hora}` : '',
+        ].filter(Boolean).join(' ')
+        return (
+        <div className="space-y-5">
+          {/* ── Início da campanha ── */}
+          <div>
+            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Início da campanha</span>
+            <div className="grid gap-2">
+              {[
+                { id: 'imediato' as const, icon: 'rocket_launch', titulo: 'Ao publicar', desc: 'Fica disponível assim que a campanha for publicada.' },
+                { id: 'agendado' as const, icon: 'event_upcoming', titulo: 'Em uma data e horário', desc: 'Só começa a aparecer na data e hora escolhidas.' },
+              ].map(opcao => (
+                <button
+                  key={opcao.id}
+                  type="button"
+                  onClick={() => setCampo('modo_inicio', opcao.id)}
+                  className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${form.modo_inicio === opcao.id ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
+                >
+                  <span className={`material-symbols-outlined mt-0.5 text-[20px] ${form.modo_inicio === opcao.id ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
+                    <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">{opcao.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            {form.modo_inicio === 'agendado' && (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <CampoDock
+                  label="Data"
+                  type="date"
+                  value={form.data_inicio_data}
+                  onChange={valor => setCampo('data_inicio_data', valor)}
+                  error={!form.data_inicio_data.trim() ? 'Informe a data de início.' : undefined}
+                  hint="A campanha só será exibida a partir desta data e horário."
+                />
+                <CampoDock
+                  label="Hora"
+                  type="time"
+                  value={form.data_inicio_hora}
+                  onChange={valor => setCampo('data_inicio_hora', valor)}
+                  error={!form.data_inicio_hora.trim() ? 'Informe a hora de início.' : undefined}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* ── Encerramento ── */}
+          <div>
+            <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Encerramento</span>
+            {campanhaEncerrada ? (
+              <div className="space-y-1 rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3">
+                <p className="text-[12px] font-semibold leading-4 text-[#5d6c7b]">Esta campanha já foi encerrada e não pode ter a vigência reaberta.</p>
+                <p className="text-[13px] font-bold leading-5 text-[#1c1e21]">Encerrada em {encerramentoLegivel}</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-2">
+                  {[
+                    { id: 'sem_data' as const, icon: 'all_inclusive', titulo: 'Sem data final', desc: 'Fica ativa até ser encerrada ou desativada manualmente.' },
+                    { id: 'em_data' as const, icon: 'event_busy', titulo: 'Em uma data e horário', desc: 'Para de aparecer automaticamente na data e hora escolhidas.' },
+                  ].map(opcao => (
+                    <button
+                      key={opcao.id}
+                      type="button"
+                      onClick={() => setCampo('modo_fim', opcao.id)}
+                      className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${form.modo_fim === opcao.id ? 'border-[#0064e0] bg-[#eff4ff] text-[#0058be]' : 'border-[#dee3e9] bg-white text-[#1c1e21] hover:border-[#0064e0]'}`}
+                    >
+                      <span className={`material-symbols-outlined mt-0.5 text-[20px] ${form.modo_fim === opcao.id ? 'text-[#0064e0]' : 'text-[#8595a4]'}`}>{opcao.icon}</span>
+                      <span className="min-w-0">
+                        <span className="block text-[14px] font-bold leading-5">{opcao.titulo}</span>
+                        <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">{opcao.desc}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {form.modo_fim === 'em_data' && (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <CampoDock
+                      label="Data"
+                      type="date"
+                      value={form.data_fim_data}
+                      onChange={valor => setCampo('data_fim_data', valor)}
+                      error={!form.data_fim_data.trim() ? 'Informe a data de término.' : undefined}
+                      hint="Após esta data e horário, a campanha deixa de ser exibida automaticamente."
+                    />
+                    <CampoDock
+                      label="Hora"
+                      type="time"
+                      value={form.data_fim_hora}
+                      onChange={valor => setCampo('data_fim_hora', valor)}
+                      error={!form.data_fim_hora.trim() ? 'Informe a hora de término.' : undefined}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {ordemInvalida && (
+            <div className="rounded-2xl border border-[#f0284a]/40 bg-[#fdecef] px-4 py-3 text-[12px] font-semibold leading-4 text-[#c21837]">
+              A data de início deve ser anterior à data de término.
+            </div>
+          )}
+        </div>
+        )
+      })()}
 
       {secao === 'feedback' && (
         <div className="space-y-5">
@@ -2611,6 +2771,12 @@ export function CampanhaFormIndex() {
   async function salvar(e: FormEvent) {
     e.preventDefault()
     setErro(null)
+    const erroVigencia = validarVigenciaForm(form)
+    if (erroVigencia) {
+      setErro(erroVigencia)
+      setSecaoDock('agendamento')
+      return
+    }
     setSalvando(true)
     try {
       const payload = montarPayloadCampanha(form)
@@ -2838,6 +3004,7 @@ export function CampanhaFormIndex() {
           salvando={salvando}
           editando={Boolean(id)}
           temGrupoConcorrente={grupoAtual !== null}
+          campanhaEncerrada={Boolean(campanhaAtual && getStatus(campanhaAtual) === 'encerrada')}
           setCampo={setCampo}
           setSecao={setSecaoDock}
           onSelecionarTela={selecionarTelaCatalogo}

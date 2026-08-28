@@ -17,6 +17,10 @@ import {
   resolverEncerramentoCampanha,
   motivoBloqueioReaberturaEncerrada,
   motivoBloqueioPublicarComDataFimPassada,
+  motivoBloqueioEncerramentoSilencioso,
+  parseDataVigencia,
+  validarPeriodoVigencia,
+  vigenciaCopiaCampanha,
   chaveGrupoConcorrente,
   validarIdsReordenacao,
   calcularPrioridadesReordenadas,
@@ -724,6 +728,164 @@ describe('motivoBloqueioPublicarComDataFimPassada', () => {
 
   test('publicar com data_fim futura -> permitido', () => {
     assert.equal(motivoBloqueioPublicarComDataFimPassada(FUTURA, AGORA), null)
+  })
+})
+
+// motivoBloqueioEncerramentoSilencioso — uma edição NORMAL (fora de publicar/
+// reativar e fora do POST /encerrar) nunca pode encerrar a campanha só por
+// colocar `data_fim` no passado. Só age em campanha ATIVA que ainda NÃO está
+// encerrada; o `data_fim` de uma já encerrada é governado só por
+// motivoBloqueioReaberturaEncerrada (preservado).
+describe('motivoBloqueioEncerramentoSilencioso', () => {
+  const AGORA = new Date('2026-06-15T12:00:00.000Z')
+  const FUTURA = new Date('2026-07-01T00:00:00.000Z')
+  const PASSADA = new Date('2026-01-01T00:00:00.000Z')
+  const PASSADA_2 = new Date('2026-02-01T00:00:00.000Z')
+
+  test('ATIVA vigente + nova data_fim futura -> permitido', () => {
+    assert.equal(motivoBloqueioEncerramentoSilencioso('ATIVA', null, FUTURA, AGORA), null)
+  })
+
+  test('ATIVA vigente + nova data_fim no passado -> bloqueado, orienta usar "Encerrar campanha"', () => {
+    const erro = motivoBloqueioEncerramentoSilencioso('ATIVA', null, PASSADA, AGORA)
+    assert.equal(erro, 'Não é possível definir a data de término no passado por aqui. Para encerrar a campanha agora, use a ação "Encerrar campanha".')
+  })
+
+  test('ATIVA agendada (data_fim futura ainda) + nova data_fim no passado -> bloqueado', () => {
+    assert.notEqual(motivoBloqueioEncerramentoSilencioso('ATIVA', FUTURA, PASSADA, AGORA), null)
+  })
+
+  test('campanha JÁ encerrada reenviando a MESMA data_fim passada (salvar outros campos) -> permitido', () => {
+    assert.equal(motivoBloqueioEncerramentoSilencioso('ATIVA', PASSADA, PASSADA, AGORA), null)
+  })
+
+  test('campanha JÁ encerrada trocando por OUTRA data passada -> permitido aqui (governado por motivoBloqueioReaberturaEncerrada)', () => {
+    assert.equal(motivoBloqueioEncerramentoSilencioso('ATIVA', PASSADA, PASSADA_2, AGORA), null)
+  })
+
+  test('campanha JÁ encerrada tentando null ou futuro -> este bloqueio não age (motivoBloqueioReaberturaEncerrada é quem barra)', () => {
+    assert.equal(motivoBloqueioEncerramentoSilencioso('ATIVA', PASSADA, null, AGORA), null)
+    assert.equal(motivoBloqueioEncerramentoSilencioso('ATIVA', PASSADA, FUTURA, AGORA), null)
+  })
+
+  test('data_fim nulo ou no futuro -> nunca encerra, sempre válido ("início sem fim" continua ok)', () => {
+    assert.equal(motivoBloqueioEncerramentoSilencioso('ATIVA', null, null, AGORA), null)
+    assert.equal(motivoBloqueioEncerramentoSilencioso('ATIVA', null, AGORA, AGORA), null)
+  })
+
+  test('RASCUNHO / INATIVA -> não age (edição de data_fim livre; publicar já é barrado por motivoBloqueioPublicarComDataFimPassada)', () => {
+    assert.equal(motivoBloqueioEncerramentoSilencioso('RASCUNHO', null, PASSADA, AGORA), null)
+    assert.equal(motivoBloqueioEncerramentoSilencioso('INATIVA', PASSADA, PASSADA_2, AGORA), null)
+  })
+})
+
+// Etapa 1 de agendamento/vigência — parseDataVigencia (parse seguro do valor
+// bruto do corpo) e validarPeriodoVigencia (ordem só quando ambos vêm). Não
+// tocam em elegibilidade/status/getStatus/Encerrar; data_inicio no passado é
+// permitida; "publicar com data_fim passada" continua sendo
+// motivoBloqueioPublicarComDataFimPassada (acima), não estas.
+describe('parseDataVigencia', () => {
+  test('ausente/null/string vazia -> { data: null, erro: null }', () => {
+    assert.deepEqual(parseDataVigencia(undefined, 'Data de início'), { data: null, erro: null })
+    assert.deepEqual(parseDataVigencia(null, 'Data de início'), { data: null, erro: null })
+    assert.deepEqual(parseDataVigencia('', 'Data de início'), { data: null, erro: null })
+  })
+
+  test('string ISO válida (com offset) -> Date correspondente, sem erro', () => {
+    const r = parseDataVigencia('2026-09-01T09:00:00-03:00', 'Data de início')
+    assert.equal(r.erro, null)
+    assert.ok(r.data instanceof Date)
+    assert.equal(r.data!.getTime(), new Date('2026-09-01T09:00:00-03:00').getTime())
+  })
+
+  test('data-only (YYYY-MM-DD) válida -> Date, sem erro', () => {
+    const r = parseDataVigencia('2026-09-01', 'Data de término')
+    assert.equal(r.erro, null)
+    assert.equal(r.data!.getTime(), new Date('2026-09-01').getTime())
+  })
+
+  test('já sendo Date -> passa direto', () => {
+    const d = new Date('2026-09-01T00:00:00.000Z')
+    const r = parseDataVigencia(d, 'Data de início')
+    assert.equal(r.erro, null)
+    assert.equal(r.data, d)
+  })
+
+  test('string não parseável -> erro claro com o rótulo, data null', () => {
+    const r = parseDataVigencia('amanhã de manhã', 'Data de início')
+    assert.equal(r.data, null)
+    assert.equal(r.erro, 'Data de início inválida. Informe uma data/hora válida.')
+
+    const r2 = parseDataVigencia('2026-13-45', 'Data de término')
+    assert.equal(r2.data, null)
+    assert.match(r2.erro!, /Data de término inválida/)
+  })
+})
+
+describe('validarPeriodoVigencia', () => {
+  const INICIO = new Date('2026-09-01T09:00:00.000Z')
+  const FIM = new Date('2026-09-30T18:00:00.000Z')
+  const PASSADO = new Date('2020-01-01T00:00:00.000Z')
+
+  test('null / null -> válido (sem restrição de período)', () => {
+    assert.equal(validarPeriodoVigencia(null, null), null)
+  })
+
+  test('só início (fim null) -> válido', () => {
+    assert.equal(validarPeriodoVigencia(INICIO, null), null)
+  })
+
+  test('só fim (início null) -> válido', () => {
+    assert.equal(validarPeriodoVigencia(null, FIM), null)
+  })
+
+  test('início < fim -> válido', () => {
+    assert.equal(validarPeriodoVigencia(INICIO, FIM), null)
+  })
+
+  test('início == fim -> inválido', () => {
+    assert.equal(
+      validarPeriodoVigencia(INICIO, new Date(INICIO)),
+      'A data de início deve ser anterior à data de término.'
+    )
+  })
+
+  test('início > fim -> inválido', () => {
+    assert.equal(
+      validarPeriodoVigencia(FIM, INICIO),
+      'A data de início deve ser anterior à data de término.'
+    )
+  })
+
+  test('início no passado, sem fim -> válido (data_inicio no passado é permitida)', () => {
+    assert.equal(validarPeriodoVigencia(PASSADO, null), null)
+  })
+
+  test('início no passado < fim -> válido', () => {
+    assert.equal(validarPeriodoVigencia(PASSADO, FIM), null)
+  })
+})
+
+// Etapa 4 — duplicar() nunca herda a vigência: a cópia nasce RASCUNHO com
+// data_inicio/data_fim nulos, qualquer que seja o período da original.
+describe('vigenciaCopiaCampanha', () => {
+  const INICIO = new Date('2026-09-01T09:00:00.000Z')
+  const FIM = new Date('2026-09-30T18:00:00.000Z')
+
+  test('original com início + fim -> cópia null/null', () => {
+    assert.deepEqual(vigenciaCopiaCampanha(INICIO, FIM), { data_inicio: null, data_fim: null })
+  })
+
+  test('original só início -> cópia null/null', () => {
+    assert.deepEqual(vigenciaCopiaCampanha(INICIO, null), { data_inicio: null, data_fim: null })
+  })
+
+  test('original só fim -> cópia null/null', () => {
+    assert.deepEqual(vigenciaCopiaCampanha(null, FIM), { data_inicio: null, data_fim: null })
+  })
+
+  test('original sem datas -> cópia null/null', () => {
+    assert.deepEqual(vigenciaCopiaCampanha(null, null), { data_inicio: null, data_fim: null })
   })
 })
 
