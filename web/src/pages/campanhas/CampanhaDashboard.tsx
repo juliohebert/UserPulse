@@ -9,6 +9,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
 import { blocosDashboardVisiveis, diasCivisNoIntervalo, variacaoPercentual, type IndicadorResumoDef } from './dashboardBlocos'
+import { conteudoEventoIdentificado, rotuloConteudoEvento, type ConteudoInfo } from './interacoesConteudo'
 
 // ─── filter types ─────────────────────────────────────────────────────────────
 
@@ -216,6 +217,10 @@ export function CampanhaDashboard() {
   // Só usado/exibido pra campanhas destaque_elemento (ver blocos.filtroDestaque
   // abaixo) — '' significa "todos os destaques".
   const [filtroDestaque, setFiltroDestaque] = useState('')
+  // Só usado/exibido pra campanhas com CampanhaConteudoItem (ver
+  // mostrarColunaConteudo abaixo) — '' = "todos"; '__nao_identificado__' =
+  // clique_cta sem conteudo_item_id. Filtro server-side via conteudo_id.
+  const [filtroConteudo, setFiltroConteudo] = useState('')
   const [periodo, setPeriodo] = useState<Periodo>(PERIODO_INICIAL)
   const [csvLoading, setCsvLoading] = useState(false)
   const [csvError, setCsvError] = useState<string | null>(null)
@@ -256,6 +261,7 @@ export function CampanhaDashboard() {
     if (filtros.busca.trim()) params.set('busca', filtros.busca.trim())
     if (filtroEvento !== 'Todos') params.set('tipo', filtroEvento)
     if (filtroDestaque) params.set('destaque_id', filtroDestaque)
+    if (filtroConteudo) params.set('conteudo_id', filtroConteudo)
     if (buscaEvento.trim()) params.set('busca_evento', buscaEvento.trim())
     if (filtroDestaqueAvaliacao) params.set('avaliacao_destaque_id', filtroDestaqueAvaliacao)
     if (filtroUtilAvaliacao !== 'Todos') params.set('avaliacao_util', filtroUtilAvaliacao === 'Sim' ? 'sim' : 'nao')
@@ -274,7 +280,7 @@ export function CampanhaDashboard() {
     const controller = new AbortController()
     load(controller.signal)
     return () => controller.abort()
-  }, [id, periodo, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
+  }, [id, periodo, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, filtroConteudo, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
 
   useEffect(() => {
     if (!showColMenu) return
@@ -307,7 +313,7 @@ export function CampanhaDashboard() {
   useEffect(() => { setPagResp(1) }, [filtros])
 
   // reset interações page when filters change
-  useEffect(() => { setPagInter(1) }, [filtroEvento, filtroDestaque, buscaEvento])
+  useEffect(() => { setPagInter(1) }, [filtroEvento, filtroDestaque, filtroConteudo, buscaEvento])
 
   // reset avaliações dos destaques page when filters change
   useEffect(() => { setPagAvaliacao(1) }, [filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
@@ -391,13 +397,21 @@ export function CampanhaDashboard() {
   }, [eventosFiltrados])
   const totalPagInter = Math.ceil((data?.eventos_total ?? 0) / tamPagInter)
 
-  const temFiltroEvento = filtroEvento !== 'Todos' || filtroDestaque !== '' || buscaEvento !== ''
+  const temFiltroEvento = filtroEvento !== 'Todos' || filtroDestaque !== '' || filtroConteudo !== '' || buscaEvento !== ''
 
   const blocos = blocosDashboardVisiveis(data?.campanha.modo_exibicao ?? '')
   // Cliques CTA por conteúdo (só formato não-destaque) — o backend já devolve
   // em ordem de `ordem` ASC, então nunca reordenamos aqui.
   const desempenhoConteudos = data?.desempenho_conteudos ?? []
   const cliquesCtaSemConteudo = data?.cliques_cta_sem_conteudo ?? 0
+  // Coluna/filtro "Conteúdo" da seção Interações — só quando a campanha tem
+  // CampanhaConteudoItem (mesma condição do bloco "Cliques CTA por conteúdo").
+  const mostrarColunaConteudo = blocos.desempenhoConteudos && desempenhoConteudos.length > 0
+  const conteudoInfoPorId = useMemo(() => {
+    const mapa = new Map<string, ConteudoInfo>()
+    for (const c of desempenhoConteudos) mapa.set(c.conteudo_item_id, { ordem: c.ordem, titulo: c.titulo })
+    return mapa
+  }, [desempenhoConteudos])
   const desempenhoDestaques = data?.desempenho_destaques ?? []
   const destaquesOrdenados = useMemo(() => [...desempenhoDestaques].sort((a, b) => {
     if (a.ativo !== b.ativo) return a.ativo ? -1 : 1
@@ -1373,7 +1387,7 @@ export function CampanhaDashboard() {
                         <tr className="hover:bg-surface-container-low/50 transition-colors">
                           <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-outline">—</td>
                           <td className="px-4 py-3 align-middle max-w-[280px]">
-                            <span className="text-[13px] text-outline italic">Cliques anteriores sem identificação do conteúdo</span>
+                            <span className="text-[13px] text-outline italic">Cliques sem identificação do conteúdo</span>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-outline">
                             {cliquesCtaSemConteudo.toLocaleString('pt-BR')}
@@ -1392,7 +1406,7 @@ export function CampanhaDashboard() {
                   ))}
                   {cliquesCtaSemConteudo > 0 && (
                     <div className="p-4">
-                      <span className="text-[13px] text-outline italic block">Cliques anteriores sem identificação do conteúdo</span>
+                      <span className="text-[13px] text-outline italic block">Cliques sem identificação do conteúdo</span>
                       <div className="mt-3 pt-3 border-t border-outline-variant/20 grid grid-cols-2 gap-x-3 gap-y-2.5">
                         <div className="min-w-0">
                           <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Cliques CTA</p>
@@ -1445,7 +1459,7 @@ export function CampanhaDashboard() {
               <div className="flex flex-wrap items-center gap-2">
                 {temFiltroEvento && (
                   <button
-                    onClick={() => { setFiltroEvento('Todos'); setBuscaEvento('') }}
+                    onClick={() => { setFiltroEvento('Todos'); setFiltroConteudo(''); setBuscaEvento('') }}
                     className="flex items-center gap-1 px-2.5 py-1.5 text-label-md text-on-surface-variant hover:text-error transition-colors"
                   >
                     <span className="material-symbols-outlined text-[16px]">filter_list_off</span>
@@ -1467,6 +1481,18 @@ export function CampanhaDashboard() {
                       ...desempenhoDestaques.map(item => ({ value: item.destaque_item_id, label: item.titulo })),
                     ]}
                     onChange={setFiltroDestaque}
+                  />
+                )}
+                {mostrarColunaConteudo && (
+                  <FiltroSelect
+                    label="Conteúdo"
+                    value={filtroConteudo}
+                    options={[
+                      { value: '', label: 'Todos' },
+                      ...desempenhoConteudos.map(c => ({ value: c.conteudo_item_id, label: `${c.ordem} · ${c.titulo}` })),
+                      { value: '__nao_identificado__', label: 'Não identificado' },
+                    ]}
+                    onChange={setFiltroConteudo}
                   />
                 )}
               </div>
@@ -1519,6 +1545,7 @@ export function CampanhaDashboard() {
                       <tr>
                         {[
                           'Tipo', 'Data/Hora',
+                          ...(mostrarColunaConteudo ? ['Conteúdo'] : []),
                           ...(blocos.filtroDestaque ? ['Destaque'] : []),
                           'Usuário', 'Perfil', 'Cliente', 'Unidade', 'Estado',
                         ].map(h => (
@@ -1533,6 +1560,8 @@ export function CampanhaDashboard() {
                         const email = c.usuario_email
                         const unidade = c.unidade_nome || c.clinica_nome
                         const destaqueTitulo = e.destaque_item_id ? destaqueTituloPorId.get(e.destaque_item_id) : undefined
+                        const rotuloConteudo = rotuloConteudoEvento(e.tipo_evento, e.conteudo_item_id, conteudoInfoPorId)
+                        const conteudoIdentificado = conteudoEventoIdentificado(e.tipo_evento, e.conteudo_item_id, conteudoInfoPorId)
                         return (
                           <tr key={e.id} className="hover:bg-surface-container-low/50 transition-colors">
                             <td className="px-4 py-3 whitespace-nowrap align-middle">
@@ -1541,6 +1570,13 @@ export function CampanhaDashboard() {
                             <td className="px-4 py-3 whitespace-nowrap align-middle">
                               <CellText value={formatDateTime(e.criado_em)} />
                             </td>
+                            {mostrarColunaConteudo && (
+                              <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[200px]">
+                                <span className={`text-[13px] truncate block ${conteudoIdentificado ? 'text-on-surface' : 'text-outline italic'}`} title={rotuloConteudo}>
+                                  {rotuloConteudo}
+                                </span>
+                              </td>
+                            )}
                             {blocos.filtroDestaque && (
                               <td className="px-4 py-3 whitespace-nowrap align-middle max-w-[160px]">
                                 <span className={`text-[13px] truncate block ${destaqueTitulo ? 'text-on-surface' : 'text-outline italic'}`} title={destaqueTitulo}>
@@ -1588,6 +1624,9 @@ export function CampanhaDashboard() {
                       key={e.id}
                       e={e}
                       destaqueTitulo={e.destaque_item_id ? destaqueTituloPorId.get(e.destaque_item_id) : undefined}
+                      conteudoLabel={mostrarColunaConteudo && e.tipo_evento === 'clique_cta'
+                        ? rotuloConteudoEvento(e.tipo_evento, e.conteudo_item_id, conteudoInfoPorId)
+                        : undefined}
                     />
                   ))}
                 </div>
@@ -2162,7 +2201,7 @@ function RespostaCard({ f, activeCols }: { f: Feedback; activeCols: ColDef[] }) 
 }
 
 // Card de interação para telas mobile (< md) — mesma lógica de substituição da tabela.
-function InteracaoCard({ e, destaqueTitulo }: { e: EventoCampanha; destaqueTitulo?: string }) {
+function InteracaoCard({ e, destaqueTitulo, conteudoLabel }: { e: EventoCampanha; destaqueTitulo?: string; conteudoLabel?: string }) {
   const c = (e.contexto ?? {}) as Record<string, string>
   const nome = c.usuario_nome || e.usuario_id
   const email = c.usuario_email
@@ -2179,6 +2218,12 @@ function InteracaoCard({ e, destaqueTitulo }: { e: EventoCampanha; destaqueTitul
           <div className="min-w-0 col-span-2">
             <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Destaque</p>
             <span className="text-[13px] block truncate text-on-surface" title={destaqueTitulo}>{destaqueTitulo}</span>
+          </div>
+        )}
+        {conteudoLabel && (
+          <div className="min-w-0 col-span-2">
+            <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">Conteúdo</p>
+            <span className={`text-[13px] block truncate ${conteudoLabel === 'Não identificado' ? 'text-outline italic' : 'text-on-surface'}`} title={conteudoLabel}>{conteudoLabel}</span>
           </div>
         )}
         <div className="min-w-0 col-span-2">

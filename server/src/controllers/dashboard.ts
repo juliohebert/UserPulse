@@ -312,6 +312,23 @@ function filtrosEventos(query: Request['query'], campanhaId: string): Prisma.Eve
   const tipos: Record<string, string> = { Visualização: 'visualizacao', Clique: 'clique_cta', Interação: 'interacao_badge', Dispensa: 'dispensa' }
   if (typeof query.tipo === 'string' && tipos[query.tipo]) where.tipo_evento = tipos[query.tipo]
   if (typeof query.destaque_id === 'string' && query.destaque_id) where.destaque_item_id = query.destaque_id
+  // Filtro por conteúdo (seção "Cliques CTA por conteúdo") — id específico, ou
+  // a sentinela __nao_identificado__.
+  if (typeof query.conteudo_id === 'string' && query.conteudo_id) {
+    if (query.conteudo_id === '__nao_identificado__') {
+      // "Não identificado" = clique no CTA que não carregou conteudo_item_id
+      // (evento legado, embed antigo sem data-up-conteudo-id, ou conteúdo já
+      // removido — FK ON DELETE SET NULL). Restringe a clique_cta pra NÃO
+      // trazer visualizacao/dispensa/interacao_badge, que têm
+      // conteudo_item_id null por natureza. Via AND: se o filtro de Tipo já
+      // fixou outro tipo_evento acima, a combinação incompatível vira lista
+      // vazia (previsível), nunca "vaza" outros eventos.
+      where.conteudo_item_id = null
+      where.AND = [{ tipo_evento: 'clique_cta' }]
+    } else {
+      where.conteudo_item_id = query.conteudo_id
+    }
+  }
   if (typeof query.busca_evento === 'string' && query.busca_evento.trim()) {
     const termo = query.busca_evento.trim()
     where.OR = [
