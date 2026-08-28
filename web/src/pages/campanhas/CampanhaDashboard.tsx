@@ -615,7 +615,7 @@ export function CampanhaDashboard() {
           {data && (
             <div className="mt-2.5 flex flex-wrap items-center gap-2.5">
               <span className="inline-flex h-[30px] items-center rounded-full border border-[#e7ebf2] bg-white px-3 text-[12px] font-bold text-[#667085]">{data.campanha.sistema}</span>
-              <StatusBadge status={getStatus(data.campanha)} />
+              <StatusBadge status={getStatus(data.campanha)} dataInicio={data.campanha.data_inicio} />
               <TypeBadge tipo={data.campanha.tipo} />
             </div>
           )}

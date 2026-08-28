@@ -32,7 +32,7 @@ export function CampanhaQuickView({ campanha, onClose }: Props) {
         <div className="flex items-center justify-between gap-3 border-b border-outline-variant/50 px-5 py-4 bg-surface-container-lowest">
           <div className="flex items-center gap-2 flex-wrap">
             <TypeBadge tipo={campanha.tipo} />
-            <StatusBadge status={status} />
+            <StatusBadge status={status} dataInicio={campanha.data_inicio} />
           </div>
           <div className="flex items-center gap-1 shrink-0">
             {podeEscrever && (

@@ -215,7 +215,7 @@ export function CampanhaPreview() {
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-title-lg font-bold text-on-surface">{campanha.nome_interno}</h2>
-            <StatusBadge status={getStatus(campanha)} />
+            <StatusBadge status={getStatus(campanha)} dataInicio={campanha.data_inicio} />
           </div>
           <p className="text-body-md text-on-surface-variant mt-0.5">Modo teste: nenhum feedback será registrado.</p>
         </div>

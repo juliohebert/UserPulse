@@ -857,7 +857,7 @@ export function Dashboard() {
                                   </div>
                                 </td>
                                 <td className="px-5 py-4 text-center">
-                                  <StatusBadge status={getStatus(c)} />
+                                  <StatusBadge status={getStatus(c)} dataInicio={c.data_inicio} />
                                 </td>
                                 <td className="px-5 py-4">
                                   <TypeBadge tipo={c.tipo} />
