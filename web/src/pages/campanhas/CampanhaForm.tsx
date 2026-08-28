@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { LoadingSpinner } from '../../components/ui/EmptyState'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { ResumoConfiguracao } from './ResumoConfiguracao'
 import { del, get, post, put } from '../../services/api'
 import type { AparenciaWidget, Campanha, Sistema, TelaCatalogo } from '../../types'
 import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
@@ -2393,6 +2394,7 @@ export function CampanhaFormIndex() {
   const [mostrarMidia, setMostrarMidia] = useState(true)
   const [mediaPosition, setMediaPosition] = useState<PosicaoMidia>('topo')
   const [previewAberto, setPreviewAberto] = useState(false)
+  const [revisarAberto, setRevisarAberto] = useState(false)
   const [modalNovaTelaAberto, setModalNovaTelaAberto] = useState(false)
   const [formNovaTela, setFormNovaTela] = useState(TELA_CATALOGO_EMPTY_FORM)
   const [salvandoNovaTela, setSalvandoNovaTela] = useState(false)
@@ -2928,6 +2930,11 @@ export function CampanhaFormIndex() {
                 Index.tsx e Preview.tsx: RASCUNHO->Publicar e INATIVA->
                 Reativar chamam o mesmo PUT status=ATIVA; Encerrar some
                 quando a vigência (data_fim) já passou. */}
+            {(campanhaAtual?.status === 'RASCUNHO' || campanhaAtual?.status === 'INATIVA') && (
+              <Button type="button" variant="ghost" onClick={() => setRevisarAberto(true)} iconLeft={<span className="material-symbols-outlined text-[18px]">checklist</span>}>
+                Revisar configuração
+              </Button>
+            )}
             {campanhaAtual?.status === 'RASCUNHO' && (
               <Button type="button" variant="gradient" onClick={publicarOuReativarCampanha} disabled={publicando}>
                 {publicando ? 'Publicando...' : 'Publicar campanha'}
@@ -3053,6 +3060,42 @@ export function CampanhaFormIndex() {
           aparencia={aparenciaAtual}
           onClose={() => setPreviewAberto(false)}
         />
+      )}
+
+      {/* Revisar configuração — mesmo conteúdo do "Resumo da configuração" da
+          página de Preview, num modal leve. Só no fluxo de edição de
+          RASCUNHO/INATIVA (antes de Publicar/Reativar); campanha ATIVA não
+          precisa. Lê campanhaAtual (persistida), nunca o FormState em edição. */}
+      {revisarAberto && campanhaAtual && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#0a1317]/45 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Revisar configuração"
+          onClick={() => setRevisarAberto(false)}
+        >
+          <div
+            className="w-full max-w-[560px] max-h-[85vh] overflow-y-auto rounded-2xl bg-surface-container-lowest shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="sticky top-0 flex items-center justify-between gap-3 border-b border-outline-variant/30 bg-surface-container-lowest px-5 py-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="material-symbols-outlined shrink-0 text-on-surface-variant">checklist</span>
+                <h3 className="text-title-lg font-bold text-on-surface">Revisar configuração</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRevisarAberto(false)}
+                aria-label="Fechar"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant transition hover:bg-surface-container-high"
+              >
+                <span className="material-symbols-outlined text-[20px]">close</span>
+              </button>
+            </div>
+            <ResumoConfiguracao campanha={campanhaAtual} />
+          </div>
+        </div>,
+        document.body
       )}
 
       {confirmarDesativar && campanhaAtual && (

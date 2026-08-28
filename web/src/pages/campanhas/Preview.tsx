@@ -11,6 +11,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 import { resolverConteudosPreview } from './campanhaForm.utils'
+import { ResumoConfiguracao } from './ResumoConfiguracao'
 
 // Esta página não busca a aparência por sistema (diferente do formulário de campanhas,
 // que usa a cor do tenant) — cobalto fixo, mesmo tom de {colors.primary} no
@@ -454,6 +455,15 @@ export function CampanhaPreview() {
             </div>
           </>
         )}
+      </div>
+
+      {/* ── Resumo da configuração ── */}
+      <div className="mt-5 w-full max-w-full bg-surface-container-lowest rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-outline-variant/30">
+          <span className="material-symbols-outlined text-on-surface-variant shrink-0">checklist</span>
+          <h3 className="text-title-lg font-bold text-on-surface">Resumo da configuração</h3>
+        </div>
+        <ResumoConfiguracao campanha={campanha} />
       </div>
 
       {/* Código de integração */}
