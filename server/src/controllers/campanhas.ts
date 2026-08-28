@@ -134,6 +134,81 @@ export function motivoBloqueioPublicarComDataFimPassada(dataFimEfetivo: Date | n
   return null
 }
 
+// Editar `data_fim` numa edição NORMAL (fora do fluxo de publicar/reativar e
+// fora do POST /encerrar) nunca pode encerrar a campanha silenciosamente:
+// definir um `data_fim` já no passado numa campanha ATIVA ainda vigente (ou
+// agendada) a tiraria do ar na hora sem o usuário ter clicado "Encerrar
+// campanha". Bloqueia e orienta a ação certa.
+// - Só age em campanha ATIVA que AINDA NÃO está encerrada — o `data_fim` de
+//   uma campanha já encerrada é governado só por motivoBloqueioReaberturaEncerrada
+//   (que permite reenviar a mesma data passada, ou trocar por outra data
+//   passada, e bloqueia null/futuro). Reenviar a data passada ao salvar
+//   outros campos (montarPayloadCampanha sempre reenvia `data_fim`) continua
+//   passando por aqui sem erro.
+// - `data_fim` nulo ou no futuro/presente: nunca encerra, sempre válido.
+// Função pura — `agora` sempre injetado pelo caller.
+export function motivoBloqueioEncerramentoSilencioso(
+  statusAtual: CampanhaStatus,
+  dataFimAtual: Date | null,
+  novoDataFim: Date | null,
+  agora: Date
+): string | null {
+  if (statusAtual !== 'ATIVA') return null
+  const jaEncerrada = dataFimAtual !== null && dataFimAtual.getTime() < agora.getTime()
+  if (jaEncerrada) return null
+  if (novoDataFim !== null && novoDataFim.getTime() < agora.getTime()) {
+    return 'Não é possível definir a data de término no passado por aqui. Para encerrar a campanha agora, use a ação "Encerrar campanha".'
+  }
+  return null
+}
+
+// ─── Período de vigência (Etapa 1 de agendamento/vigência) ─────────────────
+// data_inicio e data_fim são opcionais e INDEPENDENTES — um não obriga o
+// outro. Estas 2 funções puras só validam a ENTRADA (parse + ordem);
+// NÃO mexem em elegibilidade (widget), status, getStatus, Encerrar nem no
+// bloqueio de "publicar com data_fim passada" (motivoBloqueioPublicarComDataFimPassada,
+// que continua sendo a regra pra publicar/reativar). data_inicio no passado
+// é permitida de propósito (= "já vigente").
+
+// Converte o valor bruto do corpo em Date | null. Ausente/null/'' = campo não
+// informado (ou limpo) -> null, sem erro. String/Number/Date que não vira um
+// instante válido -> erro pronto pra 400. `rotulo` entra na mensagem
+// ("Data de início" / "Data de término").
+export function parseDataVigencia(valor: unknown, rotulo: string): { data: Date | null; erro: string | null } {
+  if (valor === undefined || valor === null || valor === '') {
+    return { data: null, erro: null }
+  }
+  const data = valor instanceof Date ? valor : new Date(valor as string)
+  if (Number.isNaN(data.getTime())) {
+    return { data: null, erro: `${rotulo} inválida. Informe uma data/hora válida.` }
+  }
+  return { data, erro: null }
+}
+
+// Só exige ordem quando os DOIS estão preenchidos: início >= fim é inválido
+// (cobre início == fim). Qualquer combinação com null (null/null, só início,
+// só fim) é sempre válida. `dataInicio`/`dataFim` já devem vir de
+// parseDataVigencia (ou do valor persistido) — nunca strings cruas.
+export function validarPeriodoVigencia(dataInicio: Date | null, dataFim: Date | null): string | null {
+  if (dataInicio !== null && dataFim !== null && dataInicio.getTime() >= dataFim.getTime()) {
+    return 'A data de início deve ser anterior à data de término.'
+  }
+  return null
+}
+
+// Vigência da CÓPIA em duplicar() (Etapa 4) — a cópia NUNCA herda o período
+// da campanha original: data_inicio/data_fim são específicos da publicação
+// da original e a cópia nasce RASCUNHO, sem agendamento nem término, pra o
+// usuário definir a vigência dela do zero. Função pura que ignora as datas da
+// original de propósito — existe só pra deixar a regra explícita e travada
+// contra regressão (alguém reintroduzir `original.data_inicio` no create).
+export function vigenciaCopiaCampanha(
+  _dataInicioOriginal: Date | null,
+  _dataFimOriginal: Date | null
+): { data_inicio: null; data_fim: null } {
+  return { data_inicio: null, data_fim: null }
+}
+
 // ─── Respostas helpers ────────────────────────────────────────────────────────
 
 interface RespostaRow {
@@ -1003,6 +1078,14 @@ export async function criar(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Informe o nome do evento de conclusão (evento_conclusao).' })
     }
 
+    // Vigência (Etapa 1) — data_inicio/data_fim opcionais e independentes.
+    const { data: dataInicioVigencia, erro: erroDataInicio } = parseDataVigencia(data_inicio, 'Data de início')
+    if (erroDataInicio) return res.status(400).json({ erro: erroDataInicio })
+    const { data: dataFimVigencia, erro: erroDataFim } = parseDataVigencia(data_fim, 'Data de término')
+    if (erroDataFim) return res.status(400).json({ erro: erroDataFim })
+    const erroPeriodo = validarPeriodoVigencia(dataInicioVigencia, dataFimVigencia)
+    if (erroPeriodo) return res.status(400).json({ erro: erroPeriodo })
+
     // Fase 1 dos 3 status — toda campanha nova nasce RASCUNHO, sem exceção:
     // nunca é elegível no widget nem conta como "ativa" pro limite do plano.
     // `status`/`ativo` enviados no corpo são ignorados de propósito (nunca
@@ -1048,8 +1131,8 @@ export async function criar(req: Request, res: Response) {
         ordem: ordem !== undefined ? Number(ordem) : 0,
         status: statusInicial,
         ativo: sincronizarAtivoComStatus(statusInicial),
-        data_inicio: data_inicio ? new Date(data_inicio) : null,
-        data_fim: data_fim ? new Date(data_fim) : null,
+        data_inicio: dataInicioVigencia,
+        data_fim: dataFimVigencia,
         pergunta_feedback: pergunta_feedback?.trim() || null,
         observacao_obrigatoria: Boolean(observacao_obrigatoria),
         exige_confirmacao_leitura: Boolean(exige_confirmacao_leitura),
@@ -1191,6 +1274,28 @@ export async function atualizar(req: Request, res: Response) {
 
     const dataCyNormalizado = data_cy !== undefined ? normalizarDataCy(data_cy) : normalizarDataCy(existente.data_cy)
 
+    // Vigência (Etapa 1) — data_inicio/data_fim opcionais e independentes.
+    // Cada campo só é reparseado quando VEM no corpo; a validação de ordem usa
+    // o valor efetivo (o enviado, ou o já persistido quando o outro não veio).
+    // undefined = campo ausente no corpo -> não escreve, mantém o persistido.
+    let dataInicioVigencia: Date | null | undefined
+    if (data_inicio !== undefined) {
+      const r = parseDataVigencia(data_inicio, 'Data de início')
+      if (r.erro) return res.status(400).json({ erro: r.erro })
+      dataInicioVigencia = r.data
+    }
+    let dataFimVigencia: Date | null | undefined
+    if (data_fim !== undefined) {
+      const r = parseDataVigencia(data_fim, 'Data de término')
+      if (r.erro) return res.status(400).json({ erro: r.erro })
+      dataFimVigencia = r.data
+    }
+    const erroPeriodo = validarPeriodoVigencia(
+      dataInicioVigencia !== undefined ? dataInicioVigencia : existente.data_inicio,
+      dataFimVigencia !== undefined ? dataFimVigencia : existente.data_fim
+    )
+    if (erroPeriodo) return res.status(400).json({ erro: erroPeriodo })
+
     // Fase 1 dos 3 status — `status` é a entrada preferida. `ativo` (boolean)
     // continua aceito no corpo só por compatibilidade com o frontend ainda
     // não atualizado (toggle Ativar/Inativar da listagem, PUT {ativo:true/
@@ -1268,8 +1373,13 @@ export async function atualizar(req: Request, res: Response) {
     // normalmente numa campanha encerrada.
     if (data_fim !== undefined) {
       const novoDataFim = data_fim ? new Date(data_fim) : null
-      const erroReabertura = motivoBloqueioReaberturaEncerrada(existente.status, existente.data_fim, novoDataFim, new Date())
+      const agoraEdicao = new Date()
+      const erroReabertura = motivoBloqueioReaberturaEncerrada(existente.status, existente.data_fim, novoDataFim, agoraEdicao)
       if (erroReabertura) return res.status(400).json({ erro: erroReabertura })
+      // Não encerrar silenciosamente uma campanha ATIVA ainda vigente/agendada
+      // por uma edição normal de `data_fim` (fora do POST /encerrar).
+      const erroEncerramentoSilencioso = motivoBloqueioEncerramentoSilencioso(existente.status, existente.data_fim, novoDataFim, agoraEdicao)
+      if (erroEncerramentoSilencioso) return res.status(400).json({ erro: erroEncerramentoSilencioso })
     }
 
     let slug = existente.slug
@@ -1320,8 +1430,8 @@ export async function atualizar(req: Request, res: Response) {
         ...(prioridade !== undefined && { prioridade: Number(prioridade) }),
         ...(ordem !== undefined && { ordem: Number(ordem) }),
         ...(statusDesejado !== undefined && { status: statusDesejado, ativo: sincronizarAtivoComStatus(statusDesejado) }),
-        ...(data_inicio !== undefined && { data_inicio: data_inicio ? new Date(data_inicio) : null }),
-        ...(data_fim !== undefined && { data_fim: data_fim ? new Date(data_fim) : null }),
+        ...(dataInicioVigencia !== undefined && { data_inicio: dataInicioVigencia }),
+        ...(dataFimVigencia !== undefined && { data_fim: dataFimVigencia }),
         ...(pergunta_feedback !== undefined && { pergunta_feedback: pergunta_feedback?.trim() || null }),
         ...(observacao_obrigatoria !== undefined && { observacao_obrigatoria: Boolean(observacao_obrigatoria) }),
         ...(exige_confirmacao_leitura !== undefined && { exige_confirmacao_leitura: Boolean(exige_confirmacao_leitura) }),
@@ -1628,8 +1738,10 @@ export async function duplicar(req: Request, res: Response) {
         ordem: original.ordem,
         status: STATUS_INICIAL_CAMPANHA,
         ativo: sincronizarAtivoComStatus(STATUS_INICIAL_CAMPANHA),
-        data_inicio: original.data_inicio,
-        data_fim: original.data_fim,
+        // Vigência (Etapa 4) — NUNCA herda data_inicio/data_fim: o período é
+        // específico da publicação da campanha original. A cópia nasce
+        // RASCUNHO sem agendamento nem término (ver vigenciaCopiaCampanha).
+        ...vigenciaCopiaCampanha(original.data_inicio, original.data_fim),
         pergunta_feedback: original.pergunta_feedback,
         observacao_obrigatoria: original.observacao_obrigatoria,
         exige_confirmacao_leitura: original.exige_confirmacao_leitura,

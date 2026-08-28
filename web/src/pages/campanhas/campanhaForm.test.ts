@@ -10,6 +10,10 @@ import {
   montarPayloadCampanha,
   rotaEditarCampanha,
   getStatus,
+  resolverModoInicio,
+  resolverModoFim,
+  separarDataHora,
+  combinarDataHoraISO,
   type FormState,
 } from './campanhaForm.utils'
 
@@ -162,7 +166,7 @@ describe('hidratarFormState — tela livre (fora do catálogo)', () => {
 })
 
 describe('hidratarFormState — vigência', () => {
-  test('carrega data_inicio/data_fim quando presentes', () => {
+  test('carrega data_inicio/data_fim (cru) quando presentes', () => {
     const c = campanhaAntiga({ data_inicio: '2026-03-01', data_fim: '2026-03-31' })
     const form = hidratarFormState(c)
     assert.equal(form.data_inicio, '2026-03-01')
@@ -174,6 +178,45 @@ describe('hidratarFormState — vigência', () => {
     const form = hidratarFormState(c)
     assert.equal(form.data_inicio, '')
     assert.equal(form.data_fim, '')
+  })
+
+  // Etapa 2 — modo + (data, hora)
+  test('sem datas -> imediato + sem_data, pares vazios (compat campanha antiga)', () => {
+    const form = hidratarFormState(campanhaAntiga({ data_inicio: null, data_fim: null }))
+    assert.equal(form.modo_inicio, 'imediato')
+    assert.equal(form.modo_fim, 'sem_data')
+    assert.equal(form.data_inicio_data, '')
+    assert.equal(form.data_inicio_hora, '')
+    assert.equal(form.data_fim_data, '')
+    assert.equal(form.data_fim_hora, '')
+  })
+
+  test('só início (date-only legado) -> agendado + data literal, hora vazia; fim continua sem_data', () => {
+    const form = hidratarFormState(campanhaAntiga({ data_inicio: '2026-05-01', data_fim: null }))
+    assert.equal(form.modo_inicio, 'agendado')
+    assert.equal(form.data_inicio_data, '2026-05-01')
+    assert.equal(form.data_inicio_hora, '')
+    assert.equal(form.modo_fim, 'sem_data')
+  })
+
+  test('só fim -> em_data; início continua imediato', () => {
+    const form = hidratarFormState(campanhaAntiga({ data_inicio: null, data_fim: '2026-06-30' }))
+    assert.equal(form.modo_inicio, 'imediato')
+    assert.equal(form.modo_fim, 'em_data')
+    assert.equal(form.data_fim_data, '2026-06-30')
+  })
+
+  test('início + fim -> os dois modos ativos, independentes', () => {
+    const form = hidratarFormState(campanhaAntiga({ data_inicio: '2026-05-01', data_fim: '2026-06-30' }))
+    assert.equal(form.modo_inicio, 'agendado')
+    assert.equal(form.modo_fim, 'em_data')
+  })
+
+  test('ISO com hora (UTC) -> separa data/hora no wall-clock de America/Sao_Paulo', () => {
+    // 12:30Z = 09:30 em São Paulo (UTC-03:00 o ano todo).
+    const form = hidratarFormState(campanhaAntiga({ data_inicio: '2026-05-01T12:30:00.000Z', data_fim: null }))
+    assert.equal(form.data_inicio_data, '2026-05-01')
+    assert.equal(form.data_inicio_hora, '09:30')
   })
 })
 
@@ -315,10 +358,13 @@ describe('round-trip: campanha antiga -> hidratar -> salvar sem alterações', (
   })
 
   test('preserva vigência (data_inicio/data_fim)', () => {
+    // Etapa 2 — um valor date-only legado é normalizado pra ISO com offset
+    // -03:00 na meia-noite de São Paulo (mesmo dia do calendário). Ambos os
+    // modos seguem preenchidos ("agendado" / "em_data"), o cenário não muda.
     const original = campanhaAntiga({ data_inicio: '2026-03-01', data_fim: '2026-03-31' })
     const payload = montarPayloadCampanha(hidratarFormState(original))
-    assert.equal(payload.data_inicio, '2026-03-01')
-    assert.equal(payload.data_fim, '2026-03-31')
+    assert.equal(payload.data_inicio, '2026-03-01T00:00:00-03:00')
+    assert.equal(payload.data_fim, '2026-03-31T00:00:00-03:00')
   })
 
   test('preserva NPS/pergunta_feedback e tipo pesquisa', () => {
@@ -518,5 +564,140 @@ describe('getStatus — status persistido tem prioridade sobre período', () => 
     const inicioPassado = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     const fimFuturo = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     assert.equal(getStatus({ status: 'ATIVA', data_inicio: inicioPassado, data_fim: fimFuturo }), 'ativa')
+  })
+})
+
+// ─── Etapa 2 — vigência: helpers puros + payload (modo + data/hora) ────────
+describe('resolverModoInicio / resolverModoFim', () => {
+  test('sem valor -> imediato / sem_data', () => {
+    assert.equal(resolverModoInicio(null), 'imediato')
+    assert.equal(resolverModoInicio(''), 'imediato')
+    assert.equal(resolverModoInicio(undefined), 'imediato')
+    assert.equal(resolverModoFim(null), 'sem_data')
+    assert.equal(resolverModoFim(''), 'sem_data')
+  })
+  test('com valor -> agendado / em_data', () => {
+    assert.equal(resolverModoInicio('2026-05-01'), 'agendado')
+    assert.equal(resolverModoInicio('2026-05-01T12:00:00.000Z'), 'agendado')
+    assert.equal(resolverModoFim('2026-06-30'), 'em_data')
+  })
+})
+
+describe('separarDataHora', () => {
+  test('vazio/null -> { "", "" }', () => {
+    assert.deepEqual(separarDataHora(null), { data: '', hora: '' })
+    assert.deepEqual(separarDataHora(''), { data: '', hora: '' })
+    assert.deepEqual(separarDataHora(undefined), { data: '', hora: '' })
+  })
+  test('date-only legado -> data literal, hora vazia (sem conversão de fuso)', () => {
+    assert.deepEqual(separarDataHora('2026-05-01'), { data: '2026-05-01', hora: '' })
+  })
+  test('ISO UTC com hora -> wall-clock de America/Sao_Paulo', () => {
+    assert.deepEqual(separarDataHora('2026-05-01T12:30:00.000Z'), { data: '2026-05-01', hora: '09:30' })
+    // vira o dia pra trás quando o UTC é de madrugada
+    assert.deepEqual(separarDataHora('2026-05-01T01:00:00.000Z'), { data: '2026-04-30', hora: '22:00' })
+  })
+  test('ISO já com offset -03:00 -> devolve o mesmo wall-clock', () => {
+    assert.deepEqual(separarDataHora('2026-09-01T09:00:00-03:00'), { data: '2026-09-01', hora: '09:00' })
+  })
+  test('string inválida -> { "", "" }', () => {
+    assert.deepEqual(separarDataHora('não é data'), { data: '', hora: '' })
+  })
+})
+
+describe('combinarDataHoraISO — ISO com offset -03:00', () => {
+  test('data + hora -> "YYYY-MM-DDTHH:MM:00-03:00"', () => {
+    assert.equal(combinarDataHoraISO('2026-09-01', '09:00'), '2026-09-01T09:00:00-03:00')
+    assert.equal(combinarDataHoraISO('2026-12-31', '23:45'), '2026-12-31T23:45:00-03:00')
+  })
+  test('hora vazia -> meia-noite', () => {
+    assert.equal(combinarDataHoraISO('2026-09-01', ''), '2026-09-01T00:00:00-03:00')
+  })
+  test('sem data -> string vazia (caller manda null)', () => {
+    assert.equal(combinarDataHoraISO('', '09:00'), '')
+    assert.equal(combinarDataHoraISO('   ', '09:00'), '')
+  })
+  test('o ISO gerado não depende do timezone local do navegador (offset explícito)', () => {
+    const iso = combinarDataHoraISO('2026-09-01', '09:00')
+    assert.match(iso, /-03:00$/)
+    assert.equal(new Date(iso).toISOString(), '2026-09-01T12:00:00.000Z')
+  })
+})
+
+describe('montarPayloadCampanha — vigência (modo + data/hora)', () => {
+  function base(over: Partial<FormState> = {}): FormState {
+    return { ...formInicial, nome_interno: 'x', sistema: 'erp', tela: 'Home', ...over }
+  }
+
+  test('sem datas (imediato + sem_data) -> data_inicio: null, data_fim: null', () => {
+    const p = montarPayloadCampanha(base())
+    assert.equal(p.data_inicio, null)
+    assert.equal(p.data_fim, null)
+  })
+
+  test('só início (agendado) -> data_inicio combinado, data_fim: null', () => {
+    const p = montarPayloadCampanha(base({
+      modo_inicio: 'agendado', data_inicio_data: '2026-09-01', data_inicio_hora: '09:00',
+    }))
+    assert.equal(p.data_inicio, '2026-09-01T09:00:00-03:00')
+    assert.equal(p.data_fim, null)
+  })
+
+  test('só fim (em_data) -> data_fim combinado, data_inicio: null', () => {
+    const p = montarPayloadCampanha(base({
+      modo_fim: 'em_data', data_fim_data: '2026-09-30', data_fim_hora: '18:00',
+    }))
+    assert.equal(p.data_inicio, null)
+    assert.equal(p.data_fim, '2026-09-30T18:00:00-03:00')
+  })
+
+  test('início + fim -> os dois combinados (backend valida início < fim)', () => {
+    const p = montarPayloadCampanha(base({
+      modo_inicio: 'agendado', data_inicio_data: '2026-09-01', data_inicio_hora: '09:00',
+      modo_fim: 'em_data', data_fim_data: '2026-09-30', data_fim_hora: '18:00',
+    }))
+    assert.equal(p.data_inicio, '2026-09-01T09:00:00-03:00')
+    assert.equal(p.data_fim, '2026-09-30T18:00:00-03:00')
+  })
+
+  test('modo agendado sem data preenchida -> null (não quebra; a UI da Etapa 3 barra o submit)', () => {
+    const p = montarPayloadCampanha(base({ modo_inicio: 'agendado', data_inicio_data: '', data_inicio_hora: '10:00' }))
+    assert.equal(p.data_inicio, null)
+  })
+
+  test('modo imediato ignora data/hora eventualmente preenchidas', () => {
+    const p = montarPayloadCampanha(base({
+      modo_inicio: 'imediato', data_inicio_data: '2026-09-01', data_inicio_hora: '09:00',
+    }))
+    assert.equal(p.data_inicio, null)
+  })
+})
+
+describe('round-trip vigência: campanha -> hidratar -> payload', () => {
+  test('ISO UTC com hora: instante preservado (mesmo getTime), apenas muda a representação', () => {
+    const original = campanhaAntiga({ data_inicio: '2026-05-01T12:30:00.000Z', data_fim: '2026-06-30T21:00:00.000Z' })
+    const p = montarPayloadCampanha(hidratarFormState(original))
+    assert.equal(new Date(p.data_inicio as string).getTime(), new Date('2026-05-01T12:30:00.000Z').getTime())
+    assert.equal(new Date(p.data_fim as string).getTime(), new Date('2026-06-30T21:00:00.000Z').getTime())
+    assert.match(p.data_inicio as string, /-03:00$/)
+  })
+
+  test('horário preservado no round-trip (15:45Z -> 12:45 SP -> volta a 15:45Z)', () => {
+    const original = campanhaAntiga({ data_inicio: '2026-05-01T15:45:00.000Z', data_fim: null })
+    const form = hidratarFormState(original)
+    assert.equal(form.data_inicio_hora, '12:45')
+    const p = montarPayloadCampanha(form)
+    assert.equal(p.data_inicio, '2026-05-01T12:45:00-03:00')
+    assert.equal(new Date(p.data_inicio as string).toISOString(), '2026-05-01T15:45:00.000Z')
+  })
+
+  test('legado sem datas: round-trip mantém null/null e modos imediato/sem_data', () => {
+    const original = campanhaAntiga({ data_inicio: null, data_fim: null })
+    const form = hidratarFormState(original)
+    assert.equal(form.modo_inicio, 'imediato')
+    assert.equal(form.modo_fim, 'sem_data')
+    const p = montarPayloadCampanha(form)
+    assert.equal(p.data_inicio, null)
+    assert.equal(p.data_fim, null)
   })
 })

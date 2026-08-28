@@ -96,8 +96,22 @@ export interface FormState {
   mostrar_uma_vez: boolean
   prioridade: string
   ordem: string
+  // Valor persistido cru (ISO da API) — mantido só como fonte da hidratação
+  // dos campos de UI abaixo e do round-trip; o payload é montado a partir de
+  // modo_inicio/modo_fim + os pares (data, hora). Ver hidratarFormState /
+  // montarPayloadCampanha.
   data_inicio: string
   data_fim: string
+  // Etapa 2 — vigência como "modo + (data, hora)" na UI. modo_inicio
+  // 'imediato' => data_inicio: null no payload; 'agendado' => combina os
+  // pares. modo_fim 'sem_data' => data_fim: null; 'em_data' => combina.
+  // Independentes: uma escolha não obriga a outra.
+  modo_inicio: ModoInicioVigencia
+  modo_fim: ModoFimVigencia
+  data_inicio_data: string
+  data_inicio_hora: string
+  data_fim_data: string
+  data_fim_hora: string
   pergunta_feedback: string
   observacao_obrigatoria: boolean
   exige_confirmacao_leitura: boolean
@@ -164,6 +178,12 @@ export const formInicial: FormState = {
   ordem: '1',
   data_inicio: '',
   data_fim: '',
+  modo_inicio: 'imediato',
+  modo_fim: 'sem_data',
+  data_inicio_data: '',
+  data_inicio_hora: '',
+  data_fim_data: '',
+  data_fim_hora: '',
   pergunta_feedback: '',
   observacao_obrigatoria: false,
   exige_confirmacao_leitura: false,
@@ -296,6 +316,67 @@ export function resolverModoSegmentacao(form: Pick<FormState,
   return 'todos'
 }
 
+// ─── Vigência (Etapa 2 — agendamento/período) ──────────────────────────────
+// data_inicio e data_fim continuam OPCIONAIS e INDEPENDENTES no backend. Na
+// UI viram 2 pares "modo + (data, hora)": ausência de data_inicio = "Ao
+// publicar"; presença = "Em uma data e horário". Idem pro fim: ausência =
+// "Sem data final". Estes helpers são puros (sem React/import.meta) pra
+// serem testáveis com node:test, mesmo motivo de resolverModoSegmentacao.
+// A validação de ordem (início < fim) NÃO acontece aqui — é do backend
+// (validarPeriodoVigencia em server/src/controllers/campanhas.ts).
+export type ModoInicioVigencia = 'imediato' | 'agendado'
+export type ModoFimVigencia = 'sem_data' | 'em_data'
+
+export function resolverModoInicio(dataInicio: string | null | undefined): ModoInicioVigencia {
+  return dataInicio ? 'agendado' : 'imediato'
+}
+
+export function resolverModoFim(dataFim: string | null | undefined): ModoFimVigencia {
+  return dataFim ? 'em_data' : 'sem_data'
+}
+
+// Separa o valor persistido (ISO da API, ex.: "2026-05-01T12:30:00.000Z", ou
+// valor date-only legado "2026-05-01") nos campos data/hora que os inputs do
+// formulário usam, no relógio de parede de America/Sao_Paulo.
+// - vazio/null -> { '', '' }
+// - date-only (sem parte de hora) -> mantém a data literal, hora vazia (não
+//   converte fuso: converter "2026-05-01" pra SP jogaria pro dia anterior).
+// - ISO com hora -> converte o instante pro wall-clock de São Paulo.
+// combinarDataHoraISO faz o caminho de volta com offset -03:00, preservando o
+// mesmo instante.
+export function separarDataHora(iso: string | null | undefined): { data: string; hora: string } {
+  if (!iso) return { data: '', hora: '' }
+  const bruto = String(iso).trim()
+  if (!bruto) return { data: '', hora: '' }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(bruto)) return { data: bruto, hora: '' }
+  const d = new Date(bruto)
+  if (Number.isNaN(d.getTime())) return { data: '', hora: '' }
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(d).reduce<Record<string, string>>((acc, p) => {
+    acc[p.type] = p.value
+    return acc
+  }, {})
+  return {
+    data: `${partes.year}-${partes.month}-${partes.day}`,
+    hora: `${partes.hour}:${partes.minute}`,
+  }
+}
+
+// Combina os campos data (YYYY-MM-DD) + hora (HH:MM) do formulário num ISO
+// com offset EXPLÍCITO de America/Sao_Paulo. O Brasil aboliu o horário de
+// verão em 2019, então SP é UTC-03:00 o ano inteiro — offset fixo, sem
+// depender do timezone do navegador. Sem data -> '' (o caller manda null).
+// Hora vazia -> meia-noite ("00:00").
+export function combinarDataHoraISO(data: string, hora: string): string {
+  const d = (data ?? '').trim()
+  if (!d) return ''
+  const h = (hora ?? '').trim() || '00:00'
+  return `${d}T${h}:00-03:00`
+}
+
 // ─── Hidratação: Campanha (API) -> FormState ───────────────────────────────
 // Espelha 1:1 os campos de Campanha (web/src/types.ts) — qualquer campo
 // existente no backend que não tenha um `?? valorPadrao` aqui e não seja
@@ -327,6 +408,16 @@ export function hidratarFormState(c: Campanha): FormState {
     ordem: String(c.ordem),
     data_inicio: c.data_inicio ?? '',
     data_fim: c.data_fim ?? '',
+    // Etapa 2 — sem datas => imediato + sem_data; com datas => modo + par
+    // (data, hora) separados no wall-clock de São Paulo. Campanha antiga sem
+    // datas cai no default (imediato/sem_data, campos vazios), preservando o
+    // comportamento atual.
+    modo_inicio: resolverModoInicio(c.data_inicio),
+    modo_fim: resolverModoFim(c.data_fim),
+    data_inicio_data: separarDataHora(c.data_inicio).data,
+    data_inicio_hora: separarDataHora(c.data_inicio).hora,
+    data_fim_data: separarDataHora(c.data_fim).data,
+    data_fim_hora: separarDataHora(c.data_fim).hora,
     pergunta_feedback: c.pergunta_feedback ?? '',
     observacao_obrigatoria: c.observacao_obrigatoria,
     exige_confirmacao_leitura: c.exige_confirmacao_leitura,
@@ -476,8 +567,18 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
     atraso_ms: Number(form.atraso_ms || 800),
     prioridade: Number(form.prioridade || 0),
     ordem: Number(form.ordem || 1),
-    data_inicio: form.data_inicio || null,
-    data_fim: form.data_fim || null,
+    // Etapa 2 — vigência: 'imediato'/'sem_data' => null; senão combina o par
+    // (data, hora) num ISO com offset -03:00 (America/Sao_Paulo). Par sem
+    // data preenchida também vira null (a UI da Etapa 3 impede submeter
+    // "agendado" sem data; aqui só não quebra). Opcionais e independentes —
+    // qualquer combinação é aceita; o backend valida início < fim quando
+    // ambos existirem.
+    data_inicio: form.modo_inicio === 'agendado'
+      ? (combinarDataHoraISO(form.data_inicio_data, form.data_inicio_hora) || null)
+      : null,
+    data_fim: form.modo_fim === 'em_data'
+      ? (combinarDataHoraISO(form.data_fim_data, form.data_fim_hora) || null)
+      : null,
     pergunta_feedback: form.pergunta_feedback || null,
     intervalo_reexibicao_dias: form.intervalo_reexibicao_dias !== '' ? Number(form.intervalo_reexibicao_dias) : null,
     reexibir_apos_dias: form.reexibir_apos_dias !== '' ? Number(form.reexibir_apos_dias) : null,
