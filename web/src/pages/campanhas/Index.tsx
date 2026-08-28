@@ -13,6 +13,8 @@ import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/Empt
 import { Button } from '../../components/ui/Button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
+import { StatusBadge } from '../../components/ui/StatusBadge'
+import { STATUS_LABEL } from './campanhaStatusCopy'
 import { CampanhaQuickView } from './CampanhaQuickView'
 import { ReordenarPrioridade } from './ReordenarPrioridade'
 import { agruparCampanhasConcorrentes } from './grupoConcorrente'
@@ -56,36 +58,12 @@ const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
 
 const COLLATOR = new Intl.Collator('pt-BR', { numeric: true, sensitivity: 'base' })
 
-// 'agendada'/'encerrada' NUNCA são status persistido (só existem
-// RASCUNHO/ATIVA/INATIVA no backend, ver CampanhaStatus em types.ts) — são
-// uma leitura de período por cima de uma campanha ATIVA (ver getStatus em
-// pages/campanhas/campanhaForm.ts). O label deixa isso explícito ("Ativa ·
-// Agendada"/"Ativa · Encerrada") pra nunca parecer um 4º/5º status ao lado
-// de Rascunho/Ativa/Inativa.
-const STATUS_BADGE: Record<StatusCampanha, { label: string; color: string; dot: string }> = {
-  rascunho:  { label: 'Rascunho',          color: 'text-secondary', dot: 'bg-secondary' },
-  ativa:     { label: 'Ativa',             color: 'text-tertiary',  dot: 'bg-tertiary' },
-  inativa:   { label: 'Inativa',           color: 'text-error',     dot: 'bg-error' },
-  agendada:  { label: 'Ativa · Agendada',  color: 'text-primary',   dot: 'bg-primary' },
-  encerrada: { label: 'Ativa · Encerrada', color: 'text-outline',   dot: 'bg-outline' },
-}
-
-function StatusInline({ status }: { status: StatusCampanha }) {
-  const st = STATUS_BADGE[status]
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${st.color}`}>
-      <span className={`h-2 w-2 rounded-full ${st.dot}`} />
-      {st.label}
-    </span>
-  )
-}
-
 function valorOrdenacao(c: Campanha, key: SortKey): string | number {
   switch (key) {
     case 'campanha': return c.nome_interno
     case 'tipo': return c.tipo
     case 'sistema': return `${c.sistema} ${c.tela}`
-    case 'status': return STATUS_BADGE[getStatus(c)].label
+    case 'status': return STATUS_LABEL[getStatus(c)]
     case 'respostas': return c._count?.feedbacks ?? 0
   }
 }
@@ -220,7 +198,7 @@ function CampanhaCard({
       </div>
 
       <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-3 pt-3 border-t border-outline-variant/20 text-[12px]">
-        <StatusInline status={status} />
+        <StatusBadge status={status} dataInicio={c.data_inicio} />
         <span className="inline-flex items-center gap-1 text-on-surface-variant">
           <span className="material-symbols-outlined text-[14px]">forum</span>
           {(c._count?.feedbacks ?? 0).toLocaleString('pt-BR')}
@@ -910,7 +888,7 @@ export function CampanhasIndex() {
                           {/* Status */}
                           {colunasVisiveis.status && (
                             <td className="px-4 py-4 align-middle text-center">
-                              <StatusInline status={status} />
+                              <StatusBadge status={status} dataInicio={c.data_inicio} />
                             </td>
                           )}
 

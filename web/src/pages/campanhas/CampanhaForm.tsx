@@ -2919,7 +2919,7 @@ export function CampanhaFormIndex() {
           <div className="max-w-[680px]">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-[24px] font-semibold leading-tight text-[#0a1317]">{id ? 'Editar campanha in-app' : 'Crie uma campanha in-app'}</h1>
-              {campanhaAtual && <StatusBadge status={getStatus(campanhaAtual)} />}
+              {campanhaAtual && <StatusBadge status={getStatus(campanhaAtual)} dataInicio={campanhaAtual.data_inicio} />}
             </div>
             <p className="mt-1.5 text-[14px] font-normal leading-5 text-[#5d6c7b]">Monte o card, escolha o momento de exibição e valide a experiência antes de publicar.</p>
           </div>
