@@ -143,6 +143,10 @@ export interface EventoCampanha {
   // destaques) — null pros demais formatos e pra eventos legados
   // registrados antes desta fase existir.
   destaque_item_id: string | null
+  // Só preenchido pra clique_cta de um conteúdo do carrossel (analytics por
+  // conteúdo) — null pros demais eventos, pro fallback de CTA único e pra
+  // clique_cta cujo conteúdo já foi removido (FK ON DELETE SET NULL).
+  conteudo_item_id: string | null
   sistema: string | null
   tela: string | null
   navegador: string | null
