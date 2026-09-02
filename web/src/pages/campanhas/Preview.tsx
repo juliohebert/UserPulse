@@ -406,7 +406,7 @@ export function CampanhaPreview() {
                         <img src={item.imagem_url} alt="" className="max-h-52 w-full rounded-xl border border-outline-variant/30 object-cover" />
                       ) : null}
 
-                      {item.descricao && <p className="text-body-md text-on-surface-variant leading-relaxed">{item.descricao}</p>}
+                      {item.descricao && <p className="whitespace-pre-wrap text-body-md text-on-surface-variant leading-relaxed">{item.descricao}</p>}
 
                       {/* CTA */}
                       {item.texto_botao && item.url_botao && (
