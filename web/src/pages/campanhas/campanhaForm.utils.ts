@@ -647,3 +647,35 @@ export interface ConteudoPreviewItem {
 export function resolverConteudosPreview(conteudos: ConteudoPreviewItem[], legado: ConteudoPreviewItem): ConteudoPreviewItem[] {
   return conteudos.length > 0 ? conteudos : [legado]
 }
+
+// ─── Cor principal do sistema (aparência do widget) ───────────────────────
+// Fonte única da cor de ação usada por TODOS os previews de campanha do
+// admin (PreviewCampanhaModal e o card de destaque em CampanhaForm.tsx,
+// CampanhaPreview em Preview.tsx). O valor vem de
+// GET /aparencia-widget/:sistema (com fallback pra /aparencia-widget/default),
+// os mesmos registros AparenciaWidget que o widget real resolve em
+// server/src/controllers/widget.ts (buscarAparencia). HEX de 6 dígitos com #
+// obrigatório; qualquer outra coisa (null, vazio, formato inválido) cai no
+// fallback — o widget real, sem cor_principal, também cai no fallback do CSS
+// (var(--up-primary, #0058be) em web/public/widget.js); aqui o tom histórico
+// da simulação é #0064e0, preservado pra não mudar o visual de quem nunca
+// configurou aparência.
+export function corSistemaValida(valor: string | null | undefined): string {
+  const cor = valor?.trim()
+  return cor && /^#[0-9a-fA-F]{6}$/.test(cor) ? cor : '#0064e0'
+}
+
+// Versão translúcida da cor principal, espelhando a custom property
+// --up-primary-soft que o widget real deriva com corRgbaTour(hex, alpha)
+// (web/public/widget.js) — usada nos fundos/realços suaves do mesmo tom
+// (ex.: o círculo do ícone no cabeçalho da modal simulada).
+export function corSistemaTranslucida(hex: string, alpha: number): string {
+  const limpo = hex.replace('#', '')
+  const cheio = limpo.length === 3 ? limpo.split('').map(c => c + c).join('') : limpo
+  const num = Number.parseInt(cheio, 16)
+  if (Number.isNaN(num)) return hex
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}

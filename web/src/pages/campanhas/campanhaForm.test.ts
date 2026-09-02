@@ -14,6 +14,8 @@ import {
   resolverModoFim,
   separarDataHora,
   combinarDataHoraISO,
+  corSistemaValida,
+  corSistemaTranslucida,
   type FormState,
 } from './campanhaForm.utils'
 
@@ -699,5 +701,35 @@ describe('round-trip vigência: campanha -> hidratar -> payload', () => {
     const p = montarPayloadCampanha(form)
     assert.equal(p.data_inicio, null)
     assert.equal(p.data_fim, null)
+  })
+})
+
+describe('corSistemaValida — cor principal da aparência do widget nos previews', () => {
+  test('HEX #RRGGBB válido é usado como veio (só normaliza espaços em volta)', () => {
+    assert.equal(corSistemaValida('#7b2ff7'), '#7b2ff7')
+    assert.equal(corSistemaValida('  #7b2ff7  '), '#7b2ff7')
+  })
+
+  test('sem cor configurada (null/vazio) cai no fallback histórico da simulação', () => {
+    assert.equal(corSistemaValida(null), '#0064e0')
+    assert.equal(corSistemaValida(undefined), '#0064e0')
+    assert.equal(corSistemaValida(''), '#0064e0')
+  })
+
+  test('formatos inválidos (sem #, 3 dígitos, nome CSS) caem no fallback', () => {
+    assert.equal(corSistemaValida('7b2ff7'), '#0064e0')
+    assert.equal(corSistemaValida('#abc'), '#0064e0')
+    assert.equal(corSistemaValida('rebeccapurple'), '#0064e0')
+  })
+})
+
+describe('corSistemaTranslucida — espelha --up-primary-soft do widget real', () => {
+  test('converte HEX em rgba() com o alpha pedido', () => {
+    assert.equal(corSistemaTranslucida('#0058be', 0.1), 'rgba(0, 88, 190, 0.1)')
+    assert.equal(corSistemaTranslucida('0058be', 0.4), 'rgba(0, 88, 190, 0.4)')
+  })
+
+  test('valor irreconhecível volta como veio (nunca quebra o style inline)', () => {
+    assert.equal(corSistemaTranslucida('nope', 0.1), 'nope')
   })
 })

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { Campanha, Criterio, ResultadoElegibilidade } from '../../types'
+import type { AparenciaWidget, Campanha, Criterio, ResultadoElegibilidade } from '../../types'
 import { NpsScale } from '../../components/widget/NpsScale'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
@@ -10,13 +10,8 @@ import { gerarEmbed, gerarEmbedParts, getStatus, rotaEditarCampanha } from '../.
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
-import { resolverConteudosPreview } from './campanhaForm.utils'
+import { resolverConteudosPreview, corSistemaValida, corSistemaTranslucida } from './campanhaForm.utils'
 import { ResumoConfiguracao } from './ResumoConfiguracao'
-
-// Esta página não busca a aparência por sistema (diferente do formulário de campanhas,
-// que usa a cor do tenant) — cobalto fixo, mesmo tom de {colors.primary} no
-// DESIGN.md, único usado nos outros elementos desta simulação (bg-primary).
-const CORACAO_SIMULACAO = '#0064e0'
 
 function maskPhone(raw: string): string {
   const d = raw.replace(/\D/g, '').slice(0, 11)
@@ -35,6 +30,12 @@ export function CampanhaPreview() {
   const [campanha, setCampanha] = useState<Campanha | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Cor principal configurada para o sistema desta campanha (aparência do
+  // widget). Resolvida abaixo com a MESMA regra do widget real
+  // (buscarAparencia em server/src/controllers/widget.ts): aparência
+  // específica do sistema tem prioridade; sem ela, a aparência padrão do
+  // tenant; sem nenhuma, cai no fallback de corSistemaValida.
+  const [corPrincipalSistema, setCorPrincipalSistema] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [nota, setNota] = useState<number | null>(null)
   const [observacao, setObservacao] = useState('')
@@ -92,6 +93,23 @@ export function CampanhaPreview() {
   useEffect(load, [id])
 
   useEffect(() => {
+    const sistema = campanha?.sistema?.trim()
+    if (!sistema) return
+    let cancelado = false
+    // Espelha CampanhaForm.tsx (carregarAparenciaPadrao + fetch por sistema)
+    // e buscarAparencia no backend: específica do sistema > padrão do tenant.
+    // Endpoint responde 200 com cor_principal null quando não há config, e
+    // 404 quando o sistema é texto livre fora do catálogo — o .catch cobre
+    // ambos os casos caindo pra aparência padrão.
+    const especifica = get<AparenciaWidget>(`/aparencia-widget/${encodeURIComponent(sistema)}`).catch(() => null)
+    const padrao = get<AparenciaWidget>('/aparencia-widget/default').catch(() => null)
+    Promise.all([especifica, padrao]).then(([a, d]) => {
+      if (!cancelado) setCorPrincipalSistema(a?.cor_principal ?? d?.cor_principal ?? null)
+    })
+    return () => { cancelado = true }
+  }, [campanha?.sistema])
+
+  useEffect(() => {
     if (!campanha) return
     if (campanha.modo_exibicao !== 'modal_automatica' || campanha.gatilho !== 'ao_abrir_tela') return
 
@@ -115,6 +133,9 @@ export function CampanhaPreview() {
 
   const modo = campanha.modo_identificacao || 'sistema_tela'
   const isAfterEvent = (campanha.gatilho || 'ao_abrir_tela') === 'apos_evento'
+  // Mesma cor de ação aplicada pelo widget real e pelo preview do formulário
+  // (PreviewCampanhaModal em CampanhaForm.tsx) — nunca a cor primária do admin.
+  const corAcao = corSistemaValida(corPrincipalSistema)
 
   const testarElegibilidade = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -285,7 +306,7 @@ export function CampanhaPreview() {
                   />
                 )}
                 <DestaqueElementoSimulacao
-                  corAcao={CORACAO_SIMULACAO}
+                  corAcao={corAcao}
                   dataCyLabel={(destaqueSelecionado?.data_cy ?? campanha.data_cy ?? '').trim()}
                   itemId={destaqueSelecionado?.id ?? `campaign-${campanha.id}`}
                   placeholderSemAlvo="Nenhum elemento alvo (data-cy) configurado."
@@ -332,7 +353,8 @@ export function CampanhaPreview() {
                           type="button"
                           disabled={!telefone.trim()}
                           onClick={() => setPhoneDone(true)}
-                          className="w-full rounded-xl bg-primary py-2.5 text-label-md font-bold text-on-primary disabled:opacity-40 hover:opacity-90 transition-opacity"
+                          style={{ backgroundColor: corAcao }}
+                          className="w-full rounded-xl py-2.5 text-label-md font-bold text-white disabled:opacity-40 hover:opacity-90 transition-opacity"
                         >
                           Enviar (simulação)
                         </button>
@@ -353,8 +375,8 @@ export function CampanhaPreview() {
                 {/* Cabeçalho */}
                 <div className="flex items-center justify-between border-b border-outline-variant/30 px-5 py-4">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <span className="material-symbols-outlined text-primary text-[16px]">campaign</span>
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: corSistemaTranslucida(corAcao, 0.1) }}>
+                      <span className="material-symbols-outlined text-[16px]" style={{ color: corAcao }}>campaign</span>
                     </div>
                     <h3 className="text-body-lg font-bold text-on-surface truncate">{campanha.titulo}</h3>
                   </div>
@@ -366,7 +388,7 @@ export function CampanhaPreview() {
                 {/* Conteúdo */}
                 <div className="p-5 space-y-4">
                   {campanha.subtitulo && (
-                    <p className="text-label-md font-bold text-primary">{campanha.subtitulo}</p>
+                    <p className="text-label-md font-bold" style={{ color: corAcao }}>{campanha.subtitulo}</p>
                   )}
 
                   {itensConteudoExibidos.map((item, indice) => (
@@ -392,7 +414,8 @@ export function CampanhaPreview() {
                           href={item.url_botao}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center justify-center gap-2 w-full rounded-xl bg-secondary py-3 text-label-md font-bold text-on-secondary hover:opacity-90 transition-opacity"
+                          style={{ backgroundColor: corAcao }}
+                          className="flex items-center justify-center gap-2 w-full rounded-xl py-3 text-label-md font-bold text-white hover:opacity-90 transition-opacity"
                         >
                           {item.texto_botao}
                           <span className="material-symbols-outlined text-[16px]">open_in_new</span>
@@ -429,7 +452,7 @@ export function CampanhaPreview() {
                   {campanha.feedback_habilitado && (
                     <div className="border-t border-outline-variant/40 pt-4 space-y-3">
                       <p className="text-body-md font-semibold text-on-surface">{question}</p>
-                      <NpsScale value={nota} onChange={setNota} />
+                      <NpsScale value={nota} onChange={setNota} cor={corAcao} />
                       <textarea
                         rows={3}
                         value={observacao}
@@ -441,7 +464,8 @@ export function CampanhaPreview() {
                         type="button"
                         disabled={nota === null}
                         onClick={() => setSubmitted(true)}
-                        className="w-full rounded-xl bg-primary py-2.5 text-label-md font-bold text-on-primary disabled:opacity-40 hover:opacity-90 transition-opacity"
+                        style={{ backgroundColor: corAcao }}
+                        className="w-full rounded-xl py-2.5 text-label-md font-bold text-white disabled:opacity-40 hover:opacity-90 transition-opacity"
                       >
                         Simular envio
                       </button>
