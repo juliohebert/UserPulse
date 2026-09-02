@@ -28,6 +28,7 @@ import {
   hidratarFormState,
   montarPayloadCampanha,
   resolverConteudosPreview,
+  corSistemaValida,
   getStatus,
   combinarDataHoraISO,
 } from './campanhaForm.utils'
@@ -98,11 +99,6 @@ const ICONES_TIPO_CAMPANHA: Record<string, string> = {
 
 function iconeTipoCampanha(tipo: string): string {
   return ICONES_TIPO_CAMPANHA[tipo] ?? 'campaign'
-}
-
-function corSistemaValida(valor: string | null | undefined): string {
-  const cor = valor?.trim()
-  return cor && /^#[0-9a-fA-F]{6}$/.test(cor) ? cor : '#0064e0'
 }
 
 function corTextoSistemaLegivel(cor: string): string {
