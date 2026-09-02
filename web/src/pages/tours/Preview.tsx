@@ -5,6 +5,7 @@ import type { TourExportEnvelope, TourGuiado } from '../../types'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { Button } from '../../components/ui/Button'
 import { comandoIniciarTour, comandoTestarSeletor, downloadJson, testEmbedUrl } from '../../utils/tour'
+import { useAuth } from '../../hooks/useAuth'
 
 const card = 'w-full bg-surface rounded-3xl border border-outline-variant overflow-hidden mb-5'
 const codeChip = 'bg-surface-container px-1 py-0.5 rounded text-[12px] font-mono'
@@ -12,6 +13,7 @@ const codeChip = 'bg-surface-container px-1 py-0.5 rounded text-[12px] font-mono
 export function TourPreview() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [tour, setTour] = useState<TourGuiado | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +42,7 @@ export function TourPreview() {
     )
   }
 
-  const embedUrl = testEmbedUrl(tour)
+  const embedUrl = testEmbedUrl(tour, user?.tenant.public_key ?? '')
   const comando = comandoIniciarTour(tour)
 
   const copiarComando = () => {
@@ -158,10 +160,9 @@ export function TourPreview() {
           <h3 className="text-title-lg font-bold text-on-surface">Como testar</h3>
         </div>
         <ol className="px-5 py-4 space-y-2.5 text-body-md text-on-surface-variant list-decimal list-inside">
-          <li>Rode <code className={codeChip}>npm start</code> na raiz do projeto (servidor da API em :3333).</li>
+          <li>Rode <code className={codeChip}>npm run dev</code> na raiz do projeto (API em :3333 e painel em :5173).</li>
           <li>
-            Abra <code className={codeChip}>test-embed.html</code> com <code className={codeChip}>?local=1</code> na URL para
-            apontar para o widget local, ou clique em "Abrir test-embed" abaixo.
+            Clique em "Abrir test-embed" abaixo; o link já inclui o widget local, o tour e a chave pública do seu tenant.
           </li>
           {tour.ativo ? (
             <>

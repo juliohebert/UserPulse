@@ -193,7 +193,7 @@
     <div id="setup-banner">
       <strong>Teste embed UserPulse — QuarkClinic (widget local)</strong>
       <div class="step" data-n="1">
-        Sistema/Tela → <code>sistema: quarkclinic-core</code> <code>tela: agenda</code>
+        Sistema/Tela → <code>sistema: QuarkClinic</code> <code>tela: agenda</code>
       </div>
       <div class="step" data-n="2">
         Data-cy → <code>data-cy: agenda-page</code>
@@ -205,6 +205,13 @@
         Após evento → <code>paciente_agendado</code>
       </div>
     </div>
+
+    <form id="tenant-setup" hidden style="background:#fff1f0;border-bottom:1px solid #ffa39e;padding:10px 24px;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:#820014;">
+      <strong>Falta identificar o tenant.</strong>
+      <label for="public-key-input">Informe a public_key:</label>
+      <input id="public-key-input" name="public_key" required autocomplete="off" placeholder="Cole a chave pública do tenant" style="min-width:280px;flex:1;max-width:440px;border:1px solid #ff7875;border-radius:6px;padding:7px 10px;font-family:monospace;" />
+      <button type="submit" class="btn btn-primary">Carregar testador</button>
+    </form>
 
     <!-- painel de testes de evento -->
     <div id="event-panel" style="background:#eef6ff;border-bottom:1px solid #c2d9f8;padding:10px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:13px;color:#1a3a5c;">
@@ -447,7 +454,7 @@
 
     <!-- UserPulse embed ──────────────────────────────────────────────── -->
     <!-- Caminho relativo seguro — nunca commitar uma URL fixa de localhost aqui.
-         Para testar contra o widget local (npm start, :3333), abra este arquivo
+         Para testar contra o widget local (npm run dev, :3333), abra este arquivo
          direto no navegador com ?local=1 na URL, ex.:
          file:///.../test-embed.html?local=1 — funciona em URLs file:// também.
          Sem o parâmetro, usa o caminho relativo /widget-loader.js (seguro para
@@ -499,12 +506,24 @@
       var publicKey = new URLSearchParams(window.location.search).get('public_key');
       if (!publicKey) {
         console.warn('[test-embed] Nenhuma public_key informada na URL — o widget não vai encontrar o tenant (sem fallback). Abra esta página com ?public_key=<chave-do-tenant>, ex.: test-embed.html?local=1&public_key=SEU_PUBLIC_KEY_AQUI.');
+        var tenantSetup = document.getElementById('tenant-setup');
+        tenantSetup.hidden = false;
+        tenantSetup.style.display = 'flex';
+        tenantSetup.addEventListener('submit', function (event) {
+          event.preventDefault();
+          var value = document.getElementById('public-key-input').value.trim();
+          if (!value) return;
+          var url = new URL(window.location.href);
+          url.searchParams.set('local', '1');
+          url.searchParams.set('public_key', value);
+          window.location.assign(url.toString());
+        });
       }
 
       window.UserPulse.init({
       // sistema e tela — usados por modo Sistema/Tela, Data-cy e URL contém
       sistema:          "QuarkClinic",
-      tela:             "home",
+      tela:             "agenda",
       public_key:       publicKey || undefined,
 
       // usuário
