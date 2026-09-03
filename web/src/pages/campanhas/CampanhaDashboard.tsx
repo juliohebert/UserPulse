@@ -75,6 +75,9 @@ const LONG_TEXT_COLS = new Set([
 
 const DEFAULT_COLS = new Set(COLUNAS.filter(c => c.defaultOn).map(c => c.id))
 const NI = 'Não informado'
+// contexto.usuario_tipo das contas internas — mesmo valor de
+// PERFIL_SUPER_USUARIO em server/src/controllers/dashboard.ts.
+const PERFIL_SUPER_USUARIO = 'SUPER_USUARIO'
 
 // ─── ajuda contextual — "Desempenho dos destaques" ──────────────────────────
 // Só o tooltip do título da seção (nenhum ícone por coluna) — \n + a classe
@@ -222,6 +225,12 @@ export function CampanhaDashboard() {
   // clique_cta sem conteudo_item_id. Filtro server-side via conteudo_id.
   const [filtroConteudo, setFiltroConteudo] = useState('')
   const [periodo, setPeriodo] = useState<Periodo>(PERIODO_INICIAL)
+  // Contas internas (contexto.usuario_tipo === 'SUPER_USUARIO') são
+  // desconsideradas de TODO o dashboard por padrão — o backend faz o filtro
+  // (ver semSuperUsuario em server/src/controllers/dashboard.ts). Marcar
+  // reenvia ?incluir_super_usuario=true. Estado local (como `periodo`); um
+  // refresh direto da rota volta ao padrão (desmarcado = exclui).
+  const [incluirSuperUsuario, setIncluirSuperUsuario] = useState(false)
   const [csvLoading, setCsvLoading] = useState(false)
   const [csvError, setCsvError] = useState<string | null>(null)
   // paginação respostas
@@ -266,6 +275,7 @@ export function CampanhaDashboard() {
     if (filtroDestaqueAvaliacao) params.set('avaliacao_destaque_id', filtroDestaqueAvaliacao)
     if (filtroUtilAvaliacao !== 'Todos') params.set('avaliacao_util', filtroUtilAvaliacao === 'Sim' ? 'sim' : 'nao')
     if (buscaAvaliacao.trim()) params.set('busca_avaliacao', buscaAvaliacao.trim())
+    if (incluirSuperUsuario) params.set('incluir_super_usuario', 'true')
     get<DashboardData>(`/dashboard/campanhas/${id}?${params}`, { signal })
       .then(setData)
       .catch(e => {
@@ -280,7 +290,7 @@ export function CampanhaDashboard() {
     const controller = new AbortController()
     load(controller.signal)
     return () => controller.abort()
-  }, [id, periodo, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, filtroConteudo, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
+  }, [id, periodo, incluirSuperUsuario, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, filtroConteudo, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
 
   useEffect(() => {
     if (!showColMenu) return
@@ -318,6 +328,19 @@ export function CampanhaDashboard() {
   // reset avaliações dos destaques page when filters change
   useEffect(() => { setPagAvaliacao(1) }, [filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
 
+  // "Incluir superusuários" muda o universo de TODAS as seções — volta pra
+  // primeira página em cada tabela pra não deixar paginação órfã.
+  useEffect(() => { setPagResp(1); setPagInter(1); setPagAvaliacao(1) }, [incluirSuperUsuario])
+
+  const alterarIncluirSuperUsuario = (incluir: boolean) => {
+    setIncluirSuperUsuario(incluir)
+    // Desligou com SUPER_USUARIO ainda escolhido no filtro Perfil: limpa a
+    // seleção (a opção some da lista quando o checkbox está off).
+    if (!incluir && filtros.perfil === PERFIL_SUPER_USUARIO) {
+      setFiltros(f => ({ ...f, perfil: '' }))
+    }
+  }
+
   const alterarPeriodo = (atualizar: Periodo | ((atual: Periodo) => Periodo)) => {
     setPagResp(1)
     setPagInter(1)
@@ -347,8 +370,10 @@ export function CampanhaDashboard() {
   , [data])
 
   const opcoesPerfil = useMemo(() =>
-    [...new Set((data?.feedbacks_recentes ?? []).map(f => ctx(f).usuario_tipo || NI))].filter(v => v !== NI).sort()
-  , [data])
+    [...new Set((data?.feedbacks_recentes ?? []).map(f => ctx(f).usuario_tipo || NI))]
+      .filter(v => v !== NI && (incluirSuperUsuario || v !== PERFIL_SUPER_USUARIO))
+      .sort()
+  , [data, incluirSuperUsuario])
 
   const opcoesEstado = useMemo(() =>
     [...new Set((data?.feedbacks_recentes ?? []).map(f => ctx(f).Estado || NI))].filter(v => v !== NI).sort()
@@ -518,6 +543,7 @@ export function CampanhaDashboard() {
       if (filtros.cliente) params.set('cliente_nome', filtros.cliente)
       if (filtros.unidade) params.set('unidade_nome', filtros.unidade)
       if (filtros.busca.trim()) params.set('busca', filtros.busca.trim())
+      if (incluirSuperUsuario) params.set('incluir_super_usuario', 'true')
       const blob = await getBlob(`/campanhas/${id}/respostas.csv?${params}`)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -686,6 +712,23 @@ export function CampanhaDashboard() {
                 Restaurar
               </button>
             )}
+          </div>
+
+          {/* Escopo de usuários — vale pra TODO o dashboard (KPIs, gráficos,
+              listas). Padrão: contas internas (SUPER_USUARIO) ficam de fora. */}
+          <div className="mb-5 -mt-1">
+            <label className="inline-flex items-center gap-2 text-[12px] font-semibold text-[#475467] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={incluirSuperUsuario}
+                onChange={e => alterarIncluirSuperUsuario(e.target.checked)}
+                className="accent-primary w-4 h-4 shrink-0"
+              />
+              Incluir superusuários
+              <span className="font-normal text-[#98a2b3]">
+                — Contas internas são desconsideradas das métricas por padrão.
+              </span>
+            </label>
           </div>
 
           {/* KPIs no topo, como no relatório de referência. */}
