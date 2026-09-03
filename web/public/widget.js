@@ -3591,6 +3591,17 @@
     var contextoUrl = resolveContexto();
     fetchCandidatas(config.sistema, '', 'ao_abrir_tela', null, config.usuario_id, contextoUrl)
       .then(function (candidatos) {
+        // Re-checa state.open DEPOIS do fetch resolver (mesma proteção que
+        // evaluateCampaigns já tem, ver logo abaixo). Sem isso, uma
+        // reavaliação de rotina disparada por handleUrlChange enquanto o modal
+        // ainda estava na janela pendente (state.open=false, timer de
+        // scheduleAutoOpen armado) executava resetRoot()+scheduleAutoOpen()
+        // DEPOIS que o modal abriu — destruía o DOM e reabria, registrando uma
+        // 2ª visualização (bug "aparece -> some -> reaparece" que o guard de
+        // doClose do fix anterior não cobria). Também é o que impede a
+        // proteção equivalente de evaluateCampaigns de ser derrotada por esta
+        // função rodar primeiro e zerar state.open.
+        if (state.open) return;
         var linhasDebug = [];
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
