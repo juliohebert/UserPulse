@@ -22,6 +22,7 @@ import {
   TIPOS_CAMPANHA,
   formInicial,
   converterVideoEmbed,
+  normalizarImagemUrl,
   pareceUrlVideo,
   resolverTipoDestino,
   resolverModoSegmentacao,
@@ -1647,7 +1648,7 @@ function CardEditavel({
       >
         <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-container text-outline">
           {temImagemItem ? (
-            <img src={item.imagem_url} alt="" className="h-full w-full object-cover" />
+            <img src={normalizarImagemUrl(item.imagem_url)} alt="" className="h-full w-full object-cover" />
           ) : temVideoItem ? (
             <span className="material-symbols-outlined text-[22px]">play_circle</span>
           ) : (
@@ -1757,12 +1758,12 @@ function CardEditavel({
           {temVideo && !editandoMidia ? (
             <iframe src={embedUrlAtivo} title="Vídeo da campanha" className="pointer-events-none h-full w-full" allowFullScreen />
           ) : temImagem && !editandoMidia ? (
-            <img src={itemAtivo.imagem_url} alt="" className="h-full w-full object-cover" />
+            <img src={normalizarImagemUrl(itemAtivo.imagem_url)} alt="" className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full flex-col items-center justify-center px-6 py-6 text-center text-[#5d6c7b]">
               <div className="w-full max-w-[360px] rounded-2xl border border-[#dee3e9] bg-white p-4">
                 <p className="text-[14px] font-semibold text-[#0a1317]">Cole o link da imagem ou vídeo</p>
-                <p className="mt-1 text-[12px] leading-4 text-[#5d6c7b]">YouTube, Vimeo e Loom viram vídeo. Outros links são tratados como imagem.</p>
+                <p className="mt-1 text-[12px] leading-4 text-[#5d6c7b]">YouTube, Vimeo e Loom viram vídeo. Outros links são tratados como imagem. Link do Google Drive (arquivo compartilhado como "Qualquer pessoa com o link") é convertido automaticamente; arquivo privado não aparece.</p>
                 <div className="mt-4 flex flex-col gap-3">
                   <input
                     value={linkMidiaInline}
@@ -2257,7 +2258,7 @@ function PreviewCampanhaModal({ form, aparencia, onClose }: {
 
               {itensConteudoExibidos.map((item, indice) => {
                 const itemEmbedUrl = item.video_url.trim() ? converterVideoEmbed(item.video_url) : ''
-                const itemImagemUrl = item.imagem_url.trim()
+                const itemImagemUrl = normalizarImagemUrl(item.imagem_url)
                 const itemDescricao = item.descricao.trim()
                 const itemTemCta = Boolean(item.texto_botao.trim() && item.url_botao.trim())
                 return (
@@ -2495,7 +2496,7 @@ export function CampanhaFormIndex() {
           value={item.video_url || item.imagem_url}
           onChange={valor => aplicarLinkMidiaConteudo(indice, valor)}
           placeholder="https://..."
-          hint="YouTube, Vimeo e Loom viram vídeo; outros links viram imagem. Nunca os dois ao mesmo tempo. Opcional."
+          hint='YouTube, Vimeo e Loom viram vídeo; outros links viram imagem. Nunca os dois ao mesmo tempo. Link do Google Drive precisa estar compartilhado como "Qualquer pessoa com o link" (arquivo privado não aparece). Opcional.'
         />
         <CampoBooleanoDock label="Mostrar botão de ação (CTA)" checked={item.cta_habilitado} onChange={valor => atualizarConteudo(indice, 'cta_habilitado', valor)} />
         {item.cta_habilitado && (
