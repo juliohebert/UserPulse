@@ -1,4 +1,5 @@
 import type { Campanha, StatusCampanha } from '../../types'
+import type { RichTextDocument } from '../../components/richText/types'
 
 // Lógica pura (sem React/JSX) do formulário canônico de campanhas — hidratação
 // (GET Campanha -> FormState), geração de payload (FormState -> POST/PUT) e
@@ -48,6 +49,7 @@ export interface ConteudoFormItem {
   chave_local?: string
   titulo: string
   descricao: string
+  descricao_rich: RichTextDocument | null
   // Mutuamente exclusivos (nunca os dois preenchidos ao mesmo tempo — mesma
   // regra de validarConteudos no backend). A UI edita os dois através de um
   // único campo de link (ver aplicarLinkMidiaConteudo em CampanhaForm.tsx),
@@ -78,6 +80,7 @@ export interface FormState {
   // badge" na aba Exibição).
   subtitulo: string
   descricao: string
+  descricao_rich: RichTextDocument | null
   tipo: string
   sistema: string
   tela: string
@@ -158,6 +161,7 @@ export const formInicial: FormState = {
   titulo: 'Novidade no produto',
   subtitulo: 'Atualização importante',
   descricao: 'Conte para o usuário o que mudou, por que isso importa e qual é o próximo passo.',
+  descricao_rich: null,
   tipo: 'comunicado',
   sistema: '',
   tela: '',
@@ -208,6 +212,7 @@ export const formInicial: FormState = {
   conteudos: [{
     titulo: 'Novidade no produto',
     descricao: 'Conte para o usuário o que mudou, por que isso importa e qual é o próximo passo.',
+    descricao_rich: null,
     imagem_url: '',
     video_url: '',
     cta_habilitado: true,
@@ -432,6 +437,7 @@ export function hidratarFormState(c: Campanha): FormState {
     titulo: c.titulo,
     subtitulo: c.subtitulo ?? '',
     descricao: c.descricao,
+    descricao_rich: c.descricao_rich ?? null,
     tipo: c.tipo,
     sistema: c.sistema,
     tela: c.tela ?? '',
@@ -518,6 +524,7 @@ export function hidratarFormState(c: Campanha): FormState {
           id: item.id,
           titulo: item.titulo,
           descricao: item.descricao,
+          descricao_rich: item.descricao_rich ?? null,
           imagem_url: item.imagem_url ?? '',
           video_url: item.video_url ?? '',
           cta_habilitado: Boolean(item.texto_botao || item.url_botao),
@@ -527,6 +534,7 @@ export function hidratarFormState(c: Campanha): FormState {
       : [{
           titulo: c.titulo,
           descricao: c.descricao,
+          descricao_rich: c.descricao_rich ?? null,
           imagem_url: c.imagem_url ?? '',
           video_url: c.video_url ?? '',
           cta_habilitado: Boolean(c.texto_botao || c.url_botao),
@@ -581,6 +589,7 @@ export function getStatus(c: Pick<Campanha, 'status' | 'data_inicio' | 'data_fim
 // ao salvar sem tocar em nada — mesmo sem o usuário mexer na aba Feedback.
 export function montarPayloadCampanha(form: FormState): Record<string, unknown> {
   const exigeConfirmacao = Boolean(form.exige_confirmacao_leitura)
+  const { destaques, conteudos, ...camposComuns } = form
   // Continua garantindo que a campanha sempre tenha alguma saída (fechar,
   // feedback ou confirmação) — mas agora só reage ao estado REAL de
   // feedback_habilitado, nunca a uma versão artificialmente zerada dele, o
@@ -589,7 +598,7 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
   const embedUrl = converterVideoEmbed(form.video_url)
 
   return {
-    ...form,
+    ...camposComuns,
     nome_interno: (form.nome_interno ?? '').trim(),
     permitir_fechar_modal: exigeSaidaObrigatoria ? true : form.permitir_fechar_modal,
     feedback_habilitado: form.feedback_habilitado,
@@ -632,7 +641,7 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
     // ignorados pelo backend nesse formato; ele os recalcula a partir do
     // primeiro item (ver server/src/controllers/campanhas.ts).
     ...(form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO && {
-      destaques: form.destaques.map(item => ({
+      destaques: destaques.map(item => ({
         // Preserva o id de itens já existentes -> backend faz UPDATE
         // (mantém o id estável); item novo (sem id) -> CREATE. Omitir a
         // chave (em vez de mandar `id: undefined`) evita ambiguidade no
@@ -652,12 +661,13 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
     // conteudos[] no widget — mandar aqui só criaria linhas órfãs no banco.
     ...(form.modo_exibicao !== FORMATO_DESTAQUE_ELEMENTO && {
       modo_navegacao: form.modo_navegacao,
-      conteudos: form.conteudos.map(item => ({
+      conteudos: conteudos.map(item => ({
         // Mesmo raciocínio de destaques acima: preserva o id de itens já
         // existentes -> UPDATE; item novo (sem id) -> CREATE.
         ...(item.id && { id: item.id }),
         titulo: item.titulo.trim(),
         descricao: item.descricao.trim(),
+        descricao_rich: item.descricao_rich,
         imagem_url: normalizarImagemUrl(item.imagem_url) || null,
         video_url: converterVideoEmbed(item.video_url) || null,
         texto_botao: item.cta_habilitado ? (item.texto_botao.trim() || null) : null,
@@ -682,6 +692,7 @@ export interface ConteudoPreviewItem {
   id?: string
   titulo: string
   descricao: string
+  descricao_rich: RichTextDocument | null
   imagem_url: string
   video_url: string
   texto_botao: string

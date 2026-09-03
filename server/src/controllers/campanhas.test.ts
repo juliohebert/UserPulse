@@ -1,6 +1,12 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  RICH_TEXT_MAX_BYTES,
+  RICH_TEXT_MAX_NODES,
+  RICH_TEXT_MAX_TEXT_LENGTH,
+  validarRichText,
+} from '../lib/richText'
+import {
   FORMATO_DESTAQUE_ELEMENTO,
   normalizarDataCy,
   dataCyValido,
@@ -35,6 +41,76 @@ import {
   type DestaqueItemInput,
   type ConteudoItemInput,
 } from './campanhas'
+
+describe('validarRichText', () => {
+  const documentoValido = {
+    type: 'doc',
+    content: [
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'Texto ', marks: [{ type: 'bold' }] },
+        { type: 'text', text: 'formatado', marks: [{ type: 'italic' }, { type: 'underline' }] },
+        { type: 'hardBreak' },
+        { type: 'text', text: 'na linha seguinte' },
+      ] },
+      { type: 'bulletList', content: [
+        { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Primeiro' }] }] },
+      ] },
+      { type: 'orderedList', content: [
+        { type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Segundo' }] }] },
+      ] },
+    ],
+  }
+
+  test('aceita o schema previsto e extrai texto simples com quebras', () => {
+    const resultado = validarRichText(documentoValido)
+    assert.equal(resultado.erro, null)
+    assert.equal(resultado.texto, 'Texto formatado\nna linha seguinte\nPrimeiro\nSegundo')
+  })
+
+  test('aceita null para compatibilidade com campanhas antigas', () => {
+    assert.deepEqual(validarRichText(null), { erro: null, documento: null, texto: null })
+  })
+
+  test('rejeita HTML livre, scripts, atributos e tipos fora do contrato', () => {
+    assert.notEqual(validarRichText('<p>HTML</p>').erro, null)
+    assert.notEqual(validarRichText({ type: 'doc', content: [{ type: 'script' }] }).erro, null)
+    assert.notEqual(validarRichText({ type: 'doc', attrs: {}, content: [] }).erro, null)
+    assert.notEqual(validarRichText({ type: 'doc', content: [{ type: 'heading', attrs: { level: 2 } }] }).erro, null)
+    assert.notEqual(validarRichText({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x', style: 'color:red' }] }] }).erro, null)
+  })
+
+  test('rejeita links e atributos extras nas marcas permitidas', () => {
+    const comMarca = (marca: Record<string, unknown>) => ({
+      type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'texto', marks: [marca] }] }],
+    })
+    assert.notEqual(validarRichText(comMarca({ type: 'link', attrs: { href: 'https://example.com' } })).erro, null)
+    assert.notEqual(validarRichText(comMarca({ type: 'bold', attrs: {} })).erro, null)
+  })
+
+  test('limita quantidade de nós', () => {
+    const noLimite = Array.from({ length: RICH_TEXT_MAX_NODES - 1 }, () => ({ type: 'paragraph' }))
+    const acimaDoLimite = [...noLimite, { type: 'paragraph' }]
+    assert.equal(validarRichText({ type: 'doc', content: noLimite }).erro, null)
+    assert.notEqual(validarRichText({ type: 'doc', content: acimaDoLimite }).erro, null)
+  })
+
+  test('limita o total de texto', () => {
+    const comTexto = (text: string) => ({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] })
+    assert.equal(validarRichText(comTexto('a'.repeat(RICH_TEXT_MAX_TEXT_LENGTH))).erro, null)
+    assert.notEqual(validarRichText(comTexto('a'.repeat(RICH_TEXT_MAX_TEXT_LENGTH + 1))).erro, null)
+  })
+
+  test('limita o JSON por bytes', () => {
+    const documento = {
+      type: 'doc',
+      content: [{
+        type: 'paragraph',
+        content: [{ type: 'text', text: 'texto', marks: Array.from({ length: RICH_TEXT_MAX_BYTES }, () => ({ type: 'bold' })) }],
+      }],
+    }
+    assert.notEqual(validarRichText(documento).erro, null)
+  })
+})
 
 // Fase 1 de adoção — "Destaque em elemento" (ver CLAUDE.md). Só funções
 // puras (sem Prisma/DB): a validação de verdade em criar()/atualizar() é
@@ -406,6 +482,27 @@ describe('validarConteudos', () => {
     assert.notEqual(validarConteudos([item({ descricao: undefined })]).erro, null)
   })
 
+  test('descricao_rich válida substitui descricao pelo texto derivado no servidor', () => {
+    const descricao_rich = {
+      type: 'doc', content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Texto confiável', marks: [{ type: 'bold' }] }] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'Segunda linha' }] },
+      ],
+    }
+    const { erro, lista } = validarConteudos([item({ descricao: 'Texto adulterado', descricao_rich })])
+    assert.equal(erro, null)
+    assert.equal(lista[0].descricao, 'Texto confiável\nSegunda linha')
+    assert.deepEqual(lista[0].descricao_rich, descricao_rich)
+  })
+
+  test('descricao_rich inválida é rejeitada mesmo com descricao simples válida', () => {
+    const { erro } = validarConteudos([item({
+      descricao: 'Fallback aparentemente válido',
+      descricao_rich: { type: 'doc', content: [{ type: 'image', attrs: { src: 'x' } }] },
+    })])
+    assert.match(erro as string, /Conteúdo 1/)
+  })
+
   test('sem imagem nem vídeo -> válido (mídia é opcional, mesma regra dos campos legados)', () => {
     const { erro } = validarConteudos([item()])
     assert.equal(erro, null)
@@ -542,6 +639,14 @@ describe('paraCriacaoConteudoItem / paraAtualizacaoConteudoItem', () => {
     assert.equal(resultado.video_url, null)
     assert.equal(resultado.texto_botao, null)
     assert.equal(resultado.url_botao, null)
+  })
+
+  test('persiste descricao_rich validada junto do texto simples derivado', () => {
+    const descricao_rich = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Formatado' }] }] }
+    const itemValidado = validarConteudos([{ titulo: 'T', descricao: 'não confiar', descricao_rich }]).lista[0]
+    const resultado = paraCriacaoConteudoItem(itemValidado, 't1', 1)
+    assert.equal(resultado.descricao, 'Formatado')
+    assert.deepEqual(resultado.descricao_rich, descricao_rich)
   })
 })
 

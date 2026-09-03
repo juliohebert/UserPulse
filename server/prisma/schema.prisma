@@ -488,6 +488,7 @@ model Campanha {
   // em server/src/controllers/campanhas.ts.
   subtitulo                 String?
   descricao                 String
+  descricao_rich            Json?
   tipo                      String
   sistema                   String
   tela                      String
@@ -617,18 +618,19 @@ model CampanhaDestaqueItem {
 // item ficam fora de escopo desta primeira versão (decisão explícita da
 // tarefa) — 1 a 10 itens por campanha será validado no backend, não aqui.
 model CampanhaConteudoItem {
-  id            String   @id @default(uuid())
-  tenant_id     String
-  campanha_id   String
-  ordem         Int      @default(1)
-  titulo        String
-  descricao     String
-  imagem_url    String?
-  video_url     String?
-  texto_botao   String?
-  url_botao     String?
-  criado_em     DateTime @default(now())
-  atualizado_em DateTime @updatedAt
+  id             String   @id @default(uuid())
+  tenant_id      String
+  campanha_id    String
+  ordem          Int      @default(1)
+  titulo         String
+  descricao      String
+  descricao_rich Json?
+  imagem_url     String?
+  video_url      String?
+  texto_botao    String?
+  url_botao      String?
+  criado_em      DateTime @default(now())
+  atualizado_em  DateTime @updatedAt
 
   campanha Campanha         @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
   eventos  EventoCampanha[]

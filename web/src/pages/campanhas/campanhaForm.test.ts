@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Campanha } from '../../types'
+import { documentoRichTextValido, normalizarRichTextTipTap, textoParaRichText } from '../../components/richText/types'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
   formInicial,
@@ -39,6 +40,7 @@ function campanhaAntiga(over: Partial<Campanha> = {}): Campanha {
     titulo: 'Pesquisa de satisfação Q4',
     subtitulo: 'Novidade disponível',
     descricao: 'Conte pra gente o que achou.',
+    descricao_rich: null,
     tipo: 'pesquisa',
     sistema: 'erp',
     tela: 'Faturamento',
@@ -94,6 +96,55 @@ describe('rotaEditarCampanha — sempre o formulário canônico', () => {
 
   test('qualquer outro modo_exibicao (ex.: formato legado desativado) -> ainda /campanhas/:id/editar', () => {
     assert.equal(rotaEditarCampanha(campanhaAntiga({ id: 'c3', modo_exibicao: 'banner' })), '/campanhas/c3/editar')
+  })
+})
+
+describe('rich text de conteúdos', () => {
+  test('texto legado vira documento com hardBreak sem inventar HTML', () => {
+    assert.deepEqual(textoParaRichText('Linha 1\nLinha 2'), {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [
+        { type: 'text', text: 'Linha 1' },
+        { type: 'hardBreak' },
+        { type: 'text', text: 'Linha 2' },
+      ] }],
+    })
+  })
+
+  test('normalização do TipTap remove marcas fora do contrato e preserva lista numerada', () => {
+    assert.deepEqual(normalizarRichTextTipTap({
+      type: 'doc', content: [{ type: 'orderedList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{
+        type: 'text', text: 'Item', marks: [{ type: 'bold' }, { type: 'link', attrs: { href: 'https://example.com' } }],
+      }] }] }] }],
+    }), {
+      type: 'doc', content: [{ type: 'orderedList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{
+        type: 'text', text: 'Item', marks: [{ type: 'bold' }],
+      }] }] }] }],
+    })
+  })
+
+  test('hidratação e payload preservam formatação independente por conteúdo', () => {
+    const primeiro = textoParaRichText('Primeiro')
+    const segundo = { type: 'doc' as const, content: [{ type: 'paragraph' as const, content: [{ type: 'text' as const, text: 'Segundo', marks: [{ type: 'bold' as const }] }] }] }
+    const campanha = campanhaAntiga({
+      conteudos: [
+        { id: 'c1', campanha_id: 'camp-1', ordem: 1, titulo: 'A', descricao: 'Primeiro', descricao_rich: primeiro, imagem_url: null, video_url: null, texto_botao: null, url_botao: null, criado_em: '', atualizado_em: '' },
+        { id: 'c2', campanha_id: 'camp-1', ordem: 2, titulo: 'B', descricao: 'Segundo', descricao_rich: segundo, imagem_url: null, video_url: null, texto_botao: null, url_botao: null, criado_em: '', atualizado_em: '' },
+      ],
+    })
+    const payload = montarPayloadCampanha(hidratarFormState(campanha))
+    const conteudos = payload.conteudos as Array<{ descricao_rich: unknown }>
+    assert.deepEqual(conteudos.map(item => item.descricao_rich), [primeiro, segundo])
+  })
+
+  test('validação defensiva rejeita JSON malformado e links', () => {
+    assert.equal(documentoRichTextValido(textoParaRichText('Válido')), true)
+    assert.equal(documentoRichTextValido({
+      type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Link', marks: [{ type: 'link' }] }] }],
+    }), false)
+    assert.equal(documentoRichTextValido({
+      type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Link', marks: [{ type: 'link', attrs: { href: 'javascript:alert(1)' } }] }] }],
+    }), false)
   })
 })
 
@@ -320,6 +371,20 @@ describe('montarPayloadCampanha — feedback + confirmação (bug corrigido)', (
     const form: FormState = { ...formInicial, feedback_habilitado: false, exige_confirmacao_leitura: false, permitir_fechar_modal: false }
     const payload = montarPayloadCampanha(form)
     assert.equal(payload.permitir_fechar_modal, true)
+  })
+})
+
+describe('montarPayloadCampanha — campos por formato', () => {
+  test('destaque não envia conteúdos ocultos', () => {
+    const payload = montarPayloadCampanha({ ...formInicial, modo_exibicao: FORMATO_DESTAQUE_ELEMENTO })
+    assert.equal('conteudos' in payload, false)
+    assert.equal(Array.isArray(payload.destaques), true)
+  })
+
+  test('modal não envia destaques ocultos', () => {
+    const payload = montarPayloadCampanha(formInicial)
+    assert.equal('destaques' in payload, false)
+    assert.equal(Array.isArray(payload.conteudos), true)
   })
 })
 

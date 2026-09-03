@@ -16,7 +16,8 @@ test('descrição da campanha preserva quebras de linha sem renderizar HTML', ()
   )
   assert.match(
     widgetSource,
-    /<p class="up-description">' \+ escapeHtml\(item\.descricao\) \+ '<\/p>/,
-    'a descrição deve continuar escapando HTML fornecido pelo usuário'
+    /var itemDescricao = item\.descricao \? '<p class="up-description"'[\s\S]*escapeHtml\(item\.descricao\) \+ '<\/p>' : '';/,
+    'o fallback da descrição deve continuar escapando HTML fornecido pelo usuário'
   )
+  assert.match(widgetSource, /conteudoCriarRichText/, 'descrições formatadas devem usar o renderer seguro de nós')
 })

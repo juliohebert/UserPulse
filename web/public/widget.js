@@ -244,6 +244,13 @@
       '.up-body{padding:18px 20px 20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;flex:1;min-height:0}',
       '.up-subtitle{margin:0;color:#0058be;font-size:13px;line-height:18px;font-weight:800}',
       '.up-description{margin:0;color:#424754;font-size:14px;line-height:21px;white-space:pre-wrap}',
+      '.up-description-rich{white-space:normal}',
+      '.up-description-rich p{margin:0}',
+      '.up-description-rich p+p,.up-description-rich ul+p,.up-description-rich ol+p,.up-description-rich p+ul,.up-description-rich p+ol,.up-description-rich ul+ul,.up-description-rich ol+ol,.up-description-rich ul+ol,.up-description-rich ol+ul{margin-top:8px}',
+      '.up-description-rich ul,.up-description-rich ol{margin:0;padding-left:20px}',
+      '.up-description-rich ul{list-style:disc}',
+      '.up-description-rich ol{list-style:decimal}',
+      '.up-description-rich li+li{margin-top:3px}',
       '.up-feedback-section{display:flex;flex-direction:column;gap:10px;padding-top:12px;border-top:1px solid #e0e2ef}',
       '.up-question{margin:0;color:#0b1c30;font-size:15px;line-height:21px;font-weight:700}',
       '.up-media{width:100%;overflow:hidden;border-radius:12px;background:#eff4ff;border:1px solid rgba(194,198,214,.45)}',
@@ -1185,6 +1192,7 @@
       id: null,
       titulo: campanha.titulo,
       descricao: campanha.descricao,
+      descricao_rich: campanha.descricao_rich || null,
       imagem_url: campanha.imagem_url || null,
       video_url: campanha.video_url || null,
       texto_botao: campanha.texto_botao || null,
@@ -1199,7 +1207,7 @@
   // legado ou campanha com só 1 conteúdo), o título nunca aparece aqui,
   // porque já vem do cabeçalho geral (up-title em renderModal) — evita
   // duplicar visualmente o mesmo título.
-  function conteudoRenderItemHtml(item, mostrarTitulo) {
+  function conteudoRenderItemHtml(item, mostrarTitulo, indiceOriginal) {
     var itemMedia = '';
     if (item.video_url) {
       itemMedia = '<div class="up-media" data-up-media="true"><iframe src="' + escapeHtml(item.video_url) + '" title="Video da campanha" tabindex="-1" loading="lazy" allowfullscreen></iframe></div>';
@@ -1207,7 +1215,10 @@
       itemMedia = '<div class="up-media"><img src="' + escapeHtml(item.imagem_url) + '" alt=""></div>';
     }
     var itemTitulo = mostrarTitulo && item.titulo ? '<p class="up-conteudo-titulo">' + escapeHtml(item.titulo) + '</p>' : '';
-    var itemDescricao = item.descricao ? '<p class="up-description">' + escapeHtml(item.descricao) + '</p>' : '';
+    // O texto simples fica no HTML como fallback. Quando descricao_rich for
+    // válida, conteudoAplicarDescricoesRich substitui este nó por uma árvore
+    // criada exclusivamente com createElement/textContent.
+    var itemDescricao = item.descricao ? '<p class="up-description"' + (item.descricao_rich ? ' data-up-rich-indice="' + indiceOriginal + '"' : '') + '>' + escapeHtml(item.descricao) + '</p>' : '';
     // Etapa 2 de analytics por conteúdo — o CTA carrega o id do
     // CampanhaConteudoItem que o originou, pro clique poder ser atribuído ao
     // item certo (ver handler [data-up-cta] em bindEvents). Só quando o item
@@ -1229,8 +1240,8 @@
   // — ver server/src/widgetCampanhaConteudos.test.ts.
   function conteudoRenderScroll(itens) {
     var multiplosConteudos = itens.length > 1;
-    return itens.map(function (item) {
-      return '<div class="up-conteudo-item">' + conteudoRenderItemHtml(item, multiplosConteudos) + '</div>';
+    return itens.map(function (item, indice) {
+      return '<div class="up-conteudo-item">' + conteudoRenderItemHtml(item, multiplosConteudos, indice) + '</div>';
     }).join('');
   }
 
@@ -1247,7 +1258,7 @@
     var total = itens.length;
     var indice = Math.max(0, Math.min(Number(indiceAtual) || 0, total - 1));
     var item = itens[indice];
-    var corpo = '<div class="up-conteudo-item">' + conteudoRenderItemHtml(item, true) + '</div>';
+    var corpo = '<div class="up-conteudo-item">' + conteudoRenderItemHtml(item, true, indice) + '</div>';
     var nav = [
       '<div class="up-slides-nav">',
       '<button type="button" class="up-slide-btn" data-up-slide-prev="true" aria-label="Conteúdo anterior"' + (indice === 0 ? ' disabled' : '') + '>' + icon('arrow_back') + '</button>',
@@ -1353,6 +1364,89 @@
     ].join('');
   }
 
+  // Renderer defensivo e sem HTML livre. Mesmo que um cache antigo entregue
+  // JSON fora do contrato atual, qualquer nó/marca/atributo desconhecido faz
+  // o renderer desistir e preservar o texto simples já montado no modal.
+  function conteudoCriarRichText(documento, documentoDom) {
+    var dom = documentoDom || document;
+    if (!documento || documento.type !== 'doc' || !Array.isArray(documento.content)) return null;
+
+    function chavesValidas(objeto, permitidas) {
+      if (!objeto || typeof objeto !== 'object' || Array.isArray(objeto)) return false;
+      return Object.keys(objeto).every(function (chave) { return permitidas.indexOf(chave) !== -1; });
+    }
+    if (!chavesValidas(documento, ['type', 'content'])) return null;
+
+    function criarMarca(marca, filho) {
+      if (!marca || typeof marca !== 'object' || Array.isArray(marca) || typeof marca.type !== 'string') return null;
+      var elemento;
+      if (marca.type === 'bold' || marca.type === 'italic' || marca.type === 'underline') {
+        if (!chavesValidas(marca, ['type'])) return null;
+        elemento = dom.createElement(marca.type === 'bold' ? 'strong' : marca.type === 'italic' ? 'em' : 'u');
+      } else {
+        return null;
+      }
+      elemento.appendChild(filho);
+      return elemento;
+    }
+
+    function criarNo(no, pai) {
+      if (!no || typeof no !== 'object' || Array.isArray(no) || typeof no.type !== 'string') return null;
+      if (no.type === 'text') {
+        if (pai !== 'paragraph' || !chavesValidas(no, ['type', 'text', 'marks']) || typeof no.text !== 'string') return null;
+        if (no.marks !== undefined && !Array.isArray(no.marks)) return null;
+        var texto = dom.createTextNode(no.text);
+        var marcas = no.marks || [];
+        for (var i = 0; i < marcas.length; i += 1) {
+          texto = criarMarca(marcas[i], texto);
+          if (!texto) return null;
+        }
+        return texto;
+      }
+      if (no.type === 'hardBreak') {
+        return pai === 'paragraph' && chavesValidas(no, ['type']) ? dom.createElement('br') : null;
+      }
+      var tags = { paragraph: 'p', bulletList: 'ul', orderedList: 'ol', listItem: 'li' };
+      var tag = tags[no.type];
+      if (!tag || !chavesValidas(no, ['type', 'content']) || (no.content !== undefined && !Array.isArray(no.content))) return null;
+      if (no.type === 'paragraph' && pai !== 'doc' && pai !== 'listItem') return null;
+      if ((no.type === 'bulletList' || no.type === 'orderedList') && pai !== 'doc' && pai !== 'listItem') return null;
+      if (no.type === 'listItem' && pai !== 'bulletList' && pai !== 'orderedList') return null;
+      var filhos = no.content || [];
+      if ((no.type === 'bulletList' || no.type === 'orderedList' || no.type === 'listItem') && filhos.length === 0) return null;
+      if (no.type === 'listItem' && (!filhos[0] || filhos[0].type !== 'paragraph')) return null;
+      var elemento = dom.createElement(tag);
+      for (var j = 0; j < filhos.length; j += 1) {
+        var filho = criarNo(filhos[j], no.type);
+        if (!filho) return null;
+        elemento.appendChild(filho);
+      }
+      return elemento;
+    }
+
+    var raiz = dom.createElement('div');
+    raiz.setAttribute('class', 'up-description up-description-rich');
+    for (var i = 0; i < documento.content.length; i += 1) {
+      var filho = criarNo(documento.content[i], 'doc');
+      if (!filho) return null;
+      raiz.appendChild(filho);
+    }
+    return raiz;
+  }
+
+  function conteudoAplicarDescricoesRich(root, campanha) {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    var itens = conteudoResolverItens(campanha);
+    var alvos = root.querySelectorAll('[data-up-rich-indice]');
+    for (var i = 0; i < alvos.length; i += 1) {
+      var alvo = alvos[i];
+      var indice = Number(alvo.getAttribute('data-up-rich-indice'));
+      var item = itens[indice];
+      var rich = item && conteudoCriarRichText(item.descricao_rich);
+      if (rich && alvo.parentNode) alvo.parentNode.replaceChild(rich, alvo);
+    }
+  }
+
   function render() {
     if (!state.root || !state.campanha) return;
     var wasOverlay = state.root.className.indexOf('up-widget-overlay') !== -1;
@@ -1375,6 +1469,7 @@
       state.root.className = 'up-widget-root';
     }
     state.root.innerHTML = renderModal(isOpening);
+    conteudoAplicarDescricoesRich(state.root, state.campanha);
 
     // Campanha abriu ou fechou de verdade (não só re-renderizou por causa de
     // nota/observação mudando) — reavalia se o FAB "Ajuda" deve aparecer.
@@ -11175,6 +11270,7 @@
     conteudoRenderScroll: conteudoRenderScroll,
     conteudoRenderSlides: conteudoRenderSlides,
     conteudoResolverDirecaoSwipe: conteudoResolverDirecaoSwipe,
+    conteudoCriarRichText: conteudoCriarRichText,
     destaqueElementoMontar: destaqueElementoMontar,
     destaqueElementoMontarTodos: destaqueElementoMontarTodos,
     destaqueElementoGetTestClickListener: destaqueElementoGetTestClickListener,

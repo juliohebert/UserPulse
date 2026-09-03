@@ -1,9 +1,10 @@
 import { Request, Response } from 'express'
-import { CampanhaStatus } from '@prisma/client'
+import { CampanhaStatus, Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { checarLimiteCampanhasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, planoEfetivoParaLimite } from '../lib/tenantGuards'
 import { filtroFeedbackGeralReexibicao } from './widget'
 import { normalizarDominio } from '../lib/dominio'
+import { validarRichText } from '../lib/richText'
 
 // ─── Fase 1 dos 3 status de Campanha ───────────────────────────────────────
 // status é a fonte única de verdade do ciclo de vida (RASCUNHO nunca foi
@@ -817,6 +818,7 @@ export interface ConteudoItemInput {
   id?: unknown
   titulo?: unknown
   descricao?: unknown
+  descricao_rich?: unknown
   imagem_url?: unknown
   video_url?: unknown
   texto_botao?: unknown
@@ -847,6 +849,12 @@ export function validarConteudos(conteudos: unknown): { erro: string | null; lis
     }
     if (typeof item.titulo !== 'string' || !item.titulo.trim()) {
       return { erro: `Conteúdo ${i + 1}: título é obrigatório.`, lista: [] }
+    }
+    if (item.descricao_rich !== undefined && item.descricao_rich !== null) {
+      const richText = validarRichText(item.descricao_rich)
+      if (richText.erro) return { erro: `Conteúdo ${i + 1}: ${richText.erro}`, lista: [] }
+      item.descricao = richText.texto ?? ''
+      item.descricao_rich = richText.documento
     }
     if (typeof item.descricao !== 'string' || !item.descricao.trim()) {
       return { erro: `Conteúdo ${i + 1}: descrição é obrigatória.`, lista: [] }
@@ -919,6 +927,9 @@ function camposEditaveisConteudoItem(item: ConteudoItemInput, ordem: number) {
     ordem,
     titulo: String(item.titulo).trim(),
     descricao: typeof item.descricao === 'string' ? item.descricao.trim() : '',
+    ...(item.descricao_rich !== undefined && {
+      descricao_rich: item.descricao_rich === null ? Prisma.DbNull : item.descricao_rich as Prisma.InputJsonValue,
+    }),
     imagem_url: typeof item.imagem_url === 'string' && item.imagem_url.trim() ? item.imagem_url.trim() : null,
     video_url: typeof item.video_url === 'string' && item.video_url.trim() ? item.video_url.trim() : null,
     texto_botao: typeof item.texto_botao === 'string' && item.texto_botao.trim() ? item.texto_botao.trim() : null,
@@ -1025,16 +1036,11 @@ export async function criar(req: Request, res: Response) {
       const primeiro = listaDestaques[0]
       req.body.titulo = primeiro.titulo
       req.body.descricao = typeof primeiro.descricao === 'string' ? primeiro.descricao : ''
+      req.body.descricao_rich = null
       req.body.subtitulo = typeof primeiro.texto_badge === 'string' ? primeiro.texto_badge : null
       req.body.data_cy = primeiro.data_cy
       req.body.texto_botao = typeof primeiro.texto_botao === 'string' ? primeiro.texto_botao : null
       req.body.url_botao = typeof primeiro.url_botao === 'string' ? primeiro.url_botao : null
-    }
-
-    const modo = resolverModoIdentificacao(modoExibicaoResolvido, String(req.body.modo_identificacao || '').trim())
-    const faltando = ['nome_interno', ...getCamposObrigatorios(modo, modoExibicaoResolvido)].filter(c => !req.body[c]?.toString().trim())
-    if (faltando.length > 0) {
-      return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
     }
 
     // Etapa 2 — múltiplos conteúdos (independente de modo_exibicao/destaques
@@ -1045,7 +1051,7 @@ export async function criar(req: Request, res: Response) {
     if (erroModoNavegacao) return res.status(400).json({ erro: erroModoNavegacao })
 
     let listaConteudos: ConteudoItemInput[] = []
-    if (req.body.conteudos !== undefined) {
+    if (modoExibicaoResolvido !== FORMATO_DESTAQUE_ELEMENTO && req.body.conteudos !== undefined) {
       const { erro: erroConteudos, lista } = validarConteudos(req.body.conteudos)
       if (erroConteudos) return res.status(400).json({ erro: erroConteudos })
       // Campanha nova não tem itens prévios (idsExistentes=[]) — qualquer id
@@ -1053,10 +1059,26 @@ export async function criar(req: Request, res: Response) {
       const erroOwnershipConteudos = validarOwnershipConteudos([], lista)
       if (erroOwnershipConteudos) return res.status(400).json({ erro: erroOwnershipConteudos })
       listaConteudos = lista
+      const primeiro = listaConteudos[0]
+      req.body.descricao = primeiro.descricao
+      req.body.descricao_rich = primeiro.descricao_rich ?? null
+    }
+
+    if (req.body.descricao_rich !== undefined && req.body.descricao_rich !== null) {
+      const richText = validarRichText(req.body.descricao_rich)
+      if (richText.erro) return res.status(400).json({ erro: richText.erro })
+      req.body.descricao = richText.texto
+      req.body.descricao_rich = richText.documento
+    }
+
+    const modo = resolverModoIdentificacao(modoExibicaoResolvido, String(req.body.modo_identificacao || '').trim())
+    const faltando = ['nome_interno', ...getCamposObrigatorios(modo, modoExibicaoResolvido)].filter(c => !req.body[c]?.toString().trim())
+    if (faltando.length > 0) {
+      return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
     }
 
     const {
-      nome_interno, titulo, subtitulo, descricao, tipo, sistema, tela,
+      nome_interno, titulo, subtitulo, descricao, descricao_rich, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
@@ -1123,6 +1145,7 @@ export async function criar(req: Request, res: Response) {
         titulo: titulo.trim(),
         subtitulo: subtitulo?.trim() || null,
         descricao: descricao.trim(),
+        descricao_rich: descricao_rich == null ? Prisma.DbNull : descricao_rich as Prisma.InputJsonValue,
         tipo: tipo.trim(),
         sistema: sistema.trim(),
         tela: tela?.trim() || '',
@@ -1195,7 +1218,7 @@ export async function atualizar(req: Request, res: Response) {
     // inativos, então o form nunca teria como reenviá-lo mesmo se quisesse).
     const existente = await prisma.campanha.findFirst({
       where: { id, tenant_id: tenantId },
-      include: { destaques: { where: { ativo: true } }, conteudos: true },
+      include: { destaques: { where: { ativo: true } }, conteudos: { orderBy: { ordem: 'asc' } } },
     })
     if (!existente) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
@@ -1229,6 +1252,7 @@ export async function atualizar(req: Request, res: Response) {
         const primeiro = listaDestaques[0]
         req.body.titulo = primeiro.titulo
         req.body.descricao = typeof primeiro.descricao === 'string' ? primeiro.descricao : ''
+        req.body.descricao_rich = null
         req.body.subtitulo = typeof primeiro.texto_badge === 'string' ? primeiro.texto_badge : null
         req.body.data_cy = primeiro.data_cy
         req.body.texto_botao = typeof primeiro.texto_botao === 'string' ? primeiro.texto_botao : null
@@ -1253,7 +1277,7 @@ export async function atualizar(req: Request, res: Response) {
     }
 
     let sincronizacaoConteudos: SincronizacaoConteudos | null = null
-    if (req.body.conteudos !== undefined) {
+    if (modoExibicaoAtualizado !== FORMATO_DESTAQUE_ELEMENTO && req.body.conteudos !== undefined) {
       const { erro: erroConteudos, lista } = validarConteudos(req.body.conteudos)
       if (erroConteudos) return res.status(400).json({ erro: erroConteudos })
       // idsExistentes vem de uma consulta já escopada por tenant_id (linha
@@ -1262,7 +1286,33 @@ export async function atualizar(req: Request, res: Response) {
       const erroOwnershipConteudos = validarOwnershipConteudos(idsExistentesConteudos, lista)
       if (erroOwnershipConteudos) return res.status(400).json({ erro: erroOwnershipConteudos })
       sincronizacaoConteudos = sincronizarConteudos(idsExistentesConteudos, lista)
+      const primeiro = lista[0]
+      req.body.descricao = primeiro.descricao
+      req.body.descricao_rich = primeiro.descricao_rich ?? null
     }
+
+    if (modoExibicaoAtualizado === FORMATO_DESTAQUE_ELEMENTO) {
+      // Destaques têm descrição plain-text própria e nunca usam o conteúdo
+      // formatado do modal, mesmo se um cliente antigo enviar os dois blocos.
+      req.body.descricao_rich = null
+    } else if (req.body.descricao_rich !== undefined && req.body.descricao_rich !== null) {
+      const richText = validarRichText(req.body.descricao_rich)
+      if (richText.erro) return res.status(400).json({ erro: richText.erro })
+      req.body.descricao = richText.texto
+      req.body.descricao_rich = richText.documento
+    } else if (req.body.descricao !== undefined && req.body.descricao_rich === undefined) {
+      // Uma edição pela API legada escolheu texto simples; limpa a formatação
+      // anterior para que a nova descrição não fique escondida no renderer.
+      req.body.descricao_rich = null
+    }
+
+    // A API ainda aceita edição pelos campos legados. Quando há conteúdos,
+    // mantém o primeiro item como a mesma fonte espelhada pela Campanha.
+    const primeiroConteudoParaEspelhar = req.body.conteudos === undefined
+      && modoExibicaoAtualizado !== FORMATO_DESTAQUE_ELEMENTO
+      && req.body.descricao_rich !== undefined
+      ? existente.conteudos[0]
+      : undefined
 
     const modoAtualizado = resolverModoIdentificacao(modoExibicaoAtualizado, String(req.body.modo_identificacao ?? existente.modo_identificacao ?? '').trim())
     const vazios = ['nome_interno', ...getCamposObrigatorios(modoAtualizado, modoExibicaoAtualizado)].filter(c => c in req.body && !req.body[c]?.toString().trim())
@@ -1271,7 +1321,7 @@ export async function atualizar(req: Request, res: Response) {
     }
 
     const {
-      nome_interno, titulo, subtitulo, descricao, tipo, sistema, tela,
+      nome_interno, titulo, subtitulo, descricao, descricao_rich, tipo, sistema, tela,
       imagem_url, video_url, texto_botao, url_botao,
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
@@ -1416,6 +1466,9 @@ export async function atualizar(req: Request, res: Response) {
         ...(titulo !== undefined && { titulo: titulo.trim() }),
         ...(subtitulo !== undefined && { subtitulo: subtitulo?.trim() || null }),
         ...(descricao !== undefined && { descricao: descricao.trim() }),
+        ...(descricao_rich !== undefined && {
+          descricao_rich: descricao_rich === null ? Prisma.DbNull : descricao_rich as Prisma.InputJsonValue,
+        }),
         ...(tipo !== undefined && { tipo: tipo.trim() }),
         ...(sistema !== undefined && { sistema: sistema.trim() }),
         ...(tela !== undefined && { tela: tela?.trim() || '' }),
@@ -1495,6 +1548,19 @@ export async function atualizar(req: Request, res: Response) {
             ...(sincronizacaoConteudos.paraCriar.length > 0 && {
               create: sincronizacaoConteudos.paraCriar.map(({ ordem, item }) => paraCriacaoConteudoItem(item, tenantId, ordem)),
             }),
+          },
+        }),
+        ...(!sincronizacaoConteudos && primeiroConteudoParaEspelhar && {
+          conteudos: {
+            update: {
+              where: { id: primeiroConteudoParaEspelhar.id },
+              data: {
+                ...(req.body.descricao !== undefined && { descricao: String(req.body.descricao).trim() }),
+                descricao_rich: req.body.descricao_rich === null
+                  ? Prisma.DbNull
+                  : req.body.descricao_rich as Prisma.InputJsonValue,
+              },
+            },
           },
         }),
       },
@@ -1730,6 +1796,7 @@ export async function duplicar(req: Request, res: Response) {
         titulo: tituloCopia,
         subtitulo: original.subtitulo,
         descricao: original.descricao,
+        descricao_rich: original.descricao_rich === null ? Prisma.DbNull : original.descricao_rich,
         tipo: original.tipo,
         sistema: original.sistema,
         tela: original.tela,
@@ -1792,6 +1859,7 @@ export async function duplicar(req: Request, res: Response) {
               ordem: c.ordem,
               titulo: c.titulo,
               descricao: c.descricao,
+              descricao_rich: c.descricao_rich === null ? Prisma.DbNull : c.descricao_rich,
               imagem_url: c.imagem_url,
               video_url: c.video_url,
               texto_botao: c.texto_botao,

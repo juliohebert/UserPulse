@@ -15,6 +15,9 @@ import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 import { criarResolvedorIdDestaque, urlHttpValida } from '../../components/campanhas/DestaqueElementoSimulacao.logic'
 import { ReordenarPrioridade } from './ReordenarPrioridade'
+import { RichTextEditor } from '../../components/richText/RichTextEditor'
+import { RichTextRenderer } from '../../components/richText/RichTextRenderer'
+import type { RichTextDocument } from '../../components/richText/types'
 import { chaveGrupoConcorrente } from './grupoConcorrente'
 import type { ConteudoFormItem, DestaqueFormItem, FormState, FormatoExibicao, ModoNavegacaoConteudo, ModoSegmentacao, TipoDestino } from './campanhaForm.utils'
 import {
@@ -1511,7 +1514,7 @@ function DestaqueElementoCard({ form, sistemas, sistemaPadraoIdentificador, apar
 
 function CardEditavel({
   form, sistemas, sistemaPadraoIdentificador, aparencia, mostrarMidia, mediaPosition, arrastandoMidia, setCampo, onDragStartMedia, onMostrarMidia, onRemoverMidia, onMoverMidia, onFecharPreview, onGerenciarSistemas, modo = 'construtor',
-  conteudoAtivo, onSelecionarConteudo, onAtualizarConteudo, onAplicarLinkMidiaConteudo,
+  conteudoAtivo, onSelecionarConteudo, onAtualizarConteudo, onAtualizarDescricaoConteudo, onAplicarLinkMidiaConteudo,
 }: {
   form: FormState
   sistemas: string[]
@@ -1538,6 +1541,7 @@ function CardEditavel({
   conteudoAtivo: number | null
   onSelecionarConteudo: (indice: number) => void
   onAtualizarConteudo: <K extends keyof ConteudoFormItem>(indice: number, campo: K, valor: ConteudoFormItem[K]) => void
+  onAtualizarDescricaoConteudo: (indice: number, documento: RichTextDocument, texto: string) => void
   onAplicarLinkMidiaConteudo: (indice: number, valor: string) => void
 }) {
   const preview = modo === 'preview'
@@ -1545,7 +1549,6 @@ function CardEditavel({
   const corSubtitulo = corTextoSistemaLegivel(corAcao)
   const iconeCampanha = iconeTipoCampanha(form.tipo)
   const midiaRef = useRef<HTMLDivElement>(null)
-  const descricaoRef = useRef<HTMLTextAreaElement>(null)
 
   // Índice ativo sempre um valor válido (clamp defensivo — nunca estoura os
   // limites do array, mesmo que conteudoAtivo aponte pra um item já
@@ -1556,7 +1559,7 @@ function CardEditavel({
   // acontecer — formInicial/hidratarFormState sempre semeiam >= 1 item) —
   // nunca deixa o corpo do card quebrar em runtime.
   const itemAtivo = form.conteudos[indiceAtivo] ?? {
-    titulo: '', descricao: '', imagem_url: '', video_url: '', cta_habilitado: false, texto_botao: '', url_botao: '',
+    titulo: '', descricao: '', descricao_rich: null, imagem_url: '', video_url: '', cta_habilitado: false, texto_botao: '', url_botao: '',
   }
   const multiConteudo = form.conteudos.length > 1
   const modoSlides = form.modo_navegacao === 'SLIDES' && multiConteudo
@@ -1587,13 +1590,6 @@ function CardEditavel({
     setEditandoMidia(false)
     setEditandoLinkCta(false)
   }, [indiceAtivo])
-
-  useEffect(() => {
-    const textarea = descricaoRef.current
-    if (!textarea) return
-    textarea.style.height = 'auto'
-    textarea.style.height = `${textarea.scrollHeight}px`
-  }, [itemAtivo.descricao])
 
   function aplicarLinkMidia(valor: string) {
     setLinkMidiaInline(valor)
@@ -1802,19 +1798,14 @@ function CardEditavel({
   ) : null
 
   const blocoDescricao = preview ? (
-    <p className="m-0 whitespace-pre-wrap text-body-md leading-snug text-on-surface-variant">
-      {itemAtivo.descricao || 'Descrição da campanha.'}
-    </p>
+    <RichTextRenderer documento={itemAtivo.descricao_rich} fallback={itemAtivo.descricao || 'Descrição da campanha.'} className="text-body-md leading-snug text-on-surface-variant" />
   ) : (
-    <textarea
-      ref={descricaoRef}
-      value={itemAtivo.descricao}
-      onChange={e => onAtualizarConteudo(indiceAtivo, 'descricao', e.target.value)}
-      required
-      rows={1}
-      aria-label="Descrição da campanha"
+    <RichTextEditor
+      documento={itemAtivo.descricao_rich}
+      texto={itemAtivo.descricao}
+      onChange={(documento, texto) => onAtualizarDescricaoConteudo(indiceAtivo, documento, texto)}
       placeholder="Escreva a mensagem da campanha..."
-      className="min-h-[28px] w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-body-md leading-[1.35] text-on-surface-variant outline-none placeholder:italic placeholder:text-on-surface-variant/40 focus:ring-0"
+      compact
     />
   )
 
@@ -2145,6 +2136,7 @@ function PreviewCampanhaModal({ form, aparencia, onClose }: {
       id: item.id,
       titulo: item.titulo,
       descricao: item.descricao,
+      descricao_rich: item.descricao_rich,
       imagem_url: item.imagem_url,
       video_url: item.video_url,
       texto_botao: item.cta_habilitado ? item.texto_botao : '',
@@ -2153,6 +2145,7 @@ function PreviewCampanhaModal({ form, aparencia, onClose }: {
     {
       titulo: form.titulo,
       descricao: form.descricao,
+      descricao_rich: form.descricao_rich,
       imagem_url: form.imagem_url,
       video_url: form.video_url,
       texto_botao: form.cta_habilitado ? form.texto_botao : '',
@@ -2276,7 +2269,7 @@ function PreviewCampanhaModal({ form, aparencia, onClose }: {
                       </div>
                     ) : null}
 
-                    {itemDescricao && <p className="m-0 whitespace-pre-wrap text-[14px] leading-[21px] text-[#424754]">{itemDescricao}</p>}
+                    {itemDescricao && <RichTextRenderer documento={item.descricao_rich} fallback={itemDescricao} className="text-[14px] leading-[21px] text-[#424754]" />}
 
                     {itemTemCta && (
                       <button type="button" style={{ backgroundColor: corAcao }} className="flex min-h-[42px] w-full items-center justify-center rounded-xl border-0 text-[12px] font-extrabold leading-4 text-white transition hover:opacity-90">
@@ -2417,7 +2410,7 @@ export function CampanhaFormIndex() {
     if (form.conteudos.length >= CONTEUDOS_MAX) return
     const novoIndice = form.conteudos.length
     setCampo('conteudos', [...form.conteudos, {
-      titulo: '', descricao: '', imagem_url: '', video_url: '', cta_habilitado: false, texto_botao: '', url_botao: '',
+      titulo: '', descricao: '', descricao_rich: null, imagem_url: '', video_url: '', cta_habilitado: false, texto_botao: '', url_botao: '',
     }])
     setConteudoAtivo(novoIndice)
   }
@@ -2451,6 +2444,10 @@ export function CampanhaFormIndex() {
     setCampo('conteudos', form.conteudos.map((item, i) => (i === indice ? { ...item, [campo]: valor } : item)))
   }
 
+  function atualizarDescricaoConteudo(indice: number, documento: RichTextDocument, texto: string) {
+    setCampo('conteudos', form.conteudos.map((item, i) => i === indice ? { ...item, descricao: texto, descricao_rich: documento } : item))
+  }
+
   // Mesmo raciocínio de aplicarLinkMidia (CardEditavel, campo único legado):
   // um único campo de link decide se é imagem ou vídeo via pareceUrlVideo —
   // nunca os dois preenchidos ao mesmo tempo (mesma regra do backend,
@@ -2478,19 +2475,20 @@ export function CampanhaFormIndex() {
   function camposConteudo(indice: number) {
     const item = form.conteudos[indice]
     if (!item) return null
+    const descricaoLabelId = `descricao-conteudo-${item.id ?? indice}`
     return (
       <>
         <CampoDock label="Título" value={item.titulo} onChange={valor => atualizarConteudo(indice, 'titulo', valor)} placeholder="Título deste conteúdo" />
-        <label className="block">
-          <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Descrição</span>
-          <textarea
-            value={item.descricao}
-            onChange={event => atualizarConteudo(indice, 'descricao', event.target.value)}
-            rows={3}
+        <div className="block">
+          <span id={descricaoLabelId} className="mb-2 block text-[12px] font-semibold text-[#444950]">Descrição</span>
+          <RichTextEditor
+            documento={item.descricao_rich}
+            texto={item.descricao}
+            onChange={(documento, texto) => atualizarDescricaoConteudo(indice, documento, texto)}
             placeholder="Descreva esta melhoria ou conteúdo para o usuário."
-            className="w-full rounded-lg border border-[#ced0d4] bg-white px-3 py-2 text-[14px] text-[#1c1e21] outline-none transition focus:border-[#0064e0] focus:ring-1 focus:ring-[#0064e0]"
+            ariaLabelledBy={descricaoLabelId}
           />
-        </label>
+        </div>
         <CampoDock
           label="Imagem ou vídeo (link)"
           value={item.video_url || item.imagem_url}
@@ -2992,6 +2990,7 @@ export function CampanhaFormIndex() {
                 conteudoAtivo={conteudoAtivo}
                 onSelecionarConteudo={setConteudoAtivo}
                 onAtualizarConteudo={atualizarConteudo}
+                onAtualizarDescricaoConteudo={atualizarDescricaoConteudo}
                 onAplicarLinkMidiaConteudo={aplicarLinkMidiaConteudo}
               />
             )}

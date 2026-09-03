@@ -1,3 +1,5 @@
+import type { RichTextDocument } from './components/richText/types'
+
 export interface Campanha {
   id: string
   slug: string
@@ -7,6 +9,7 @@ export interface Campanha {
   // (ver CampanhaForm.tsx) é reutilizado como texto do badge (ex. "Novo").
   subtitulo: string | null
   descricao: string
+  descricao_rich: RichTextDocument | null
   tipo: string
   sistema: string
   tela: string
@@ -99,6 +102,7 @@ export interface CampanhaConteudoItem {
   ordem: number
   titulo: string
   descricao: string
+  descricao_rich: RichTextDocument | null
   imagem_url: string | null
   video_url: string | null
   texto_botao: string | null
