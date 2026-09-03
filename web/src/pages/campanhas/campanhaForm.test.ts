@@ -16,6 +16,8 @@ import {
   combinarDataHoraISO,
   corSistemaValida,
   corSistemaTranslucida,
+  extrairDriveFileId,
+  normalizarImagemUrl,
   type FormState,
 } from './campanhaForm.utils'
 
@@ -731,5 +733,82 @@ describe('corSistemaTranslucida — espelha --up-primary-soft do widget real', (
 
   test('valor irreconhecível volta como veio (nunca quebra o style inline)', () => {
     assert.equal(corSistemaTranslucida('nope', 0.1), 'nope')
+  })
+})
+
+// ─── Google Drive: link de compartilhamento -> URL exibível em <img> ───────
+const DRIVE_ID = '1A2b3C4d5E6f7G8h9I0jKLmnopqrstuvwx'
+const THUMB = `https://drive.google.com/thumbnail?id=${DRIVE_ID}&sz=w1600`
+
+describe('extrairDriveFileId — reconhece os formatos de link do Google Drive', () => {
+  test('drive.google.com/file/d/<ID>/view (e variantes de sufixo)', () => {
+    assert.equal(extrairDriveFileId(`https://drive.google.com/file/d/${DRIVE_ID}/view`), DRIVE_ID)
+    assert.equal(extrairDriveFileId(`https://drive.google.com/file/d/${DRIVE_ID}/view?usp=sharing`), DRIVE_ID)
+    assert.equal(extrairDriveFileId(`https://drive.google.com/file/d/${DRIVE_ID}/preview`), DRIVE_ID)
+    assert.equal(extrairDriveFileId(`https://drive.google.com/file/d/${DRIVE_ID}/edit`), DRIVE_ID)
+  })
+  test('drive.google.com/open?id=<ID>', () => {
+    assert.equal(extrairDriveFileId(`https://drive.google.com/open?id=${DRIVE_ID}`), DRIVE_ID)
+  })
+  test('drive.google.com/uc?id=<ID> e uc?export=view&id=<ID>', () => {
+    assert.equal(extrairDriveFileId(`https://drive.google.com/uc?id=${DRIVE_ID}`), DRIVE_ID)
+    assert.equal(extrairDriveFileId(`https://drive.google.com/uc?export=view&id=${DRIVE_ID}`), DRIVE_ID)
+  })
+  test('a própria saída (thumbnail?id=<ID>) é reconhecida -> idempotência', () => {
+    assert.equal(extrairDriveFileId(THUMB), DRIVE_ID)
+  })
+  test('www.drive.google.com também vale', () => {
+    assert.equal(extrairDriveFileId(`https://www.drive.google.com/file/d/${DRIVE_ID}/view`), DRIVE_ID)
+  })
+  test('não-Drive / lixo / id curto demais -> null', () => {
+    assert.equal(extrairDriveFileId('https://exemplo.com/foto.png'), null)
+    assert.equal(extrairDriveFileId('https://docs.google.com/document/d/abc/edit'), null)
+    assert.equal(extrairDriveFileId('https://drive.google.com/drive/folders/xyz'), null)
+    assert.equal(extrairDriveFileId('drive.google.com/file/d/short/view'), null)
+    assert.equal(extrairDriveFileId('não é url'), null)
+    assert.equal(extrairDriveFileId(''), null)
+  })
+})
+
+describe('normalizarImagemUrl — converte só o que reconhece, resto passa reto', () => {
+  test('cada formato de Drive -> mesma URL de thumbnail exibível', () => {
+    assert.equal(normalizarImagemUrl(`https://drive.google.com/file/d/${DRIVE_ID}/view`), THUMB)
+    assert.equal(normalizarImagemUrl(`https://drive.google.com/open?id=${DRIVE_ID}`), THUMB)
+    assert.equal(normalizarImagemUrl(`https://drive.google.com/uc?export=view&id=${DRIVE_ID}`), THUMB)
+  })
+  test('idempotente: rodar de novo na saída devolve a mesma URL', () => {
+    assert.equal(normalizarImagemUrl(THUMB), THUMB)
+  })
+  test('URL de imagem normal continua funcionando como hoje (via normalizarUrl)', () => {
+    assert.equal(normalizarImagemUrl('https://cdn.exemplo.com/banner.png'), 'https://cdn.exemplo.com/banner.png')
+    assert.equal(normalizarImagemUrl('  https://cdn.exemplo.com/b.jpg  '), 'https://cdn.exemplo.com/b.jpg')
+  })
+  test('vazio -> vazio; link não reconhecido -> comportamento seguro atual (passthrough)', () => {
+    assert.equal(normalizarImagemUrl(''), '')
+    assert.equal(normalizarImagemUrl('sem-esquema/foto.png'), 'sem-esquema/foto.png')
+  })
+})
+
+describe('montarPayloadCampanha — persiste o imagem_url já normalizado (Drive)', () => {
+  function baseForm(over: Partial<FormState> = {}): FormState {
+    return { ...formInicial, nome_interno: 'x', ...over }
+  }
+  test('campo legado imagem_url: link de compartilhamento do Drive vira thumbnail no payload', () => {
+    const p = montarPayloadCampanha(baseForm({ imagem_url: `https://drive.google.com/file/d/${DRIVE_ID}/view` }))
+    assert.equal(p.imagem_url, THUMB)
+  })
+  test('conteudos[].imagem_url também é normalizado', () => {
+    const form = baseForm({
+      conteudos: [{
+        titulo: 'c1', descricao: 'd', imagem_url: `https://drive.google.com/open?id=${DRIVE_ID}`,
+        video_url: '', cta_habilitado: false, texto_botao: '', url_botao: '',
+      }],
+    })
+    const p = montarPayloadCampanha(form) as { conteudos: Array<{ imagem_url: string | null }> }
+    assert.equal(p.conteudos[0].imagem_url, THUMB)
+  })
+  test('URL normal segue intacta no payload', () => {
+    const p = montarPayloadCampanha(baseForm({ imagem_url: 'https://cdn.exemplo.com/x.png' }))
+    assert.equal(p.imagem_url, 'https://cdn.exemplo.com/x.png')
   })
 })

@@ -10,7 +10,7 @@ import { gerarEmbed, gerarEmbedParts, getStatus, rotaEditarCampanha } from '../.
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
-import { resolverConteudosPreview, corSistemaValida, corSistemaTranslucida } from './campanhaForm.utils'
+import { resolverConteudosPreview, corSistemaValida, corSistemaTranslucida, normalizarImagemUrl } from './campanhaForm.utils'
 import { ResumoConfiguracao } from './ResumoConfiguracao'
 
 function maskPhone(raw: string): string {
@@ -421,7 +421,7 @@ export function CampanhaPreview() {
                           <iframe src={item.video_url} title="Vídeo da campanha" className="h-full w-full border-0" />
                         </div>
                       ) : item.imagem_url ? (
-                        <img src={item.imagem_url} alt="" className="max-h-52 w-full rounded-xl border border-outline-variant/30 object-cover" />
+                        <img src={normalizarImagemUrl(item.imagem_url)} alt="" className="max-h-52 w-full rounded-xl border border-outline-variant/30 object-cover" />
                       ) : null}
 
                       {item.descricao && <p className="whitespace-pre-wrap text-body-md text-on-surface-variant leading-relaxed">{item.descricao}</p>}

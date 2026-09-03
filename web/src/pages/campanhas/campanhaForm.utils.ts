@@ -277,6 +277,50 @@ export function pareceUrlVideo(valor: string): boolean {
   }
 }
 
+// ─── Google Drive: link de compartilhamento -> URL exibível em <img> ────────
+// O cliente costuma colar o link "de compartilhamento" do Drive
+// (drive.google.com/file/d/<ID>/view, /open?id=<ID>, /uc?id=<ID>), que aponta
+// pra uma PÁGINA HTML — nunca renderiza dentro de um <img>. extrairDriveFileId
+// reconhece esses formatos e normalizarImagemUrl converte pra
+// https://drive.google.com/thumbnail?id=<ID>&sz=w1600, que devolve os bytes da
+// imagem direto (Content-Type image/*), respeita o compartilhamento "Qualquer
+// pessoa com o link" e NÃO passa pela tela intersticial de "não foi possível
+// verificar vírus" que o uc?export=view às vezes retorna. Arquivo PRIVADO
+// continua sem aparecer (o Drive responde login/403) — nunca burlamos
+// permissão. Só drive.google.com; qualquer outra URL segue pelo normalizarUrl
+// de sempre (passthrough seguro). Idempotente: rodar de novo sobre a própria
+// saída (?id=<ID>) devolve a mesma coisa — por isso pode ser aplicada tanto
+// na montagem do payload (persistência) quanto no render dos previews sem
+// divergir. É a MESMA regra usada pelo widget real, que recebe o
+// imagem_url já normalizado no payload (mesmo padrão de converterVideoEmbed).
+const DRIVE_FILE_ID_REGEX = /^[A-Za-z0-9_-]{10,}$/
+
+export function extrairDriveFileId(valor: string): string | null {
+  const trimmed = valor.trim()
+  if (!trimmed) return null
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return null
+  }
+  const host = url.hostname.toLowerCase().replace(/^www\./, '')
+  if (host !== 'drive.google.com') return null
+  // /file/d/<ID>/view  |  /file/d/<ID>/preview  |  /file/d/<ID>/edit  ...
+  const doPath = url.pathname.match(/\/file\/d\/([^/]+)/)
+  if (doPath && DRIVE_FILE_ID_REGEX.test(doPath[1])) return doPath[1]
+  // /open?id=<ID>  |  /uc?id=<ID>  |  /uc?export=view&id=<ID>  |  /thumbnail?id=<ID>
+  const idParam = url.searchParams.get('id')
+  if (idParam && DRIVE_FILE_ID_REGEX.test(idParam)) return idParam
+  return null
+}
+
+export function normalizarImagemUrl(valor: string): string {
+  const driveId = extrairDriveFileId(valor)
+  if (driveId) return `https://drive.google.com/thumbnail?id=${driveId}&sz=w1600`
+  return normalizarUrl(valor)
+}
+
 // ─── Destino ────────────────────────────────────────────────────────────
 // 4 formas de identificar quando/onde a campanha aparece. 'url' é a 4ª
 // opção (campo desta rodada) — campanhas antigas criadas pelo Form.tsx
@@ -556,7 +600,7 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
     subtitulo: form.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
       ? (form.subtitulo.trim() || 'Novo')
       : (form.subtitulo || null),
-    imagem_url: normalizarUrl(form.imagem_url) || null,
+    imagem_url: normalizarImagemUrl(form.imagem_url) || null,
     video_url: embedUrl || null,
     texto_botao: form.cta_habilitado ? (form.texto_botao.trim() || null) : null,
     url_botao: form.cta_habilitado ? (normalizarUrl(form.url_botao) || null) : null,
@@ -614,7 +658,7 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
         ...(item.id && { id: item.id }),
         titulo: item.titulo.trim(),
         descricao: item.descricao.trim(),
-        imagem_url: normalizarUrl(item.imagem_url) || null,
+        imagem_url: normalizarImagemUrl(item.imagem_url) || null,
         video_url: converterVideoEmbed(item.video_url) || null,
         texto_botao: item.cta_habilitado ? (item.texto_botao.trim() || null) : null,
         url_botao: item.cta_habilitado ? (normalizarUrl(item.url_botao) || null) : null,
