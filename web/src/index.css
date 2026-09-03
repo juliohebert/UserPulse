@@ -50,6 +50,52 @@ body {
   font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
+.up-rich-text p,
+.rich-text-editor .ProseMirror p {
+  margin: 0;
+}
+
+.up-rich-text p + p,
+.up-rich-text ul + p,
+.up-rich-text ol + p,
+.up-rich-text p + ul,
+.up-rich-text p + ol,
+.rich-text-editor .ProseMirror p + p,
+.rich-text-editor .ProseMirror ul + p,
+.rich-text-editor .ProseMirror ol + p,
+.rich-text-editor .ProseMirror p + ul,
+.rich-text-editor .ProseMirror p + ol {
+  margin-top: 0.5rem;
+}
+
+.up-rich-text ul,
+.up-rich-text ol,
+.rich-text-editor .ProseMirror ul,
+.rich-text-editor .ProseMirror ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.up-rich-text li + li,
+.rich-text-editor .ProseMirror li + li {
+  margin-top: 0.1875rem;
+}
+
+.up-rich-text ol,
+.rich-text-editor .ProseMirror ol {
+  list-style: decimal;
+}
+
+.rich-text-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: rgba(93, 108, 123, 0.55);
+  font-style: italic;
+  pointer-events: none;
+}
+
 .widget-pulse {
   animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }

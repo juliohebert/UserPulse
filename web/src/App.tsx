@@ -1,4 +1,5 @@
 import { Navigate, Routes, Route } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
 import { Layout } from './components/layout/Layout'
 import { RequireAuth } from './components/auth/RequireAuth'
 import { RequireSuperAdmin } from './components/auth/RequireSuperAdmin'
@@ -13,7 +14,6 @@ import { TrocarSenhaPage } from './pages/TrocarSenha'
 import { MinhaContaPage } from './pages/MinhaConta'
 import { Dashboard } from './pages/Dashboard'
 import { CampanhasIndex } from './pages/campanhas/Index'
-import { CampanhaFormIndex } from './pages/campanhas/CampanhaForm'
 import { CampanhaDashboard } from './pages/campanhas/CampanhaDashboard'
 import { CampanhaPreview } from './pages/campanhas/Preview'
 import { CatalogoTelasIndex } from './pages/catalogo/Index'
@@ -34,6 +34,16 @@ import { Usuarios } from './pages/Usuarios'
 import { AceitarConvitePage } from './pages/AceitarConvite'
 import { AdminTenantsIndex } from './pages/admin/Tenants'
 import { AdminPlanosIndex } from './pages/admin/Planos'
+
+const CampanhaFormIndex = lazy(() => import('./pages/campanhas/CampanhaForm').then(modulo => ({ default: modulo.CampanhaFormIndex })))
+
+function CampanhaFormLazy() {
+  return (
+    <Suspense fallback={<div className="px-4 py-8 text-body-md text-on-surface-variant">Carregando editor...</div>}>
+      <CampanhaFormIndex />
+    </Suspense>
+  )
+}
 
 export default function App() {
   return (
@@ -85,8 +95,8 @@ export default function App() {
               <Route path="campanhas/:id/preview" element={<CampanhaPreview />} />
             </Route>
             <Route element={<RequireAcessoModulo modulo="CAMPANHAS" nivel="GERENCIAR" />}>
-              <Route path="campanhas/nova" element={<CampanhaFormIndex />} />
-              <Route path="campanhas/:id/editar" element={<CampanhaFormIndex />} />
+              <Route path="campanhas/nova" element={<CampanhaFormLazy />} />
+              <Route path="campanhas/:id/editar" element={<CampanhaFormLazy />} />
             </Route>
 
             {/* tours/guia fica dentro do VISUALIZAR (é só documentação de

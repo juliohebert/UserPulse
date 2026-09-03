@@ -12,6 +12,7 @@ import { podeGerenciarModulo } from '../../utils/permissions'
 import { DestaqueElementoSimulacao, SeletorDestaqueSimulacao } from '../../components/campanhas/DestaqueElementoSimulacao'
 import { resolverConteudosPreview, corSistemaValida, corSistemaTranslucida, normalizarImagemUrl } from './campanhaForm.utils'
 import { ResumoConfiguracao } from './ResumoConfiguracao'
+import { RichTextRenderer } from '../../components/richText/RichTextRenderer'
 
 function maskPhone(raw: string): string {
   const d = raw.replace(/\D/g, '').slice(0, 11)
@@ -212,6 +213,7 @@ export function CampanhaPreview() {
       id: item.id,
       titulo: item.titulo,
       descricao: item.descricao,
+      descricao_rich: item.descricao_rich,
       imagem_url: item.imagem_url ?? '',
       video_url: item.video_url ?? '',
       texto_botao: item.texto_botao ?? '',
@@ -220,6 +222,7 @@ export function CampanhaPreview() {
     {
       titulo: campanha.titulo,
       descricao: campanha.descricao,
+      descricao_rich: campanha.descricao_rich,
       imagem_url: campanha.imagem_url ?? '',
       video_url: campanha.video_url ?? '',
       texto_botao: campanha.texto_botao ?? '',
@@ -424,14 +427,14 @@ export function CampanhaPreview() {
                         <img src={normalizarImagemUrl(item.imagem_url)} alt="" className="max-h-52 w-full rounded-xl border border-outline-variant/30 object-cover" />
                       ) : null}
 
-                      {item.descricao && <p className="whitespace-pre-wrap text-body-md text-on-surface-variant leading-relaxed">{item.descricao}</p>}
+                      {item.descricao && <RichTextRenderer documento={item.descricao_rich} fallback={item.descricao} className="text-body-md text-on-surface-variant leading-relaxed" />}
 
                       {/* CTA */}
                       {item.texto_botao && item.url_botao && (
                         <a
                           href={item.url_botao}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                           style={{ backgroundColor: corAcao }}
                           className="flex items-center justify-center gap-2 w-full rounded-xl py-3 text-label-md font-bold text-white hover:opacity-90 transition-opacity"
                         >

@@ -15,6 +15,7 @@ type ConteudoItem = {
   id?: string | null
   titulo?: unknown
   descricao?: unknown
+  descricao_rich?: unknown
   imagem_url?: unknown
   video_url?: unknown
   texto_botao?: unknown
@@ -35,12 +36,23 @@ type ConteudoResolverModoNavegacao = (campanha: Campanha | null | undefined) => 
 type ConteudoRenderScroll = (itens: ConteudoItem[]) => string
 type ConteudoRenderSlides = (itens: ConteudoItem[], indiceAtual: number) => string
 type ConteudoResolverDirecaoSwipe = (deltaX: number, deltaY: number) => 'prev' | 'next' | null
+type ConteudoCriarRichText = (documento: unknown, documentoDom: unknown) => FakeNode | null
+
+interface FakeNode {
+  tag: string
+  text?: string
+  attributes: Record<string, string>
+  children: FakeNode[]
+  appendChild: (filho: FakeNode) => FakeNode
+  setAttribute: (nome: string, valor: string) => void
+}
 
 let conteudoResolverItens: ConteudoResolverItens
 let conteudoResolverModoNavegacao: ConteudoResolverModoNavegacao
 let conteudoRenderScroll: ConteudoRenderScroll
 let conteudoRenderSlides: ConteudoRenderSlides
 let conteudoResolverDirecaoSwipe: ConteudoResolverDirecaoSwipe
+let conteudoCriarRichText: ConteudoCriarRichText
 
 before(() => {
   const codigo = fs.readFileSync(
@@ -76,6 +88,7 @@ before(() => {
         conteudoRenderScroll?: ConteudoRenderScroll
         conteudoRenderSlides?: ConteudoRenderSlides
         conteudoResolverDirecaoSwipe?: ConteudoResolverDirecaoSwipe
+        conteudoCriarRichText?: ConteudoCriarRichText
       }
     }
   }).UserPulse
@@ -84,16 +97,58 @@ before(() => {
   const renderScrollFn = UserPulse?._internal?.conteudoRenderScroll
   const renderSlidesFn = UserPulse?._internal?.conteudoRenderSlides
   const resolverDirecaoSwipeFn = UserPulse?._internal?.conteudoResolverDirecaoSwipe
+  const criarRichTextFn = UserPulse?._internal?.conteudoCriarRichText
   assert.equal(typeof resolverItensFn, 'function', 'window.UserPulse._internal.conteudoResolverItens não foi exposta por widget.js')
   assert.equal(typeof resolverModoFn, 'function', 'window.UserPulse._internal.conteudoResolverModoNavegacao não foi exposta por widget.js')
   assert.equal(typeof renderScrollFn, 'function', 'window.UserPulse._internal.conteudoRenderScroll não foi exposta por widget.js')
   assert.equal(typeof renderSlidesFn, 'function', 'window.UserPulse._internal.conteudoRenderSlides não foi exposta por widget.js')
   assert.equal(typeof resolverDirecaoSwipeFn, 'function', 'window.UserPulse._internal.conteudoResolverDirecaoSwipe não foi exposta por widget.js')
+  assert.equal(typeof criarRichTextFn, 'function', 'window.UserPulse._internal.conteudoCriarRichText não foi exposta por widget.js')
   conteudoResolverDirecaoSwipe = resolverDirecaoSwipeFn as ConteudoResolverDirecaoSwipe
   conteudoRenderSlides = renderSlidesFn as ConteudoRenderSlides
   conteudoResolverItens = resolverItensFn as ConteudoResolverItens
   conteudoResolverModoNavegacao = resolverModoFn as ConteudoResolverModoNavegacao
   conteudoRenderScroll = renderScrollFn as ConteudoRenderScroll
+  conteudoCriarRichText = criarRichTextFn as ConteudoCriarRichText
+})
+
+describe('conteudoCriarRichText (widget.js)', () => {
+  function no(tag: string, text?: string): FakeNode {
+    return {
+      tag,
+      text,
+      attributes: {},
+      children: [],
+      appendChild(filho) { this.children.push(filho); return filho },
+      setAttribute(nome, valor) { this.attributes[nome] = valor },
+    }
+  }
+  const documentoDom = {
+    createElement: (tag: string) => no(tag),
+    createTextNode: (text: string) => no('#text', text),
+  }
+
+  test('constrói marcas e listas permitidas', () => {
+    const raiz = conteudoCriarRichText({
+      type: 'doc', content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Importante', marks: [{ type: 'bold' }] }] },
+        { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Marcador' }] }] }] },
+        { type: 'orderedList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Numerado' }] }] }] },
+      ],
+    }, documentoDom)
+    assert.ok(raiz)
+    assert.equal(raiz.tag, 'div')
+    assert.equal(raiz.children[0].children[0].tag, 'strong')
+    assert.equal(raiz.children[1].tag, 'ul')
+    assert.equal(raiz.children[2].tag, 'ol')
+  })
+
+  test('rejeita links, HTML e atributos desconhecidos', () => {
+    const comLink = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x', marks: [{ type: 'link', attrs: { href: 'https://example.com' } }] }] }] }
+    assert.equal(conteudoCriarRichText(comLink, documentoDom), null)
+    assert.equal(conteudoCriarRichText({ type: 'doc', content: [{ type: 'script' }] }, documentoDom), null)
+    assert.equal(conteudoCriarRichText({ type: 'doc', attrs: {}, content: [] }, documentoDom), null)
+  })
 })
 
 describe('conteudoResolverItens (widget.js) — campanha nova, com conteudos[]', () => {

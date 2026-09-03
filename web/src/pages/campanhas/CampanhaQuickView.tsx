@@ -5,6 +5,8 @@ import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo } from '../../utils/permissions'
+import { RichTextRenderer } from '../../components/richText/RichTextRenderer'
+import { FORMATO_DESTAQUE_ELEMENTO } from './campanhaForm.utils'
 
 interface Props {
   campanha: Campanha
@@ -119,16 +121,18 @@ export function CampanhaQuickView({ campanha, onClose }: Props) {
             ) : null}
 
             {/* Texto principal */}
-            <p className="whitespace-pre-wrap text-body-md text-on-surface-variant leading-relaxed">
-              {campanha.descricao}
-            </p>
+            <RichTextRenderer
+              documento={campanha.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO ? null : campanha.descricao_rich}
+              fallback={campanha.descricao}
+              className="text-body-md text-on-surface-variant leading-relaxed"
+            />
 
             {/* CTA */}
             {campanha.texto_botao && campanha.url_botao && (
               <a
                 href={campanha.url_botao}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 w-full rounded-xl bg-secondary py-2.5 text-label-md font-bold text-on-secondary hover:opacity-90 transition-opacity"
               >
                 {campanha.texto_botao}
