@@ -3806,7 +3806,19 @@
       // jornadaPodeAbrirCentral() então continuava bloqueando o FAB "Ajuda"
       // mesmo em telas sem nenhuma campanha realmente visível. Mesma lógica
       // pro tour: se ficou ativo e o usuário navegou pra longe dele, encerra.
-      if (state.open) doClose();
+      //
+      // Só fecha numa navegação REAL (a URL mudou). pushState/replaceState de
+      // rotina do router (MESMA URL — sync de query string, redirect interno,
+      // <Link replace>, libs de scroll-restore) chega aqui com
+      // forcarReavaliacao=true mas urlAnterior === currentUrl: NÃO é "o
+      // usuário saiu da campanha". Fechar aqui fazia a modal piscar
+      // (aparece → some → reaparece), porque evaluateCampaigns()/
+      // evaluateUrlCampaigns() logo abaixo re-selecionam a mesma candidata
+      // (servidor autoritativo na reexibição p/ usuário identificado ⇒
+      // wasShown() sempre false) e scheduleAutoOpen reabre. A reavaliação de
+      // candidatas/tour/jornada abaixo continua rodando sempre (elas se
+      // protegem sozinhas com `if (state.open) return`).
+      if (state.open && currentUrl !== urlAnterior) doClose();
       // suprimirAbandonoNavegacao: navegação causada pelo próprio clique
       // sintético de um passo "clicar_elemento" (tourProximo()) ou por
       // modo_avanco_interacao != manual (agendarAvancoInteracao) não conta como
