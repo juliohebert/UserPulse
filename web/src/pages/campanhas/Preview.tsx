@@ -36,6 +36,11 @@ export function CampanhaPreview() {
   // específica do sistema tem prioridade; sem ela, a aparência padrão do
   // tenant; sem nenhuma, cai no fallback de corSistemaValida.
   const [corPrincipalSistema, setCorPrincipalSistema] = useState<string | null>(null)
+  // Estado real de carregamento da aparência: a simulação só renderiza
+  // depois que a cor do sistema/tenant foi resolvida, senão o primeiro
+  // paint sairia no fallback (#0064e0) e trocaria de cor ao chegar a
+  // configuração — flash visual.
+  const [aparenciaCarregada, setAparenciaCarregada] = useState(false)
   const [open, setOpen] = useState(false)
   const [nota, setNota] = useState<number | null>(null)
   const [observacao, setObservacao] = useState('')
@@ -93,9 +98,17 @@ export function CampanhaPreview() {
   useEffect(load, [id])
 
   useEffect(() => {
-    const sistema = campanha?.sistema?.trim()
-    if (!sistema) return
+    if (!campanha) return
+    const sistema = campanha.sistema?.trim()
     let cancelado = false
+    setAparenciaCarregada(false)
+    if (!sistema) {
+      // Sem sistema não há o que buscar: resolve imediatamente no fallback
+      // (nenhuma cor pra trocar depois, então nenhum flash).
+      setCorPrincipalSistema(null)
+      setAparenciaCarregada(true)
+      return
+    }
     // Espelha CampanhaForm.tsx (carregarAparenciaPadrao + fetch por sistema)
     // e buscarAparencia no backend: específica do sistema > padrão do tenant.
     // Endpoint responde 200 com cor_principal null quando não há config, e
@@ -104,7 +117,9 @@ export function CampanhaPreview() {
     const especifica = get<AparenciaWidget>(`/aparencia-widget/${encodeURIComponent(sistema)}`).catch(() => null)
     const padrao = get<AparenciaWidget>('/aparencia-widget/default').catch(() => null)
     Promise.all([especifica, padrao]).then(([a, d]) => {
-      if (!cancelado) setCorPrincipalSistema(a?.cor_principal ?? d?.cor_principal ?? null)
+      if (cancelado) return
+      setCorPrincipalSistema(a?.cor_principal ?? d?.cor_principal ?? null)
+      setAparenciaCarregada(true)
     })
     return () => { cancelado = true }
   }, [campanha?.sistema])
@@ -130,6 +145,9 @@ export function CampanhaPreview() {
 
   if (loading) return <div className="px-margin-desktop py-stack-lg"><LoadingSpinner /></div>
   if (error || !campanha) return <div className="px-margin-desktop py-stack-lg"><ErrorState message={error ?? 'Campanha não encontrada.'} onRetry={load} /></div>
+  // Aguarda a aparência do sistema/tenant antes de montar a simulação — sem
+  // isso o preview apareceria no fallback e trocaria de cor ao resolver.
+  if (!aparenciaCarregada) return <div className="px-margin-desktop py-stack-lg"><LoadingSpinner /></div>
 
   const modo = campanha.modo_identificacao || 'sistema_tela'
   const isAfterEvent = (campanha.gatilho || 'ao_abrir_tela') === 'apos_evento'
