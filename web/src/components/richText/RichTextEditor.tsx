@@ -112,7 +112,7 @@ export function RichTextEditor({ documento, texto, onChange, placeholder, compac
             title={botao.nome}
             aria-label={botao.nome}
             aria-pressed={botao.ativo}
-            className={`flex h-11 w-11 items-center justify-center rounded-full transition sm:h-10 sm:w-10 ${botao.ativo ? 'bg-[#0064e0] text-white' : 'text-[#444950]'}`}
+            className={`flex h-11 w-11 items-center justify-center rounded-md transition sm:h-10 sm:w-10 ${botao.ativo ? 'bg-[#0064e0] text-white' : 'text-[#444950]'}`}
           >
             <span className="material-symbols-outlined text-[17px]">{botao.icone}</span>
           </button>
