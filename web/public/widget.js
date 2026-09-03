@@ -2851,6 +2851,33 @@
     'organizacao_nome', 'clinica_nome',
   ];
 
+  // Igualdade ESTÁVEL (nunca por referência) dos campos de config que decidem
+  // elegibilidade/exibição de campanha — base do guard de re-init idempotente
+  // em init(). contextProvider e usuario_nome/usuario_email (só exibição)
+  // ficam de fora de propósito: mudar só o nome do usuário não muda quais
+  // campanhas são elegíveis.
+  function initContextoEfetivoIgual(a, b) {
+    if (a === b) return true;          // ambos null (ou a mesma referência)
+    if (!a || !b) return false;        // um null, o outro não
+    var ka = Object.keys(a).sort();
+    var kb = Object.keys(b).sort();
+    if (ka.length !== kb.length) return false;
+    for (var i = 0; i < ka.length; i++) {
+      if (ka[i] !== kb[i]) return false;
+      if (String(a[ka[i]]) !== String(b[ka[i]])) return false;
+    }
+    return true;
+  }
+  function initConfigEfetivaIgual(a, b) {
+    if (!a || !b) return false;
+    return a.public_key === b.public_key
+      && a.slug === b.slug
+      && a.sistema === b.sistema
+      && a.tela === b.tela
+      && a.usuario_id === b.usuario_id
+      && initContextoEfetivoIgual(a.contexto || null, b.contexto || null);
+  }
+
   function normalizeConfig(config) {
     var c = config || {};
     var contexto = {};
@@ -3254,6 +3281,32 @@
   }
 
   function init(config) {
+    // ── Re-init redundante (idempotência) ────────────────────────────────
+    // SPAs (bootstrap remontado numa troca de rota) e loaders re-injetados
+    // chamam init() de novo com a MESMA config efetiva. Sem este guard, a 2ª
+    // chamada desmontava a campanha ABERTA (state.open=false + remoção do
+    // root, sem doClose()/render()) e reagendava scheduleAutoOpen com o
+    // atraso_ms da campanha — a modal sumia e voltava ~atraso_ms depois,
+    // contando uma 2ª visualização (bug "aparece -> some -> reaparece" v3;
+    // ver server/src/widgetCampanhaModalReinitV3.test.ts).
+    //
+    // Só vira no-op quando NADA mudou E há algo a preservar (modal aberta ou
+    // auto-open pendente). Continuam seguindo o fluxo normal de
+    // reinicialização: 1ª chamada (state.config ainda null), troca real de
+    // public_key/slug/sistema/tela/usuario_id/contexto, e pendingContext
+    // acumulado (updateContext enfileirado antes do widget carregar). Não
+    // enfraquece os guards anteriores — v1 (handleUrlChange) e v2
+    // (evaluateUrlCampaigns) continuam intactos.
+    if (
+      state.config &&
+      (state.open || state.timer) &&
+      !Object.keys(pendingContext).length &&
+      initConfigEfetivaIgual(normalizeConfig(config || {}), state.config)
+    ) {
+      debugLog('init() ignorado — re-init redundante (mesma config efetiva, campanha ativa)', {});
+      return;
+    }
+
     // Trata init() como sessão/config nova, incondicionalmente — nenhuma
     // instância de destaque_elemento (root, listeners, MutationObserver/
     // ResizeObserver/PerformanceObserver, e o `config`/usuario_id fechado
