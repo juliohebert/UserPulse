@@ -1805,7 +1805,6 @@ function CardEditavel({
       texto={itemAtivo.descricao}
       onChange={(documento, texto) => onAtualizarDescricaoConteudo(indiceAtivo, documento, texto)}
       placeholder="Escreva a mensagem da campanha..."
-      compact
     />
   )
 
