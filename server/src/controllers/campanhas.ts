@@ -266,7 +266,14 @@ type RespostaFiltros = {
   nps: string
   tem_telefone: string
   busca: string
+  // Por padrão o export de "Respostas" desconsidera contas internas
+  // (contexto.usuario_tipo === 'SUPER_USUARIO') — mesma regra do dashboard
+  // (ver semSuperUsuario em dashboard.ts). true = reincluir.
+  incluir_super_usuario: boolean
 }
+
+// Mantido em sincronia com PERFIL_SUPER_USUARIO em dashboard.ts.
+const PERFIL_SUPER_USUARIO_CSV = 'SUPER_USUARIO'
 
 function parseRespostaFiltros(q: Record<string, unknown>): RespostaFiltros {
   const s = (k: string) => (typeof q[k] === 'string' ? (q[k] as string).trim() : '')
@@ -284,6 +291,7 @@ function parseRespostaFiltros(q: Record<string, unknown>): RespostaFiltros {
     nps: s('nps'),
     tem_telefone: s('tem_telefone'),
     busca: s('busca'),
+    incluir_super_usuario: q.incluir_super_usuario === 'true' || q.incluir_super_usuario === '1',
   }
 }
 
@@ -345,6 +353,9 @@ async function buscarRespostasRows(campanhaId: string, f: RespostaFiltros): Prom
     }
     if (f.perfil && prf !== f.perfil) continue
     if (f.usuario_tipo && usr_tipo !== f.usuario_tipo) continue
+    // Contas internas: excluídas por padrão. Dado antigo sem usuario_tipo
+    // (usr_tipo undefined/null) nunca casa, então continua no export.
+    if (!f.incluir_super_usuario && usr_tipo === PERFIL_SUPER_USUARIO_CSV) continue
     if (f.estado && est !== f.estado) continue
     if (f.nps) {
       // fb.nota nunca é null aqui na prática (query já filtra
@@ -411,6 +422,7 @@ async function buscarRespostasRows(campanhaId: string, f: RespostaFiltros): Prom
       }
       if (f.perfil && prf !== f.perfil) continue
       if (f.usuario_tipo && usr_tipo !== f.usuario_tipo) continue
+      if (!f.incluir_super_usuario && usr_tipo === PERFIL_SUPER_USUARIO_CSV) continue
       if (f.estado && est !== f.estado) continue
       if (f.nps) continue           // confirmações não têm nota
       if (f.tem_telefone === 'sim') continue  // confirmações não têm telefone

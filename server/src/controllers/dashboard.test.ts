@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { montarDesempenhoConteudos, montarDesempenhoDestaques, normalizarAtividadeDiaSemana, normalizarSerieImpressao, whereFeedbackNps, whereUtilidadeDestaque } from './dashboard'
+import { Prisma } from '@prisma/client'
+import { montarDesempenhoConteudos, montarDesempenhoDestaques, normalizarAtividadeDiaSemana, normalizarSerieImpressao, whereFeedbackNps, whereUtilidadeDestaque, incluirSuperUsuario, semSuperUsuario, sqlSemSuperUsuario, PERFIL_SUPER_USUARIO } from './dashboard'
 
 // buscarDashboard() em si é integration-only (várias queries Prisma
 // combinadas com Promise.all) — testado manualmente contra um servidor
@@ -377,5 +378,61 @@ describe('montarDesempenhoConteudos', () => {
     const r = montarDesempenhoConteudos(itens, totais, unicos)
     assert.equal(r[0].cliques_cta, 3)
     assert.equal(r[0].cliques_cta_unicos, 1)
+  })
+})
+
+// ─── Exclusão de SUPER_USUARIO (contas internas) ──────────────────────────
+// buscarDashboard() em si continua integration-only; aqui cobrimos as peças
+// puras: leitura do flag da query, o fragmento Prisma injetado em todo where
+// e o fragmento SQL cru. A garantia de "dado antigo sem perfil continua
+// contando" foi validada contra o Postgres local (o NOT puro de path JSON do
+// Prisma descartaria linhas sem a chave) — por isso o OR de 3 cláusulas.
+describe('incluirSuperUsuario — leitura do flag da query', () => {
+  test("'true' e '1' ligam; ausência/qualquer outra coisa mantém o padrão (excluir)", () => {
+    assert.equal(incluirSuperUsuario({ incluir_super_usuario: 'true' }), true)
+    assert.equal(incluirSuperUsuario({ incluir_super_usuario: '1' }), true)
+    assert.equal(incluirSuperUsuario({}), false)
+    assert.equal(incluirSuperUsuario({ incluir_super_usuario: 'false' }), false)
+    assert.equal(incluirSuperUsuario({ incluir_super_usuario: 'sim' }), false)
+  })
+})
+
+describe('semSuperUsuario — fragmento aplicado a todo where do dashboard', () => {
+  test('incluir=true devolve o where INTACTO (mesma referência)', () => {
+    const w = { campanha_id: 'c1', tipo_evento: 'visualizacao' }
+    assert.equal(semSuperUsuario(w, true), w)
+  })
+
+  test('incluir=false embrulha em AND [where original, OR de 3 cláusulas]', () => {
+    const w = { campanha_id: 'c1' }
+    const out = semSuperUsuario(w, false) as { AND: unknown[] }
+    assert.equal(Array.isArray(out.AND), true)
+    assert.equal(out.AND.length, 2)
+    assert.deepEqual(out.AND[0], w) // where original preservado
+    const cond = out.AND[1] as { OR: unknown[] }
+    assert.equal(cond.OR.length, 3)
+    // 1) contexto nulo   2) usuario_tipo nulo/ausente   3) usuario_tipo != SUPER_USUARIO
+    assert.deepEqual(cond.OR[0], { contexto: { equals: Prisma.DbNull } })
+    assert.deepEqual(cond.OR[1], { contexto: { path: ['usuario_tipo'], equals: Prisma.AnyNull } })
+    assert.deepEqual(cond.OR[2], { NOT: { contexto: { path: ['usuario_tipo'], equals: PERFIL_SUPER_USUARIO } } })
+  })
+
+  test('não colide com um OR já existente no where (fica em AND[0], intacto)', () => {
+    const w = { campanha_id: 'c1', OR: [{ usuario_id: 'x' }] }
+    const out = semSuperUsuario(w, false) as { AND: unknown[] }
+    assert.deepEqual(out.AND[0], w)
+  })
+})
+
+describe('sqlSemSuperUsuario — fragmento pros $queryRaw', () => {
+  test('incluir=true -> Prisma.empty (nenhuma cláusula extra)', () => {
+    assert.equal(sqlSemSuperUsuario(true), Prisma.empty)
+  })
+
+  test('incluir=false -> Sql não-vazio com IS DISTINCT FROM e o valor SUPER_USUARIO', () => {
+    const frag = sqlSemSuperUsuario(false)
+    assert.notEqual(frag, Prisma.empty)
+    assert.match(frag.sql, /IS DISTINCT FROM/i)
+    assert.deepEqual(frag.values, [PERFIL_SUPER_USUARIO])
   })
 })

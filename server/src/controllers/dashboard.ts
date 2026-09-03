@@ -206,6 +206,60 @@ export function whereUtilidadeDestaque(campanhaId: string): { campanha_id: strin
   return { campanha_id: campanhaId, tipo_avaliacao: 'utilidade_destaque' }
 }
 
+// ─── Exclusão de usuários internos (SUPER_USUARIO) ─────────────────────────
+// O sistema hospedeiro (Quark) marca contas internas/administrativas com
+// contexto.usuario_tipo === 'SUPER_USUARIO' no init() do widget — esse valor
+// vai parar no JSON `contexto` de EventoCampanha/Feedback/ConfirmacaoLeitura.
+// Por PADRÃO o dashboard inteiro (KPIs, gráficos, listas, totais derivados)
+// desconsidera essas contas; ?incluir_super_usuario=true reinclui.
+export const PERFIL_SUPER_USUARIO = 'SUPER_USUARIO'
+// Nome da chave dentro de `contexto` (mesma usada pela coluna "Usuário Tipo"
+// e pelo filtro "Perfil" do dashboard — ver CampanhaDashboard.tsx).
+const CHAVE_PERFIL_CONTEXTO = 'usuario_tipo'
+
+export function incluirSuperUsuario(query: Request['query']): boolean {
+  return query.incluir_super_usuario === 'true' || query.incluir_super_usuario === '1'
+}
+
+// Envolve QUALQUER where de Feedback/EventoCampanha/ConfirmacaoLeitura do
+// dashboard, adicionando (via AND, pra nunca colidir com um OR/AND já
+// existente no where) a condição que exclui as contas internas. Quando
+// `incluir` é true devolve o where intacto.
+//
+// As três cláusulas do OR são necessárias e foram verificadas contra o
+// Postgres local: o `NOT { path, equals }` puro do Prisma descarta linhas
+// cujo `contexto` é nulo OU não tem a chave `usuario_tipo` (semântica de
+// NULL do SQL) — o que apagaria dados antigos sem perfil das métricas. As
+// duas primeiras cláusulas reincluem exatamente esses casos, de forma que
+// só some a linha cujo usuario_tipo é EXATAMENTE 'SUPER_USUARIO'.
+export function semSuperUsuario<W extends object>(where: W, incluir: boolean): W {
+  if (incluir) return where
+  return {
+    AND: [
+      where,
+      {
+        OR: [
+          { contexto: { equals: Prisma.DbNull } },
+          { contexto: { path: [CHAVE_PERFIL_CONTEXTO], equals: Prisma.AnyNull } },
+          { NOT: { contexto: { path: [CHAVE_PERFIL_CONTEXTO], equals: PERFIL_SUPER_USUARIO } } },
+        ],
+      },
+    ],
+  } as unknown as W
+}
+
+// Fragmento equivalente para as queries em SQL cru ($queryRaw sobre
+// eventos_campanha). `IS DISTINCT FROM` é null-safe: quando o extract é NULL
+// (contexto nulo, sem a chave, ou JSON null) o resultado é TRUE, então a
+// linha continua contando — mesma regra do semSuperUsuario acima.
+export function sqlSemSuperUsuario(incluir: boolean): Prisma.Sql {
+  // `usuario_tipo` é constante de código (nunca entrada do usuário) — literal
+  // direto no SQL; só o valor comparado vira parâmetro.
+  return incluir
+    ? Prisma.empty
+    : Prisma.sql`AND (contexto->>'usuario_tipo' IS DISTINCT FROM ${PERFIL_SUPER_USUARIO})`
+}
+
 export interface SerieImpressao {
   data: string
   visualizacoes: number
@@ -357,22 +411,28 @@ export async function buscarDashboard(req: Request, res: Response) {
     // entram no Promise.all quando o formato não é esse.
     const ehDestaqueElemento = campanha.modo_exibicao === FORMATO_DESTAQUE_ELEMENTO
     const range = intervalo(req.query)
+    // Padrão do dashboard: desconsiderar contas internas (SUPER_USUARIO).
+    // Resolvido UMA vez aqui e aplicado a todas as queries abaixo, pra
+    // numerador e denominador nunca usarem universos diferentes.
+    const incluirSuper = incluirSuperUsuario(req.query)
+    const sqlSemSuper = sqlSemSuperUsuario(incluirSuper)
     // Filtros da tabela nunca podem alterar os KPIs, distribuição ou NPS.
     // Mantemos dois universos: período para o resumo e filtros para a lista.
-    const feedbackPeriodoWhere: Prisma.FeedbackWhereInput = { ...whereFeedbackNps(id), criado_em: range }
-    const feedbackWhere = filtrosFeedback(req.query, id)
-    const eventosWhere = filtrosEventos(req.query, id)
+    const feedbackPeriodoWhere: Prisma.FeedbackWhereInput = semSuperUsuario({ ...whereFeedbackNps(id), criado_em: range }, incluirSuper)
+    const feedbackWhere = semSuperUsuario(filtrosFeedback(req.query, id), incluirSuper)
+    const eventosWhere = semSuperUsuario(filtrosEventos(req.query, id), incluirSuper)
     const respPag = pagina({ page: req.query.res_page, per_page: req.query.res_per_page }, 10)
     const interPag = pagina({ page: req.query.event_page, per_page: req.query.event_per_page }, 10)
     const avalPag = pagina({ page: req.query.avaliacao_page, per_page: req.query.avaliacao_per_page }, 10)
-    const eventosPeriodoWhere = { campanha_id: id, criado_em: range }
-    const avaliacaoWhere: Prisma.FeedbackWhereInput = { ...whereUtilidadeDestaque(id), criado_em: range }
-    if (typeof req.query.avaliacao_destaque_id === 'string' && req.query.avaliacao_destaque_id) avaliacaoWhere.destaque_item_id = req.query.avaliacao_destaque_id
-    if (req.query.avaliacao_util === 'sim') avaliacaoWhere.util = true
-    if (req.query.avaliacao_util === 'nao') avaliacaoWhere.util = false
+    const eventosPeriodoWhere = semSuperUsuario({ campanha_id: id, criado_em: range }, incluirSuper)
+    const utilidadePeriodoWhere = semSuperUsuario({ ...whereUtilidadeDestaque(id), criado_em: range }, incluirSuper)
+    const avaliacaoWhereBase: Prisma.FeedbackWhereInput = { ...whereUtilidadeDestaque(id), criado_em: range }
+    if (typeof req.query.avaliacao_destaque_id === 'string' && req.query.avaliacao_destaque_id) avaliacaoWhereBase.destaque_item_id = req.query.avaliacao_destaque_id
+    if (req.query.avaliacao_util === 'sim') avaliacaoWhereBase.util = true
+    if (req.query.avaliacao_util === 'nao') avaliacaoWhereBase.util = false
     if (typeof req.query.busca_avaliacao === 'string' && req.query.busca_avaliacao.trim()) {
       const termo = req.query.busca_avaliacao.trim()
-      avaliacaoWhere.OR = [
+      avaliacaoWhereBase.OR = [
         { usuario_id: { contains: termo, mode: 'insensitive' } },
         { usuario_nome: { contains: termo, mode: 'insensitive' } },
         { usuario_email: { contains: termo, mode: 'insensitive' } },
@@ -381,6 +441,7 @@ export async function buscarDashboard(req: Request, res: Response) {
         { contexto: { path: ['usuario_email'], string_contains: termo } },
       ]
     }
+    const avaliacaoWhere = semSuperUsuario(avaliacaoWhereBase, incluirSuper)
 
     const [
       agregado, porNota, feedbacks_recentes, feedbacks_total,
@@ -419,7 +480,7 @@ export async function buscarDashboard(req: Request, res: Response) {
 
       prisma.eventoCampanha.count({ where: { ...eventosPeriodoWhere, tipo_evento: 'visualizacao' } }),
       prisma.eventoCampanha.count({ where: { ...eventosPeriodoWhere, tipo_evento: 'clique_cta' } }),
-      prisma.confirmacaoLeitura.count({ where: { campanha_id: id, criado_em: range } }),
+      prisma.confirmacaoLeitura.count({ where: semSuperUsuario({ campanha_id: id, criado_em: range }, incluirSuper) }),
 
       prisma.eventoCampanha.findMany({
         where: eventosWhere,
@@ -477,7 +538,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento
         ? prisma.feedback.groupBy({
             by: ['destaque_item_id', 'util'],
-            where: { ...whereUtilidadeDestaque(id), criado_em: range },
+            where: utilidadePeriodoWhere,
             _count: { id: true },
           })
         : Promise.resolve([]),
@@ -501,6 +562,7 @@ export async function buscarDashboard(req: Request, res: Response) {
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
           ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
           ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
+          ${sqlSemSuper}
         GROUP BY DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo')
         ORDER BY data ASC
       `,
@@ -510,6 +572,7 @@ export async function buscarDashboard(req: Request, res: Response) {
         WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
           ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
           ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
+          ${sqlSemSuper}
         GROUP BY EXTRACT(DOW FROM criado_em AT TIME ZONE 'America/Sao_Paulo')
         ORDER BY dia ASC
       `,
@@ -521,7 +584,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       ehDestaqueElemento
         ? prisma.feedback.groupBy({
             by: ['util'],
-            where: { ...whereUtilidadeDestaque(id), criado_em: range },
+            where: utilidadePeriodoWhere,
             _count: { id: true },
           })
         : Promise.resolve([]),
@@ -615,17 +678,18 @@ export async function buscarDashboard(req: Request, res: Response) {
     let serie_impressao_anterior: Array<{ data: string; visualizacoes: number }> = []
     if (rangeAnterior) {
       const [visualizacoesAnterior, cliquesAnterior, respostasAnteriores, notasAnteriores, mediaAnterior, serieAnterior] = await Promise.all([
-        prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'visualizacao', criado_em: rangeAnterior } }),
-        prisma.eventoCampanha.count({ where: { campanha_id: id, tipo_evento: 'clique_cta', criado_em: rangeAnterior } }),
-        prisma.feedback.count({ where: { ...whereFeedbackNps(id), criado_em: rangeAnterior } }),
-        prisma.feedback.groupBy({ by: ['nota'], where: { ...whereFeedbackNps(id), criado_em: rangeAnterior }, _count: { nota: true } }),
-        prisma.feedback.aggregate({ where: { ...whereFeedbackNps(id), criado_em: rangeAnterior }, _avg: { nota: true } }),
+        prisma.eventoCampanha.count({ where: semSuperUsuario({ campanha_id: id, tipo_evento: 'visualizacao', criado_em: rangeAnterior }, incluirSuper) }),
+        prisma.eventoCampanha.count({ where: semSuperUsuario({ campanha_id: id, tipo_evento: 'clique_cta', criado_em: rangeAnterior }, incluirSuper) }),
+        prisma.feedback.count({ where: semSuperUsuario({ ...whereFeedbackNps(id), criado_em: rangeAnterior }, incluirSuper) }),
+        prisma.feedback.groupBy({ by: ['nota'], where: semSuperUsuario({ ...whereFeedbackNps(id), criado_em: rangeAnterior }, incluirSuper), _count: { nota: true } }),
+        prisma.feedback.aggregate({ where: semSuperUsuario({ ...whereFeedbackNps(id), criado_em: rangeAnterior }, incluirSuper), _avg: { nota: true } }),
         prisma.$queryRaw<Array<{ data: string; visualizacoes: bigint }>>`
           SELECT TO_CHAR(DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM-DD') AS data,
                  COUNT(*)::bigint AS visualizacoes
           FROM eventos_campanha
           WHERE campanha_id = ${id} AND tipo_evento = 'visualizacao'
             AND criado_em >= ${rangeAnterior.gte} AND criado_em <= ${rangeAnterior.lte}
+            ${sqlSemSuper}
           GROUP BY DATE_TRUNC('day', criado_em AT TIME ZONE 'America/Sao_Paulo')
           ORDER BY data ASC
         `,
