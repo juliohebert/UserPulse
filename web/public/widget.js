@@ -124,6 +124,145 @@
     }
   }
 
+  // ─── FlickerDebug (INSTRUMENTAÇÃO TEMPORÁRIA) ──────────────────────────────
+  // Objetivo: capturar evidência definitiva do bug OPEN -> CLOSE -> OPEN em
+  // ambiente real. NÃO altera comportamento funcional — só observa (ring
+  // buffer em memória + console.log opcional). Remover depois de coletar os
+  // logs. Ativa por ?userpulse_flicker=1 na URL do host ou
+  // window.UserPulse.debugFlicker(true). Snapshot: window.UserPulse.debugFlickerState().
+  var FLICKER_PREFIX = '[UserPulse:FlickerDebug]';
+  var flickerState = {
+    enabled: false,
+    buffer: [],            // ring buffer, máx 100
+    lastInit: null,
+    lastUpdateContext: null,
+    lastHandleUrlChange: null,
+  };
+  try {
+    flickerState.enabled = /(?:^|[?&])userpulse_flicker=1(?:&|$)/.test(window.location.search);
+  } catch (_e) { /* ambiente não-browser */ }
+
+  function flickerNow() {
+    try {
+      if (typeof performance !== 'undefined' && performance && performance.now) return Math.round(performance.now());
+    } catch (_e) { /* sem performance */ }
+    return Date.now();
+  }
+
+  // Stack/caller simplificado — só computado no modo debug temporário
+  // (new Error().stack). Fora dele, string leve indicando como ligar.
+  function flickerCaller() {
+    if (!flickerState.enabled) return '(ligue UserPulse.debugFlicker(true) para o stack)';
+    try {
+      var linhas = String(new Error().stack || '').split('\n');
+      // pula "Error" + o próprio flickerCaller + o flickerLog que o chamou
+      return linhas.slice(3, 8)
+        .map(function (l) { return l.trim().replace(/^at\s+/, ''); })
+        .filter(Boolean)
+        .join(' <- ');
+    } catch (_e) { return '(stack indisponível)'; }
+  }
+
+  function flickerUrl() {
+    try { return window.location.href; } catch (_e) { return null; }
+  }
+
+  // Campos comuns a TODO evento do lifecycle.
+  function flickerBase() {
+    var cfg = state.config || {};
+    return {
+      ts: (new Date()).toISOString(),
+      t_ms: flickerNow(),
+      campanha_id: state.campanha ? state.campanha.id : null,
+      open: state.open,
+      timer: state.timer,                 // id do setTimeout de auto-open (ou null)
+      destaqueTimer: state.destaqueTimer,
+      closeTimer: state.closeTimer,
+      urlChangeTimer: urlChangeTimer,
+      visualizacaoRegistrada: state.visualizacaoRegistrada,
+      usuario_id: cfg.usuario_id || null,
+      sistema: cfg.sistema || null,
+      tela: cfg.tela || null,
+      url: flickerUrl(),
+    };
+  }
+
+  function flickerLog(evento, extra) {
+    try {
+      var rec = flickerBase();
+      rec.evento = evento;
+      if (extra) {
+        for (var k in extra) {
+          if (Object.prototype.hasOwnProperty.call(extra, k)) rec[k] = extra[k];
+        }
+      }
+      flickerState.buffer.push(rec);
+      if (flickerState.buffer.length > 100) flickerState.buffer.shift();
+      if (flickerState.enabled) {
+        try { console.log(FLICKER_PREFIX + ' ' + evento, rec); } catch (_e) {}
+      }
+      return rec;
+    } catch (_e) { return null; /* instrumentação nunca pode quebrar o runtime */ }
+  }
+
+  // Motivo textual de o guard v3 de init() NÃO ter retornado cedo.
+  function flickerInitGuardMotivo(rawConfig) {
+    try {
+      if (!state.config) return 'state.config null (1a chamada de init)';
+      if (!(state.open || state.timer)) return 'sem campanha ativa (open=false e timer=null)';
+      if (Object.keys(pendingContext).length) return 'pendingContext acumulado: ' + Object.keys(pendingContext).join(',');
+      var nova = normalizeConfig(rawConfig || {});
+      var atual = state.config;
+      var campos = ['public_key', 'slug', 'sistema', 'tela', 'usuario_id'];
+      for (var i = 0; i < campos.length; i++) {
+        if (nova[campos[i]] !== atual[campos[i]]) {
+          return 'config efetiva diferente em "' + campos[i] + '": ' + JSON.stringify(atual[campos[i]]) + ' -> ' + JSON.stringify(nova[campos[i]]);
+        }
+      }
+      return 'contexto efetivo diferente';
+    } catch (_e) { return '(motivo indisponível)'; }
+  }
+
+  function flickerAtivar(ativar) {
+    flickerState.enabled = ativar !== false;
+    try { console.log(FLICKER_PREFIX + ' ' + (flickerState.enabled ? 'ATIVADO' : 'desativado')); } catch (_e) {}
+    return flickerState.enabled;
+  }
+
+  // window.UserPulse.debugFlickerState() — snapshot pontual, sempre retorna
+  // (independe de enabled). Só leitura.
+  function flickerSnapshot() {
+    var cfg = state.config;
+    var snap = {
+      prefixo: FLICKER_PREFIX,
+      ativo: flickerState.enabled,
+      config: debugSanitizar(cfg),
+      campanha: state.campanha
+        ? { id: state.campanha.id, slug: state.campanha.slug || null, modo_exibicao: state.campanha.modo_exibicao || null, modo_identificacao: state.campanha.modo_identificacao || null, atraso_ms: state.campanha.atraso_ms, politica_reexibicao: state.campanha.politica_reexibicao || null }
+        : null,
+      state_open: state.open,
+      visualizacaoRegistrada: state.visualizacaoRegistrada,
+      timers_ativos: {
+        auto_open: state.timer,
+        destaque: state.destaqueTimer,
+        close: state.closeTimer,
+        url_change_debounce: urlChangeTimer,
+      },
+      evaluateCampaignsToken: (typeof evaluateCampaignsToken !== 'undefined') ? evaluateCampaignsToken : null,
+      url: flickerUrl(),
+      ultimo_init: flickerState.lastInit,
+      ultimo_updateContext: flickerState.lastUpdateContext,
+      ultimo_handleUrlChange: flickerState.lastHandleUrlChange,
+      total_eventos_em_memoria: flickerState.buffer.length,
+      ultimos_30_eventos: flickerState.buffer.slice(-30),
+    };
+    try {
+      console.log(FLICKER_PREFIX + ' snapshot', snap);
+    } catch (_e) {}
+    return snap;
+  }
+  // ─── fim FlickerDebug ─────────────────────────────────────────────────────
+
   function escapeHtml(value) {
     return String(value == null ? '' : value)
       .replace(/&/g, '&amp;')
@@ -158,6 +297,9 @@
       var campanha = campanhaParam || state.campanha;
       var config = configParam || state.config;
       if (!campanha || !config) return;
+      if (tipoEvento === 'visualizacao') {
+        flickerLog('registrarEvento:visualizacao', { campanha_id: campanha.id, usuario_id: config.usuario_id || null, caller: flickerCaller() });
+      }
       var conteudoItemId = opcoes && opcoes.conteudo_item_id ? opcoes.conteudo_item_id : undefined;
       fetch(apiUrl('/api/widget/evento'), {
         method: 'POST',
@@ -1441,6 +1583,13 @@
   }
 
   function scheduleAutoOpen(campanha, config) {
+    flickerLog('scheduleAutoOpen:enter', {
+      campanha_id: campanha && campanha.id,
+      modo_exibicao: campanha && (campanha.modo_exibicao || 'modal_automatica'),
+      atraso_ms_campanha: campanha && campanha.atraso_ms,
+      timer_anterior: state.timer,          // se != null, o timer antigo será ÓRFÃO (não há clearTimeout aqui)
+      caller: flickerCaller(),
+    });
     // "Destaque em elemento" nunca abre como modal — é um badge/beacon
     // ancorado num elemento da página. Delega pro fluxo próprio; os 4 pontos
     // de seleção de campanha (slug, candidatas ao_abrir_tela, track x2) já
@@ -1448,15 +1597,30 @@
     // ramificar aqui evita duplicar a lógica de agendamento/atraso em cada
     // um deles.
     if ((campanha.modo_exibicao || 'modal_automatica') === FORMATO_DESTAQUE_ELEMENTO) {
+      flickerLog('scheduleAutoOpen:delega-destaque', { campanha_id: campanha.id });
       agendarDestaqueElemento(campanha, config);
       return;
     }
-    if (!shouldAutoOpen(campanha) || wasShown(campanha, config)) return;
+    if (!shouldAutoOpen(campanha) || wasShown(campanha, config)) {
+      flickerLog('scheduleAutoOpen:abort', {
+        campanha_id: campanha.id,
+        motivo: !shouldAutoOpen(campanha) ? 'shouldAutoOpen=false (modo/gatilho)' : 'wasShown=true',
+      });
+      return;
+    }
     var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
+    if (state.timer) flickerLog('scheduleAutoOpen:timer-anterior-orfao', { timer_id_orfao: state.timer, campanha_id: campanha.id });
     state.timer = window.setTimeout(function () {
+      flickerLog('scheduleAutoOpen:timer-disparou', {
+        campanha_id: campanha.id,
+        tour_ativo: tourState.ativo,
+        open_antes: state.open,
+        visualizacaoRegistrada_antes: state.visualizacaoRegistrada,
+      });
       // Um tour (retomado após reload/navegação ou automático) já pode ter
       // ocupado a tela nesse meio-tempo — não compete por cima dele.
-      if (tourState.ativo) return;
+      if (tourState.ativo) { flickerLog('scheduleAutoOpen:timer-abort-tour-ativo', { campanha_id: campanha.id }); return; }
+      flickerLog('state.open=true', { origem: 'scheduleAutoOpen:timer', campanha_id: campanha.id });
       state.open = true;
       markShown(campanha, config);
       if (!state.visualizacaoRegistrada) {
@@ -1465,6 +1629,7 @@
       }
       render();
     }, delay);
+    flickerLog('scheduleAutoOpen:timer-criado', { timer_id: state.timer, atraso_ms: delay, campanha_id: campanha.id });
   }
 
   // ─── Destaque em elemento (Fase 1 de adoção de funcionalidades) ───────────
@@ -2613,11 +2778,17 @@
   var AUTO_CLOSE_MS = 2500;
 
   function doClose() {
+    flickerLog('doClose:enter', {
+      open: state.open,
+      campanha_id: state.campanha && state.campanha.id,
+      caller: flickerCaller(),
+    });
     if (state.closeTimer) {
       window.clearTimeout(state.closeTimer);
       state.closeTimer = null;
     }
-    if (!state.open) return;
+    if (!state.open) { flickerLog('doClose:noop-ja-fechado', {}); return; }
+    flickerLog('state.open=false', { origem: 'doClose', campanha_id: state.campanha && state.campanha.id, caller: flickerCaller() });
     state.open = false;
     state.submitted = false;
     state.nota = null;
@@ -2834,6 +3005,11 @@
 
   function resetRoot() {
     var oldRoot = document.getElementById(WIDGET_ID);
+    flickerLog('resetRoot', {
+      root_encontrado: !!oldRoot,
+      open_no_momento: state.open,
+      caller: flickerCaller(),
+    });
     if (oldRoot) oldRoot.remove();
 
     state.root = document.createElement('div');
@@ -3281,6 +3457,11 @@
   }
 
   function init(config) {
+    flickerState.lastInit = flickerLog('init:enter', {
+      config_recebida: debugSanitizar(config || {}),
+      state_config_existe: !!state.config,
+      caller: flickerCaller(),
+    });
     // ── Re-init redundante (idempotência) ────────────────────────────────
     // SPAs (bootstrap remontado numa troca de rota) e loaders re-injetados
     // chamam init() de novo com a MESMA config efetiva. Sem este guard, a 2ª
@@ -3297,12 +3478,19 @@
     // acumulado (updateContext enfileirado antes do widget carregar). Não
     // enfraquece os guards anteriores — v1 (handleUrlChange) e v2
     // (evaluateUrlCampaigns) continuam intactos.
-    if (
+    var _fdGuardV3 =
       state.config &&
       (state.open || state.timer) &&
       !Object.keys(pendingContext).length &&
-      initConfigEfetivaIgual(normalizeConfig(config || {}), state.config)
-    ) {
+      initConfigEfetivaIgual(normalizeConfig(config || {}), state.config);
+    flickerLog('init:guard-v3', {
+      retornou_cedo: !!_fdGuardV3,
+      state_open: state.open,
+      state_timer: state.timer,
+      pendingContext_keys: Object.keys(pendingContext),
+      motivo_nao_retornar: _fdGuardV3 ? null : flickerInitGuardMotivo(config),
+    });
+    if (_fdGuardV3) {
       debugLog('init() ignorado — re-init redundante (mesma config efetiva, campanha ativa)', {});
       return;
     }
@@ -3337,6 +3525,7 @@
       pendingContext = {};
     }
     state.config = normalized;
+    flickerLog('init:config-normalizada', { normalized: debugSanitizar(normalized) });
     debugLog('Widget carregado / init()', {
       config: debugSanitizar(normalized),
       url: debugStatusUrl(),
@@ -3352,6 +3541,7 @@
     iniciarGravadorSeNecessario();
     iniciarPreviewSeNecessario();
     state.campanha = null;
+    if (state.open) flickerLog('state.open=false', { origem: 'init:reset-state', caller: flickerCaller() });
     state.open = false;
     state.nota = null;
     state.observacao = '';
@@ -3360,6 +3550,7 @@
     state.submitting = false;
     state.submitted = false;
     state.error = '';
+    flickerLog('init:visualizacaoRegistrada=false', { origem: 'init:reset-state' });
     state.visualizacaoRegistrada = false;
     state.feedbackId = null;
     state.telefone = '';
@@ -3367,6 +3558,7 @@
     state.phoneDone = false;
     state.phoneError = '';
     if (state.timer) {
+      flickerLog('init:clearTimeout(state.timer)', { timer_id: state.timer });
       window.clearTimeout(state.timer);
       state.timer = null;
     }
@@ -3380,9 +3572,10 @@
     }
 
     var oldRoot = document.getElementById(WIDGET_ID);
+    flickerLog('init:antes-oldRoot.remove', { root_encontrado: !!oldRoot, open: state.open, caller: flickerCaller() });
     if (oldRoot) oldRoot.remove();
 
-    if (!normalized.slug && !normalized.sistema) return;
+    if (!normalized.slug && !normalized.sistema) { flickerLog('init:abort-sem-slug-nem-sistema', {}); return; }
 
     // Cancel any pending URL-change evaluation and capture the current URL
     // so the next real navigation triggers handleUrlChange correctly.
@@ -3638,12 +3831,15 @@
 
   function evaluateUrlCampaigns() {
     var config = state.config;
-    if (!config || !config.sistema) return;
-    if (state.open) return;
+    flickerLog('evaluateUrlCampaigns:enter', { open: state.open, timer: state.timer, caller: flickerCaller() });
+    if (!config || !config.sistema) { flickerLog('evaluateUrlCampaigns:abort-sync', { motivo: 'sem config/sistema' }); return; }
+    if (state.open) { flickerLog('evaluateUrlCampaigns:abort-sync', { motivo: 'state.open=true (guard síncrono)' }); return; }
 
     var contextoUrl = resolveContexto();
+    flickerLog('evaluateUrlCampaigns:fetch-inicio', {});
     fetchCandidatas(config.sistema, '', 'ao_abrir_tela', null, config.usuario_id, contextoUrl)
       .then(function (candidatos) {
+        flickerLog('evaluateUrlCampaigns:fetch-resolvido', { n_candidatos: candidatos && candidatos.length, open: state.open, timer: state.timer });
         // Re-checa state.open DEPOIS do fetch resolver (mesma proteção que
         // evaluateCampaigns já tem, ver logo abaixo). Sem isso, uma
         // reavaliação de rotina disparada por handleUrlChange enquanto o modal
@@ -3654,7 +3850,7 @@
         // doClose do fix anterior não cobria). Também é o que impede a
         // proteção equivalente de evaluateCampaigns de ser derrotada por esta
         // função rodar primeiro e zerar state.open.
-        if (state.open) return;
+        if (state.open) { flickerLog('evaluateUrlCampaigns:guard-v2-aplicado', { motivo: 'state.open=true pós-fetch — NÃO mexe no modal' }); return; }
         var linhasDebug = [];
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
@@ -3676,9 +3872,11 @@
           if (!okModo) continue;
           if (jaVisto) continue;
 
-          if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
+          flickerLog('evaluateUrlCampaigns:candidata-selecionada', { campanha_id: c.id, tinha_timer: state.timer, open_no_momento: state.open });
+          if (state.timer) { flickerLog('evaluateUrlCampaigns:clearTimeout(state.timer)', { timer_id: state.timer }); window.clearTimeout(state.timer); state.timer = null; }
 
           state.campanha = c;
+          flickerLog('state.open=false', { origem: 'evaluateUrlCampaigns:selecao', campanha_id: c.id, caller: flickerCaller() });
           state.open = false;
           state.nota = null;
           state.observacao = '';
@@ -3687,6 +3885,7 @@
           state.submitting = false;
           state.submitted = false;
           state.error = '';
+          flickerLog('evaluateUrlCampaigns:visualizacaoRegistrada=false', { campanha_id: c.id });
           state.visualizacaoRegistrada = false;
           state.feedbackId = null;
           state.telefone = '';
@@ -3695,7 +3894,9 @@
           state.phoneError = '';
 
           ensureStyles();
+          flickerLog('evaluateUrlCampaigns:chama-resetRoot', { campanha_id: c.id });
           resetRoot();
+          flickerLog('evaluateUrlCampaigns:chama-scheduleAutoOpen', { campanha_id: c.id });
           scheduleAutoOpen(c, config);
           break;
         }
@@ -3735,17 +3936,20 @@
   // Usado por updateContext e pode ser chamado quando o contexto muda sem reload.
   function evaluateCampaigns() {
     var config = state.config;
-    if (!config || !config.sistema) return;
-    if (state.open) return;
+    flickerLog('evaluateCampaigns:enter', { open: state.open, timer: state.timer, token_atual: evaluateCampaignsToken, caller: flickerCaller() });
+    if (!config || !config.sistema) { flickerLog('evaluateCampaigns:abort-sync', { motivo: 'sem config/sistema' }); return; }
+    if (state.open) { flickerLog('evaluateCampaigns:abort-sync', { motivo: 'state.open=true (guard síncrono)' }); return; }
     var contexto = resolveContexto();
     var meuToken = ++evaluateCampaignsToken;
+    flickerLog('evaluateCampaigns:token', { meuToken: meuToken });
     fetchCandidatas(config.sistema, config.tela, 'ao_abrir_tela', null, config.usuario_id, contexto)
       .then(function (candidatos) {
+        flickerLog('evaluateCampaigns:fetch-resolvido', { meuToken: meuToken, token_atual: evaluateCampaignsToken, n_candidatos: candidatos && candidatos.length, open: state.open, timer: state.timer });
         // Resposta atrasada de uma avaliação já superada por outra mais
         // recente (novo updateContext() ou init()) — nunca pode agir sobre
         // um contexto que não existe mais. Ver evaluateCampaignsToken.
-        if (meuToken !== evaluateCampaignsToken) return;
-        if (state.open) return;
+        if (meuToken !== evaluateCampaignsToken) { flickerLog('evaluateCampaigns:abort-token-obsoleto', { meuToken: meuToken, token_atual: evaluateCampaignsToken }); return; }
+        if (state.open) { flickerLog('evaluateCampaigns:guard-open-pos-fetch', { motivo: 'state.open=true' }); return; }
         var linhasDebug = [];
         // null quando nenhuma candidata destaque_elemento passa nos filtros
         // desta rodada — destaqueElementoSincronizarSelecao (chamado sempre,
@@ -3767,8 +3971,10 @@
           }
           if (!okModo) continue;
           if (jaVisto) continue;
-          if (state.timer) { window.clearTimeout(state.timer); state.timer = null; }
+          flickerLog('evaluateCampaigns:candidata-selecionada', { campanha_id: c.id, modo_exibicao: c.modo_exibicao || 'modal_automatica', tinha_timer: state.timer, open_no_momento: state.open });
+          if (state.timer) { flickerLog('evaluateCampaigns:clearTimeout(state.timer)', { timer_id: state.timer }); window.clearTimeout(state.timer); state.timer = null; }
           state.campanha = c;
+          flickerLog('state.open=false', { origem: 'evaluateCampaigns:selecao', campanha_id: c.id, caller: flickerCaller() });
           state.open = false;
           state.nota = null;
           state.observacao = '';
@@ -3777,6 +3983,7 @@
           state.submitting = false;
           state.submitted = false;
           state.error = '';
+          flickerLog('evaluateCampaigns:visualizacaoRegistrada=false', { campanha_id: c.id });
           state.visualizacaoRegistrada = false;
           state.feedbackId = null;
           state.telefone = '';
@@ -3784,6 +3991,7 @@
           state.phoneDone = false;
           state.phoneError = '';
           ensureStyles();
+          flickerLog('evaluateCampaigns:chama-resetRoot', { campanha_id: c.id });
           resetRoot();
           // destaque_elemento nunca passa por scheduleAutoOpen aqui — vai
           // por destaqueElementoSincronizarSelecao (abaixo, fora do loop),
@@ -3792,6 +4000,7 @@
           if ((c.modo_exibicao || 'modal_automatica') === FORMATO_DESTAQUE_ELEMENTO) {
             destaqueSelecionado = c;
           } else {
+            flickerLog('evaluateCampaigns:chama-scheduleAutoOpen', { campanha_id: c.id });
             scheduleAutoOpen(c, config);
           }
           break;
@@ -3812,12 +4021,20 @@
   //   UserPulse.init({ ..., contextProvider: function() { return { cliente_id: getCurrentClient() } } })
   // A segmentação por cliente/unidade depende do contexto atualizado pelo sistema integrado.
   function updateContext(novoContexto) {
-    if (!novoContexto || typeof novoContexto !== 'object') return;
+    flickerState.lastUpdateContext = flickerLog('updateContext:enter', {
+      payload: debugSanitizar(novoContexto),
+      tem_config: !!state.config,
+      caller: flickerCaller(),
+    });
+    if (!novoContexto || typeof novoContexto !== 'object') { flickerLog('updateContext:abort-payload-invalido', {}); return; }
     if (!state.config) {
       pendingContext = Object.assign({}, pendingContext, novoContexto);
+      flickerLog('updateContext:enfileirado-pendingContext', { pendingContext_keys: Object.keys(pendingContext) });
       return;
     }
     state.config.contexto = Object.assign({}, state.config.contexto || {}, novoContexto);
+    flickerLog('updateContext:config-resultante', { contexto: debugSanitizar(state.config.contexto) });
+    flickerLog('updateContext:chama-evaluateCampaigns', {});
     evaluateCampaigns();
     // updateContext() é o jeito "leve" de atualizar contexto sem chamar
     // init() de novo (ex.: usuario_id só ficou disponível depois do mount
@@ -3850,12 +4067,22 @@
 
   function handleUrlChange(forcarReavaliacao) {
     var currentUrl = window.location.href;
-    if (currentUrl === lastUrl && !forcarReavaliacao) return;
+    flickerState.lastHandleUrlChange = flickerLog('handleUrlChange:enter', {
+      url_anterior: lastUrl,
+      url_atual: currentUrl,
+      mudou: currentUrl !== lastUrl,
+      forcar_reavaliacao: !!forcarReavaliacao,
+      caller: flickerCaller(),
+    });
+    if (currentUrl === lastUrl && !forcarReavaliacao) { flickerLog('handleUrlChange:early-return', { motivo: 'mesma URL e sem forçar' }); return; }
     var urlAnterior = lastUrl;
     lastUrl = currentUrl;
     if (urlChangeTimer) { window.clearTimeout(urlChangeTimer); urlChangeTimer = null; }
     urlChangeTimer = window.setTimeout(function () {
       urlChangeTimer = null;
+      flickerLog('handleUrlChange:debounce-disparou', {
+        url_anterior: urlAnterior, url_atual: currentUrl, mudou: currentUrl !== urlAnterior,
+      });
       if (debugState.enabled) {
         debugLog('SPA — navegação detectada', {
           url_anterior: urlAnterior,
@@ -3882,6 +4109,10 @@
       // wasShown() sempre false) e scheduleAutoOpen reabre. A reavaliação de
       // candidatas/tour/jornada abaixo continua rodando sempre (elas se
       // protegem sozinhas com `if (state.open) return`).
+      flickerLog('handleUrlChange:decisao-doClose', {
+        vai_fechar: !!(state.open && currentUrl !== urlAnterior),
+        open: state.open, url_mudou: currentUrl !== urlAnterior,
+      });
       if (state.open && currentUrl !== urlAnterior) doClose();
       // suprimirAbandonoNavegacao: navegação causada pelo próprio clique
       // sintético de um passo "clicar_elemento" (tourProximo()) ou por
@@ -3927,10 +4158,12 @@
           finalizarTour('navegacao_url');
         }
       }
+      flickerLog('handleUrlChange:chama-evaluateUrlCampaigns', {});
       evaluateUrlCampaigns();
       // Candidatas por sistema/tela/contexto tambÃ©m precisam ser reavaliadas
       // em toda navegaÃ§Ã£o do router. pushState/replaceState podem representar
       // troca de tela mesmo quando o host conserva exatamente a mesma URL.
+      flickerLog('handleUrlChange:chama-evaluateCampaigns', {});
       evaluateCampaigns();
       jornadaReavaliarAposNavegacao();
       // Reavalia tour automático (ex.: configurado por "Caminho da URL")
@@ -11054,6 +11287,11 @@
   window.UserPulse.abrirJornadas = abrirJornadasPublico;
   window.UserPulse.debug = debugAtivar;
   window.UserPulse.debugState = debugSnapshot;
+  // INSTRUMENTAÇÃO TEMPORÁRIA (FlickerDebug) — remover após coletar evidência
+  // do bug OPEN -> CLOSE -> OPEN. debugFlicker(true|false) liga/desliga os
+  // console.log; debugFlickerState() devolve o snapshot + últimos 30 eventos.
+  window.UserPulse.debugFlicker = flickerAtivar;
+  window.UserPulse.debugFlickerState = flickerSnapshot;
   // Não é API pública (mesma convenção de _q/_up_ready acima) — só existe
   // pra permitir testar funções internas sem precisar simular fetch/DOM real
   // completo. Nunca documentado pro host.
