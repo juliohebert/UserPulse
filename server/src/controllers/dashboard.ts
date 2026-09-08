@@ -187,6 +187,52 @@ export function montarDesempenhoConteudos(
   return Array.from(porItem.values())
 }
 
+// ─── NPS segmentado por perfil de usuário (contexto.usuario_tipo) ──────────
+// Mesma ideia da tela "Análise de indicador" do Quark: uma linha por perfil,
+// com a contagem de respostas + promotores/neutros/detratores e o NPS
+// daquele perfil. A regra de SUPER_USUARIO e o filtro de período NÃO moram
+// aqui — são aplicados na própria query SQL (sqlSemSuperUsuario + range),
+// igual ao resto do dashboard; esta função só MOLDA as linhas já agregadas
+// pelo Postgres (COUNT(*) FILTER (...) por bucket de nota). Função pura,
+// testável sem Prisma real.
+export interface NpsPorPerfilItem {
+  // null = respostas cujo contexto não traz `usuario_tipo` (embeds antigos);
+  // o frontend exibe como "Não informado". Nunca vem 'SUPER_USUARIO' quando
+  // o filtro está desligado — essas linhas já saem na query.
+  perfil: string | null
+  respostas: number
+  promotores: number
+  neutros: number
+  detratores: number
+  // NPS = % promotores − % detratores, cada percentual arredondado ANTES da
+  // subtração — mesma forma do KPI de NPS do topo do dashboard
+  // (CampanhaDashboard.tsx: pctProm/pctDetr) pros dois números baterem.
+  nps: number
+}
+
+export function montarNpsPorPerfil(
+  rows: Array<{
+    perfil: string | null
+    respostas: bigint | number
+    promotores: bigint | number
+    neutros: bigint | number
+    detratores: bigint | number
+  }>
+): NpsPorPerfilItem[] {
+  return rows
+    .map(row => {
+      const respostas = Number(row.respostas)
+      const promotores = Number(row.promotores)
+      const neutros = Number(row.neutros)
+      const detratores = Number(row.detratores)
+      const nps = respostas > 0
+        ? Math.round((promotores / respostas) * 100) - Math.round((detratores / respostas) * 100)
+        : 0
+      return { perfil: row.perfil, respostas, promotores, neutros, detratores, nps }
+    })
+    .sort((a, b) => b.respostas - a.respostas || (a.perfil ?? '').localeCompare(b.perfil ?? ''))
+}
+
 // Toda leitura de "Nota Média"/distribuição/respostas recentes/respondentes
 // únicos deste dashboard só faz sentido pro cálculo de NPS — centraliza o
 // filtro aqui pra nunca esquecer tipo_avaliacao numa query nova e pra nunca
@@ -457,6 +503,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       quotePromotor,
       quoteDetrator,
       itensConteudo, totaisPorConteudo, unicosPorConteudo, cliques_cta_sem_conteudo,
+      npsPorPerfilRaw,
     ] = await Promise.all([
       prisma.feedback.aggregate({
         where: feedbackPeriodoWhere,
@@ -635,6 +682,26 @@ export async function buscarDashboard(req: Request, res: Response) {
         : prisma.eventoCampanha.count({
             where: { ...eventosPeriodoWhere, tipo_evento: 'clique_cta', conteudo_item_id: null },
           }),
+
+      // NPS por perfil (contexto.usuario_tipo) — mesmo universo do resumo de
+      // NPS: período + regra de SUPER_USUARIO (sqlSemSuper), NUNCA os filtros
+      // da tabela de Respostas. Um groupBy por path JSON não existe no Prisma
+      // Client, então vai em SQL cru, no mesmo estilo das outras queries raw
+      // deste dashboard. Linhas sem `usuario_tipo` no contexto caem no bucket
+      // perfil = NULL (embeds antigos) — montarNpsPorPerfil as preserva.
+      prisma.$queryRaw<Array<{ perfil: string | null; respostas: bigint; promotores: bigint; neutros: bigint; detratores: bigint }>>`
+        SELECT contexto->>'usuario_tipo' AS perfil,
+               COUNT(*)::bigint AS respostas,
+               COUNT(*) FILTER (WHERE nota >= 9)::bigint AS promotores,
+               COUNT(*) FILTER (WHERE nota BETWEEN 7 AND 8)::bigint AS neutros,
+               COUNT(*) FILTER (WHERE nota <= 6)::bigint AS detratores
+        FROM feedbacks
+        WHERE campanha_id = ${id} AND tipo_avaliacao = 'nps' AND nota IS NOT NULL
+          ${range.gte ? Prisma.sql`AND criado_em >= ${range.gte}` : Prisma.empty}
+          ${range.lte ? Prisma.sql`AND criado_em <= ${range.lte}` : Prisma.empty}
+          ${sqlSemSuper}
+        GROUP BY contexto->>'usuario_tipo'
+      `,
     ])
 
     const distribuicao: Record<string, number> = {}
@@ -735,6 +802,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       cliques_cta_sem_conteudo,
       destaque_resumo_periodo: destaqueResumoPeriodo,
       quotes_nps: [quotePromotor, quoteDetrator].filter(Boolean),
+      nps_por_perfil: montarNpsPorPerfil(npsPorPerfilRaw),
       // Só não-vazio pra campanhas destaque_elemento — ver ehDestaqueElemento.
       avaliacoes_destaques: ehDestaqueElemento ? avaliacoes_destaques : [],
       avaliacoes_total: ehDestaqueElemento ? avaliacoes_total : 0,

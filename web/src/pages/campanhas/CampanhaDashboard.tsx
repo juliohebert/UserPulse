@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, getBlob } from '../../services/api'
-import type { AvaliacaoDestaqueItem, DashboardData, DesempenhoConteudoItem, DesempenhoDestaqueItem, EventoCampanha, Feedback } from '../../types'
+import type { AvaliacaoDestaqueItem, DashboardData, DesempenhoConteudoItem, DesempenhoDestaqueItem, EventoCampanha, Feedback, NpsPorPerfilItem } from '../../types'
 import { formatDateTime, getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
@@ -104,6 +104,14 @@ const TOOLTIP_AVALIACOES_DESTAQUES = [
 // ─── ajuda contextual — "Cliques CTA por conteúdo" ─────────────────────────
 const TOOLTIP_CLIQUES_POR_CONTEUDO =
   'Mostra os cliques nos CTAs de cada conteúdo. Esta métrica não representa visualizações individuais dos conteúdos.'
+
+// ─── ajuda contextual — "NPS por perfil" ───────────────────────────────────
+const TOOLTIP_NPS_POR_PERFIL = [
+  'Uma linha por perfil de usuário (campo "usuario_tipo" do contexto).',
+  'Promotores: notas 9 e 10. Neutros: 7 e 8. Detratores: 0 a 6.',
+  'NPS = % de promotores − % de detratores das respostas daquele perfil.',
+  'Respeita o período e o filtro "Incluir superusuários" do dashboard.',
+].join('\n')
 
 // ─── period filter ─────────────────────────────────────────────────────────────
 
@@ -588,6 +596,7 @@ export function CampanhaDashboard() {
   const notaMaisFrequente = Array.from({ length: 11 }, (_, nota) => ({ nota, total: kpiDistribuicao[String(nota)] ?? 0 }))
     .sort((a, b) => b.total - a.total || b.nota - a.nota)[0]
   const quotes = data?.quotes_nps ?? []
+  const npsPorPerfil = data?.nps_por_perfil ?? []
 
   // % de visualizações que resultaram em resposta — usado no funil (Visualizações → Respostas)
   const taxaRespostaPorVisualizacao = kpiVisualizacoes > 0
@@ -861,6 +870,17 @@ export function CampanhaDashboard() {
               maxDist={maxDist}
               notaMaisFrequente={notaMaisFrequente}
             />
+          )}
+
+          {/* ── Seção: NPS por perfil (feedback geral/NPS — mesma condição de
+              exibição de NpsDeepDive: só formato não-destaque e com respostas
+              no período). Segue a ideia da tela "Análise de indicador" do
+              Quark: uma linha por perfil de usuário (contexto.usuario_tipo),
+              com respostas/promotores/neutros/detratores e o NPS do perfil em
+              destaque. O universo (período + regra de superusuários) já vem
+              resolvido pelo backend, coerente com o KPI de NPS do topo. */}
+          {blocos.distribuicaoNotas && kpiTotal > 0 && (
+            <NpsPorPerfilSection itens={npsPorPerfil} />
           )}
 
           {/* ── Seção: Respostas (feedback geral/NPS — não existe pra
@@ -2409,6 +2429,100 @@ function ObservacaoCell({ value }: { value: string }) {
     >
       {value}
     </span>
+  )
+}
+
+// Pílula do valor de NPS por perfil — positivo verde, negativo vermelho,
+// zero amarelo (mesma paleta de NpsBadge, só que baseada no sinal do score).
+function npsPillClasses(nps: number): string {
+  if (nps > 0) return 'bg-tertiary/10 text-tertiary'
+  if (nps < 0) return 'bg-error/10 text-error'
+  return 'bg-yellow-100 text-yellow-700'
+}
+
+// Seção "NPS por perfil" — tabela (>= md) / cards (< md), mesmo padrão visual
+// de "Cliques CTA por conteúdo". Os itens já vêm ordenados e com o universo
+// (período + superusuários) resolvido pelo backend; aqui só se exibe.
+function NpsPorPerfilSection({ itens }: { itens: NpsPorPerfilItem[] }) {
+  return (
+    <>
+      <SectionTitle icon="groups" tooltip={TOOLTIP_NPS_POR_PERFIL}>NPS por perfil</SectionTitle>
+      <div className="w-full max-w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-hidden mb-6">
+        {itens.length === 0 ? (
+          <p className="px-4 sm:px-5 py-8 text-center text-[13px] text-outline">
+            Nenhuma resposta do período tem perfil de usuário identificado.
+          </p>
+        ) : (
+          <>
+            {/* Desktop/tablet largo (>= md): tabela */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-surface-container-low border-b border-outline-variant">
+                  <tr>
+                    {['Perfil', 'Respostas', 'Promotores', 'Neutros', 'Detratores', 'NPS'].map(h => (
+                      <th key={h} className="px-4 py-3 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant/30">
+                  {itens.map(item => (
+                    <tr key={item.perfil ?? '__sem_perfil__'} className="hover:bg-surface-container-low/50 transition-colors">
+                      <td className="px-4 py-3 align-middle max-w-[280px]">
+                        <span className={`text-[13px] truncate ${item.perfil ? 'text-on-surface' : 'text-outline italic'}`} title={item.perfil ?? NI}>
+                          {item.perfil ?? NI}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-on-surface">{item.respostas.toLocaleString('pt-BR')}</td>
+                      <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-on-surface">{item.promotores.toLocaleString('pt-BR')}</td>
+                      <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-on-surface">{item.neutros.toLocaleString('pt-BR')}</td>
+                      <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-on-surface">{item.detratores.toLocaleString('pt-BR')}</td>
+                      <td className="px-4 py-3 whitespace-nowrap align-middle">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[13px] font-bold ${npsPillClasses(item.nps)}`}>
+                          {item.nps > 0 ? '+' : ''}{item.nps}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile (< md): cards — mesmo padrão de ConteudoCliquesCard */}
+            <div className="md:hidden divide-y divide-outline-variant/20">
+              {itens.map(item => (
+                <NpsPorPerfilCard key={item.perfil ?? '__sem_perfil__'} item={item} />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+function NpsPorPerfilCard({ item }: { item: NpsPorPerfilItem }) {
+  return (
+    <div className="p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className={`text-[13px] font-semibold ${item.perfil ? 'text-on-surface' : 'text-outline italic'}`}>{item.perfil ?? NI}</span>
+        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[13px] font-bold ${npsPillClasses(item.nps)}`}>
+          {item.nps > 0 ? '+' : ''}{item.nps}
+        </span>
+      </div>
+      <div className="mt-3 pt-3 border-t border-outline-variant/20 grid grid-cols-2 gap-x-3 gap-y-2.5">
+        {[
+          ['Respostas', item.respostas],
+          ['Promotores', item.promotores],
+          ['Neutros', item.neutros],
+          ['Detratores', item.detratores],
+        ].map(([rotulo, valor]) => (
+          <div key={String(rotulo)} className="min-w-0">
+            <p className="text-[10px] text-outline uppercase tracking-wide mb-0.5">{rotulo}</p>
+            <span className="text-[13px] block text-on-surface">{Number(valor).toLocaleString('pt-BR')}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 

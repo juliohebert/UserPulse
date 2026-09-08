@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { Prisma } from '@prisma/client'
-import { montarDesempenhoConteudos, montarDesempenhoDestaques, normalizarAtividadeDiaSemana, normalizarSerieImpressao, whereFeedbackNps, whereUtilidadeDestaque, incluirSuperUsuario, semSuperUsuario, sqlSemSuperUsuario, PERFIL_SUPER_USUARIO } from './dashboard'
+import { montarDesempenhoConteudos, montarDesempenhoDestaques, montarNpsPorPerfil, normalizarAtividadeDiaSemana, normalizarSerieImpressao, whereFeedbackNps, whereUtilidadeDestaque, incluirSuperUsuario, semSuperUsuario, sqlSemSuperUsuario, PERFIL_SUPER_USUARIO } from './dashboard'
 
 // buscarDashboard() em si é integration-only (várias queries Prisma
 // combinadas com Promise.all) — testado manualmente contra um servidor
@@ -421,6 +421,72 @@ describe('semSuperUsuario — fragmento aplicado a todo where do dashboard', () 
     const w = { campanha_id: 'c1', OR: [{ usuario_id: 'x' }] }
     const out = semSuperUsuario(w, false) as { AND: unknown[] }
     assert.deepEqual(out.AND[0], w)
+  })
+})
+
+// ─── NPS por perfil (montarNpsPorPerfil) ──────────────────────────────────
+// Função pura que MOLDA as linhas já agregadas pelo Postgres (uma linha por
+// contexto->>'usuario_tipo', com COUNT(*) FILTER por bucket de nota). A
+// exclusão de SUPER_USUARIO e o filtro de período acontecem na query SQL
+// (sqlSemSuperUsuario + range, já cobertos acima), nunca aqui — por isso
+// estes testes não os exercitam: a função nem enxerga esse universo.
+describe('montarNpsPorPerfil', () => {
+  function linha(perfil: string | null, respostas: number, promotores: number, neutros: number, detratores: number) {
+    return { perfil, respostas, promotores, neutros, detratores }
+  }
+
+  test('sem respostas -> array vazio', () => {
+    assert.deepEqual(montarNpsPorPerfil([]), [])
+  })
+
+  test('cálculo por perfil — NPS = %promotores − %detratores, cada % arredondado antes de subtrair', () => {
+    // 10 respostas: 6 promotores (60%), 2 neutros, 2 detratores (20%) -> NPS 40
+    const r = montarNpsPorPerfil([linha('MEDICO', 10, 6, 2, 2)])
+    assert.deepEqual(r, [{ perfil: 'MEDICO', respostas: 10, promotores: 6, neutros: 2, detratores: 2, nps: 40 }])
+  })
+
+  test('arredondamento — 3 respostas, 1 promotor (33%) e 1 detrator (33%) -> NPS 0', () => {
+    const r = montarNpsPorPerfil([linha('RECEPCAO', 3, 1, 1, 1)])
+    assert.equal(r[0].nps, 0)
+  })
+
+  test('NPS negativo quando detratores predominam', () => {
+    // 4 respostas: 1 promotor (25%), 3 detratores (75%) -> 25 − 75 = −50
+    const r = montarNpsPorPerfil([linha('FINANCEIRO', 4, 1, 0, 3)])
+    assert.equal(r[0].nps, -50)
+  })
+
+  test('perfis diferentes com contagens diferentes — ordena por respostas desc, depois perfil asc', () => {
+    const r = montarNpsPorPerfil([
+      linha('ADMIN', 5, 5, 0, 0),
+      linha('MEDICO', 20, 10, 5, 5),
+      linha('ENFERMAGEM', 5, 0, 0, 5),
+    ])
+    assert.deepEqual(r.map(l => l.perfil), ['MEDICO', 'ADMIN', 'ENFERMAGEM'])
+    assert.equal(r[0].nps, 25) // 50% − 25%
+    assert.equal(r[1].nps, 100)
+    assert.equal(r[2].nps, -100)
+  })
+
+  test('perfil null (contexto sem usuario_tipo) é preservado como linha própria', () => {
+    const r = montarNpsPorPerfil([linha(null, 2, 2, 0, 0)])
+    assert.equal(r[0].perfil, null)
+    assert.equal(r[0].nps, 100)
+  })
+
+  test('normaliza BigInt vindo do $queryRaw sem perder valor', () => {
+    const r = montarNpsPorPerfil([
+      { perfil: 'MEDICO', respostas: BigInt(100), promotores: BigInt(70), neutros: BigInt(20), detratores: BigInt(10) },
+    ])
+    assert.equal(r[0].respostas, 100)
+    assert.equal(r[0].promotores, 70)
+    assert.equal(r[0].nps, 60)
+  })
+
+  test('respostas 0 (defesa) -> NPS 0, nunca NaN', () => {
+    const r = montarNpsPorPerfil([linha('VAZIO', 0, 0, 0, 0)])
+    assert.equal(r[0].nps, 0)
+    assert.equal(Number.isNaN(r[0].nps), false)
   })
 })
 
