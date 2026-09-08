@@ -7,6 +7,8 @@ import {
   validarAvaliacaoFeedback, TIPOS_AVALIACAO_FEEDBACK,
   filtroFeedbackGeralReexibicao,
   passaSegmentacao,
+  chaveRegraDoContexto,
+  dataMaisRecentePorRegra,
 } from './widget'
 
 const DIA_MS = 86_400_000
@@ -718,5 +720,51 @@ describe('registrarConclusaoEvento — segmentação por domínio', () => {
 
   test('ctx.dominio é montado a partir do body ou de contexto.dominio', () => {
     assert.ok(/dominio:\s*dominio\s*\?\s*String\(dominio\)\s*:\s*\(contexto\?\.dominio/.test(controller))
+  })
+})
+
+// ─── Reexibição POR REGRA (múltiplas telas/URLs) ──────────────────────────
+// verificarHistoricoPorRegra é integration-only (3 queries Prisma); aqui
+// cobrimos as peças puras: leitura da chave carimbada no contexto e a
+// escolha da data "mais recente que conta pra esta regra" (a que tem
+// __up_regra == chave OU não tem __up_regra nenhum).
+describe('chaveRegraDoContexto', () => {
+  test('lê __up_regra quando presente e não-vazio', () => {
+    assert.equal(chaveRegraDoContexto({ __up_regra: 'uc|/app/home' }), 'uc|/app/home')
+    assert.equal(chaveRegraDoContexto({ usuario_tipo: 'MEDICO', __up_regra: 'st|Agenda' }), 'st|Agenda')
+  })
+  test('null quando ausente, vazio, contexto nulo ou não-objeto', () => {
+    assert.equal(chaveRegraDoContexto(null), null)
+    assert.equal(chaveRegraDoContexto({}), null)
+    assert.equal(chaveRegraDoContexto({ __up_regra: '' }), null)
+    assert.equal(chaveRegraDoContexto({ __up_regra: 123 }), null)
+    assert.equal(chaveRegraDoContexto(['x']), null)
+    assert.equal(chaveRegraDoContexto('str'), null)
+  })
+})
+
+describe('dataMaisRecentePorRegra', () => {
+  const d = (s: string) => new Date(s)
+  test('pega a linha mais recente cujo __up_regra == chave', () => {
+    const linhas = [
+      { criado_em: d('2026-03-10T00:00:00Z'), contexto: { __up_regra: 'uc|/b' } },
+      { criado_em: d('2026-03-09T00:00:00Z'), contexto: { __up_regra: 'uc|/a' } },
+      { criado_em: d('2026-03-08T00:00:00Z'), contexto: { __up_regra: 'uc|/a' } },
+    ]
+    assert.deepEqual(dataMaisRecentePorRegra(linhas, 'uc|/a'), d('2026-03-09T00:00:00Z'))
+  })
+  test('linha SEM __up_regra (legado / 1 regra) conta pra qualquer chave', () => {
+    const linhas = [
+      { criado_em: d('2026-03-10T00:00:00Z'), contexto: { __up_regra: 'uc|/outra' } },
+      { criado_em: d('2026-03-05T00:00:00Z'), contexto: { usuario_id: 'u1' } },
+    ]
+    assert.deepEqual(dataMaisRecentePorRegra(linhas, 'uc|/app/home'), d('2026-03-05T00:00:00Z'))
+  })
+  test('nenhuma linha relevante -> null (regra livre)', () => {
+    const linhas = [{ criado_em: d('2026-03-10T00:00:00Z'), contexto: { __up_regra: 'uc|/x' } }]
+    assert.equal(dataMaisRecentePorRegra(linhas, 'uc|/y'), null)
+  })
+  test('lista vazia -> null', () => {
+    assert.equal(dataMaisRecentePorRegra([], 'st|Agenda'), null)
   })
 })

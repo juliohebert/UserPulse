@@ -153,6 +153,24 @@
   // (clique no CTA de um conteúdo do carrossel SCROLL/SLIDES), enviado apenas
   // quando existe. Independente de destaque_item_id — nunca um substitui o
   // outro.
+  // contexto do host + a regra de exibição casada (__up_regra), pra política
+  // de reexibição ser aplicada por destino no servidor. Só carimba quando a
+  // campanha tem 2+ regras e há uma regra casada — campanha de 1 regra
+  // manda o contexto puro (servidor trata histórico "sem regra" = idêntico
+  // ao de antes). Nunca muta config.contexto (host), sempre copia.
+  function contextoComRegra(config, campanha) {
+    var base = (config && config.contexto) ? config.contexto : null;
+    var casada = campanha && campanha._regraCasada;
+    var multiRegra = campanha && campanha.regras && campanha.regras.length > 1;
+    if (!casada || !multiRegra) return base || undefined;
+    var chaveRegra = chaveRegraExibicao(casada);
+    if (!chaveRegra) return base || undefined;
+    var out = {};
+    if (base) { for (var k in base) { if (Object.prototype.hasOwnProperty.call(base, k)) out[k] = base[k]; } }
+    out.__up_regra = chaveRegra;
+    return out;
+  }
+
   function registrarEvento(tipoEvento, campanhaParam, configParam, destaqueItemId, opcoes) {
     try {
       var campanha = campanhaParam || state.campanha;
@@ -173,7 +191,7 @@
           tela: config.tela || undefined,
           navegador: window.navigator.userAgent,
           dispositivo: getDevice(),
-          contexto: config.contexto || undefined,
+          contexto: contextoComRegra(config, campanha),
         }),
       }).catch(function () { /* fail silently */ });
     } catch (_e) { /* rastreamento nunca pode quebrar o site do cliente */ }
@@ -1500,22 +1518,37 @@
   // `destaques`, então quem já tinha dispensado o destaque legado continua
   // sem vê-lo de novo depois desta atualização.
   function shownKey(campanha, config, itemId) {
-    // Campanha com 2+ regras de exibição (múltiplas telas/URLs): a chave
-    // "visto" precisa ser por CAMPANHA, não por tela — senão dispensar na
-    // tela A não impede reabrir na tela B (mesma campanha) pra usuário
-    // anônimo com mostrar_uma_vez. Campanha de 1 regra mantém EXATAMENTE a
-    // chave de antes (sem regressão pra quem já dispensou algo).
+    // Escopo de "visto" por CAMPANHA + REGRA/destino (múltiplas telas/URLs):
+    // dispensar em /app/home não pode suprimir /app/profissional-saude. Só
+    // acrescenta o recorte por regra quando a campanha tem 2+ regras e há
+    // uma regra casada; campanha de 1 regra (ou legado, ou destaque_elemento
+    // com itemId) mantém EXATAMENTE a chave de antes — sem regressão pra
+    // quem já dispensou algo.
     var multiRegra = campanha && campanha.regras && campanha.regras.length > 1;
-    var ctx = config.slug || (multiRegra ? (config.sistema + ':*') : (config.sistema + ':' + config.tela));
+    var ctx = config.slug || (config.sistema + ':' + config.tela);
+    if (!itemId && multiRegra && campanha._regraCasada) {
+      var chaveRegra = chaveRegraExibicao(campanha._regraCasada);
+      if (chaveRegra) ctx += ':r:' + chaveRegra;
+    }
     var uid = config.usuario_id ? ':u:' + config.usuario_id : '';
     var sufixoItem = itemId ? (':item:' + itemId) : '';
     return 'userpulse:shown:' + campanha.id + ':' + ctx + uid + sufixoItem;
   }
 
   function wasShown(campanha, config, itemId) {
-    // Para usuário identificado, /candidatas já aplicou a política usando o
-    // histórico persistido. O estado deste navegador não participa da regra.
-    if (config.usuario_id) return false;
+    // Para usuário identificado, /candidatas já aplicou a política POR
+    // CAMPANHA usando o histórico persistido. Falta só o recorte POR REGRA
+    // (múltiplas telas/URLs): a regra que casou está na lista de bloqueadas
+    // que o servidor devolveu? (campanha de 1 regra -> lista sempre vazia,
+    // comportamento idêntico ao de antes).
+    if (config.usuario_id) {
+      var bloq = campanha && campanha.regras_bloqueadas;
+      if (bloq && bloq.length && campanha._regraCasada) {
+        var chaveRegra = chaveRegraExibicao(campanha._regraCasada);
+        return !!chaveRegra && bloq.indexOf(chaveRegra) !== -1;
+      }
+      return false;
+    }
     if (!campanha.mostrar_uma_vez) return false;
     if (campanha.always_show_user) return false;
     if (!campanha.permitir_fechar_modal) return false;
@@ -3115,22 +3148,45 @@
     return false;
   }
 
-  // Múltiplas telas/URLs por campanha: a campanha corresponde se QUALQUER
-  // uma das suas regras corresponder (OR). `campanha.regras` sempre vem do
-  // backend (>= 1, por causa do backfill); quando ausente (resposta antiga
-  // em cache, teste), cai nos campos legados da própria campanha —
-  // comportamento idêntico ao de antes desta mudança. Duas regras batendo ao
-  // mesmo tempo não duplicam nada: isto é um booleano por campanha, e o
-  // seletor de candidatas escolhe no máximo 1 campanha.
-  function checkMode(campanha, config) {
+  // Identidade estável de uma regra (escopo de exibição/reexibição por
+  // destino) — MESMO formato de chaveRegraExibicao em
+  // server/src/lib/regrasExibicao.ts. Vazio / modo desconhecido -> null.
+  function chaveRegraExibicao(regra) {
+    if (!regra) return null;
+    var modo = regra.modo_identificacao || 'sistema_tela';
+    if (modo === 'sistema_tela') { var t = (regra.tela || '').trim(); return t ? 'st|' + t : null; }
+    if (modo === 'url_contem') { var u = (regra.url_contem || '').trim(); return u ? 'uc|' + u : null; }
+    if (modo === 'data_cy') { var d = (regra.data_cy || '').trim(); return d ? 'dc|' + d : null; }
+    return null;
+  }
+
+  // Múltiplas telas/URLs por campanha: retorna a PRIMEIRA regra que casa com
+  // o contexto atual (ou null). `campanha.regras` vem do backend (>= 1, por
+  // causa do backfill); ausente (resposta antiga em cache / teste) -> usa os
+  // campos legados como pseudo-regra. Guarda a regra casada em
+  // `campanha._regraCasada` pra shownKey/wasShown lerem qual destino abriu.
+  function checkModeRegra(campanha, config) {
     var regras = campanha && campanha.regras;
+    var casada = null;
     if (regras && regras.length) {
       for (var i = 0; i < regras.length; i++) {
-        if (checkRegra(regras[i], config)) return true;
+        if (checkRegra(regras[i], config)) { casada = regras[i]; break; }
       }
-      return false;
+    } else if (campanha && checkRegra(campanha, config)) {
+      casada = {
+        modo_identificacao: campanha.modo_identificacao,
+        tela: campanha.tela, url_contem: campanha.url_contem, data_cy: campanha.data_cy,
+      };
     }
-    return checkRegra(campanha, config);
+    if (campanha) campanha._regraCasada = casada;
+    return casada;
+  }
+
+  // Booleano por campanha (OR entre regras). Duas regras batendo ao mesmo
+  // tempo não duplicam nada: o seletor de candidatas escolhe no máximo 1
+  // campanha, e checkModeRegra fixa UMA regra casada (a primeira).
+  function checkMode(campanha, config) {
+    return !!checkModeRegra(campanha, config);
   }
 
   // A campanha tem ao menos uma regra do modo informado? (campanha.regras
@@ -3275,7 +3331,7 @@
         tela: config.tela || undefined,
         navegador: window.navigator.userAgent,
         dispositivo: getDevice(),
-        contexto: config.contexto || undefined,
+        contexto: contextoComRegra(config, campanha),
       }),
     })
       .then(function (response) {
@@ -3338,7 +3394,7 @@
         usuario_id: config.usuario_id,
         usuario_nome: config.usuario_nome || undefined,
         usuario_email: config.usuario_email || undefined,
-        contexto: config.contexto || undefined,
+        contexto: contextoComRegra(config, campanha),
       }),
     })
       .then(function (response) {
@@ -11364,8 +11420,11 @@
     // toca só document.querySelector/location, sem estado do widget). Ver
     // server/src/widgetCampanhaMultiplasTelas.test.ts.
     checkMode: checkMode,
+    checkModeRegra: checkModeRegra,
     checkRegra: checkRegra,
     campanhaTemModo: campanhaTemModo,
+    chaveRegraExibicao: chaveRegraExibicao,
+    contextoComRegra: contextoComRegra,
     shownKey: shownKey,
     // Ícone do cabeçalho da modal por tipo de campanha (comunicado/melhoria/
     // pesquisa) — regra pura, exposta só pra confirmar por teste que fica em

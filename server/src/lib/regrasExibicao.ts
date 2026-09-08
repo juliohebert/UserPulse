@@ -108,6 +108,32 @@ export function regraBase(regras: RegraExibicao[]): RegraExibicao {
   return regras.find(r => r.ordem === 0) ?? regras[0]
 }
 
+// ─── Identidade de uma regra (escopo de exibição/reexibição) ──────────────
+// A política de "mostrar uma vez" / reexibição é aplicada por CAMPANHA +
+// REGRA (destino), não pela campanha inteira: dispensar/responder em
+// /app/home não deve suprimir a campanha em /app/profissional-saude. Esta
+// chave identifica a regra de forma estável (não depende do uuid da linha,
+// que troca a cada save do form) — mesmo valor no widget.js
+// (chaveRegraExibicao) e no servidor (verificarHistoricoPorRegra). Vazio /
+// modo desconhecido -> null (a regra não participa do escopo por-regra e
+// cai no histórico "sem regra").
+export function chaveRegraExibicao(regra: { modo_identificacao?: string | null; tela?: string | null; url_contem?: string | null; data_cy?: string | null }): string | null {
+  const modo = (regra.modo_identificacao || 'sistema_tela').trim()
+  if (modo === 'sistema_tela') {
+    const t = (regra.tela ?? '').trim()
+    return t ? `st|${t}` : null
+  }
+  if (modo === 'url_contem') {
+    const u = (regra.url_contem ?? '').trim()
+    return u ? `uc|${u}` : null
+  }
+  if (modo === 'data_cy') {
+    const d = (regra.data_cy ?? '').trim()
+    return d ? `dc|${d}` : null
+  }
+  return null
+}
+
 // Fragmento Prisma pro filtro de GET /api/widget/candidatas: a campanha é
 // candidata se TIVER ao menos uma regra compatível com a `tela` informada
 // pelo widget (sistema_tela) OU uma regra data_cy/url_contem (sempre
