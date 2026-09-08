@@ -49,6 +49,7 @@ function campanhaAntiga(over: Partial<Campanha> = {}): Campanha {
     tela: 'Faturamento',
     imagem_url: 'https://exemplo.com/imagem.png',
     video_url: null,
+    icone_url: null,
     texto_botao: 'Responder agora',
     url_botao: 'https://exemplo.com/pesquisa',
     feedback_habilitado: true,
@@ -1008,5 +1009,45 @@ describe('observação por categoria (NPS) — hidratar / payload / resolver', (
     assert.deepEqual(resolverObservacaoCategoria(cfg, 3), { legado: false, visivel: false, mensagem: null })
     assert.deepEqual(resolverObservacaoCategoria(cfg, null), { legado: false, visivel: false, mensagem: null })
     assert.deepEqual(resolverObservacaoCategoria(null, 3), { legado: true, visivel: true, mensagem: null })
+  })
+})
+
+// ─── Ícone personalizado da campanha (icone_url) ─────────────────────────────
+describe('icone_url — hidratar / payload / round-trip', () => {
+  const DRIVE_ID = '1A2b3C4d5E6f7G8h9I0jKlMnOpQrStUv'
+
+  test('campanha antiga sem icone_url -> form.icone_url vazio', () => {
+    assert.equal(hidratarFormState(campanhaAntiga()).icone_url, '')
+    assert.equal(hidratarFormState(campanhaAntiga({ icone_url: null } as Partial<Campanha>)).icone_url, '')
+  })
+
+  test('campanha com icone_url -> hidrata o valor', () => {
+    const form = hidratarFormState(campanhaAntiga({ icone_url: 'https://cdn.exemplo.com/logo.png' } as Partial<Campanha>))
+    assert.equal(form.icone_url, 'https://cdn.exemplo.com/logo.png')
+  })
+
+  test('payload: icone_url vazio -> null (ícone padrão)', () => {
+    const p = montarPayloadCampanha({ ...formInicial, icone_url: '' })
+    assert.equal(p.icone_url, null)
+    const p2 = montarPayloadCampanha({ ...formInicial, icone_url: '   ' })
+    assert.equal(p2.icone_url, null)
+  })
+
+  test('payload: URL comum passa; link do Drive vira thumbnail exibível (mesma regra de imagem_url)', () => {
+    const p = montarPayloadCampanha({ ...formInicial, icone_url: 'https://cdn.exemplo.com/logo.svg' })
+    assert.equal(p.icone_url, 'https://cdn.exemplo.com/logo.svg')
+    const pd = montarPayloadCampanha({ ...formInicial, icone_url: `https://drive.google.com/file/d/${DRIVE_ID}/view` })
+    assert.equal(pd.icone_url, `https://drive.google.com/thumbnail?id=${DRIVE_ID}&sz=w1600`)
+  })
+
+  test('round-trip: campanha com icone_url -> hidratar -> payload preserva (já normalizado)', () => {
+    const c = campanhaAntiga({ icone_url: `https://drive.google.com/thumbnail?id=${DRIVE_ID}&sz=w1600` } as Partial<Campanha>)
+    const p = montarPayloadCampanha(hidratarFormState(c))
+    assert.equal(p.icone_url, `https://drive.google.com/thumbnail?id=${DRIVE_ID}&sz=w1600`)
+  })
+
+  test('round-trip: campanha antiga (sem icone_url) -> payload icone_url null, sem mudança visual', () => {
+    const p = montarPayloadCampanha(hidratarFormState(campanhaAntiga()))
+    assert.equal(p.icone_url, null)
   })
 })

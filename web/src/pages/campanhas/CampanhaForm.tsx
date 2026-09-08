@@ -109,6 +109,34 @@ function iconeTipoCampanha(tipo: string): string {
   return ICONES_TIPO_CAMPANHA[tipo] ?? 'campaign'
 }
 
+// Marca do cabeçalho da modal simulada (CardEditavel + PreviewCampanhaModal):
+// imagem personalizada da campanha (form.icone_url) quando houver — fundo
+// branco + borda pro contraste próprio da imagem, `object-contain` pra não
+// distorcer; senão o círculo com a cor da aparência + ícone por tipo.
+// onError volta pro ícone — imagem quebrada não quebra o layout. Espelha
+// campanhaIconeMarca() do widget real (web/public/widget.js).
+function IconeMarcaCampanha({ corAcao, iconeUrl, icone, className = '' }: {
+  corAcao: string
+  iconeUrl?: string | null
+  icone: string
+  className?: string
+}) {
+  const url = normalizarImagemUrl((iconeUrl ?? '').trim())
+  const [falhou, setFalhou] = useState(false)
+  useEffect(() => { setFalhou(false) }, [url])
+  const usarImg = url !== '' && !falhou
+  return (
+    <div
+      className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full ${usarImg ? 'border border-[rgba(194,198,214,.55)] bg-white' : 'text-white'} ${className}`}
+      style={usarImg ? undefined : { backgroundColor: corAcao }}
+    >
+      {usarImg
+        ? <img src={url} alt="" className="h-full w-full object-contain p-[3px]" onError={() => setFalhou(true)} />
+        : <span className="material-symbols-outlined text-[18px] leading-none">{icone}</span>}
+    </div>
+  )
+}
+
 function corTextoSistemaLegivel(cor: string): string {
   const hex = cor.replace('#', '')
   const rgb = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16))
@@ -1699,6 +1727,7 @@ function CardEditavel({
   const ctaHabilitado = itemAtivo.cta_habilitado
   const textoCta = itemAtivo.texto_botao.trim() || 'Saiba mais'
   const [editandoMidia, setEditandoMidia] = useState(false)
+  const [editandoIcone, setEditandoIcone] = useState(false)
   const [linkMidiaInline, setLinkMidiaInline] = useState(itemAtivo.video_url || itemAtivo.imagem_url)
   const [notaFeedbackPreview, setNotaFeedbackPreview] = useState<number | null>(null)
   const [observacaoFeedbackPreview, setObservacaoFeedbackPreview] = useState('')
@@ -2118,9 +2147,22 @@ function CardEditavel({
       <div className="overflow-hidden rounded-xl border border-outline-variant shadow-sm">
         <div className="flex items-start justify-between gap-3 border-b border-outline-variant/40 bg-surface-container-low px-4 py-3">
           <div className="flex min-w-0 flex-1 items-start gap-2">
-            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white ${preview ? '' : 'self-center'}`} style={{ backgroundColor: corAcao }}>
-              <span className="material-symbols-outlined text-[18px] leading-none">{iconeCampanha}</span>
-            </div>
+            {preview ? (
+              <IconeMarcaCampanha corAcao={corAcao} iconeUrl={form.icone_url} icone={iconeCampanha} />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditandoIcone(v => !v)}
+                title="Personalizar o ícone da campanha"
+                aria-label="Personalizar o ícone da campanha"
+                className="group relative shrink-0 self-center rounded-full outline-none ring-primary/40 focus-visible:ring-2"
+              >
+                <IconeMarcaCampanha corAcao={corAcao} iconeUrl={form.icone_url} icone={iconeCampanha} />
+                <span className="pointer-events-none absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-white bg-[#0064e0] text-white opacity-90 shadow-sm">
+                  <span className="material-symbols-outlined text-[9px] leading-none">edit</span>
+                </span>
+              </button>
+            )}
             {preview ? (
               <p className="m-0 min-w-0 flex-1 break-words text-label-md font-bold text-on-surface">{form.titulo || 'Título da campanha'}</p>
             ) : (
@@ -2144,6 +2186,31 @@ function CardEditavel({
             )
           )}
         </div>
+
+        {!preview && editandoIcone && (
+          <div className="space-y-2 border-b border-outline-variant/40 bg-surface-container-low px-4 py-3">
+            <p className="text-[12px] font-bold text-on-surface">Ícone da campanha</p>
+            <input
+              value={form.icone_url}
+              onChange={e => setCampo('icone_url', e.target.value.replace(/[\r\n]+/g, ' ').trim())}
+              placeholder="Cole o link de uma imagem (Drive ou URL pública)"
+              aria-label="Link da imagem do ícone da campanha"
+              className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-1.5 text-[12px] font-semibold text-on-surface outline-none focus:border-primary"
+            />
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold leading-4 text-on-surface-variant">Sem imagem, usa o ícone padrão do tipo. A imagem aparece com `contain` (sem distorcer).</p>
+              {form.icone_url.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setCampo('icone_url', '')}
+                  className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-bold text-[#c21837] transition hover:bg-[#c21837]/10"
+                >
+                  Remover
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="space-y-3 bg-surface-container-lowest p-4">
           {preview ? (
@@ -2395,9 +2462,7 @@ function PreviewCampanhaModal({ form, aparencia, onClose }: {
           <>
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[rgba(194,198,214,.45)] px-5 py-4">
               <div className="flex min-w-0 items-start gap-2.5">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white" style={{ backgroundColor: corAcao }}>
-                  <span className="material-symbols-outlined text-[18px]">{iconeCampanha}</span>
-                </div>
+                <IconeMarcaCampanha corAcao={corAcao} iconeUrl={form.icone_url} icone={iconeCampanha} />
                 <p className="m-0 min-w-0 flex-1 break-words text-[15px] font-extrabold leading-[21px] text-[#0b1c30]">{titulo}</p>
               </div>
               {form.permitir_fechar_modal !== false && (
