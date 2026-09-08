@@ -37,12 +37,6 @@ export function CampanhaPreview() {
   // específica do sistema tem prioridade; sem ela, a aparência padrão do
   // tenant; sem nenhuma, cai no fallback de corSistemaValida.
   const [corPrincipalSistema, setCorPrincipalSistema] = useState<string | null>(null)
-  // Logo do sistema/tenant (mesma resolução da cor: específica > padrão do
-  // tenant). Exibida no lugar do ícone da marca quando existir — paridade com
-  // o widget real (.up-brand-icon-logo em widget.js) e o PreviewCampanhaModal
-  // do formulário. `logoSistemaFalhou` cobre URL quebrada -> volta pro ícone.
-  const [logoSistema, setLogoSistema] = useState<string | null>(null)
-  const [logoSistemaFalhou, setLogoSistemaFalhou] = useState(false)
   // Estado real de carregamento da aparência: a simulação só renderiza
   // depois que a cor do sistema/tenant foi resolvida, senão o primeiro
   // paint sairia no fallback (#0064e0) e trocaria de cor ao chegar a
@@ -109,12 +103,10 @@ export function CampanhaPreview() {
     const sistema = campanha.sistema?.trim()
     let cancelado = false
     setAparenciaCarregada(false)
-    setLogoSistemaFalhou(false)
     if (!sistema) {
       // Sem sistema não há o que buscar: resolve imediatamente no fallback
       // (nenhuma cor pra trocar depois, então nenhum flash).
       setCorPrincipalSistema(null)
-      setLogoSistema(null)
       setAparenciaCarregada(true)
       return
     }
@@ -128,7 +120,6 @@ export function CampanhaPreview() {
     Promise.all([especifica, padrao]).then(([a, d]) => {
       if (cancelado) return
       setCorPrincipalSistema(a?.cor_principal ?? d?.cor_principal ?? null)
-      setLogoSistema(a?.logo_url ?? d?.logo_url ?? null)
       setAparenciaCarregada(true)
     })
     return () => { cancelado = true }
@@ -164,11 +155,6 @@ export function CampanhaPreview() {
   // Mesma cor de ação aplicada pelo widget real e pelo preview do formulário
   // (PreviewCampanhaModal em CampanhaForm.tsx) — nunca a cor primária do admin.
   const corAcao = corSistemaValida(corPrincipalSistema)
-  // Logo válida (não vazia) e ainda não falhou ao carregar -> substitui o
-  // ícone da marca no cabeçalho. Mesmo critério do widget real / do
-  // PreviewCampanhaModal; `object-contain` preserva a proporção da logo.
-  const logoMarca = (logoSistema ?? '').trim()
-  const usarLogoMarca = logoMarca !== '' && !logoSistemaFalhou
 
   const testarElegibilidade = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -410,13 +396,8 @@ export function CampanhaPreview() {
                 {/* Cabeçalho */}
                 <div className="flex items-center justify-between border-b border-outline-variant/30 px-5 py-4">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden"
-                      style={usarLogoMarca ? { backgroundColor: '#fff', border: '1px solid rgba(194,198,214,.55)' } : { backgroundColor: corSistemaTranslucida(corAcao, 0.1) }}
-                    >
-                      {usarLogoMarca
-                        ? <img src={logoMarca} alt="" className="w-full h-full object-contain p-[3px]" onError={() => setLogoSistemaFalhou(true)} />
-                        : <span className="material-symbols-outlined text-[16px]" style={{ color: corAcao }}>campaign</span>}
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: corSistemaTranslucida(corAcao, 0.1) }}>
+                      <span className="material-symbols-outlined text-[16px]" style={{ color: corAcao }}>campaign</span>
                     </div>
                     <h3 className="text-body-lg font-bold text-on-surface truncate">{campanha.titulo}</h3>
                   </div>

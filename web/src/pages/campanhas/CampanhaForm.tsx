@@ -126,33 +126,6 @@ function corTextoSistemaLegivel(cor: string): string {
   return `#${ajustada.map(valor => valor.toString(16).padStart(2, '0')).join('')}`
 }
 
-// Marca do cabeçalho da modal simulada — espelha campanhaBrandIcone /
-// .up-brand-icon(.up-brand-icon-logo) do widget real (web/public/widget.js):
-// logo do sistema/tenant quando houver (fundo branco + borda sutil pro
-// contraste próprio da logo), senão o círculo com a cor principal + ícone
-// por tipo. onError volta pro ícone — logo quebrada não quebra o layout.
-function MarcaCampanha({ corAcao, logoUrl, icone, className = '' }: {
-  corAcao: string
-  logoUrl?: string | null
-  icone: string
-  className?: string
-}) {
-  const logo = (logoUrl ?? '').trim()
-  const [logoFalhou, setLogoFalhou] = useState(false)
-  useEffect(() => { setLogoFalhou(false) }, [logo])
-  const usarLogo = logo !== '' && !logoFalhou
-  return (
-    <div
-      className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full ${usarLogo ? 'border border-[rgba(194,198,214,.55)] bg-white' : 'text-white'} ${className}`}
-      style={usarLogo ? undefined : { backgroundColor: corAcao }}
-    >
-      {usarLogo
-        ? <img src={logo} alt="" className="h-full w-full object-contain p-[3px]" onError={() => setLogoFalhou(true)} />
-        : <span className="material-symbols-outlined text-[18px] leading-none">{icone}</span>}
-    </div>
-  )
-}
-
 function PillDropdown({ label, value, options, onChange, placeholder = 'Selecionar', highlightValue, emptyMessage = 'Defina no dock lateral', manageLabel, onManage }: {
   label: string
   value: string
@@ -2145,7 +2118,9 @@ function CardEditavel({
       <div className="overflow-hidden rounded-xl border border-outline-variant shadow-sm">
         <div className="flex items-start justify-between gap-3 border-b border-outline-variant/40 bg-surface-container-low px-4 py-3">
           <div className="flex min-w-0 flex-1 items-start gap-2">
-            <MarcaCampanha corAcao={corAcao} logoUrl={aparencia?.logo_url} icone={iconeCampanha} className={preview ? '' : 'self-center'} />
+            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white ${preview ? '' : 'self-center'}`} style={{ backgroundColor: corAcao }}>
+              <span className="material-symbols-outlined text-[18px] leading-none">{iconeCampanha}</span>
+            </div>
             {preview ? (
               <p className="m-0 min-w-0 flex-1 break-words text-label-md font-bold text-on-surface">{form.titulo || 'Título da campanha'}</p>
             ) : (
@@ -2420,7 +2395,9 @@ function PreviewCampanhaModal({ form, aparencia, onClose }: {
           <>
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[rgba(194,198,214,.45)] px-5 py-4">
               <div className="flex min-w-0 items-start gap-2.5">
-                <MarcaCampanha corAcao={corAcao} logoUrl={aparencia?.logo_url} icone={iconeCampanha} />
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white" style={{ backgroundColor: corAcao }}>
+                  <span className="material-symbols-outlined text-[18px]">{iconeCampanha}</span>
+                </div>
                 <p className="m-0 min-w-0 flex-1 break-words text-[15px] font-extrabold leading-[21px] text-[#0b1c30]">{titulo}</p>
               </div>
               {form.permitir_fechar_modal !== false && (
