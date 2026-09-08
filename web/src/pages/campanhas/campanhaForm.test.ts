@@ -215,6 +215,50 @@ describe('hidratarFormState — url_contem (campanha antiga por destino de URL)'
   })
 })
 
+describe('editar campanha — tipo de destino cadastrado vem marcado (hidratar -> resolverTipoDestino)', () => {
+  // A seção "Quando esta campanha aparece?" marca o card cujo id === resolverTipoDestino(form).
+  // O bug era o card 'url' ausente da lista de opções: campanha url_contem
+  // hidratava certo mas nada ficava marcado. Aqui travamos o contrato do
+  // par hidratação+resolver pros 3 modos persistidos + regra base.
+  test('sistema_tela -> tipoDestino "tela"', () => {
+    const form = hidratarFormState(campanhaAntiga({ modo_identificacao: 'sistema_tela', tela: 'Agenda', data_cy: null, url_contem: null }))
+    assert.equal(resolverTipoDestino(form), 'tela')
+  })
+  test('data_cy -> tipoDestino "data_cy"', () => {
+    const form = hidratarFormState(campanhaAntiga({ modo_identificacao: 'data_cy', data_cy: 'botao-finalizar', tela: '', url_contem: null }))
+    assert.equal(resolverTipoDestino(form), 'data_cy')
+    assert.equal(form.data_cy, 'botao-finalizar')
+  })
+  test('url_contem -> tipoDestino "url"', () => {
+    const form = hidratarFormState(campanhaAntiga({ modo_identificacao: 'url_contem', url_contem: '/app/faturamento', tela: '', data_cy: null }))
+    assert.equal(resolverTipoDestino(form), 'url')
+    assert.equal(form.url_contem, '/app/faturamento')
+  })
+
+  test('múltiplas regras: a regra base (ordem 0) define o destino principal; extras preservadas', () => {
+    const c = campanhaAntiga({
+      modo_identificacao: 'url_contem', url_contem: '/app/faturamento', tela: '', data_cy: null,
+      regras: [
+        { id: 'r0', campanha_id: 'camp-1', ordem: 0, modo_identificacao: 'url_contem', tela: null, url_contem: '/app/faturamento', data_cy: null },
+        { id: 'r1', campanha_id: 'camp-1', ordem: 1, modo_identificacao: 'sistema_tela', tela: 'Agenda', url_contem: null, data_cy: null },
+        { id: 'r2', campanha_id: 'camp-1', ordem: 2, modo_identificacao: 'data_cy', tela: null, url_contem: null, data_cy: 'menu-relatorios' },
+      ],
+    } as Partial<Campanha>)
+    const form = hidratarFormState(c)
+    assert.equal(resolverTipoDestino(form), 'url') // base
+    assert.equal(form.regras_extra.length, 2)
+    assert.deepEqual(form.regras_extra.map(r => r.modo_identificacao), ['sistema_tela', 'data_cy'])
+    assert.equal(form.regras_extra[0].tela, 'Agenda')
+    assert.equal(form.regras_extra[1].data_cy, 'menu-relatorios')
+  })
+
+  test('campanha legada sem `regras` na resposta -> regra base pelos campos legados, sem extras', () => {
+    const form = hidratarFormState(campanhaAntiga({ modo_identificacao: 'sistema_tela', tela: 'Faturamento' }))
+    assert.equal(resolverTipoDestino(form), 'tela')
+    assert.equal(form.regras_extra.length, 0)
+  })
+})
+
 describe('hidratarFormState — tela livre (fora do catálogo)', () => {
   test('carrega o valor de tela mesmo que não exista em nenhum catálogo (hidratação não valida contra catálogo)', () => {
     const c = campanhaAntiga({ tela: 'Tela Antiga Sem Catálogo' })
