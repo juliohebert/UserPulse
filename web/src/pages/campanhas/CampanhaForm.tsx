@@ -18,7 +18,7 @@ import { ReordenarPrioridade } from './ReordenarPrioridade'
 import { RichTextEditor } from '../../components/richText/RichTextEditor'
 import { RichTextRenderer } from '../../components/richText/RichTextRenderer'
 import type { RichTextDocument } from '../../components/richText/types'
-import { chaveGrupoConcorrente } from './grupoConcorrente'
+import { chavesGrupoConcorrente } from './grupoConcorrente'
 import type { ConteudoFormItem, DestaqueFormItem, FormState, FormatoExibicao, ModoNavegacaoConteudo, ModoSegmentacao, RegraExtraForm, TipoDestino } from './campanhaForm.utils'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
@@ -2613,10 +2613,12 @@ export function CampanhaFormIndex() {
 
   const grupoAtual = useMemo(() => {
     if (!campanhaAtual) return null
-    const chave = chaveGrupoConcorrente(campanhaAtual)
-    if (!chave) return null
-    const membros = campanhasExistentes.filter(c => chaveGrupoConcorrente(c) === chave)
-    return membros.length >= 2 ? { chave, campanhas: membros } : null
+    // Múltiplas telas/URLs: concorre quem compartilha PELO MENOS uma chave
+    // de exibição (regra equivalente no mesmo sistema/gatilho), não só a base.
+    const minhas = new Set(chavesGrupoConcorrente(campanhaAtual))
+    if (minhas.size === 0) return null
+    const membros = campanhasExistentes.filter(c => chavesGrupoConcorrente(c).some(k => minhas.has(k)))
+    return membros.length >= 2 ? { chave: [...minhas].sort()[0], campanhas: membros } : null
   }, [campanhaAtual, campanhasExistentes])
 
   const aparenciaAtual = useMemo(() => {

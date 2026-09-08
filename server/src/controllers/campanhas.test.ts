@@ -27,7 +27,7 @@ import {
   parseDataVigencia,
   validarPeriodoVigencia,
   vigenciaCopiaCampanha,
-  chaveGrupoConcorrente,
+  chavesGrupoConcorrente,
   validarIdsReordenacao,
   calcularPrioridadesReordenadas,
   normalizarDominio,
@@ -1026,7 +1026,7 @@ describe('validarIdsReordenacao', () => {
   })
 })
 
-describe('chaveGrupoConcorrente', () => {
+describe('chavesGrupoConcorrente — conjunto de chaves (1 por regra de exibição)', () => {
   function campanha(overrides: Partial<CampanhaGrupoInput>): CampanhaGrupoInput {
     return {
       id: 'x',
@@ -1034,62 +1034,94 @@ describe('chaveGrupoConcorrente', () => {
       tela: 'Agenda',
       modo_identificacao: 'sistema_tela',
       url_contem: null,
+      data_cy: null,
       gatilho: 'ao_abrir_tela',
       evento: null,
       ...overrides,
     }
   }
+  const concorrem = (a: CampanhaGrupoInput, b: CampanhaGrupoInput) =>
+    chavesGrupoConcorrente(a).some(k => chavesGrupoConcorrente(b).includes(k))
 
-  test('sistema_tela: mesma sistema+tela -> mesma chave', () => {
-    const a = chaveGrupoConcorrente(campanha({ id: 'a' }))
-    const b = chaveGrupoConcorrente(campanha({ id: 'b' }))
-    assert.equal(a, b)
-    assert.ok(a)
+  // ── Fallback (sem `regras`): campanha antiga de 1 regra, inalterada ──
+  test('sem `regras`: mesma sistema+tela -> concorrem (mesma chave)', () => {
+    assert.equal(concorrem(campanha({ id: 'a' }), campanha({ id: 'b' })), true)
   })
 
-  test('sistema_tela: telas diferentes -> chaves diferentes', () => {
-    const a = chaveGrupoConcorrente(campanha({ tela: 'Agenda' }))
-    const b = chaveGrupoConcorrente(campanha({ tela: 'Faturamento' }))
-    assert.notEqual(a, b)
+  test('sem `regras`: telas diferentes -> não concorrem', () => {
+    assert.equal(concorrem(campanha({ tela: 'Agenda' }), campanha({ tela: 'Faturamento' })), false)
   })
 
-  test('sistemas diferentes -> chaves diferentes mesmo com a mesma tela', () => {
-    const a = chaveGrupoConcorrente(campanha({ sistema: 'esig' }))
-    const b = chaveGrupoConcorrente(campanha({ sistema: 'quark' }))
-    assert.notEqual(a, b)
+  test('sem `regras`: sistemas diferentes, mesma tela -> não concorrem', () => {
+    assert.equal(concorrem(campanha({ sistema: 'esig' }), campanha({ sistema: 'quark' })), false)
   })
 
-  test('url_contem: mesma sistema+url_contem -> mesma chave', () => {
-    const a = chaveGrupoConcorrente(campanha({ modo_identificacao: 'url_contem', url_contem: '/agenda', tela: null }))
-    const b = chaveGrupoConcorrente(campanha({ modo_identificacao: 'url_contem', url_contem: '/agenda', tela: null }))
-    assert.equal(a, b)
-    assert.ok(a)
+  test('sem `regras`: url_contem igual -> concorrem; url_contem vazio -> sem chave', () => {
+    const a = campanha({ modo_identificacao: 'url_contem', url_contem: '/agenda', tela: null })
+    const b = campanha({ modo_identificacao: 'url_contem', url_contem: '/agenda', tela: null })
+    assert.equal(concorrem(a, b), true)
+    assert.deepEqual(chavesGrupoConcorrente(campanha({ modo_identificacao: 'url_contem', url_contem: null, tela: null })), [])
   })
 
-  test('url_contem sem valor -> sem grupo (null)', () => {
-    assert.equal(chaveGrupoConcorrente(campanha({ modo_identificacao: 'url_contem', url_contem: null })), null)
+  test('sistema_tela e url_contem com o mesmo texto nunca competem', () => {
+    const a = campanha({ modo_identificacao: 'sistema_tela', tela: 'Agenda' })
+    const b = campanha({ modo_identificacao: 'url_contem', url_contem: 'Agenda', tela: null })
+    assert.equal(concorrem(a, b), false)
   })
 
-  test('sistema_tela e url_contem nunca competem entre si', () => {
-    const a = chaveGrupoConcorrente(campanha({ modo_identificacao: 'sistema_tela', tela: 'Agenda' }))
-    const b = chaveGrupoConcorrente(campanha({ modo_identificacao: 'url_contem', url_contem: 'Agenda' }))
-    assert.notEqual(a, b)
+  test('data_cy AGORA forma grupo: mesmo sistema + mesmo data-cy -> concorrem', () => {
+    const a = campanha({ modo_identificacao: 'data_cy', data_cy: 'btn-x', tela: null })
+    const b = campanha({ modo_identificacao: 'data_cy', data_cy: 'btn-x', tela: null })
+    assert.equal(concorrem(a, b), true)
+    assert.deepEqual(chavesGrupoConcorrente(campanha({ modo_identificacao: 'data_cy', data_cy: null, tela: null })), [])
   })
 
-  test('data_cy nunca forma grupo -> sempre null', () => {
-    assert.equal(chaveGrupoConcorrente(campanha({ modo_identificacao: 'data_cy' })), null)
+  test('gatilho: apos_evento com eventos diferentes -> não concorrem; ao_abrir_tela x apos_evento -> não concorrem', () => {
+    assert.equal(concorrem(
+      campanha({ gatilho: 'apos_evento', evento: 'salvou_ficha' }),
+      campanha({ gatilho: 'apos_evento', evento: 'abriu_relatorio' }),
+    ), false)
+    assert.equal(concorrem(
+      campanha({ gatilho: 'ao_abrir_tela' }),
+      campanha({ gatilho: 'apos_evento', evento: 'salvou_ficha' }),
+    ), false)
   })
 
-  test('apos_evento com eventos diferentes -> chaves diferentes', () => {
-    const a = chaveGrupoConcorrente(campanha({ gatilho: 'apos_evento', evento: 'salvou_ficha' }))
-    const b = chaveGrupoConcorrente(campanha({ gatilho: 'apos_evento', evento: 'abriu_relatorio' }))
-    assert.notEqual(a, b)
+  // ── Com `regras`: múltiplas telas/URLs ──
+  type RegraT = NonNullable<CampanhaGrupoInput['regras']>[number]
+  const regra = (o: Partial<RegraT>): RegraT =>
+    ({ modo_identificacao: 'sistema_tela', tela: null, url_contem: null, data_cy: null, ...o })
+
+  test('concorrência só pela regra base (1 regra cada) preservada', () => {
+    const a = campanha({ id: 'a', regras: [regra({ tela: 'Agenda' })] })
+    const b = campanha({ id: 'b', regras: [regra({ tela: 'Agenda' })] })
+    assert.equal(concorrem(a, b), true)
   })
 
-  test('ao_abrir_tela e apos_evento (mesma tela) nunca competem entre si', () => {
-    const a = chaveGrupoConcorrente(campanha({ gatilho: 'ao_abrir_tela' }))
-    const b = chaveGrupoConcorrente(campanha({ gatilho: 'apos_evento', evento: 'salvou_ficha' }))
-    assert.notEqual(a, b)
+  test('concorrência só por TELA adicional', () => {
+    const a = campanha({ id: 'a', tela: 'Agenda', regras: [regra({ tela: 'Agenda' }), regra({ tela: 'Config' })] })
+    const b = campanha({ id: 'b', tela: 'Home', regras: [regra({ tela: 'Home' }), regra({ tela: 'Config' })] })
+    assert.equal(concorrem(a, b), true) // compartilham "Config"
+  })
+
+  test('concorrência só por URL_CONTEM adicional', () => {
+    const a = campanha({ id: 'a', regras: [regra({ tela: 'Agenda' }), regra({ modo_identificacao: 'url_contem', url_contem: '/x' })] })
+    const b = campanha({ id: 'b', regras: [regra({ tela: 'Home' }), regra({ modo_identificacao: 'url_contem', url_contem: '/x' })] })
+    assert.equal(concorrem(a, b), true)
+  })
+
+  test('nenhuma regra em comum -> não concorrem', () => {
+    const a = campanha({ id: 'a', regras: [regra({ tela: 'Agenda' }), regra({ tela: 'Config' })] })
+    const b = campanha({ id: 'b', regras: [regra({ tela: 'Home' }), regra({ tela: 'Relatorios' })] })
+    assert.equal(concorrem(a, b), false)
+  })
+
+  test('mais de uma regra coincidente -> chave dedup, não conta duas vezes', () => {
+    const a = campanha({ id: 'a', regras: [regra({ tela: 'Agenda' }), regra({ tela: 'Agenda' }), regra({ tela: 'Config' })] })
+    assert.deepEqual(chavesGrupoConcorrente(a).sort(), [
+      'esig::tela::Agenda::ao_abrir_tela',
+      'esig::tela::Config::ao_abrir_tela',
+    ])
   })
 })
 

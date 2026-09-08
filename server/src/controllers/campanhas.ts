@@ -1671,30 +1671,61 @@ export async function atualizar(req: Request, res: Response) {
 // de ids do grupo na nova ordem (nunca um subconjunto), e `prioridade` é
 // sempre derivada da posição no array — nunca aceita valor explícito do
 // cliente. Primeiro id da lista = maior prioridade.
+export interface RegraGrupoInput {
+  modo_identificacao: string
+  tela: string | null
+  url_contem: string | null
+  data_cy: string | null
+}
+
 export interface CampanhaGrupoInput {
   id: string
   sistema: string
-  tela: string | null
-  modo_identificacao: string
-  url_contem: string | null
   gatilho: string
   evento: string | null
+  // Regra base (colunas legadas) — usada só como fallback quando `regras`
+  // não veio carregada (chamada antiga / objeto sintético de teste).
+  modo_identificacao: string
+  tela: string | null
+  url_contem: string | null
+  data_cy: string | null
+  // Todas as regras de exibição da campanha (múltiplas telas/URLs). Quando
+  // presente, é a fonte de verdade da concorrência; ausente/vazia => cai na
+  // regra base acima (1 chave, como antes).
+  regras?: RegraGrupoInput[]
 }
 
-// Mesma chave de "quem compete com quem" usada em testarElegibilidade/
-// competidores acima: sistema + (tela, se modo_identificacao=sistema_tela)
-// ou (url_contem, se modo_identificacao=url_contem) + gatilho(+evento, se
-// apos_evento). Campanha em modo data_cy nunca forma grupo — mesma limitação
-// documentada lá ("data_cy: can't verify remotely") — retorna null.
-export function chaveGrupoConcorrente(c: CampanhaGrupoInput): string | null {
-  const gatilhoParte = c.gatilho === 'apos_evento' && c.evento ? `apos_evento:${c.evento}` : 'ao_abrir_tela'
-  if (c.modo_identificacao === 'sistema_tela') {
-    return `${c.sistema}::tela::${c.tela ?? ''}::${gatilhoParte}`
-  }
-  if (c.modo_identificacao === 'url_contem' && c.url_contem) {
-    return `${c.sistema}::url::${c.url_contem}::${gatilhoParte}`
-  }
+function parteGatilhoGrupo(c: Pick<CampanhaGrupoInput, 'gatilho' | 'evento'>): string {
+  return c.gatilho === 'apos_evento' && c.evento ? `apos_evento:${c.evento}` : 'ao_abrir_tela'
+}
+
+// Chave de UMA regra de exibição, ou null quando a regra não define um alvo
+// comparável (modo desconhecido, ou campo do modo vazio). sistema+gatilho
+// entram na chave (vêm da campanha, não da regra).
+function chaveDeRegra(sistema: string, gatilhoParte: string, r: RegraGrupoInput): string | null {
+  if (r.modo_identificacao === 'sistema_tela') return `${sistema}::tela::${r.tela ?? ''}::${gatilhoParte}`
+  if (r.modo_identificacao === 'url_contem') return r.url_contem ? `${sistema}::url::${r.url_contem}::${gatilhoParte}` : null
+  if (r.modo_identificacao === 'data_cy') return r.data_cy ? `${sistema}::datacy::${r.data_cy}::${gatilhoParte}` : null
   return null
+}
+
+// Conjunto (deduplicado) de chaves de "quem compete com quem" — UMA por
+// regra de exibição da campanha. Duas campanhas concorrem quando compartilham
+// pelo menos uma chave. Considera sistema_tela, url_contem E data_cy (antes
+// data_cy nunca formava grupo). Campanha sem `regras` carregada cai na regra
+// base das colunas legadas, produzindo exatamente as mesmas chaves de antes
+// para sistema_tela/url_contem (campanha antiga de 1 regra inalterada).
+export function chavesGrupoConcorrente(c: CampanhaGrupoInput): string[] {
+  const gatilhoParte = parteGatilhoGrupo(c)
+  const regras: RegraGrupoInput[] = c.regras && c.regras.length > 0
+    ? c.regras
+    : [{ modo_identificacao: c.modo_identificacao, tela: c.tela, url_contem: c.url_contem, data_cy: c.data_cy }]
+  const chaves = new Set<string>()
+  for (const r of regras) {
+    const k = chaveDeRegra(c.sistema, gatilhoParte, r)
+    if (k) chaves.add(k)
+  }
+  return [...chaves]
 }
 
 // `idsDoGrupo` é o subconjunto (calculado pelo controller via
@@ -1726,7 +1757,10 @@ export function calcularPrioridadesReordenadas(ids: string[]): Array<{ id: strin
   return ids.map((id, i) => ({ id, prioridade: total - i }))
 }
 
-const SELECT_GRUPO_CONCORRENTE = { id: true, sistema: true, tela: true, modo_identificacao: true, url_contem: true, gatilho: true, evento: true } as const
+const SELECT_GRUPO_CONCORRENTE = {
+  id: true, sistema: true, tela: true, modo_identificacao: true, url_contem: true, data_cy: true, gatilho: true, evento: true,
+  regras: { select: { modo_identificacao: true, tela: true, url_contem: true, data_cy: true } },
+} as const
 
 export async function reordenar(req: Request, res: Response) {
   try {
@@ -1753,20 +1787,33 @@ export async function reordenar(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Lista de campanhas inválida.' })
     }
 
-    const chaves = new Set(campanhasSolicitadas.map(chaveGrupoConcorrente))
-    if (chaves.size !== 1 || chaves.has(null)) {
+    // Múltiplas telas/URLs: as campanhas submetidas precisam compartilhar
+    // PELO MENOS uma chave de grupo (uma regra de exibição equivalente no
+    // mesmo sistema/gatilho). Antes exigia UMA chave única e igual pra todas.
+    const conjuntos = campanhasSolicitadas.map(c => new Set(chavesGrupoConcorrente(c)))
+    const chavesComuns = [...conjuntos[0]].filter(k => conjuntos.every(s => s.has(k))).sort()
+    if (chavesComuns.length === 0) {
       return res.status(400).json({ erro: 'As campanhas informadas não formam um grupo de prioridade válido.' })
     }
-    const chave = campanhasSolicitadas.map(chaveGrupoConcorrente)[0] as string
 
     const candidatosDoGrupo = await prisma.campanha.findMany({
       where: { tenant_id: tenantId, sistema: campanhasSolicitadas[0].sistema },
       select: SELECT_GRUPO_CONCORRENTE,
     })
-    const idsDoGrupo = candidatosDoGrupo.filter(c => chaveGrupoConcorrente(c) === chave).map(c => c.id)
 
-    const { erro, ids } = validarIdsReordenacao(idsSolicitados, idsDoGrupo)
-    if (erro) return res.status(400).json({ erro })
+    // A lista submetida tem que ser EXATAMENTE o grupo definido por alguma
+    // das chaves comuns (o front sempre envia um grupo inteiro de
+    // agruparCampanhasConcorrentes). Testa cada chave comum; a primeira cujo
+    // grupo bate exatamente vale.
+    let ids: string[] | null = null
+    for (const chave of chavesComuns) {
+      const idsDoGrupo = candidatosDoGrupo.filter(c => chavesGrupoConcorrente(c).includes(chave)).map(c => c.id)
+      const r = validarIdsReordenacao(idsSolicitados, idsDoGrupo)
+      if (!r.erro) { ids = r.ids; break }
+    }
+    if (!ids) {
+      return res.status(400).json({ erro: 'A lista precisa conter exatamente todas as campanhas do grupo de prioridade selecionado.' })
+    }
 
     const prioridades = calcularPrioridadesReordenadas(ids)
     await prisma.$transaction(
