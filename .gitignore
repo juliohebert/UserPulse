@@ -4,6 +4,11 @@ build/
 coverage/
 *.log
 
+# artefato de build: hash de conteúdo de web/dist/widget.js, gerado por
+# `npm run build` (web/scripts/gerar-widget-version.mjs). Nunca versionar —
+# valor stale no repo mascararia o hash real do build.
+.widget-version
+
 # variáveis de ambiente (nunca versionar)
 .env
 .env.local
