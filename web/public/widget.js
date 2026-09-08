@@ -258,11 +258,6 @@
       // pro svg (qualquer regra/estilo do site hospedeiro que reset color
       // no meio do caminho não quebra o ícone).
       '.up-brand-icon svg{width:18px;height:18px;color:var(--up-primary, #0058be);fill:currentColor;flex-shrink:0}',
-      // Com logo do sistema/tenant: fundo branco + borda sutil (a logo tem
-      // suas próprias cores e precisa de contraste próprio), a imagem cabe
-      // dentro dos 32px sem distorcer (contain) e sem vazar (overflow).
-      '.up-brand-icon.up-brand-icon-logo{background:#fff;border:1px solid rgba(194,198,214,.55);overflow:hidden}',
-      '.up-brand-logo{width:100%;height:100%;object-fit:contain;padding:3px;box-sizing:border-box}',
       // Sem white-space:nowrap/overflow:hidden/text-overflow:ellipsis — título
       // grande agora quebra linha em vez de truncar com "...", igual ao
       // preview do formulário de campanhas (CardEditavel/PreviewCampanhaModal, ver
@@ -1337,21 +1332,6 @@
     return corpo + nav;
   }
 
-  // Marca do cabeçalho da modal (inclui a pesquisa NPS): usa a logo do
-  // sistema/tenant (tourState.aparencia.logo_url, resolvido por
-  // GET /api/widget/aparencia com fallback sistema -> tenant -> padrão)
-  // quando houver; senão o ícone padrão por tipo de campanha. onerror
-  // reverte pro ícone e desfaz o fundo branco (up-brand-icon-logo) — logo
-  // quebrada nunca deixa o cabeçalho vazio nem quebra o layout.
-  function campanhaBrandIcone(campanha, aparencia) {
-    var logo = aparencia && typeof aparencia.logo_url === 'string' ? aparencia.logo_url.trim() : '';
-    if (!logo) return icon(campaignIconName(campanha));
-    return '<img src="' + escapeHtml(logo) + '" alt="" class="up-brand-logo" ' +
-      'onerror="this.style.display=\'none\';var b=this.parentElement;if(b)b.classList.remove(\'up-brand-icon-logo\');' +
-      'var f=this.nextElementSibling;if(f)f.style.display=\'flex\'" />' +
-      '<span class="up-brand-fallback" style="display:none">' + icon(campaignIconName(campanha)) + '</span>';
-  }
-
   function renderModal(animate) {
     var campanha = state.campanha;
     if (!state.open) return '';
@@ -1444,7 +1424,7 @@
     return [
       '<div class="' + modalClass + '" role="dialog" aria-modal="true" aria-label="' + escapeHtml(campanha.titulo) + '">',
       '<div class="up-modal-header">',
-      '<div class="up-brand"><div class="up-brand-icon' + ((tourState.aparencia && tourState.aparencia.logo_url) ? ' up-brand-icon-logo' : '') + '">' + campanhaBrandIcone(campanha, tourState.aparencia) + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
+      '<div class="up-brand"><div class="up-brand-icon">' + icon(campaignIconName(campanha)) + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
       campanha.permitir_fechar_modal !== false ? '<button type="button" class="up-close" aria-label="Fechar campanha" title="Fechar" data-up-toggle="true">' + icon('close') + '</button>' : '',
       '</div>',
       '<div class="up-body">',
@@ -3762,8 +3742,8 @@
       }
       if (tourState.ativo && tourState.tela === 'intro') renderTour();
       // Modal de campanha (inclui a pesquisa NPS) já na tela quando a
-      // aparência chega: re-renderiza pra refletir cor principal (--up-primary
-      // via aplicarAparenciaCss) e logo no cabeçalho. state.nota/observacao/
+      // aparência chega: re-renderiza pra refletir a cor principal
+      // (--up-primary via aplicarAparenciaCss). state.nota/observacao/
       // submitted são lidos do state, então nada digitado se perde.
       if (state.open && state.campanha && !tourState.ativo) render();
     }
@@ -3852,9 +3832,9 @@
             state.campanha = campanha;
             // Modo slug sem `sistema` no init(): a aparência não foi buscada
             // acima. A campanha carrega o próprio `sistema` — usa ele pra
-            // resolver cor/logo (mesmo endpoint, mesmo fallback sistema ->
-            // tenant -> padrão). Sem isso, uma pesquisa NPS aberta por slug
-            // ficaria sempre com a aparência genérica.
+            // resolver a cor principal (mesmo endpoint, mesmo fallback
+            // sistema -> tenant -> padrão). Sem isso, uma pesquisa NPS aberta
+            // por slug ficaria sempre com a cor genérica.
             if (!aparenciaFetch && campanha.sistema) {
               var afSlug = fetchAparenciaComTimeout(campanha.sistema);
               aparenciaPromise = afSlug.pronta.then(function (ap) {
@@ -11604,10 +11584,6 @@
     // paridade com iconeTipoCampanha/ICONES_TIPO_CAMPANHA (CampanhaForm.tsx,
     // "preview"), a mesma regra do lado do admin. Ver server/src/widgetCampaignIcon.test.ts.
     campaignIconName: campaignIconName,
-    // Marca do cabeçalho da modal/NPS: logo do sistema/tenant (aparencia
-    // .logo_url) ou ícone por tipo. Pura — recebe a aparência resolvida.
-    // Ver server/src/widgetCampanhaBrandIdentidade.test.ts.
-    campanhaBrandIcone: campanhaBrandIcone,
     // Observação do NPS por categoria da nota — funções puras (nota ->
     // categoria; config -> visível/mensagem; obrigatoriedade efetiva). Ver
     // server/src/widgetNpsObservacaoCategoria.test.ts.
