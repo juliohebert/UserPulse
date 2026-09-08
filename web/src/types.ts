@@ -1,5 +1,14 @@
 import type { RichTextDocument } from './components/richText/types'
 
+// NPS: config do campo de observação por categoria da nota (promotor 9-10 /
+// neutro 7-8 / detrator 0-6). Espelha server/src/lib/observacaoCategorias.ts.
+export type CategoriaNps = 'promotor' | 'neutro' | 'detrator'
+export interface ObservacaoCategoriaConfig {
+  habilitado: boolean
+  mensagem: string
+}
+export type ObservacaoCategorias = Partial<Record<CategoriaNps, ObservacaoCategoriaConfig>>
+
 export interface Campanha {
   id: string
   slug: string
@@ -40,6 +49,9 @@ export interface Campanha {
   data_fim: string | null
   pergunta_feedback: string | null
   observacao_obrigatoria: boolean
+  // NPS: config do campo de observação por categoria da nota. null = legado
+  // (campo sempre visível). Ver server/src/lib/observacaoCategorias.ts.
+  observacao_categorias: ObservacaoCategorias | null
   exige_confirmacao_leitura: boolean
   permitir_fechar_modal: boolean
   intervalo_reexibicao_dias: number | null

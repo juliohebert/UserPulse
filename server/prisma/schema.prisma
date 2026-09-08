@@ -526,6 +526,15 @@ model Campanha {
   data_fim                  DateTime?
   pergunta_feedback         String?
   observacao_obrigatoria    Boolean        @default(false)
+  // NPS: configuração do campo de observação por categoria da nota
+  // (promotor 9-10 / neutro 7-8 / detrator 0-6). Formato:
+  // { "<categoria>": { "habilitado": bool, "mensagem": string } } — chaves
+  // opcionais. null (todo legado + criação sem a UI) => comportamento atual:
+  // campo sempre visível, placeholder padrão, observacao_obrigatoria global.
+  // Categoria ausente => mesmo fallback legado. Ver
+  // server/src/lib/observacaoCategorias.ts (validação) e widget.js
+  // (resolverObservacaoNps).
+  observacao_categorias     Json?
   exige_confirmacao_leitura Boolean        @default(false)
   permitir_fechar_modal     Boolean        @default(true)
   intervalo_reexibicao_dias Int?

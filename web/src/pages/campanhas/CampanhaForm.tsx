@@ -25,6 +25,9 @@ import {
   TIPOS_CAMPANHA,
   formInicial,
   regraExtraVazia,
+  CATEGORIAS_NPS,
+  CATEGORIA_NPS_LABEL,
+  resolverObservacaoCategoria,
   converterVideoEmbed,
   normalizarImagemUrl,
   pareceUrlVideo,
@@ -1417,6 +1420,58 @@ function DockLateral({
               </label>
             </div>
           )}
+
+          {/* NPS: campo de comentário configurável por categoria da nota.
+              Desligado (padrão) => comportamento atual. */}
+          {form.feedback_habilitado && (
+            <div className="space-y-3 rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3">
+              <label className="flex items-start gap-3 text-[13px] font-semibold leading-5 text-[#1c1e21]">
+                <input
+                  type="checkbox"
+                  checked={form.observacao_por_categoria}
+                  onChange={event => setCampo('observacao_por_categoria', event.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[#0064e0]"
+                />
+                <span>
+                  <span className="block font-bold">Personalizar o comentário por categoria da nota</span>
+                  <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-[#5d6c7b]">Habilite/desabilite o campo aberto e defina uma mensagem para promotores (9–10), neutros (7–8) e detratores (0–6).</span>
+                </span>
+              </label>
+              {form.observacao_por_categoria && (
+                <div className="space-y-3 border-t border-[#dee3e9] pt-3">
+                  {CATEGORIAS_NPS.map(cat => {
+                    const conf = form.observacao_categorias[cat]
+                    const setCat = (patch: Partial<typeof conf>) =>
+                      setCampo('observacao_categorias', { ...form.observacao_categorias, [cat]: { ...conf, ...patch } })
+                    return (
+                      <div key={cat} className="rounded-xl border border-[#e6e9ee] bg-white px-3 py-2.5">
+                        <label className="flex items-center gap-2 text-[13px] font-bold text-[#1c1e21]">
+                          <input
+                            type="checkbox"
+                            checked={conf.habilitado}
+                            onChange={e => setCat({ habilitado: e.target.checked })}
+                            className="h-4 w-4 shrink-0 accent-[#0064e0]"
+                          />
+                          {CATEGORIA_NPS_LABEL[cat]}
+                        </label>
+                        <input
+                          value={conf.mensagem}
+                          onChange={e => setCat({ mensagem: e.target.value })}
+                          disabled={!conf.habilitado}
+                          maxLength={280}
+                          placeholder={conf.habilitado ? 'Mensagem do campo de comentário (opcional)' : 'Comentário desativado para esta categoria'}
+                          className="mt-2 w-full rounded-lg border border-[#dee3e9] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#1c1e21] disabled:bg-[#f1f3f5] disabled:text-[#9aa3ad]"
+                        />
+                      </div>
+                    )
+                  })}
+                  <p className="text-[11px] font-semibold leading-4 text-[#5d6c7b]">
+                    Mensagem em branco = texto padrão do campo. Categoria desativada = o comentário não aparece (e "exigir observação" não se aplica a ela).
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
           {acaoFinal === 'visualizacao' ? (
             <div className="rounded-2xl border border-[#dee3e9] bg-[#f8f9ff] px-4 py-3 text-[12px] font-semibold leading-4 text-[#5d6c7b]">
               Nesta opção, o usuário sempre pode fechar a campanha porque não há ação obrigatória.
@@ -1666,16 +1721,24 @@ function CardEditavel({
     onAplicarLinkMidiaConteudo(indiceAtivo, valor)
   }
 
+  // "exigir observação" só bloqueia quando o campo está de fato visível pra
+  // categoria da nota escolhida (toggle por categoria ligado + não desativada).
+  function observacaoObrigatoriaPreview() {
+    if (!form.observacao_obrigatoria) return false
+    if (!form.observacao_por_categoria) return true
+    return resolverObservacaoCategoria(form.observacao_categorias, notaFeedbackPreview).visivel
+  }
+
   function simularEnvioConstrutor() {
     if (form.feedback_habilitado && notaFeedbackPreview == null) { setMensagemSimulacao({ tipo: 'aviso', texto: 'Selecione uma nota para enviar.' }); return }
-    if (form.observacao_obrigatoria && !observacaoFeedbackPreview.trim()) { setMensagemSimulacao({ tipo: 'erro', texto: 'Preencha a observação obrigatória para continuar.' }); return }
+    if (observacaoObrigatoriaPreview() && !observacaoFeedbackPreview.trim()) { setMensagemSimulacao({ tipo: 'erro', texto: 'Preencha a observação obrigatória para continuar.' }); return }
     if (form.exige_confirmacao_leitura && !confirmadoConstrutor) { setMensagemSimulacao({ tipo: 'aviso', texto: 'Confirme a leitura antes de continuar.' }); return }
     if (preview && !form.permitir_fechar_modal && onFecharPreview) { onFecharPreview(); return }
     setMensagemSimulacao({ tipo: 'sucesso', texto: 'Obrigado! Resposta registrada nesta prévia.' })
   }
 
   function simularCta() {
-    if (form.observacao_obrigatoria && !observacaoFeedbackPreview.trim()) { setMensagemSimulacao({ tipo: 'erro', texto: 'Preencha a observação obrigatória antes de continuar.' }); return }
+    if (observacaoObrigatoriaPreview() && !observacaoFeedbackPreview.trim()) { setMensagemSimulacao({ tipo: 'erro', texto: 'Preencha a observação obrigatória antes de continuar.' }); return }
     if (form.exige_confirmacao_leitura && !confirmadoConstrutor) { setMensagemSimulacao({ tipo: 'aviso', texto: 'Confirme a leitura antes de continuar.' }); return }
     setMensagemSimulacao({ tipo: 'sucesso', texto: `Ação "${textoCta}" concluída.` })
   }
@@ -1878,6 +1941,17 @@ function CardEditavel({
     />
   )
 
+  // Observação por categoria (NPS) nos previews: com o toggle ligado, o campo
+  // só aparece depois da nota e some quando a categoria está desativada;
+  // a mensagem configurada vira o placeholder.
+  const obsPreviewConstrutor = form.observacao_por_categoria
+    ? resolverObservacaoCategoria(form.observacao_categorias, notaFeedbackPreview)
+    : { legado: true, visivel: true, mensagem: null }
+  const obsConstrutorVisivel = obsPreviewConstrutor.visivel
+  const obsConstrutorPlaceholder = obsPreviewConstrutor.legado
+    ? 'Conte mais sobre sua resposta...'
+    : (obsPreviewConstrutor.mensagem || 'Conte mais sobre sua resposta...')
+
   const blocoFeedback = form.feedback_habilitado ? (
     <div className="border-t border-outline-variant/40 pt-3">
       {mensagemSimulacao && (
@@ -1915,13 +1989,15 @@ function CardEditavel({
           </button>
         ))}
       </div>
-      <textarea
-        rows={3}
-        value={observacaoFeedbackPreview}
-        onChange={event => { setObservacaoFeedbackPreview(event.target.value); if (mensagemSimulacao?.tipo !== 'sucesso') setMensagemSimulacao(null) }}
-        placeholder="Conte mais sobre sua resposta..."
-        className="mt-2 w-full resize-none rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-2 text-body-md leading-5 text-on-surface outline-none transition placeholder:text-outline focus:border-primary focus:ring-2 focus:ring-primary/20"
-      />
+      {obsConstrutorVisivel && (
+        <textarea
+          rows={3}
+          value={observacaoFeedbackPreview}
+          onChange={event => { setObservacaoFeedbackPreview(event.target.value); if (mensagemSimulacao?.tipo !== 'sucesso') setMensagemSimulacao(null) }}
+          placeholder={obsConstrutorPlaceholder}
+          className="mt-2 w-full resize-none rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-2 text-body-md leading-5 text-on-surface outline-none transition placeholder:text-outline focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
+      )}
       <button
         type="button"
         onClick={simularEnvioConstrutor}
@@ -2228,9 +2304,20 @@ function PreviewCampanhaModal({ form, aparencia, onClose }: {
   const itensConteudoExibidos = usaSlidesPreview ? [conteudosPreview[indiceConteudoSeguro]] : conteudosPreview
   const mostrarTituloPorConteudo = conteudosPreview.length > 1
 
+  // Observação por categoria (NPS) — mesma regra do widget: com o toggle
+  // ligado, o campo só aparece depois da nota e some quando a categoria
+  // daquela nota está desativada; a mensagem configurada vira placeholder.
+  const obsPreviewModal = form.observacao_por_categoria
+    ? resolverObservacaoCategoria(form.observacao_categorias, nota)
+    : { legado: true, visivel: true, mensagem: null }
+  const obsModalPlaceholderPadrao = form.observacao_obrigatoria ? 'Obrigatório: escreva sua observação...' : 'Observação (opcional)'
+  const obsModalVisivel = obsPreviewModal.visivel
+  const obsModalPlaceholder = obsPreviewModal.legado ? obsModalPlaceholderPadrao : (obsPreviewModal.mensagem || obsModalPlaceholderPadrao)
+  const obsModalObrigatoria = form.observacao_obrigatoria && obsModalVisivel
+
   function simularEnvio() {
     if (nota === null) return
-    if (form.observacao_obrigatoria && !observacao.trim()) {
+    if (obsModalObrigatoria && !observacao.trim()) {
       setErro('Observação obrigatória')
       return
     }
@@ -2403,13 +2490,15 @@ function PreviewCampanhaModal({ form, aparencia, onClose }: {
                     </div>
                     <div className="mt-1.5 flex justify-between text-[10px] font-extrabold uppercase leading-[14px] text-[#727785]"><span>Ruim</span><span>Excelente</span></div>
                   </div>
-                  <textarea
-                    value={observacao}
-                    onChange={event => { setObservacao(event.target.value); setErro('') }}
-                    placeholder={form.observacao_obrigatoria ? 'Obrigatório: escreva sua observação...' : 'Observação (opcional)'}
-                    className="min-h-[72px] w-full resize-y rounded-xl border border-[#c2c6d6] bg-[#f8f9ff] px-3 py-2.5 text-[14px] leading-5 text-[#0b1c30] outline-none focus:border-[#0058be] focus:shadow-[0_0_0_3px_rgba(0,88,190,.16)]"
-                  />
-                  {form.observacao_obrigatoria && <p className="m-[-8px_0_0] text-[11px] leading-4 text-[#ba1a1a]">Observação obrigatória</p>}
+                  {obsModalVisivel && (
+                    <textarea
+                      value={observacao}
+                      onChange={event => { setObservacao(event.target.value); setErro('') }}
+                      placeholder={obsModalPlaceholder}
+                      className="min-h-[72px] w-full resize-y rounded-xl border border-[#c2c6d6] bg-[#f8f9ff] px-3 py-2.5 text-[14px] leading-5 text-[#0b1c30] outline-none focus:border-[#0058be] focus:shadow-[0_0_0_3px_rgba(0,88,190,.16)]"
+                    />
+                  )}
+                  {obsModalObrigatoria && <p className="m-[-8px_0_0] text-[11px] leading-4 text-[#ba1a1a]">Observação obrigatória</p>}
                   {erro && <p className="m-0 text-[12px] leading-4 text-[#ba1a1a]">{erro}</p>}
                   <button type="button" disabled={nota === null} onClick={simularEnvio} style={{ backgroundColor: corAcao }} className="h-[42px] w-full rounded-xl border-0 text-[12px] font-extrabold leading-4 text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
                     Enviar Feedback

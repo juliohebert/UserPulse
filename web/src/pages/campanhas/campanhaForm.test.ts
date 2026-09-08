@@ -19,6 +19,9 @@ import {
   corSistemaTranslucida,
   extrairDriveFileId,
   normalizarImagemUrl,
+  hidratarObservacaoCategorias,
+  resolverObservacaoCategoria,
+  categoriaDaNota,
   type FormState,
 } from './campanhaForm.utils'
 
@@ -875,5 +878,91 @@ describe('montarPayloadCampanha — persiste o imagem_url já normalizado (Drive
   test('URL normal segue intacta no payload', () => {
     const p = montarPayloadCampanha(baseForm({ imagem_url: 'https://cdn.exemplo.com/x.png' }))
     assert.equal(p.imagem_url, 'https://cdn.exemplo.com/x.png')
+  })
+})
+
+// ─── NPS: observação por categoria da nota ────────────────────────────────
+describe('observação por categoria (NPS) — hidratar / payload / resolver', () => {
+  test('legado: campanha sem observacao_categorias -> toggle off, defaults', () => {
+    const form = hidratarFormState(campanhaAntiga())
+    assert.equal(form.observacao_por_categoria, false)
+    assert.deepEqual(form.observacao_categorias, {
+      promotor: { habilitado: true, mensagem: '' },
+      neutro: { habilitado: true, mensagem: '' },
+      detrator: { habilitado: true, mensagem: '' },
+    })
+  })
+
+  test('legado: payload manda observacao_categorias: null (comportamento atual preservado)', () => {
+    const p = montarPayloadCampanha(hidratarFormState(campanhaAntiga()))
+    assert.equal(p.observacao_categorias, null)
+  })
+
+  test('com config: toggle on, cada categoria hidratada; categoria ausente cai no default', () => {
+    const c = campanhaAntiga({
+      observacao_categorias: {
+        promotor: { habilitado: true, mensagem: 'O que te encantou?' },
+        detrator: { habilitado: false, mensagem: 'Sentimos muito' },
+      },
+    } as Partial<Campanha>)
+    const form = hidratarFormState(c)
+    assert.equal(form.observacao_por_categoria, true)
+    assert.deepEqual(form.observacao_categorias.promotor, { habilitado: true, mensagem: 'O que te encantou?' })
+    assert.deepEqual(form.observacao_categorias.detrator, { habilitado: false, mensagem: 'Sentimos muito' })
+    assert.deepEqual(form.observacao_categorias.neutro, { habilitado: true, mensagem: '' }) // ausente -> default
+  })
+
+  test('round-trip: salvar/editar preserva a config (mensagens são trimadas)', () => {
+    const c = campanhaAntiga({
+      observacao_categorias: {
+        promotor: { habilitado: true, mensagem: '  Conte mais  ' },
+        neutro: { habilitado: true, mensagem: '' },
+        detrator: { habilitado: false, mensagem: '' },
+      },
+    } as Partial<Campanha>)
+    const p = montarPayloadCampanha(hidratarFormState(c))
+    assert.deepEqual(p.observacao_categorias, {
+      promotor: { habilitado: true, mensagem: 'Conte mais' },
+      neutro: { habilitado: true, mensagem: '' },
+      detrator: { habilitado: false, mensagem: '' },
+    })
+  })
+
+  test('toggle desligado no form -> payload volta a null mesmo com categorias preenchidas', () => {
+    const form = hidratarFormState(campanhaAntiga({
+      observacao_categorias: { promotor: { habilitado: true, mensagem: 'x' } },
+    } as Partial<Campanha>))
+    form.observacao_por_categoria = false
+    assert.equal(montarPayloadCampanha(form).observacao_categorias, null)
+  })
+
+  test('hidratarObservacaoCategorias: null -> 3 categorias no default', () => {
+    assert.deepEqual(hidratarObservacaoCategorias(null), {
+      promotor: { habilitado: true, mensagem: '' },
+      neutro: { habilitado: true, mensagem: '' },
+      detrator: { habilitado: true, mensagem: '' },
+    })
+  })
+
+  test('categoriaDaNota: 9-10 promotor, 7-8 neutro, 0-6 detrator', () => {
+    assert.equal(categoriaDaNota(10), 'promotor')
+    assert.equal(categoriaDaNota(9), 'promotor')
+    assert.equal(categoriaDaNota(8), 'neutro')
+    assert.equal(categoriaDaNota(7), 'neutro')
+    assert.equal(categoriaDaNota(6), 'detrator')
+    assert.equal(categoriaDaNota(0), 'detrator')
+  })
+
+  test('resolverObservacaoCategoria: promotor usa 9-10, neutro 7-8, detrator 0-6; desativada esconde; sem nota esconde', () => {
+    const cfg = {
+      promotor: { habilitado: true, mensagem: 'P' },
+      neutro: { habilitado: true, mensagem: '' },
+      detrator: { habilitado: false, mensagem: '' },
+    }
+    assert.deepEqual(resolverObservacaoCategoria(cfg, 9), { legado: false, visivel: true, mensagem: 'P' })
+    assert.deepEqual(resolverObservacaoCategoria(cfg, 7), { legado: false, visivel: true, mensagem: null })
+    assert.deepEqual(resolverObservacaoCategoria(cfg, 3), { legado: false, visivel: false, mensagem: null })
+    assert.deepEqual(resolverObservacaoCategoria(cfg, null), { legado: false, visivel: false, mensagem: null })
+    assert.deepEqual(resolverObservacaoCategoria(null, 3), { legado: true, visivel: true, mensagem: null })
   })
 })

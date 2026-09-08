@@ -1154,6 +1154,42 @@
     return 'campaign';
   }
 
+  // ─── Observação do NPS por categoria da nota ────────────────────────────
+  // Categorias fixas: promotor (9-10) / neutro (7-8) / detrator (0-6).
+  // campanha.observacao_categorias (Json do backend, ver
+  // server/src/lib/observacaoCategorias.ts): { <categoria>: { habilitado,
+  // mensagem } }. Ausente/categoria não configurada => comportamento LEGADO
+  // (campo sempre visível, placeholder padrão, observacao_obrigatoria global).
+  function categoriaNotaNps(nota) {
+    if (nota >= 9) return 'promotor';
+    if (nota >= 7) return 'neutro';
+    return 'detrator';
+  }
+
+  // Sempre retorna { legado, visivel, mensagem }:
+  //   sem config                -> { legado:true,  visivel:true,  mensagem:null } (comportamento atual)
+  //   config + sem nota ainda   -> { legado:false, visivel:false, mensagem:null } (aguarda a nota)
+  //   categoria não configurada -> { legado:true,  visivel:true,  mensagem:null } (fallback)
+  //   categoria desabilitada    -> { legado:false, visivel:false, mensagem:null }
+  //   categoria habilitada      -> { legado:false, visivel:true,  mensagem:str|null }
+  function resolverObservacaoNps(campanha, nota) {
+    var cfg = campanha && campanha.observacao_categorias;
+    if (!cfg || typeof cfg !== 'object') return { legado: true, visivel: true, mensagem: null };
+    if (nota === null || nota === undefined) return { legado: false, visivel: false, mensagem: null };
+    var cat = cfg[categoriaNotaNps(nota)];
+    if (!cat || typeof cat !== 'object') return { legado: true, visivel: true, mensagem: null };
+    if (cat.habilitado === false) return { legado: false, visivel: false, mensagem: null };
+    var msg = (typeof cat.mensagem === 'string' && cat.mensagem.trim()) ? cat.mensagem : null;
+    return { legado: false, visivel: true, mensagem: msg };
+  }
+
+  // observacao_obrigatoria só vale se o campo estiver de fato visível — uma
+  // categoria desabilitada nunca pode bloquear o envio.
+  function observacaoObrigatoriaEfetivaNps(campanha, nota) {
+    if (!campanha || !campanha.observacao_obrigatoria) return false;
+    return resolverObservacaoNps(campanha, nota).visivel;
+  }
+
   function renderScale() {
     var buttons = [];
     for (var i = 0; i <= 10; i += 1) {
@@ -1362,14 +1398,23 @@
         '</div>',
       ].join('');
     } else if (campanha.feedback_habilitado !== false) {
+      // Observação por categoria (NPS): sem config -> comportamento legado
+      // (campo sempre visível). Com config -> só aparece depois da nota, e
+      // some quando a categoria daquela nota está desabilitada.
+      var obs = resolverObservacaoNps(campanha, state.nota);
+      var placeholderPadrao = campanha.observacao_obrigatoria ? 'Obrigatorio: escreva sua observacao...' : 'Observacao (opcional)';
+      var mostrarObs = obs.visivel;
+      var placeholderObs = obs.legado ? placeholderPadrao : (obs.mensagem || placeholderPadrao);
+      var obsObrigatoria = mostrarObs && !!campanha.observacao_obrigatoria;
+
       feedback = [
         '<div class="up-feedback-section">',
         '<p class="up-question">' + escapeHtml(question) + '</p>',
         renderScale(),
-        '<div>',
-        '<textarea class="up-textarea" data-up-observacao="true" placeholder="' + (campanha.observacao_obrigatoria ? 'Obrigatorio: escreva sua observacao...' : 'Observacao (opcional)') + '">' + escapeHtml(state.observacao) + '</textarea>',
-        '</div>',
-        campanha.observacao_obrigatoria ? '<p class="up-required">Observacao obrigatoria</p>' : '',
+        mostrarObs
+          ? '<div><textarea class="up-textarea" data-up-observacao="true" placeholder="' + escapeHtml(placeholderObs) + '">' + escapeHtml(state.observacao) + '</textarea></div>'
+          : '',
+        mostrarObs && obsObrigatoria ? '<p class="up-required">Observacao obrigatoria</p>' : '',
         state.error ? '<p class="up-error">' + escapeHtml(state.error) + '</p>' : '',
         '<button type="button" class="up-submit" data-up-submit="true" ' + (state.nota === null || state.submitting ? 'disabled' : '') + '>' + (state.submitting ? 'Enviando...' : 'Enviar Feedback') + '</button>',
         '</div>',
@@ -2948,7 +2993,17 @@
         event.stopPropagation();
         state.nota = Number(scoreButton.getAttribute('data-up-score'));
         state.error = '';
-        updateScaleUI();
+        // Sem observação por categoria a seção de feedback não depende da
+        // nota — basta o update parcial (evita churn de innerHTML). Com
+        // observacao_categorias, o textarea/placeholder/obrigatoriedade
+        // mudam conforme a categoria da nota, então re-renderiza o modal
+        // (o foco está no botão de nota, não no textarea, e state.observacao
+        // é preservado — renderModal reemite o valor).
+        if (state.campanha && state.campanha.observacao_categorias) {
+          render();
+        } else {
+          updateScaleUI();
+        }
         return;
       }
 
@@ -3349,7 +3404,7 @@
       return;
     }
 
-    if (campanha.observacao_obrigatoria && !state.observacao.trim()) {
+    if (observacaoObrigatoriaEfetivaNps(campanha, state.nota) && !state.observacao.trim()) {
       state.error = 'A observacao e obrigatoria para esta campanha.';
       render();
       return;
@@ -11507,6 +11562,12 @@
     // paridade com iconeTipoCampanha/ICONES_TIPO_CAMPANHA (CampanhaForm.tsx,
     // "preview"), a mesma regra do lado do admin. Ver server/src/widgetCampaignIcon.test.ts.
     campaignIconName: campaignIconName,
+    // Observação do NPS por categoria da nota — funções puras (nota ->
+    // categoria; config -> visível/mensagem; obrigatoriedade efetiva). Ver
+    // server/src/widgetNpsObservacaoCategoria.test.ts.
+    categoriaNotaNps: categoriaNotaNps,
+    resolverObservacaoNps: resolverObservacaoNps,
+    observacaoObrigatoriaEfetivaNps: observacaoObrigatoriaEfetivaNps,
   };
   window.UserPulse._up_ready = true;
   if (_q && _q.length) {
