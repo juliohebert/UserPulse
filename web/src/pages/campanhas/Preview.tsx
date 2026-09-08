@@ -42,6 +42,9 @@ export function CampanhaPreview() {
   // paint sairia no fallback (#0064e0) e trocaria de cor ao chegar a
   // configuração — flash visual.
   const [aparenciaCarregada, setAparenciaCarregada] = useState(false)
+  // Imagem personalizada do ícone (campanha.icone_url) falhou ao carregar ->
+  // volta pro ícone padrão. Mesmo fallback do widget real / preview do form.
+  const [iconeFalhou, setIconeFalhou] = useState(false)
   const [open, setOpen] = useState(false)
   const [nota, setNota] = useState<number | null>(null)
   const [observacao, setObservacao] = useState('')
@@ -155,6 +158,11 @@ export function CampanhaPreview() {
   // Mesma cor de ação aplicada pelo widget real e pelo preview do formulário
   // (PreviewCampanhaModal em CampanhaForm.tsx) — nunca a cor primária do admin.
   const corAcao = corSistemaValida(corPrincipalSistema)
+  // Imagem do ícone da campanha (opcional) — object-contain, com fallback pro
+  // ícone padrão quando ausente/inválida. Espelha IconeMarcaCampanha
+  // (CampanhaForm.tsx) e campanhaIconeMarca (widget.js).
+  const iconeUrl = normalizarImagemUrl((campanha.icone_url ?? '').trim())
+  const usarIconeImagem = iconeUrl !== '' && !iconeFalhou
 
   const testarElegibilidade = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -396,8 +404,13 @@ export function CampanhaPreview() {
                 {/* Cabeçalho */}
                 <div className="flex items-center justify-between border-b border-outline-variant/30 px-5 py-4">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: corSistemaTranslucida(corAcao, 0.1) }}>
-                      <span className="material-symbols-outlined text-[16px]" style={{ color: corAcao }}>campaign</span>
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden"
+                      style={usarIconeImagem ? { backgroundColor: '#fff', border: '1px solid rgba(194,198,214,.55)' } : { backgroundColor: corSistemaTranslucida(corAcao, 0.1) }}
+                    >
+                      {usarIconeImagem
+                        ? <img src={iconeUrl} alt="" className="w-full h-full object-contain p-[3px]" onError={() => setIconeFalhou(true)} />
+                        : <span className="material-symbols-outlined text-[16px]" style={{ color: corAcao }}>campaign</span>}
                     </div>
                     <h3 className="text-body-lg font-bold text-on-surface truncate">{campanha.titulo}</h3>
                   </div>

@@ -494,6 +494,12 @@ model Campanha {
   tela                      String
   imagem_url                String?
   video_url                 String?
+  // Imagem opcional que substitui o ícone padrão do cabeçalho (por tipo:
+  // pesquisa/comunicado/melhoria). null = ícone padrão. Mesma natureza de
+  // `imagem_url` (URL colada, normalizada por normalizarImagemUrl — cobre
+  // link do Google Drive). Ver CampanhaForm.tsx (IconeMarcaCampanha) e
+  // widget.js (campanhaIconeMarca). Imagem quebrada -> fallback pro ícone.
+  icone_url                 String?
   texto_botao               String?
   url_botao                 String?
   feedback_habilitado       Boolean        @default(true)

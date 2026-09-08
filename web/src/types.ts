@@ -24,6 +24,9 @@ export interface Campanha {
   tela: string
   imagem_url: string | null
   video_url: string | null
+  // Imagem opcional que substitui o ícone padrão do cabeçalho. null = ícone
+  // por tipo. Ver server/prisma/schema.prisma (Campanha.icone_url).
+  icone_url: string | null
   texto_botao: string | null
   url_botao: string | null
   feedback_habilitado: boolean

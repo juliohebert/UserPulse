@@ -1097,7 +1097,7 @@ export async function criar(req: Request, res: Response) {
 
     const {
       nome_interno, titulo, subtitulo, descricao, descricao_rich, tipo, sistema, tela,
-      imagem_url, video_url, texto_botao, url_botao,
+      imagem_url, video_url, icone_url, texto_botao, url_botao,
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
@@ -1181,6 +1181,7 @@ export async function criar(req: Request, res: Response) {
         tipo: tipo.trim(),
         sistema: sistema.trim(),
         imagem_url: imagem_url?.trim() || null,
+        icone_url: icone_url?.trim() || null,
         video_url: video_url?.trim() || null,
         texto_botao: texto_botao?.trim() || null,
         url_botao: url_botao?.trim() || null,
@@ -1385,7 +1386,7 @@ export async function atualizar(req: Request, res: Response) {
 
     const {
       nome_interno, titulo, subtitulo, descricao, descricao_rich, tipo, sistema, tela,
-      imagem_url, video_url, texto_botao, url_botao,
+      imagem_url, video_url, icone_url, texto_botao, url_botao,
       feedback_habilitado,
       gatilho, evento, data_cy, url_contem,
       atraso_ms, mostrar_uma_vez, prioridade, ordem,
@@ -1561,6 +1562,7 @@ export async function atualizar(req: Request, res: Response) {
         ...(tipo !== undefined && { tipo: tipo.trim() }),
         ...(sistema !== undefined && { sistema: sistema.trim() }),
         ...(imagem_url !== undefined && { imagem_url: imagem_url?.trim() || null }),
+        ...(icone_url !== undefined && { icone_url: icone_url?.trim() || null }),
         ...(video_url !== undefined && { video_url: video_url?.trim() || null }),
         ...(texto_botao !== undefined && { texto_botao: texto_botao?.trim() || null }),
         ...(url_botao !== undefined && { url_botao: url_botao?.trim() || null }),
@@ -1954,6 +1956,7 @@ export async function duplicar(req: Request, res: Response) {
         sistema: original.sistema,
         tela: original.tela,
         imagem_url: original.imagem_url,
+        icone_url: original.icone_url,
         video_url: original.video_url,
         texto_botao: original.texto_botao,
         url_botao: original.url_botao,

@@ -86,6 +86,7 @@ export interface FormState {
   tela: string
   imagem_url: string
   video_url: string
+  icone_url: string
   texto_botao: string
   url_botao: string
   feedback_habilitado: boolean
@@ -237,6 +238,7 @@ export const formInicial: FormState = {
   tela: '',
   imagem_url: '',
   video_url: '',
+  icone_url: '',
   texto_botao: 'Saiba mais',
   url_botao: '',
   feedback_habilitado: true,
@@ -516,6 +518,7 @@ export function hidratarFormState(c: Campanha): FormState {
     tela: c.tela ?? '',
     imagem_url: c.imagem_url ?? '',
     video_url: c.video_url ?? '',
+    icone_url: c.icone_url ?? '',
     texto_botao: c.texto_botao ?? '',
     url_botao: c.url_botao ?? '',
     feedback_habilitado: c.feedback_habilitado,
@@ -735,6 +738,7 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
       ? (form.subtitulo.trim() || 'Novo')
       : (form.subtitulo || null),
     imagem_url: normalizarImagemUrl(form.imagem_url) || null,
+    icone_url: normalizarImagemUrl(form.icone_url) || null,
     video_url: embedUrl || null,
     texto_botao: form.cta_habilitado ? (form.texto_botao.trim() || null) : null,
     url_botao: form.cta_habilitado ? (normalizarUrl(form.url_botao) || null) : null,

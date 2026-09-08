@@ -258,6 +258,11 @@
       // pro svg (qualquer regra/estilo do site hospedeiro que reset color
       // no meio do caminho não quebra o ícone).
       '.up-brand-icon svg{width:18px;height:18px;color:var(--up-primary, #0058be);fill:currentColor;flex-shrink:0}',
+      // Imagem personalizada do ícone (campanha.icone_url): fundo branco +
+      // borda sutil (a imagem tem cores próprias), cabe nos 32px sem
+      // distorcer (contain) e sem vazar (overflow).
+      '.up-brand-icon.up-brand-icon-img{background:#fff;border:1px solid rgba(194,198,214,.55);overflow:hidden}',
+      '.up-brand-img{width:100%;height:100%;object-fit:contain;padding:3px;box-sizing:border-box}',
       // Sem white-space:nowrap/overflow:hidden/text-overflow:ellipsis — título
       // grande agora quebra linha em vez de truncar com "...", igual ao
       // preview do formulário de campanhas (CardEditavel/PreviewCampanhaModal, ver
@@ -1337,6 +1342,21 @@
     return corpo + nav;
   }
 
+  // Marca do cabeçalho: imagem personalizada da campanha (campanha.icone_url,
+  // já normalizada no payload — mesma regra de imagem_url) quando houver;
+  // senão o ícone padrão por tipo. onerror reverte pro ícone e desfaz o
+  // fundo branco (up-brand-icon-img) — imagem quebrada nunca deixa o
+  // cabeçalho vazio nem quebra o layout. Pura (recebe só a campanha) —
+  // ver server/src/widgetCampanhaIconeImagem.test.ts.
+  function campanhaIconeMarca(campanha) {
+    var url = campanha && typeof campanha.icone_url === 'string' ? campanha.icone_url.trim() : '';
+    if (!url) return icon(campaignIconName(campanha));
+    return '<img src="' + escapeHtml(url) + '" alt="" class="up-brand-img" ' +
+      'onerror="this.style.display=\'none\';var b=this.parentElement;if(b)b.classList.remove(\'up-brand-icon-img\');' +
+      'var f=this.nextElementSibling;if(f)f.style.display=\'flex\'" />' +
+      '<span class="up-brand-fallback" style="display:none">' + icon(campaignIconName(campanha)) + '</span>';
+  }
+
   function renderModal(animate) {
     var campanha = state.campanha;
     if (!state.open) return '';
@@ -1429,7 +1449,7 @@
     return [
       '<div class="' + modalClass + '" role="dialog" aria-modal="true" aria-label="' + escapeHtml(campanha.titulo) + '">',
       '<div class="up-modal-header">',
-      '<div class="up-brand"><div class="up-brand-icon">' + icon(campaignIconName(campanha)) + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
+      '<div class="up-brand"><div class="up-brand-icon' + ((campanha.icone_url && String(campanha.icone_url).trim()) ? ' up-brand-icon-img' : '') + '">' + campanhaIconeMarca(campanha) + '</div><p class="up-title">' + escapeHtml(campanha.titulo) + '</p></div>',
       campanha.permitir_fechar_modal !== false ? '<button type="button" class="up-close" aria-label="Fechar campanha" title="Fechar" data-up-toggle="true">' + icon('close') + '</button>' : '',
       '</div>',
       '<div class="up-body">',
@@ -11589,6 +11609,9 @@
     // paridade com iconeTipoCampanha/ICONES_TIPO_CAMPANHA (CampanhaForm.tsx,
     // "preview"), a mesma regra do lado do admin. Ver server/src/widgetCampaignIcon.test.ts.
     campaignIconName: campaignIconName,
+    // Marca do cabeçalho: imagem personalizada (campanha.icone_url) ou ícone
+    // por tipo. Pura. Ver server/src/widgetCampanhaIconeImagem.test.ts.
+    campanhaIconeMarca: campanhaIconeMarca,
     // Observação do NPS por categoria da nota — funções puras (nota ->
     // categoria; config -> visível/mensagem; obrigatoriedade efetiva). Ver
     // server/src/widgetNpsObservacaoCategoria.test.ts.
