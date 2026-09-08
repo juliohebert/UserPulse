@@ -802,13 +802,18 @@ function DockLateral({
           <div>
             <span className="mb-2 block text-[12px] font-semibold text-[#444950]">Quando esta campanha aparece?</span>
             <div className="grid gap-2">
-              {[
-                { id: 'tela' as const, icon: 'web_asset', titulo: 'Ao abrir uma tela', desc: 'Use uma tela cadastrada ou adicione uma nova ao catálogo.' },
-                { id: 'data_cy' as const, icon: 'ads_click', titulo: 'Ao encontrar um elemento', desc: 'Mostra quando um elemento específico estiver disponível na página.' },
-                { id: 'acao' as const, icon: 'bolt', titulo: 'Depois de uma ação', desc: 'Mostra somente quando o sistema disparar um evento pelo widget.' },
-              ].map(opcao => {
+              {([
+                { id: 'tela', icon: 'web_asset', titulo: 'Ao abrir uma tela', desc: 'Use uma tela cadastrada ou adicione uma nova ao catálogo.' },
+                { id: 'data_cy', icon: 'ads_click', titulo: 'Ao encontrar um elemento', desc: 'Mostra quando um elemento específico estiver disponível na página.' },
+                // Sem este card, uma campanha salva com modo_identificacao=
+                // 'url_contem' resolvia pra tipoDestino='url' e NENHUMA opção
+                // ficava marcada ao editar (resolverTipoDestino / campo de
+                // caminho da URL logo abaixo já suportam esse modo).
+                { id: 'url', icon: 'link', titulo: 'Em um caminho de URL', desc: 'Mostra quando o caminho da página atual contiver o valor informado.' },
+                { id: 'acao', icon: 'bolt', titulo: 'Depois de uma ação', desc: 'Mostra somente quando o sistema disparar um evento pelo widget.' },
+              ] as { id: TipoDestino; icon: string; titulo: string; desc: string }[]).map(opcao => {
                 // Destaque em elemento só existe ancorado por data-cy — as
-                // outras duas formas de destino não fazem sentido pra ele.
+                // outras formas de destino não fazem sentido pra ele.
                 const desabilitado = formatoExibicao === FORMATO_DESTAQUE_ELEMENTO && opcao.id !== 'data_cy'
                 return (
                   <button
