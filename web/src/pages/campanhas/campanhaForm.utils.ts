@@ -1,4 +1,4 @@
-import type { Campanha, StatusCampanha } from '../../types'
+import type { Campanha, CategoriaNps, ObservacaoCategoriaConfig, ObservacaoCategorias, StatusCampanha } from '../../types'
 import type { RichTextDocument } from '../../components/richText/types'
 
 // Lógica pura (sem React/JSX) do formulário canônico de campanhas — hidratação
@@ -117,6 +117,13 @@ export interface FormState {
   data_fim_hora: string
   pergunta_feedback: string
   observacao_obrigatoria: boolean
+  // NPS: quando true, o campo de observação é configurado por categoria da
+  // nota (promotor/neutro/detrator). false => payload manda
+  // observacao_categorias: null => comportamento legado.
+  observacao_por_categoria: boolean
+  // Sempre com as 3 categorias no form (a UI mostra as 3); só vira payload
+  // quando observacao_por_categoria === true.
+  observacao_categorias: Record<CategoriaNps, ObservacaoCategoriaConfig>
   exige_confirmacao_leitura: boolean
   permitir_fechar_modal: boolean
   intervalo_reexibicao_dias: string
@@ -173,6 +180,52 @@ export const FORMATO_DESTAQUE_ELEMENTO: FormatoExibicao = 'destaque_elemento'
 
 export const TIPOS_CAMPANHA = ['comunicado', 'melhoria', 'pesquisa']
 
+export const CATEGORIAS_NPS: readonly CategoriaNps[] = ['promotor', 'neutro', 'detrator']
+export const CATEGORIA_NPS_LABEL: Record<CategoriaNps, string> = {
+  promotor: 'Promotores (9–10)',
+  neutro: 'Neutros (7–8)',
+  detrator: 'Detratores (0–6)',
+}
+const observacaoCategoriaPadrao = (): ObservacaoCategoriaConfig => ({ habilitado: true, mensagem: '' })
+export const observacaoCategoriasFormPadrao = (): Record<CategoriaNps, ObservacaoCategoriaConfig> => ({
+  promotor: observacaoCategoriaPadrao(),
+  neutro: observacaoCategoriaPadrao(),
+  detrator: observacaoCategoriaPadrao(),
+})
+
+export function hidratarObservacaoCategorias(
+  cfg: ObservacaoCategorias | null | undefined,
+): Record<CategoriaNps, ObservacaoCategoriaConfig> {
+  const base = observacaoCategoriasFormPadrao()
+  if (!cfg) return base
+  for (const cat of CATEGORIAS_NPS) {
+    const v = cfg[cat]
+    if (v) base[cat] = { habilitado: v.habilitado !== false, mensagem: typeof v.mensagem === 'string' ? v.mensagem : '' }
+  }
+  return base
+}
+
+export function categoriaDaNota(nota: number): CategoriaNps {
+  if (nota >= 9) return 'promotor'
+  if (nota >= 7) return 'neutro'
+  return 'detrator'
+}
+
+// Espelha resolverObservacaoNps do widget.js — usado pelos previews do form.
+// { legado, visivel, mensagem }: legado=true => comportamento atual; sem nota
+// (com config) => visivel=false (aguardando a nota).
+export function resolverObservacaoCategoria(
+  cfg: ObservacaoCategorias | null | undefined,
+  nota: number | null | undefined,
+): { legado: boolean; visivel: boolean; mensagem: string | null } {
+  if (!cfg) return { legado: true, visivel: true, mensagem: null }
+  if (nota === null || nota === undefined) return { legado: false, visivel: false, mensagem: null }
+  const cat = cfg[categoriaDaNota(nota)]
+  if (!cat) return { legado: true, visivel: true, mensagem: null }
+  if (cat.habilitado === false) return { legado: false, visivel: false, mensagem: null }
+  return { legado: false, visivel: true, mensagem: cat.mensagem.trim() ? cat.mensagem : null }
+}
+
 export const formInicial: FormState = {
   nome_interno: '',
   titulo: 'Novidade no produto',
@@ -207,6 +260,8 @@ export const formInicial: FormState = {
   data_fim_hora: '',
   pergunta_feedback: '',
   observacao_obrigatoria: false,
+  observacao_por_categoria: false,
+  observacao_categorias: observacaoCategoriasFormPadrao(),
   exige_confirmacao_leitura: false,
   permitir_fechar_modal: true,
   intervalo_reexibicao_dias: '',
@@ -488,6 +543,10 @@ export function hidratarFormState(c: Campanha): FormState {
     data_fim_hora: separarDataHora(c.data_fim).hora,
     pergunta_feedback: c.pergunta_feedback ?? '',
     observacao_obrigatoria: c.observacao_obrigatoria,
+    // null (legado) => toggle off + defaults; objeto => toggle on, cada
+    // categoria ausente cai no default { habilitado: true, mensagem: '' }.
+    observacao_por_categoria: c.observacao_categorias != null,
+    observacao_categorias: hidratarObservacaoCategorias(c.observacao_categorias),
     exige_confirmacao_leitura: c.exige_confirmacao_leitura,
     permitir_fechar_modal: c.permitir_fechar_modal,
     intervalo_reexibicao_dias: c.intervalo_reexibicao_dias != null ? String(c.intervalo_reexibicao_dias) : '',
@@ -646,7 +705,7 @@ export function getStatus(c: Pick<Campanha, 'status' | 'data_inicio' | 'data_fim
 // ao salvar sem tocar em nada — mesmo sem o usuário mexer na aba Feedback.
 export function montarPayloadCampanha(form: FormState): Record<string, unknown> {
   const exigeConfirmacao = Boolean(form.exige_confirmacao_leitura)
-  const { destaques, conteudos, regras_extra: _regrasExtra, ...camposComuns } = form
+  const { destaques, conteudos, regras_extra: _regrasExtra, observacao_por_categoria: _obsPorCat, observacao_categorias: _obsCats, ...camposComuns } = form
   // Continua garantindo que a campanha sempre tenha alguma saída (fechar,
   // feedback ou confirmação) — mas agora só reage ao estado REAL de
   // feedback_habilitado, nunca a uma versão artificialmente zerada dele, o
@@ -660,6 +719,15 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
     permitir_fechar_modal: exigeSaidaObrigatoria ? true : form.permitir_fechar_modal,
     feedback_habilitado: form.feedback_habilitado,
     observacao_obrigatoria: form.observacao_obrigatoria,
+    // NPS por categoria: só vira objeto quando o toggle está ligado; caso
+    // contrário null => backend/widget usam o comportamento legado.
+    observacao_categorias: form.observacao_por_categoria
+      ? {
+          promotor: { ...form.observacao_categorias.promotor, mensagem: form.observacao_categorias.promotor.mensagem.trim() },
+          neutro: { ...form.observacao_categorias.neutro, mensagem: form.observacao_categorias.neutro.mensagem.trim() },
+          detrator: { ...form.observacao_categorias.detrator, mensagem: form.observacao_categorias.detrator.mensagem.trim() },
+        }
+      : null,
     // Destaque em elemento reaproveita subtitulo como texto do badge —
     // "Novo" é o default explícito quando o campo fica em branco (ver
     // CampoDock "Texto do badge" no dock lateral).

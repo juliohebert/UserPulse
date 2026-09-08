@@ -6,6 +6,7 @@ import { filtroFeedbackGeralReexibicao } from './widget'
 import { normalizarDominio } from '../lib/dominio'
 import { validarRichText } from '../lib/richText'
 import { normalizarRegra, normalizarRegrasExibicao, regraBase } from '../lib/regrasExibicao'
+import { validarObservacaoCategorias } from '../lib/observacaoCategorias'
 
 // ─── Fase 1 dos 3 status de Campanha ───────────────────────────────────────
 // status é a fonte única de verdade do ciclo de vida (RASCUNHO nunca foi
@@ -1110,6 +1111,11 @@ export async function criar(req: Request, res: Response) {
 
     const dataCyNormalizado = normalizarDataCy(data_cy)
 
+    // NPS: config do campo de observação por categoria da nota. Ausente no
+    // corpo => coluna fica NULL (comportamento atual).
+    const obsCategorias = validarObservacaoCategorias(req.body.observacao_categorias)
+    if (obsCategorias.erro) return res.status(400).json({ erro: obsCategorias.erro })
+
     // Regras de exibição (>= 1). A regra `ordem: 0` é a "base": espelhada nas
     // colunas legadas da Campanha (fallback do widget, grupoConcorrente,
     // preview). Sem `regras_exibicao` no corpo, cai numa regra única
@@ -1197,6 +1203,9 @@ export async function criar(req: Request, res: Response) {
         data_fim: dataFimVigencia,
         pergunta_feedback: pergunta_feedback?.trim() || null,
         observacao_obrigatoria: Boolean(observacao_obrigatoria),
+        observacao_categorias: obsCategorias.documento == null
+          ? Prisma.DbNull
+          : obsCategorias.documento as Prisma.InputJsonValue,
         exige_confirmacao_leitura: Boolean(exige_confirmacao_leitura),
         permitir_fechar_modal: pfm,
         intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
@@ -1389,6 +1398,11 @@ export async function atualizar(req: Request, res: Response) {
     } = req.body
 
     const dataCyNormalizado = data_cy !== undefined ? normalizarDataCy(data_cy) : normalizarDataCy(existente.data_cy)
+
+    // NPS: config do campo de observação por categoria. Só grava quando a
+    // chave vem no corpo; ausente => campanha mantém o que tinha.
+    const obsCategorias = validarObservacaoCategorias(req.body.observacao_categorias)
+    if (obsCategorias.erro) return res.status(400).json({ erro: obsCategorias.erro })
 
     // Regras de exibição: só recomputa/regrava quando algo que as afeta veio
     // no corpo (regras_exibicao explícito, ou os campos legados de destino, ou
@@ -1585,6 +1599,11 @@ export async function atualizar(req: Request, res: Response) {
         ...(dataFimVigencia !== undefined && { data_fim: dataFimVigencia }),
         ...(pergunta_feedback !== undefined && { pergunta_feedback: pergunta_feedback?.trim() || null }),
         ...(observacao_obrigatoria !== undefined && { observacao_obrigatoria: Boolean(observacao_obrigatoria) }),
+        ...(req.body.observacao_categorias !== undefined && {
+          observacao_categorias: obsCategorias.documento == null
+            ? Prisma.DbNull
+            : obsCategorias.documento as Prisma.InputJsonValue,
+        }),
         ...(exige_confirmacao_leitura !== undefined && { exige_confirmacao_leitura: Boolean(exige_confirmacao_leitura) }),
         ...(permitir_fechar_modal !== undefined && { permitir_fechar_modal: Boolean(permitir_fechar_modal) }),
         ...(intervalo_reexibicao_dias !== undefined && {
@@ -1957,6 +1976,9 @@ export async function duplicar(req: Request, res: Response) {
         ...vigenciaCopiaCampanha(original.data_inicio, original.data_fim),
         pergunta_feedback: original.pergunta_feedback,
         observacao_obrigatoria: original.observacao_obrigatoria,
+        observacao_categorias: original.observacao_categorias === null
+          ? Prisma.DbNull
+          : original.observacao_categorias as Prisma.InputJsonValue,
         exige_confirmacao_leitura: original.exige_confirmacao_leitura,
         permitir_fechar_modal: original.permitir_fechar_modal,
         intervalo_reexibicao_dias: original.intervalo_reexibicao_dias,
