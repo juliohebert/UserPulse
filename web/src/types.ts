@@ -215,6 +215,22 @@ export interface AvaliacaoDestaqueItem {
   criado_em: string
 }
 
+// NPS segmentado por perfil de usuário (contexto.usuario_tipo) — uma linha
+// por perfil, no mesmo espírito da tela "Análise de indicador" do Quark.
+// perfil null = respostas sem `usuario_tipo` no contexto (embeds antigos), o
+// frontend mostra como "Não informado". SUPER_USUARIO só aparece quando o
+// filtro "Incluir superusuários" está ligado. nps = % promotores − %
+// detratores (cada % arredondado antes da subtração, igual ao KPI do topo).
+// Ver montarNpsPorPerfil em server/src/controllers/dashboard.ts.
+export interface NpsPorPerfilItem {
+  perfil: string | null
+  respostas: number
+  promotores: number
+  neutros: number
+  detratores: number
+  nps: number
+}
+
 export interface DashboardData {
   campanha: Campanha
   periodo: { inicio: string | null; fim: string | null }
@@ -255,6 +271,8 @@ export interface DashboardData {
   // legado do widget, ou conteúdo já removido). 0 pra destaque_elemento.
   cliques_cta_sem_conteudo: number
   quotes_nps: Feedback[]
+  // Vazio quando nenhuma resposta do período carrega perfil identificável.
+  nps_por_perfil: NpsPorPerfilItem[]
   // Idem — só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   avaliacoes_destaques: AvaliacaoDestaqueItem[]
   avaliacoes_total: number
