@@ -1,6 +1,7 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import { resolverTenantPublico } from '../lib/tenantGuards'
+import { filtroRegrasCandidatas } from '../lib/regrasExibicao'
 
 // tenant_id/codigo são identificadores internos/comerciais (fundação SaaS
 // multi-tenant, ver schema.prisma) — nenhum dos dois deve aparecer numa
@@ -95,6 +96,13 @@ export function passaSegmentacao(campanha: SegCampanha, ctx: SegCtx): boolean {
 // (elemento existe no DOM) é feita pelo widget depois de receber a
 // candidata (ver checkMode em widget.js). Isso já era o comportamento
 // antes desta extração — só ficou mais fácil de testar/documentar.
+//
+// Múltiplas telas/URLs por campanha: o OR de modos deixou de ser sobre as
+// colunas da própria Campanha e passou a ser `regras: { some: { OR: [...] } }`
+// — a campanha é candidata se QUALQUER uma das suas regras
+// (campanha_regras_exibicao) casar. Como a migration faz backfill de 1 regra
+// por campanha, campanhas de uma tela só continuam batendo exatamente como
+// antes. sistema/gatilho/evento seguem no nível da Campanha.
 export function construirFiltroCandidatas(sistema: unknown, tela: unknown, gatilho: unknown, evento: unknown): object {
   const gatilhoStr = gatilho === 'apos_evento' ? 'apos_evento' : 'ao_abrir_tela'
   const gatilhoFilter =
@@ -102,15 +110,10 @@ export function construirFiltroCandidatas(sistema: unknown, tela: unknown, gatil
       ? { gatilho: 'apos_evento', evento: String(evento) }
       : { gatilho: 'ao_abrir_tela' }
 
-  const modoFiltros: object[] = []
-  if (tela) modoFiltros.push({ modo_identificacao: 'sistema_tela', tela: String(tela) })
-  modoFiltros.push({ modo_identificacao: 'data_cy' })
-  modoFiltros.push({ modo_identificacao: 'url_contem' })
-
   return {
     sistema: { equals: String(sistema), mode: 'insensitive' as const },
     ...gatilhoFilter,
-    OR: modoFiltros,
+    regras: filtroRegrasCandidatas(tela),
   }
 }
 
@@ -344,11 +347,14 @@ export async function buscarCampanha(req: Request, res: Response) {
       ],
     }
 
+    // Múltiplas telas/URLs: quando a busca é por sistema+tela, a campanha
+    // casa se QUALQUER regra `sistema_tela` sua apontar pra essa tela
+    // (`regras: { some: ... }`), não só a coluna legada Campanha.tela.
     const campanhaFilter = slug
       ? { slug: String(slug) }
       : evento
-      ? { sistema: String(sistema), tela: String(tela), gatilho: 'apos_evento', evento: String(evento), modo_identificacao: 'sistema_tela' }
-      : { sistema: String(sistema), tela: String(tela), gatilho: 'ao_abrir_tela', modo_identificacao: 'sistema_tela' }
+      ? { sistema: String(sistema), gatilho: 'apos_evento', evento: String(evento), regras: { some: { modo_identificacao: 'sistema_tela', tela: String(tela) } } }
+      : { sistema: String(sistema), gatilho: 'ao_abrir_tela', regras: { some: { modo_identificacao: 'sistema_tela', tela: String(tela) } } }
 
     const campanha = await prisma.campanha.findFirst({
       where: {
@@ -383,6 +389,7 @@ export async function buscarCampanha(req: Request, res: Response) {
       include: {
         destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } },
         conteudos: { orderBy: { ordem: 'asc' } },
+        regras: { orderBy: { ordem: 'asc' } },
       },
     })
 
@@ -463,6 +470,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
       include: {
         destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } },
         conteudos: { orderBy: { ordem: 'asc' } },
+        regras: { orderBy: { ordem: 'asc' } },
       },
     })
 

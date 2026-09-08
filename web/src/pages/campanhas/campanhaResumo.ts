@@ -66,17 +66,34 @@ function linhaConteudos(c: Campanha): string {
   return `${base} · ${c.modo_navegacao === 'SLIDES' ? 'Slides' : 'Sequência (rolagem)'}`
 }
 
+function descreverRegraExibicao(r: { modo_identificacao: string; tela: string | null; url_contem: string | null; data_cy: string | null }): string {
+  if (r.modo_identificacao === 'url_contem') return r.url_contem ? `URL «${r.url_contem}»` : 'URL configurada'
+  if (r.modo_identificacao === 'data_cy') return r.data_cy ? `elemento «${r.data_cy}»` : 'um elemento'
+  return r.tela ? `tela «${r.tela}»` : 'uma tela'
+}
+
 function linhaDestino(c: Campanha): string {
+  let principal: string
   switch (resolverTipoDestino(c)) {
     case 'data_cy':
-      return c.data_cy ? `Ao encontrar o elemento «${c.data_cy}»` : 'Ao encontrar um elemento'
+      principal = c.data_cy ? `Ao encontrar o elemento «${c.data_cy}»` : 'Ao encontrar um elemento'
+      break
     case 'url':
-      return c.url_contem ? `Na URL que contém «${c.url_contem}»` : 'Na URL configurada'
+      principal = c.url_contem ? `Na URL que contém «${c.url_contem}»` : 'Na URL configurada'
+      break
     case 'acao':
-      return c.evento ? `Após o evento «${c.evento}»` : 'Após uma ação do sistema'
+      principal = c.evento ? `Após o evento «${c.evento}»` : 'Após uma ação do sistema'
+      break
     default:
-      return c.tela ? `Ao abrir a tela «${c.tela}»` : 'Ao abrir a tela'
+      principal = c.tela ? `Ao abrir a tela «${c.tela}»` : 'Ao abrir a tela'
   }
+  // Múltiplas telas/URLs: lista as regras adicionais (ordem != 0). Campanha
+  // de uma tela só / resposta sem a relação `regras` -> só a linha principal,
+  // idêntico ao de antes.
+  const extras = (c.regras ?? []).filter(r => r.ordem !== 0)
+  if (extras.length === 0) return principal
+  if (extras.length <= 2) return `${principal} · também em ${extras.map(descreverRegraExibicao).join(' e ')}`
+  return `${principal} · também em ${extras.length} telas/URLs`
 }
 
 function linhaSegmentacao(c: Campanha): string {

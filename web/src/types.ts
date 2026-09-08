@@ -76,6 +76,27 @@ export interface Campanha {
   // antigas que ainda não têm nenhuma linha aqui.
   modo_navegacao: string
   conteudos?: CampanhaConteudoItem[]
+  // Múltiplas telas/URLs por campanha — a campanha aparece se QUALQUER regra
+  // corresponder (OR). Só presente quando incluído pelo backend
+  // (listar/buscarPorId/criar/atualizar/duplicar); `undefined` num objeto
+  // antigo em cache não significa "sem regras" — o backfill garante >= 1 no
+  // banco. `modo_identificacao`/`tela`/`data_cy`/`url_contem` da própria
+  // Campanha continuam refletindo a regra `ordem: 0`.
+  regras?: CampanhaRegraExibicao[]
+}
+
+// Espelha CampanhaRegraExibicao (server/prisma/schema.prisma). Uma
+// tela/URL/data_cy em que a campanha deve aparecer. `modo_identificacao`
+// segue os 3 valores de sempre (sistema_tela / data_cy / url_contem) e cada
+// regra usa só o campo do seu modo.
+export interface CampanhaRegraExibicao {
+  id: string
+  campanha_id: string
+  modo_identificacao: string
+  tela: string | null
+  url_contem: string | null
+  data_cy: string | null
+  ordem: number
 }
 
 export interface CampanhaDestaqueItem {

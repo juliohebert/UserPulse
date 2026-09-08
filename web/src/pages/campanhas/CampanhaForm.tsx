@@ -19,11 +19,12 @@ import { RichTextEditor } from '../../components/richText/RichTextEditor'
 import { RichTextRenderer } from '../../components/richText/RichTextRenderer'
 import type { RichTextDocument } from '../../components/richText/types'
 import { chaveGrupoConcorrente } from './grupoConcorrente'
-import type { ConteudoFormItem, DestaqueFormItem, FormState, FormatoExibicao, ModoNavegacaoConteudo, ModoSegmentacao, TipoDestino } from './campanhaForm.utils'
+import type { ConteudoFormItem, DestaqueFormItem, FormState, FormatoExibicao, ModoNavegacaoConteudo, ModoSegmentacao, RegraExtraForm, TipoDestino } from './campanhaForm.utils'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
   TIPOS_CAMPANHA,
   formInicial,
+  regraExtraVazia,
   converterVideoEmbed,
   normalizarImagemUrl,
   pareceUrlVideo,
@@ -516,6 +517,18 @@ function DockLateral({
     ? FORMATO_DESTAQUE_ELEMENTO
     : 'modal_automatica'
 
+  // Telas/URLs adicionais (múltiplas regras de exibição) — a regra base
+  // continua vindo dos campos de destino principais; estas são o "OR" extra.
+  function adicionarRegraExtra() {
+    setCampo('regras_extra', [...form.regras_extra, { ...regraExtraVazia }])
+  }
+  function removerRegraExtra(indice: number) {
+    setCampo('regras_extra', form.regras_extra.filter((_, i) => i !== indice))
+  }
+  function atualizarRegraExtra(indice: number, patch: Partial<RegraExtraForm>) {
+    setCampo('regras_extra', form.regras_extra.map((r, i) => (i === indice ? { ...r, ...patch } : r)))
+  }
+
   function adicionarDestaque() {
     const novoIndice = form.destaques.length
     setCampo('destaques', [...form.destaques, {
@@ -881,6 +894,63 @@ function DockLateral({
               placeholder="checkout_concluido"
               hint="Esse nome precisa ser o mesmo enviado pelo sistema quando a ação acontecer."
             />
+          )}
+
+          {/* Telas/URLs adicionais — a campanha aparece se QUALQUER regra
+              corresponder (a principal acima + estas). Escondido em
+              "Destaque em elemento" (cada destaque já tem seu próprio alvo). */}
+          {formatoExibicao !== FORMATO_DESTAQUE_ELEMENTO && (
+            <div className="mt-1 rounded-2xl border border-[#dee3e9] bg-white p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <span className="block text-[12px] font-bold text-[#1c1e21]">Telas/URLs adicionais</span>
+                  <span className="mt-0.5 block text-[11px] font-semibold leading-4 text-[#5d6c7b]">
+                    A campanha também aparece em qualquer uma destas, além do destino principal.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={adicionarRegraExtra}
+                  className="shrink-0 rounded-lg border border-[#0064e0] px-2.5 py-1 text-[12px] font-bold text-[#0064e0] transition hover:bg-[#eff4ff]"
+                >
+                  + Adicionar
+                </button>
+              </div>
+              {form.regras_extra.length > 0 && (
+                <ul className="mt-3 space-y-2">
+                  {form.regras_extra.map((regra, indice) => (
+                    <li key={indice} className="flex flex-wrap items-center gap-2 rounded-xl border border-[#e6e9ee] bg-[#f8f9ff] px-2.5 py-2">
+                      <select
+                        value={regra.modo_identificacao}
+                        onChange={e => atualizarRegraExtra(indice, { modo_identificacao: e.target.value as RegraExtraForm['modo_identificacao'] })}
+                        className="rounded-lg border border-[#dee3e9] bg-white px-2 py-1.5 text-[12px] font-semibold text-[#1c1e21]"
+                      >
+                        <option value="sistema_tela">Tela</option>
+                        <option value="url_contem">Caminho da URL</option>
+                        <option value="data_cy">Elemento (data-cy)</option>
+                      </select>
+                      <input
+                        value={regra.modo_identificacao === 'sistema_tela' ? regra.tela : regra.modo_identificacao === 'url_contem' ? regra.url_contem : regra.data_cy}
+                        onChange={e => {
+                          const v = e.target.value
+                          atualizarRegraExtra(indice, regra.modo_identificacao === 'sistema_tela' ? { tela: v } : regra.modo_identificacao === 'url_contem' ? { url_contem: v } : { data_cy: v })
+                        }}
+                        placeholder={regra.modo_identificacao === 'sistema_tela' ? 'Nome da tela (ex.: Agenda)' : regra.modo_identificacao === 'url_contem' ? '/app/faturamento' : 'botao-finalizar-compra'}
+                        className="min-w-[140px] flex-1 rounded-lg border border-[#dee3e9] bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#1c1e21]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removerRegraExtra(indice)}
+                        aria-label="Remover tela/URL"
+                        className="shrink-0 rounded-lg p-1.5 text-[#8595a4] transition hover:bg-[#ffe9e9] hover:text-[#d1242f]"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
       )}
