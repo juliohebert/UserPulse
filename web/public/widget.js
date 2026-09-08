@@ -269,7 +269,12 @@
       '.up-close:hover{background:#eff4ff;color:#0b1c30}',
       '.up-close svg{width:20px;height:20px;fill:currentColor;display:block;flex-shrink:0}',
       '.up-body{padding:18px 20px 20px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;flex:1;min-height:0}',
-      '.up-subtitle{margin:0;color:#0058be;font-size:13px;line-height:18px;font-weight:800}',
+      // Cor principal da aparência do sistema/tenant (fallback #0058be quando
+      // não há aparência configurada) — mesma regra dos previews do admin
+      // (PreviewCampanhaModal/CampanhaPreview usam corAcao = cor_principal),
+      // antes divergia por causa do #0058be fixo aqui (rótulo azul no widget
+      // x cor da aparência no preview).
+      '.up-subtitle{margin:0;color:var(--up-primary, #0058be);font-size:13px;line-height:18px;font-weight:800}',
       '.up-description{margin:0;color:#424754;font-size:14px;line-height:21px;white-space:pre-wrap}',
       '.up-description-rich{white-space:normal}',
       '.up-description-rich p{margin:0}',
