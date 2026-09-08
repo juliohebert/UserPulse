@@ -45,6 +45,15 @@
   var lastUrl = '';
   var urlChangeTimer = null;
   var pendingContext = {};
+  // Campanha modal fechada MANUALMENTE (X / "Fechar") na URL atual —
+  // { id, chaveRegra, url }. Enquanto a URL não mudar de verdade,
+  // reavaliações de rotina (pushState/replaceState do router na MESMA URL ->
+  // handleUrlChange -> evaluateCampaigns/evaluateUrlCampaigns) NÃO podem
+  // re-selecionar e reabrir a MESMA campanha+regra: o usuário acabou de
+  // fechá-la ali. Some na primeira navegação real (URL diferente) e no
+  // init() — "sair e voltar" continua reabrindo normalmente (servidor/
+  // localStorage decidem). Independe de mostrar_uma_vez/regras_bloqueadas.
+  var campanhaFechadaManualmente = null;
   // Promise da última busca de aparência (setada em init(), reaproveitada por
   // toda a sessão da SPA — ver avaliarTourAutomatico/aguardarAparenciaEIniciarTour).
   // Como o host normalmente chama init() uma única vez e o resto da navegação
@@ -1535,7 +1544,23 @@
     return 'userpulse:shown:' + campanha.id + ':' + ctx + uid + sufixoItem;
   }
 
+  // A campanha (nessa MESMA regra casada) foi fechada manualmente na URL
+  // atual e ainda não houve navegação real? Bloqueia reabertura por
+  // reavaliações de rotina — cobre usuário anônimo (mostrar_uma_vez=false) e
+  // identificado (janela em que o `visualizacao` ainda não persistiu no
+  // servidor). Escopo por regra: fechar em /app/home não afeta
+  // /app/profissional-saude (URL diferente -> não casa). Não se aplica a
+  // destaque_elemento (itemId presente — mecanismo próprio por item).
+  function fechadaManualmenteAqui(campanha) {
+    var f = campanhaFechadaManualmente;
+    if (!f || !campanha || f.id !== campanha.id) return false;
+    if (f.url !== window.location.href) return false;
+    var atual = chaveRegraExibicao(campanha._regraCasada) || null;
+    return (f.chaveRegra || null) === atual;
+  }
+
   function wasShown(campanha, config, itemId) {
+    if (!itemId && fechadaManualmenteAqui(campanha)) return true;
     // Para usuário identificado, /candidatas já aplicou a política POR
     // CAMPANHA usando o histórico persistido. Falta só o recorte POR REGRA
     // (múltiplas telas/URLs): a regra que casou está na lista de bloqueadas
@@ -2746,19 +2771,40 @@
 
   var AUTO_CLOSE_MS = 2500;
 
-  function doClose() {
+  // fechamentoManual=true só quando o usuário clicou no X / "Fechar" —
+  // registra campanhaFechadaManualmente pra reavaliações de rotina na MESMA
+  // URL não reabrirem a campanha logo em seguida. handleUrlChange (navegação)
+  // e scheduleAutoClose (auto-close pós-feedback) chamam sem o flag.
+  function doClose(fechamentoManual) {
     if (state.closeTimer) {
       window.clearTimeout(state.closeTimer);
       state.closeTimer = null;
     }
     if (!state.open) return;
     state.open = false;
+    // Descarta um auto-open ainda pendente E o id (já disparado) do que abriu
+    // esta exibição — mesmo padrão dos loops de evaluateCampaigns. Sem isso,
+    // `state.timer` fica com um id truthy após o fechamento, e o guard v3 de
+    // init() redundante (`state.open || state.timer`) segue ativo por acidente:
+    // a decisão de reabrir ou não passa a ser explícita (ver
+    // preservarFechamentoManual em init() + fechadaManualmenteAqui).
+    if (state.timer) {
+      window.clearTimeout(state.timer);
+      state.timer = null;
+    }
     state.submitted = false;
     state.nota = null;
     state.observacao = '';
     state.confirmacaoMarcada = false;
     state.conteudoSlideIndex = 0;
     state.error = '';
+    if (fechamentoManual && state.campanha && state.campanha.id) {
+      campanhaFechadaManualmente = {
+        id: state.campanha.id,
+        chaveRegra: chaveRegraExibicao(state.campanha._regraCasada) || null,
+        url: window.location.href,
+      };
+    }
     render();
   }
 
@@ -2853,20 +2899,25 @@
       if (target.closest('[data-up-toggle]')) {
         event.preventDefault();
         event.stopPropagation();
-        state.open = !state.open;
-        if (state.open && !state.visualizacaoRegistrada) {
-          state.visualizacaoRegistrada = true;
-          registrarEvento('visualizacao');
+        if (state.open) {
+          // Fechar (X do cabeçalho) = fechamento manual.
+          doClose(true);
+        } else {
+          state.open = true;
+          if (!state.visualizacaoRegistrada) {
+            state.visualizacaoRegistrada = true;
+            registrarEvento('visualizacao');
+          }
+          state.error = '';
+          render();
         }
-        state.error = '';
-        render();
         return;
       }
 
       if (target.closest('[data-up-close]')) {
         event.preventDefault();
         event.stopPropagation();
-        doClose();
+        doClose(true);
         return;
       }
 
@@ -3500,6 +3551,23 @@
       return;
     }
 
+    // Re-init redundante na MESMA URL: um host que chama init() a cada rota
+    // com a MESMA config efetiva, sem contexto pendente e sem mudança de URL
+    // NÃO é uma sessão nova — o bloqueio de fechamento manual
+    // (campanhaFechadaManualmente) precisa sobreviver, senão um init() logo
+    // depois de o usuário fechar no X reabriria a campanha na reavaliação
+    // seguinte (o guard v3 acima não pega este caso: state.open/state.timer
+    // já são false após o fechamento). Qualquer mudança real — config
+    // efetiva (public_key/slug/sistema/tela/usuario_id/contexto), contexto
+    // pendente, ou URL diferente da registrada no fechamento — NÃO entra
+    // aqui e o bloqueio é limpo normalmente no reset abaixo.
+    var preservarFechamentoManual =
+      !!campanhaFechadaManualmente &&
+      !!state.config &&
+      !Object.keys(pendingContext).length &&
+      campanhaFechadaManualmente.url === window.location.href &&
+      initConfigEfetivaIgual(normalizeConfig(config || {}), state.config);
+
     // Trata init() como sessão/config nova, incondicionalmente — nenhuma
     // instância de destaque_elemento (root, listeners, MutationObserver/
     // ResizeObserver/PerformanceObserver, e o `config`/usuario_id fechado
@@ -3559,6 +3627,10 @@
     state.phoneSubmitting = false;
     state.phoneDone = false;
     state.phoneError = '';
+    // Preservado só no re-init redundante na mesma URL/config (ver
+    // preservarFechamentoManual acima) — do contrário, sessão/config nova
+    // reabilita a campanha fechada manualmente.
+    if (!preservarFechamentoManual) campanhaFechadaManualmente = null;
     if (state.timer) {
       window.clearTimeout(state.timer);
       state.timer = null;
@@ -4076,6 +4148,10 @@
       // candidatas/tour/jornada abaixo continua rodando sempre (elas se
       // protegem sozinhas com `if (state.open) return`).
       if (state.open && currentUrl !== urlAnterior) doClose();
+      // Navegação REAL (URL mudou) reabilita a campanha fechada manualmente —
+      // "sair e voltar" volta a poder reabrir (servidor/localStorage decidem).
+      // pushState de rotina na MESMA URL não limpa (é o caso que o fix cobre).
+      if (currentUrl !== urlAnterior) campanhaFechadaManualmente = null;
       // suprimirAbandonoNavegacao: navegação causada pelo próprio clique
       // sintético de um passo "clicar_elemento" (tourProximo()) ou por
       // modo_avanco_interacao != manual (agendarAvancoInteracao) não conta como

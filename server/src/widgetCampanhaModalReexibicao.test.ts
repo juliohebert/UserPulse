@@ -37,6 +37,8 @@ type Campanha = {
   titulo?: string
   descricao?: string
   destaques?: unknown[]
+  regras?: Array<{ modo_identificacao?: string; tela?: string | null; url_contem?: string | null; data_cy?: string | null }>
+  regras_bloqueadas?: string[]
 }
 type ConfigWidget = { slug?: string; sistema?: string; tela?: string; usuario_id?: string; contexto?: Record<string, unknown> | null }
 type EvaluateCampaigns = () => void
@@ -44,7 +46,7 @@ type HandleUrlChange = (forcarReavaliacao?: boolean) => void
 type ConfigSetTestState = (parcial: Partial<ConfigWidget>) => void
 type WasShown = (campanha: Campanha, config: ConfigWidget, itemId?: string | null) => boolean
 type MarkShown = (campanha: Campanha, config: ConfigWidget, itemId?: string | null) => void
-type DoClose = () => void
+type DoClose = (fechamentoManual?: boolean) => void
 type UserPulseInit = (config: Record<string, unknown>) => void
 
 let evaluateCampaigns: EvaluateCampaigns
@@ -261,6 +263,18 @@ async function navegarEAguardarAvaliacao() {
   dispararTimersPendentes() // scheduleAutoOpen (atraso_ms), se alguma candidata foi selecionada
 }
 
+// Simula o host chamando window.UserPulse.init() de novo (re-init por rota):
+// dispara as buscas assíncronas do init() e o timer de scheduleAutoOpen.
+async function reinit(config: Record<string, unknown>) {
+  userPulseInit(config)
+  // init() encadeia aparência + candidatas por microtasks; drena com folga e
+  // dispara timers pendentes a cada volta (scheduleAutoOpen / debounces).
+  for (let i = 0; i < 5; i++) {
+    await tick()
+    dispararTimersPendentes()
+  }
+}
+
 describe('reexibição de campanha modal_automatica — usuário identificado (bug corrigido)', () => {
   test('1. candidata retornada pelo servidor -> mostra a modal', async () => {
     configSetTestState({ sistema: 'erp', tela: 'home', usuario_id: 'user-1' })
@@ -372,5 +386,175 @@ describe('reexibição — sem regressão em destaque_elemento nem em tracking/d
     assert.equal(eventos.length, 1)
     assert.equal(eventos[0].body.tipo_evento, 'visualizacao')
     assert.equal(eventos[0].body.campanha_id, 'camp-tracking-1')
+  })
+})
+
+// ─── Reabertura após FECHAMENTO MANUAL sem navegação real ─────────────────
+// Bug: campanha abre -> usuário fecha no X -> um pushState/replaceState de
+// rotina do router (MESMA URL) dispara handleUrlChange -> evaluateCampaigns/
+// evaluateUrlCampaigns re-selecionam a MESMA candidata e scheduleAutoOpen a
+// reabre. O guard `if (state.open) return` não segura porque o fechamento
+// manual zerou state.open; e wasShown não bloqueia (identificado: janela em
+// que o `visualizacao` ainda não persistiu no servidor; anônimo com
+// mostrar_uma_vez=false). Correção: campanhaFechadaManualmente bloqueia a
+// reabertura da mesma campanha+regra na MESMA URL até uma navegação real.
+describe('reabertura após fechamento manual — mesma URL, sem navegação (bug corrigido)', () => {
+  async function abrir(campanha: Campanha, config: ConfigWidget) {
+    configSetTestState(config)
+    candidatasResponse = [campanha]
+    await navegarEAguardarAvaliacao()
+    assert.match(ultimoRootModal!.className, /up-widget-overlay/, 'pré-condição: modal aberta')
+  }
+
+  test('identificado: fecha no X -> pushState de rotina (mesma URL) -> NÃO reabre', async () => {
+    await abrir(campanhaModalUrlContem({ id: 'camp-reopen-1' }), { sistema: 'erp', tela: 'home', usuario_id: 'u-reopen-1' })
+
+    doClose(true) // usuário clica no X
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/, 'X fecha a modal')
+
+    // Servidor ainda devolve a candidata (visualizacao não persistiu / política
+    // ate_responder). Sem o fix, evaluateCampaigns reabriria.
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reopen-1' })]
+    await navegarEAguardarAvaliacao() // handleUrlChange(true) com a MESMA URL
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/, 'BUG: reabriu na mesma tela logo após o fechamento manual')
+
+    // repete: várias reavaliações de rotina não reabrem
+    await navegarEAguardarAvaliacao()
+    await navegarEAguardarAvaliacao()
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/)
+  })
+
+  test('anônimo mostrar_uma_vez=false: fecha no X -> reavaliação mesma URL -> NÃO reabre', async () => {
+    await abrir(
+      campanhaModalUrlContem({ id: 'camp-reopen-2', mostrar_uma_vez: false }),
+      { sistema: 'erp', tela: 'home' }, // sem usuario_id
+    )
+    doClose(true)
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reopen-2', mostrar_uma_vez: false })]
+    await navegarEAguardarAvaliacao()
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/, 'anônimo mostrar_uma_vez=false não pode reabrir sozinho após fechar manualmente')
+  })
+
+  test('fechar em /app/home NÃO impede exibir em /app/profissional-saude (escopo por regra)', async () => {
+    const regras = [
+      { modo_identificacao: 'url_contem', url_contem: '/app/home' },
+      { modo_identificacao: 'url_contem', url_contem: '/app/profissional-saude' },
+    ]
+    await abrir(
+      campanhaModalUrlContem({ id: 'camp-reopen-3', url_contem: '/app/home', regras }),
+      { sistema: 'erp', tela: 'home', usuario_id: 'u-reopen-3' },
+    )
+    doClose(true)
+
+    irParaUrl('/app/profissional-saude')
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reopen-3', url_contem: '/app/home', regras })]
+    await navegarEAguardarAvaliacao()
+    assert.match(ultimoRootModal!.className, /up-widget-overlay/, 'outra regra/URL da mesma campanha continua podendo abrir')
+  })
+
+  test('sair e voltar para /app/home reabre (navegação real limpa o bloqueio)', async () => {
+    await abrir(campanhaModalUrlContem({ id: 'camp-reopen-4' }), { sistema: 'erp', tela: 'home', usuario_id: 'u-reopen-4' })
+    doClose(true)
+
+    irParaUrl('/app/outra-tela')
+    candidatasResponse = []
+    await navegarEAguardarAvaliacao()
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/, 'noutra tela não é elegível')
+
+    irParaUrl('/app/home')
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reopen-4' })]
+    await navegarEAguardarAvaliacao()
+    assert.match(ultimoRootModal!.className, /up-widget-overlay/, 'voltar via navegação real reabre (servidor devolveu a candidata)')
+  })
+
+  test('duas regras que casam na MESMA página -> 1 abertura, e fechar bloqueia (sem duplicar)', async () => {
+    const regras = [
+      { modo_identificacao: 'url_contem', url_contem: '/app/home' },
+      { modo_identificacao: 'url_contem', url_contem: '/app' }, // também casa /app/home
+    ]
+    await abrir(
+      campanhaModalUrlContem({ id: 'camp-reopen-5', url_contem: '/app/home', regras }),
+      { sistema: 'erp', tela: 'home', usuario_id: 'u-reopen-5' },
+    )
+    const abriuUmaVez = chamadasRastreamento.filter(c => c.url.indexOf('/api/widget/evento') !== -1 && c.body.tipo_evento === 'visualizacao')
+    assert.equal(abriuUmaVez.length, 1, '2 regras casando não duplicam a abertura')
+
+    doClose(true)
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reopen-5', url_contem: '/app/home', regras })]
+    await navegarEAguardarAvaliacao()
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/, 'fechada -> não reabre (a 1ª regra casada é sempre a mesma)')
+  })
+
+  test('campanha de 1 regra: fluxo idêntico — fecha -> não reabre na mesma URL', async () => {
+    await abrir(campanhaModalUrlContem({ id: 'camp-reopen-6' }), { sistema: 'erp', tela: 'home', usuario_id: 'u-reopen-6' })
+    doClose(true)
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reopen-6' })]
+    await navegarEAguardarAvaliacao()
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/)
+  })
+
+  test('fechamento por NAVEGAÇÃO (não manual) não grava bloqueio — chegar noutra tela elegível abre', async () => {
+    // abre em /app/home, navega pra /app/conta (elegível) sem fechar no X
+    await abrir(campanhaModalUrlContem({ id: 'camp-reopen-7', url_contem: '/app' }), { sistema: 'erp', tela: 'home', usuario_id: 'u-reopen-7' })
+    irParaUrl('/app/conta')
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reopen-7', url_contem: '/app' })]
+    await navegarEAguardarAvaliacao()
+    assert.match(ultimoRootModal!.className, /up-widget-overlay/, 'doClose() de navegação real não bloqueia a próxima tela elegível')
+  })
+})
+
+// ─── Fechamento manual sobrevive a init() redundante (mesma config/URL) ───
+// Guard v3 de init() só faz no-op quando state.open || state.timer — após o
+// fechamento manual ambos são false, então init() roda por inteiro. Sem
+// preservar campanhaFechadaManualmente nesse caso, um host que reinicializa
+// por rota (já visto no Quark) reabriria a campanha logo depois do usuário
+// fechar. Preserva o bloqueio SÓ quando: mesma config efetiva + mesma URL +
+// sem contexto pendente.
+describe('fechamento manual x init() redundante', () => {
+  test('init() redundante (mesma config + mesma URL) após doClose(true) -> NÃO reabre', async () => {
+    const cfg = { sistema: 'erp', tela: 'home', usuario_id: 'u-reinit-1' }
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reinit-1' })]
+    await reinit(cfg)
+    assert.match(ultimoRootModal!.className, /up-widget-overlay/, 'pré-condição: modal abriu no 1º init')
+
+    doClose(true)
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/, 'X fechou')
+
+    // host reinicializa: MESMA config, MESMA URL, servidor ainda devolve a candidata
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reinit-1' })]
+    await reinit(cfg)
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/, 'BUG: init redundante limpou o bloqueio manual e reabriu')
+
+    // repetido não muda
+    await reinit(cfg)
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/)
+  })
+
+  test('init() com config REALMENTE diferente após doClose(true) -> reinicializa e reavalia normalmente', async () => {
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reinit-2' })]
+    await reinit({ sistema: 'erp', tela: 'home', usuario_id: 'u-reinit-2' })
+    assert.match(ultimoRootModal!.className, /up-widget-overlay/, 'pré-condição: modal aberta')
+
+    doClose(true)
+    assert.doesNotMatch(ultimoRootModal!.className, /up-widget-overlay/)
+
+    // usuario_id diferente = sessão nova = bloqueio manual limpo
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reinit-2' })]
+    await reinit({ sistema: 'erp', tela: 'home', usuario_id: 'u-reinit-OUTRO' })
+    assert.match(ultimoRootModal!.className, /up-widget-overlay/, 'config diferente -> a candidata volta a poder abrir')
+  })
+
+  test('init() com mesma config mas URL diferente após doClose(true) -> não preserva o bloqueio daquela URL', async () => {
+    const cfg = { sistema: 'erp', tela: 'home', usuario_id: 'u-reinit-3' }
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reinit-3', url_contem: '/app' })]
+    await reinit(cfg)
+    assert.match(ultimoRootModal!.className, /up-widget-overlay/)
+
+    doClose(true) // fechou em /app/home
+
+    irParaUrl('/app/conta') // URL diferente
+    candidatasResponse = [campanhaModalUrlContem({ id: 'camp-reinit-3', url_contem: '/app' })]
+    await reinit(cfg)
+    assert.match(ultimoRootModal!.className, /up-widget-overlay/, 'noutra URL o bloqueio de /app/home não vale -> abre')
   })
 })
