@@ -34,10 +34,21 @@ O que cada etapa faz:
 |---|---|---|
 | 1 | `npm install` | Instala `concurrently` (devDep raiz) |
 | 2 | `npm run install:all` | Instala deps de `server/` e `web/` |
-| 3 | `npm run build` | `tsc` (server → dist/) + `tsc + vite` (web → dist/) |
+| 3 | `npm run build` | `tsc` (server → dist/) + `tsc + vite` (web → dist/) + gera `.widget-version` na raiz (hash SHA-256/12 de `web/dist/widget.js`, via `web/scripts/gerar-widget-version.mjs`) |
 | 4 | `npm run db:migrate` | `prisma migrate deploy` — aplica migrations pendentes |
 
 > `prisma generate` é executado automaticamente como parte do `npm install --prefix server` (postinstall do `@prisma/client`).
+
+### Cache-busting do widget (`?v=`)
+
+`/widget-loader.js` injeta `/widget.js?v=<versao>`; `/widget.js` é servido `immutable` (1 ano), então `<versao>` **precisa mudar a cada build que altere o widget**. A resolução (`server/src/lib/widgetVersion.ts`) é, em ordem:
+
+1. env `WIDGET_VERSION` (se setada — vence tudo);
+2. arquivo `.widget-version` na raiz — **gerado automaticamente pelo `npm run build`** (etapa 3), hash de conteúdo de `web/dist/widget.js`;
+3. `npm_package_version`;
+4. `Date.now()`.
+
+**Não** defina `WIDGET_VERSION` no Render: sem ela, cada build produz um `?v=` novo só quando o `widget.js` realmente muda, e estável entre réplicas do mesmo deploy. Uma `WIDGET_VERSION` fixa faz navegadores ficarem presos numa versão antiga (URL immutable nunca revalida).
 
 ### Start Command
 
