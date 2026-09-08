@@ -149,7 +149,24 @@ export interface FormState {
   // fallback — ver conteudoResolverItens em widget.js).
   modo_navegacao: ModoNavegacaoConteudo
   conteudos: ConteudoFormItem[]
+  // Telas/URLs ADICIONAIS onde a campanha também deve aparecer (OR com o
+  // destino principal acima — modo_identificacao/tela/data_cy/url_contem).
+  // A "regra base" (ordem 0) continua vindo dos campos principais; aqui só
+  // ficam as extras. Campanha antiga (1 tela) => lista vazia => payload com
+  // 1 regra só => comportamento idêntico ao de antes.
+  regras_extra: RegraExtraForm[]
 }
+
+export type ModoRegraExtra = 'sistema_tela' | 'data_cy' | 'url_contem'
+
+export interface RegraExtraForm {
+  modo_identificacao: ModoRegraExtra
+  tela: string
+  url_contem: string
+  data_cy: string
+}
+
+export const regraExtraVazia: RegraExtraForm = { modo_identificacao: 'sistema_tela', tela: '', url_contem: '', data_cy: '' }
 
 export type FormatoExibicao = 'modal_automatica' | 'destaque_elemento'
 export const FORMATO_DESTAQUE_ELEMENTO: FormatoExibicao = 'destaque_elemento'
@@ -219,6 +236,7 @@ export const formInicial: FormState = {
     texto_botao: 'Saiba mais',
     url_botao: '',
   }],
+  regras_extra: [],
 }
 
 export function normalizarUrl(valor: string): string {
@@ -541,7 +559,46 @@ export function hidratarFormState(c: Campanha): FormState {
           texto_botao: c.texto_botao ?? '',
           url_botao: c.url_botao ?? '',
         }],
+    // Regras ADICIONAIS = todas menos a `ordem: 0` (a base, que já hidrata
+    // modo_identificacao/tela/data_cy/url_contem acima). Campanha antiga /
+    // resposta sem a relação `regras` => lista vazia.
+    regras_extra: (c.regras ?? [])
+      .slice()
+      .sort((a, b) => a.ordem - b.ordem)
+      .filter(r => r.ordem !== 0)
+      .map(r => ({
+        modo_identificacao: (r.modo_identificacao === 'data_cy' || r.modo_identificacao === 'url_contem' ? r.modo_identificacao : 'sistema_tela') as ModoRegraExtra,
+        tela: r.tela ?? '',
+        url_contem: r.url_contem ?? '',
+        data_cy: r.data_cy ?? '',
+      })),
   }
+}
+
+// FormState -> array `regras_exibicao` do payload: a regra base (campos
+// principais) seguida das extras. Descarta extra sem o campo do seu modo
+// preenchido (linha em branco que o usuário adicionou e não preencheu). O
+// backend revalida/normaliza tudo (normalizarRegrasExibicao).
+export function montarRegrasExibicaoPayload(form: FormState): Array<{ modo_identificacao: string; tela: string | null; url_contem: string | null; data_cy: string | null }> {
+  const base = {
+    modo_identificacao: form.modo_identificacao || 'sistema_tela',
+    tela: form.modo_identificacao === 'sistema_tela' ? (form.tela.trim() || 'Geral') : null,
+    url_contem: form.modo_identificacao === 'url_contem' ? (form.url_contem.trim() || null) : null,
+    data_cy: form.modo_identificacao === 'data_cy' ? (form.data_cy.trim() || null) : null,
+  }
+  const extras = form.regras_extra
+    .map(r => ({
+      modo_identificacao: r.modo_identificacao,
+      tela: r.modo_identificacao === 'sistema_tela' ? (r.tela.trim() || null) : null,
+      url_contem: r.modo_identificacao === 'url_contem' ? (r.url_contem.trim() || null) : null,
+      data_cy: r.modo_identificacao === 'data_cy' ? (r.data_cy.trim() || null) : null,
+    }))
+    .filter(r =>
+      (r.modo_identificacao === 'sistema_tela' && r.tela) ||
+      (r.modo_identificacao === 'url_contem' && r.url_contem) ||
+      (r.modo_identificacao === 'data_cy' && r.data_cy)
+    )
+  return [base, ...extras]
 }
 
 // O formulário canônico é o fluxo mantido pra edição — hidratarFormState/
@@ -589,7 +646,7 @@ export function getStatus(c: Pick<Campanha, 'status' | 'data_inicio' | 'data_fim
 // ao salvar sem tocar em nada — mesmo sem o usuário mexer na aba Feedback.
 export function montarPayloadCampanha(form: FormState): Record<string, unknown> {
   const exigeConfirmacao = Boolean(form.exige_confirmacao_leitura)
-  const { destaques, conteudos, ...camposComuns } = form
+  const { destaques, conteudos, regras_extra: _regrasExtra, ...camposComuns } = form
   // Continua garantindo que a campanha sempre tenha alguma saída (fechar,
   // feedback ou confirmação) — mas agora só reage ao estado REAL de
   // feedback_habilitado, nunca a uma versão artificialmente zerada dele, o
@@ -617,6 +674,10 @@ export function montarPayloadCampanha(form: FormState): Record<string, unknown> 
     tela: form.modo_identificacao === 'sistema_tela' ? (form.tela || 'Geral') : '',
     data_cy: form.data_cy || null,
     url_contem: normalizarUrlContem(form.url_contem) || null,
+    // Múltiplas telas/URLs: regra base (campos principais) + extras. O backend
+    // (normalizarRegrasExibicao) revalida, deduplica e re-espelha a regra 0
+    // nas colunas legadas acima.
+    regras_exibicao: montarRegrasExibicaoPayload(form),
     atraso_ms: Number(form.atraso_ms || 800),
     prioridade: Number(form.prioridade || 0),
     ordem: Number(form.ordem || 1),

@@ -563,11 +563,38 @@ model Campanha {
   etapasJornada EtapaJornada[]
   destaques     CampanhaDestaqueItem[]
   conteudos     CampanhaConteudoItem[]
+  regras        CampanhaRegraExibicao[]
 
   // slug deixou de ser globalmente único (era @unique) e virou único por
   // tenant — dois clientes podem ter, cada um, uma campanha "boas-vindas".
   @@unique([tenant_id, slug])
   @@map("campanhas")
+}
+
+// Uma tela/URL/data_cy em que a campanha deve aparecer. Antes cada campanha
+// tinha UMA regra fixa nas colunas Campanha.modo_identificacao/tela/
+// url_contem/data_cy; agora pode ter N (OR entre elas — a campanha é
+// elegível se QUALQUER regra corresponder). Sem tenant_id próprio: herda o
+// isolamento do pai (ver CLAUDE.md, "tabelas filhas"). A migration de
+// criação faz backfill de 1 linha por campanha a partir das colunas
+// legadas, então TODA campanha tem pelo menos 1 regra; as colunas legadas
+// da Campanha continuam preenchidas e espelham a regra `ordem: 0` (fallback
+// pro widget e leitura de compatibilidade). modo_identificacao segue os
+// mesmos 3 valores de sempre (sistema_tela / data_cy / url_contem); cada
+// regra usa só o campo correspondente ao seu modo.
+model CampanhaRegraExibicao {
+  id                 String  @id @default(uuid())
+  campanha_id        String
+  modo_identificacao String  @default("sistema_tela")
+  tela               String?
+  url_contem         String?
+  data_cy            String?
+  ordem              Int     @default(0)
+
+  campanha Campanha @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
+
+  @@index([campanha_id, ordem])
+  @@map("campanha_regras_exibicao")
 }
 
 // Um destaque_elemento independente dentro de uma campanha — Fase 1 permitia

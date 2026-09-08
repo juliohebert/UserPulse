@@ -5,6 +5,7 @@ import { checarLimiteCampanhasAtivas, deveChecarLimiteCadastro, motivoBloqueioAt
 import { filtroFeedbackGeralReexibicao } from './widget'
 import { normalizarDominio } from '../lib/dominio'
 import { validarRichText } from '../lib/richText'
+import { normalizarRegra, normalizarRegrasExibicao, regraBase } from '../lib/regrasExibicao'
 
 // ─── Fase 1 dos 3 status de Campanha ───────────────────────────────────────
 // status é a fonte única de verdade do ciclo de vida (RASCUNHO nunca foi
@@ -980,7 +981,7 @@ export async function listar(req: Request, res: Response) {
     const campanhas = await prisma.campanha.findMany({
       where: { tenant_id: req.adminUser!.tenant_id },
       orderBy: { criado_em: 'desc' },
-      include: { _count: { select: { feedbacks: true } }, conteudos: { orderBy: { ordem: 'asc' } } },
+      include: { _count: { select: { feedbacks: true } }, conteudos: { orderBy: { ordem: 'asc' } }, regras: { orderBy: { ordem: 'asc' } } },
     })
     res.json(campanhas)
   } catch (err) {
@@ -1002,6 +1003,7 @@ export async function buscarPorId(req: Request, res: Response) {
         _count: { select: { feedbacks: true } },
         destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } },
         conteudos: { orderBy: { ordem: 'asc' } },
+        regras: { orderBy: { ordem: 'asc' } },
       },
     })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
@@ -1072,9 +1074,24 @@ export async function criar(req: Request, res: Response) {
     }
 
     const modo = resolverModoIdentificacao(modoExibicaoResolvido, String(req.body.modo_identificacao || '').trim())
-    const faltando = ['nome_interno', ...getCamposObrigatorios(modo, modoExibicaoResolvido)].filter(c => !req.body[c]?.toString().trim())
+    // Múltiplas telas/URLs: quando o corpo traz `regras_exibicao`, cada regra
+    // já carrega o que precisa (modo + tela/url/data_cy) e é validada abaixo —
+    // o campo de destino "solto" (tela/data_cy/url_contem) deixa de ser
+    // obrigatório no topo. Sem `regras_exibicao`, nada muda (API antiga).
+    const enviouRegras = Array.isArray(req.body.regras_exibicao) && req.body.regras_exibicao.length > 0
+    const obrigatorios = getCamposObrigatorios(modo, modoExibicaoResolvido)
+      .filter(c => !(enviouRegras && (c === 'tela' || c === 'data_cy' || c === 'url_contem')))
+    const faltando = ['nome_interno', ...obrigatorios].filter(c => !req.body[c]?.toString().trim())
     if (faltando.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
+    }
+    if (req.body.regras_exibicao !== undefined) {
+      if (!Array.isArray(req.body.regras_exibicao) || req.body.regras_exibicao.length === 0) {
+        return res.status(400).json({ erro: 'Informe ao menos uma tela/URL em regras_exibicao.' })
+      }
+      if (req.body.regras_exibicao.some((r: unknown) => normalizarRegra((r ?? {}) as never) === null)) {
+        return res.status(400).json({ erro: 'Uma das telas/URLs configuradas é inválida (modo desconhecido ou campo obrigatório em branco).' })
+      }
     }
 
     const {
@@ -1092,6 +1109,15 @@ export async function criar(req: Request, res: Response) {
     } = req.body
 
     const dataCyNormalizado = normalizarDataCy(data_cy)
+
+    // Regras de exibição (>= 1). A regra `ordem: 0` é a "base": espelhada nas
+    // colunas legadas da Campanha (fallback do widget, grupoConcorrente,
+    // preview). Sem `regras_exibicao` no corpo, cai numa regra única
+    // sintetizada dos campos legados — idêntico ao comportamento anterior.
+    const regrasExibicao = normalizarRegrasExibicao(req.body.regras_exibicao, {
+      modo_identificacao: modo, tela, url_contem, data_cy: dataCyNormalizado,
+    })
+    const regra0 = regraBase(regrasExibicao)
 
     const pfm = permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : true
     const erroFechamento = validarFechamentoObrigatorio(
@@ -1148,7 +1174,6 @@ export async function criar(req: Request, res: Response) {
         descricao_rich: descricao_rich == null ? Prisma.DbNull : descricao_rich as Prisma.InputJsonValue,
         tipo: tipo.trim(),
         sistema: sistema.trim(),
-        tela: tela?.trim() || '',
         imagem_url: imagem_url?.trim() || null,
         video_url: video_url?.trim() || null,
         texto_botao: texto_botao?.trim() || null,
@@ -1157,9 +1182,11 @@ export async function criar(req: Request, res: Response) {
         modo_exibicao: modoExibicaoResolvido,
         gatilho: gatilho?.trim() || 'ao_abrir_tela',
         evento: evento?.trim() || null,
-        modo_identificacao: modo,
-        data_cy: dataCyNormalizado || null,
-        url_contem: url_contem?.trim() || null,
+        // Colunas legadas espelham a regra base (ordem 0).
+        modo_identificacao: regra0.modo_identificacao,
+        tela: regra0.tela ?? '',
+        data_cy: regra0.data_cy,
+        url_contem: regra0.url_contem,
         atraso_ms: atraso_ms !== undefined ? Number(atraso_ms) : 800,
         mostrar_uma_vez: Boolean(mostrar_uma_vez),
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
@@ -1190,8 +1217,21 @@ export async function criar(req: Request, res: Response) {
         ...(listaConteudos.length > 0 && {
           conteudos: { create: listaConteudos.map((item, i) => paraCriacaoConteudoItem(item, tenantId, i + 1)) },
         }),
+        regras: {
+          create: regrasExibicao.map(r => ({
+            modo_identificacao: r.modo_identificacao,
+            tela: r.tela,
+            url_contem: r.url_contem,
+            data_cy: r.data_cy,
+            ordem: r.ordem,
+          })),
+        },
       },
-      include: { destaques: { orderBy: { ordem: 'asc' } }, conteudos: { orderBy: { ordem: 'asc' } } },
+      include: {
+        destaques: { orderBy: { ordem: 'asc' } },
+        conteudos: { orderBy: { ordem: 'asc' } },
+        regras: { orderBy: { ordem: 'asc' } },
+      },
     })
 
     res.status(201).json(campanha)
@@ -1315,9 +1355,23 @@ export async function atualizar(req: Request, res: Response) {
       : undefined
 
     const modoAtualizado = resolverModoIdentificacao(modoExibicaoAtualizado, String(req.body.modo_identificacao ?? existente.modo_identificacao ?? '').trim())
-    const vazios = ['nome_interno', ...getCamposObrigatorios(modoAtualizado, modoExibicaoAtualizado)].filter(c => c in req.body && !req.body[c]?.toString().trim())
+    // Múltiplas telas/URLs: com `regras_exibicao` no corpo, o campo de destino
+    // "solto" (tela/data_cy/url_contem) deixa de ser obrigatório — cada regra
+    // se valida sozinha logo abaixo.
+    const enviouRegrasUpd = req.body.regras_exibicao !== undefined
+    const vazios = ['nome_interno', ...getCamposObrigatorios(modoAtualizado, modoExibicaoAtualizado)]
+      .filter(c => !(enviouRegrasUpd && (c === 'tela' || c === 'data_cy' || c === 'url_contem')))
+      .filter(c => c in req.body && !req.body[c]?.toString().trim())
     if (vazios.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
+    }
+    if (enviouRegrasUpd) {
+      if (!Array.isArray(req.body.regras_exibicao) || req.body.regras_exibicao.length === 0) {
+        return res.status(400).json({ erro: 'Informe ao menos uma tela/URL em regras_exibicao.' })
+      }
+      if (req.body.regras_exibicao.some((r: unknown) => normalizarRegra((r ?? {}) as never) === null)) {
+        return res.status(400).json({ erro: 'Uma das telas/URLs configuradas é inválida (modo desconhecido ou campo obrigatório em branco).' })
+      }
     }
 
     const {
@@ -1335,6 +1389,27 @@ export async function atualizar(req: Request, res: Response) {
     } = req.body
 
     const dataCyNormalizado = data_cy !== undefined ? normalizarDataCy(data_cy) : normalizarDataCy(existente.data_cy)
+
+    // Regras de exibição: só recomputa/regrava quando algo que as afeta veio
+    // no corpo (regras_exibicao explícito, ou os campos legados de destino, ou
+    // a troca de modo_exibicao — que muda o modo p/ destaque_elemento). Fora
+    // disso (toggle de status, edição só de texto...) as regras ficam
+    // intocadas. A regra `ordem: 0` continua espelhada nas colunas legadas.
+    const mexeuEmRegras = enviouRegrasUpd
+      || req.body.modo_identificacao !== undefined
+      || req.body.modo_exibicao !== undefined
+      || tela !== undefined || data_cy !== undefined || url_contem !== undefined
+    let regrasAtualizadas: ReturnType<typeof normalizarRegrasExibicao> | null = null
+    let regra0Upd: ReturnType<typeof regraBase> | null = null
+    if (mexeuEmRegras) {
+      regrasAtualizadas = normalizarRegrasExibicao(req.body.regras_exibicao, {
+        modo_identificacao: modoAtualizado,
+        tela: tela !== undefined ? tela : existente.tela,
+        url_contem: url_contem !== undefined ? url_contem : existente.url_contem,
+        data_cy: dataCyNormalizado,
+      })
+      regra0Upd = regraBase(regrasAtualizadas)
+    }
 
     // Vigência (Etapa 1) — data_inicio/data_fim opcionais e independentes.
     // Cada campo só é reparseado quando VEM no corpo; a validação de ordem usa
@@ -1471,7 +1546,6 @@ export async function atualizar(req: Request, res: Response) {
         }),
         ...(tipo !== undefined && { tipo: tipo.trim() }),
         ...(sistema !== undefined && { sistema: sistema.trim() }),
-        ...(tela !== undefined && { tela: tela?.trim() || '' }),
         ...(imagem_url !== undefined && { imagem_url: imagem_url?.trim() || null }),
         ...(video_url !== undefined && { video_url: video_url?.trim() || null }),
         ...(texto_botao !== undefined && { texto_botao: texto_botao?.trim() || null }),
@@ -1479,17 +1553,29 @@ export async function atualizar(req: Request, res: Response) {
         ...(feedback_habilitado !== undefined && { feedback_habilitado: Boolean(feedback_habilitado) }),
         ...(gatilho !== undefined && { gatilho: gatilho?.trim() || 'ao_abrir_tela' }),
         ...(evento !== undefined && { evento: evento?.trim() || null }),
-        // modo_exibicao/modo_identificacao/data_cy são interdependentes (ver
-        // resolverModoIdentificacao) — recalcula e grava os três juntos
-        // sempre que qualquer um deles aparecer no corpo da requisição, pra
-        // nunca persistir uma combinação inconsistente (ex.: modo_exibicao
-        // destaque_elemento com modo_identificacao antigo sistema_tela).
-        ...((req.body.modo_exibicao !== undefined || req.body.modo_identificacao !== undefined || data_cy !== undefined) && {
-          modo_exibicao: modoExibicaoAtualizado,
-          modo_identificacao: modoAtualizado,
-          data_cy: dataCyNormalizado || null,
+        // modo_exibicao sempre acompanha os campos de destino/regras (mantido
+        // fora do bloco abaixo pois pode mudar sozinho — ex.: só o formato).
+        ...(req.body.modo_exibicao !== undefined && { modo_exibicao: modoExibicaoAtualizado }),
+        // Múltiplas telas/URLs: quando as regras foram mexidas, regrava a
+        // lista inteira (deleteMany + create) e re-espelha a regra base (ordem
+        // 0) nas colunas legadas — modo_identificacao/tela/data_cy/url_contem
+        // nunca ficam inconsistentes com `regras`.
+        ...(regrasAtualizadas && regra0Upd && {
+          modo_identificacao: regra0Upd.modo_identificacao,
+          tela: regra0Upd.tela ?? '',
+          data_cy: regra0Upd.data_cy,
+          url_contem: regra0Upd.url_contem,
+          regras: {
+            deleteMany: {},
+            create: regrasAtualizadas.map(r => ({
+              modo_identificacao: r.modo_identificacao,
+              tela: r.tela,
+              url_contem: r.url_contem,
+              data_cy: r.data_cy,
+              ordem: r.ordem,
+            })),
+          },
         }),
-        ...(url_contem !== undefined && { url_contem: url_contem?.trim() || null }),
         ...(atraso_ms !== undefined && { atraso_ms: Number(atraso_ms) }),
         ...(mostrar_uma_vez !== undefined && { mostrar_uma_vez: Boolean(mostrar_uma_vez) }),
         ...(prioridade !== undefined && { prioridade: Number(prioridade) }),
@@ -1564,7 +1650,7 @@ export async function atualizar(req: Request, res: Response) {
           },
         }),
       },
-      include: { destaques: { orderBy: { ordem: 'asc' } }, conteudos: { orderBy: { ordem: 'asc' } } },
+      include: { destaques: { orderBy: { ordem: 'asc' } }, conteudos: { orderBy: { ordem: 'asc' } }, regras: { orderBy: { ordem: 'asc' } } },
     })
 
     res.json(campanha)
@@ -1585,30 +1671,61 @@ export async function atualizar(req: Request, res: Response) {
 // de ids do grupo na nova ordem (nunca um subconjunto), e `prioridade` é
 // sempre derivada da posição no array — nunca aceita valor explícito do
 // cliente. Primeiro id da lista = maior prioridade.
+export interface RegraGrupoInput {
+  modo_identificacao: string
+  tela: string | null
+  url_contem: string | null
+  data_cy: string | null
+}
+
 export interface CampanhaGrupoInput {
   id: string
   sistema: string
-  tela: string | null
-  modo_identificacao: string
-  url_contem: string | null
   gatilho: string
   evento: string | null
+  // Regra base (colunas legadas) — usada só como fallback quando `regras`
+  // não veio carregada (chamada antiga / objeto sintético de teste).
+  modo_identificacao: string
+  tela: string | null
+  url_contem: string | null
+  data_cy: string | null
+  // Todas as regras de exibição da campanha (múltiplas telas/URLs). Quando
+  // presente, é a fonte de verdade da concorrência; ausente/vazia => cai na
+  // regra base acima (1 chave, como antes).
+  regras?: RegraGrupoInput[]
 }
 
-// Mesma chave de "quem compete com quem" usada em testarElegibilidade/
-// competidores acima: sistema + (tela, se modo_identificacao=sistema_tela)
-// ou (url_contem, se modo_identificacao=url_contem) + gatilho(+evento, se
-// apos_evento). Campanha em modo data_cy nunca forma grupo — mesma limitação
-// documentada lá ("data_cy: can't verify remotely") — retorna null.
-export function chaveGrupoConcorrente(c: CampanhaGrupoInput): string | null {
-  const gatilhoParte = c.gatilho === 'apos_evento' && c.evento ? `apos_evento:${c.evento}` : 'ao_abrir_tela'
-  if (c.modo_identificacao === 'sistema_tela') {
-    return `${c.sistema}::tela::${c.tela ?? ''}::${gatilhoParte}`
-  }
-  if (c.modo_identificacao === 'url_contem' && c.url_contem) {
-    return `${c.sistema}::url::${c.url_contem}::${gatilhoParte}`
-  }
+function parteGatilhoGrupo(c: Pick<CampanhaGrupoInput, 'gatilho' | 'evento'>): string {
+  return c.gatilho === 'apos_evento' && c.evento ? `apos_evento:${c.evento}` : 'ao_abrir_tela'
+}
+
+// Chave de UMA regra de exibição, ou null quando a regra não define um alvo
+// comparável (modo desconhecido, ou campo do modo vazio). sistema+gatilho
+// entram na chave (vêm da campanha, não da regra).
+function chaveDeRegra(sistema: string, gatilhoParte: string, r: RegraGrupoInput): string | null {
+  if (r.modo_identificacao === 'sistema_tela') return `${sistema}::tela::${r.tela ?? ''}::${gatilhoParte}`
+  if (r.modo_identificacao === 'url_contem') return r.url_contem ? `${sistema}::url::${r.url_contem}::${gatilhoParte}` : null
+  if (r.modo_identificacao === 'data_cy') return r.data_cy ? `${sistema}::datacy::${r.data_cy}::${gatilhoParte}` : null
   return null
+}
+
+// Conjunto (deduplicado) de chaves de "quem compete com quem" — UMA por
+// regra de exibição da campanha. Duas campanhas concorrem quando compartilham
+// pelo menos uma chave. Considera sistema_tela, url_contem E data_cy (antes
+// data_cy nunca formava grupo). Campanha sem `regras` carregada cai na regra
+// base das colunas legadas, produzindo exatamente as mesmas chaves de antes
+// para sistema_tela/url_contem (campanha antiga de 1 regra inalterada).
+export function chavesGrupoConcorrente(c: CampanhaGrupoInput): string[] {
+  const gatilhoParte = parteGatilhoGrupo(c)
+  const regras: RegraGrupoInput[] = c.regras && c.regras.length > 0
+    ? c.regras
+    : [{ modo_identificacao: c.modo_identificacao, tela: c.tela, url_contem: c.url_contem, data_cy: c.data_cy }]
+  const chaves = new Set<string>()
+  for (const r of regras) {
+    const k = chaveDeRegra(c.sistema, gatilhoParte, r)
+    if (k) chaves.add(k)
+  }
+  return [...chaves]
 }
 
 // `idsDoGrupo` é o subconjunto (calculado pelo controller via
@@ -1640,7 +1757,10 @@ export function calcularPrioridadesReordenadas(ids: string[]): Array<{ id: strin
   return ids.map((id, i) => ({ id, prioridade: total - i }))
 }
 
-const SELECT_GRUPO_CONCORRENTE = { id: true, sistema: true, tela: true, modo_identificacao: true, url_contem: true, gatilho: true, evento: true } as const
+const SELECT_GRUPO_CONCORRENTE = {
+  id: true, sistema: true, tela: true, modo_identificacao: true, url_contem: true, data_cy: true, gatilho: true, evento: true,
+  regras: { select: { modo_identificacao: true, tela: true, url_contem: true, data_cy: true } },
+} as const
 
 export async function reordenar(req: Request, res: Response) {
   try {
@@ -1667,20 +1787,33 @@ export async function reordenar(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Lista de campanhas inválida.' })
     }
 
-    const chaves = new Set(campanhasSolicitadas.map(chaveGrupoConcorrente))
-    if (chaves.size !== 1 || chaves.has(null)) {
+    // Múltiplas telas/URLs: as campanhas submetidas precisam compartilhar
+    // PELO MENOS uma chave de grupo (uma regra de exibição equivalente no
+    // mesmo sistema/gatilho). Antes exigia UMA chave única e igual pra todas.
+    const conjuntos = campanhasSolicitadas.map(c => new Set(chavesGrupoConcorrente(c)))
+    const chavesComuns = [...conjuntos[0]].filter(k => conjuntos.every(s => s.has(k))).sort()
+    if (chavesComuns.length === 0) {
       return res.status(400).json({ erro: 'As campanhas informadas não formam um grupo de prioridade válido.' })
     }
-    const chave = campanhasSolicitadas.map(chaveGrupoConcorrente)[0] as string
 
     const candidatosDoGrupo = await prisma.campanha.findMany({
       where: { tenant_id: tenantId, sistema: campanhasSolicitadas[0].sistema },
       select: SELECT_GRUPO_CONCORRENTE,
     })
-    const idsDoGrupo = candidatosDoGrupo.filter(c => chaveGrupoConcorrente(c) === chave).map(c => c.id)
 
-    const { erro, ids } = validarIdsReordenacao(idsSolicitados, idsDoGrupo)
-    if (erro) return res.status(400).json({ erro })
+    // A lista submetida tem que ser EXATAMENTE o grupo definido por alguma
+    // das chaves comuns (o front sempre envia um grupo inteiro de
+    // agruparCampanhasConcorrentes). Testa cada chave comum; a primeira cujo
+    // grupo bate exatamente vale.
+    let ids: string[] | null = null
+    for (const chave of chavesComuns) {
+      const idsDoGrupo = candidatosDoGrupo.filter(c => chavesGrupoConcorrente(c).includes(chave)).map(c => c.id)
+      const r = validarIdsReordenacao(idsSolicitados, idsDoGrupo)
+      if (!r.erro) { ids = r.ids; break }
+    }
+    if (!ids) {
+      return res.status(400).json({ erro: 'A lista precisa conter exatamente todas as campanhas do grupo de prioridade selecionado.' })
+    }
 
     const prioridades = calcularPrioridadesReordenadas(ids)
     await prisma.$transaction(
@@ -1768,6 +1901,7 @@ export async function duplicar(req: Request, res: Response) {
       include: {
         destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } },
         conteudos: { orderBy: { ordem: 'asc' } },
+        regras: { orderBy: { ordem: 'asc' } },
       },
     })
     if (!original) return res.status(404).json({ erro: 'Campanha não encontrada.' })
@@ -1867,11 +2001,27 @@ export async function duplicar(req: Request, res: Response) {
             })),
           },
         }),
+        // Copia TODAS as regras de exibição (múltiplas telas/URLs). Backfill
+        // garante >= 1; se por algum motivo não houver, cai na regra base
+        // sintetizada das colunas legadas da original.
+        regras: {
+          create: normalizarRegrasExibicao(
+            original.regras.map(r => ({ modo_identificacao: r.modo_identificacao, tela: r.tela, url_contem: r.url_contem, data_cy: r.data_cy })),
+            { modo_identificacao: original.modo_identificacao, tela: original.tela, url_contem: original.url_contem, data_cy: original.data_cy },
+          ).map(r => ({
+            modo_identificacao: r.modo_identificacao,
+            tela: r.tela,
+            url_contem: r.url_contem,
+            data_cy: r.data_cy,
+            ordem: r.ordem,
+          })),
+        },
       },
       include: {
         _count: { select: { feedbacks: true } },
         destaques: { orderBy: { ordem: 'asc' } },
         conteudos: { orderBy: { ordem: 'asc' } },
+        regras: { orderBy: { ordem: 'asc' } },
       },
     })
 
@@ -1887,7 +2037,10 @@ export async function testarElegibilidade(req: Request, res: Response) {
     const id = req.params.id as string
     const { sistema, tela, url, usuario_id, evento, cliente_id, unidade_id, perfil, usuario_tipo, estado, dominio } = req.body
 
-    const campanha = await prisma.campanha.findFirst({ where: { id, tenant_id: req.adminUser!.tenant_id } })
+    const campanha = await prisma.campanha.findFirst({
+      where: { id, tenant_id: req.adminUser!.tenant_id },
+      include: { regras: { orderBy: { ordem: 'asc' } } },
+    })
     if (!campanha) return res.status(404).json({ erro: 'Campanha não encontrada.' })
 
     const criterios: Criterio[] = []
@@ -1941,33 +2094,34 @@ export async function testarElegibilidade(req: Request, res: Response) {
       ok('Sistema', campanha.sistema)
     }
 
-    // 4. Modo de identificação
-    const modo = campanha.modo_identificacao || 'sistema_tela'
-    if (modo === 'sistema_tela') {
-      const telaInf = tela ? String(tela).trim() : ''
-      if (!telaInf) {
-        warn('Tela', `A campanha usa tela "${campanha.tela}". Nenhuma tela foi informada.`)
-      } else if (campanha.tela !== telaInf) {
-        block('Tela', `Tela "${telaInf}" não corresponde à configurada "${campanha.tela}".`)
-      } else {
-        ok('Tela', campanha.tela)
-      }
-    } else if (modo === 'url_contem') {
-      const urlInf = url ? String(url).trim() : ''
-      if (!campanha.url_contem) {
-        ok('URL', 'Nenhuma URL configurada na campanha.')
-      } else if (!urlInf) {
-        block('URL', `A campanha requer URL compatível com "${campanha.url_contem}". Nenhuma URL foi informada.`)
-      } else if (!matchesUrlContem(campanha.url_contem, urlInf)) {
-        block('URL', `"${urlInf}" não corresponde ao padrão "${campanha.url_contem}".`)
-      } else {
-        ok('URL', `"${urlInf}" corresponde ao padrão "${campanha.url_contem}".`)
-      }
-    } else if (modo === 'data_cy') {
-      warn(
-        'Seletor CSS (data-cy)',
-        `A campanha usa data-cy="${campanha.data_cy}". A verificação depende do DOM do sistema integrado e não pode ser simulada aqui.`
-      )
+    // 4. Modo de identificação — múltiplas telas/URLs: a campanha corresponde
+    // se QUALQUER uma das suas regras corresponder (OR). Backfill garante >= 1
+    // regra; se por algum motivo a lista vier vazia, cai nas colunas legadas.
+    const regrasSim = campanha.regras.length > 0
+      ? campanha.regras
+      : [{ modo_identificacao: campanha.modo_identificacao || 'sistema_tela', tela: campanha.tela, url_contem: campanha.url_contem, data_cy: campanha.data_cy }]
+    const telaInf = tela ? String(tela).trim() : ''
+    const urlInf = url ? String(url).trim() : ''
+    const regrasTela = regrasSim.filter(r => (r.modo_identificacao || 'sistema_tela') === 'sistema_tela')
+    const regrasUrl = regrasSim.filter(r => r.modo_identificacao === 'url_contem')
+    const regrasDataCy = regrasSim.filter(r => r.modo_identificacao === 'data_cy')
+    const telasCfg = regrasTela.map(r => r.tela).filter(Boolean).join(', ')
+    const urlsCfg = regrasUrl.map(r => r.url_contem).filter(Boolean).join(', ')
+
+    const casaTela = telaInf !== '' && regrasTela.some(r => r.tela === telaInf)
+    const casaUrl = urlInf !== '' && regrasUrl.some(r => r.url_contem && matchesUrlContem(r.url_contem, urlInf))
+    const temDataCy = regrasDataCy.length > 0
+    // Só há critério "de destino" pra checar quando a campanha tem alguma
+    // regra sistema_tela/url_contem; se ela é 100% data_cy, vira aviso.
+    if (regrasTela.length === 0 && regrasUrl.length === 0 && temDataCy) {
+      warn('Seletor CSS (data-cy)', `A campanha usa data-cy (${regrasDataCy.map(r => r.data_cy).filter(Boolean).join(', ')}). A verificação depende do DOM do sistema integrado e não pode ser simulada aqui.`)
+    } else if (casaTela || casaUrl) {
+      ok('Tela/URL', casaTela ? `Tela "${telaInf}" corresponde.` : `URL "${urlInf}" corresponde a "${regrasUrl.find(r => r.url_contem && matchesUrlContem(r.url_contem!, urlInf))?.url_contem}".`)
+    } else if (telaInf === '' && urlInf === '') {
+      warn('Tela/URL', `A campanha aparece em: ${[telasCfg && `telas ${telasCfg}`, urlsCfg && `URLs ${urlsCfg}`, temDataCy && 'seletor data-cy'].filter(Boolean).join('; ')}. Nada foi informado.`)
+    } else {
+      const alvos = [telasCfg && `telas: ${telasCfg}`, urlsCfg && `URLs: ${urlsCfg}`].filter(Boolean).join(' | ')
+      block('Tela/URL', `Nenhuma regra da campanha corresponde${telaInf ? ` à tela "${telaInf}"` : ''}${urlInf ? ` à URL "${urlInf}"` : ''}. Configurado: ${alvos || '(somente data-cy)'}.`)
     }
 
     // 5. Gatilho e evento
@@ -2167,20 +2321,27 @@ export async function testarElegibilidade(req: Request, res: Response) {
           ativo: true,
           sistema: campanha.sistema,
           id: { not: id },
-          OR: modoFiltros,
+          // Múltiplas telas/URLs: concorre quem tiver QUALQUER regra compatível.
+          regras: { some: { OR: modoFiltros } },
           ...gatilhoFilter,
           ...filtroData,
         },
         orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
+        include: { regras: true },
       })
 
-      // Filter by mode match (same logic as widget.js checkMode)
+      // Filter by mode match (same OR-entre-regras logic as widget.js checkMode)
       const urlInf2 = url ? String(url).trim() : ''
       const competidores = candidatos.filter(c => {
-        const modoC = c.modo_identificacao || 'sistema_tela'
-        if (modoC === 'sistema_tela') return c.tela === telaStr
-        if (modoC === 'url_contem') return !!c.url_contem && !!urlInf2 && matchesUrlContem(c.url_contem, urlInf2)
-        return false // data_cy: can't verify remotely
+        const regrasC = c.regras.length > 0
+          ? c.regras
+          : [{ modo_identificacao: c.modo_identificacao || 'sistema_tela', tela: c.tela, url_contem: c.url_contem, data_cy: c.data_cy }]
+        return regrasC.some(r => {
+          const modoC = r.modo_identificacao || 'sistema_tela'
+          if (modoC === 'sistema_tela') return r.tela === telaStr
+          if (modoC === 'url_contem') return !!r.url_contem && !!urlInf2 && matchesUrlContem(r.url_contem, urlInf2)
+          return false // data_cy: can't verify remotely
+        })
       })
 
       // Find first competitor that ranks before ours AND is eligible for the user

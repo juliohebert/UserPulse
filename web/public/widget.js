@@ -1500,7 +1500,13 @@
   // `destaques`, então quem já tinha dispensado o destaque legado continua
   // sem vê-lo de novo depois desta atualização.
   function shownKey(campanha, config, itemId) {
-    var ctx = config.slug || (config.sistema + ':' + config.tela);
+    // Campanha com 2+ regras de exibição (múltiplas telas/URLs): a chave
+    // "visto" precisa ser por CAMPANHA, não por tela — senão dispensar na
+    // tela A não impede reabrir na tela B (mesma campanha) pra usuário
+    // anônimo com mostrar_uma_vez. Campanha de 1 regra mantém EXATAMENTE a
+    // chave de antes (sem regressão pra quem já dispensou algo).
+    var multiRegra = campanha && campanha.regras && campanha.regras.length > 1;
+    var ctx = config.slug || (multiRegra ? (config.sistema + ':*') : (config.sistema + ':' + config.tela));
     var uid = config.usuario_id ? ':u:' + config.usuario_id : '';
     var sufixoItem = itemId ? (':item:' + itemId) : '';
     return 'userpulse:shown:' + campanha.id + ':' + ctx + uid + sufixoItem;
@@ -3077,13 +3083,17 @@
     });
   }
 
-  function checkMode(campanha, config) {
-    var modo = campanha.modo_identificacao || 'sistema_tela';
+  // Avalia UMA regra de exibição ({ modo_identificacao, tela, url_contem,
+  // data_cy }) contra o contexto atual. `regra` pode ser a própria campanha
+  // (campos legados) ou um item de campanha.regras — os nomes de campo são
+  // os mesmos nos dois casos.
+  function checkRegra(regra, config) {
+    var modo = regra.modo_identificacao || 'sistema_tela';
     if (modo === 'sistema_tela') {
-      return campanha.tela === config.tela;
+      return regra.tela === config.tela;
     }
     if (modo === 'data_cy') {
-      var seletor = campanha.data_cy;
+      var seletor = regra.data_cy;
       if (!seletor) return false;
       try {
         return Boolean(document.querySelector('[data-cy="' + seletor + '"]'));
@@ -3092,7 +3102,7 @@
       }
     }
     if (modo === 'url_contem') {
-      var val = campanha.url_contem;
+      var val = regra.url_contem;
       if (!val) return false;
       var normalized = val.trim();
       try { normalized = new URL(normalized).pathname; } catch (_) {}
@@ -3103,6 +3113,38 @@
       return p === normalized || p.startsWith(normalized + '/');
     }
     return false;
+  }
+
+  // Múltiplas telas/URLs por campanha: a campanha corresponde se QUALQUER
+  // uma das suas regras corresponder (OR). `campanha.regras` sempre vem do
+  // backend (>= 1, por causa do backfill); quando ausente (resposta antiga
+  // em cache, teste), cai nos campos legados da própria campanha —
+  // comportamento idêntico ao de antes desta mudança. Duas regras batendo ao
+  // mesmo tempo não duplicam nada: isto é um booleano por campanha, e o
+  // seletor de candidatas escolhe no máximo 1 campanha.
+  function checkMode(campanha, config) {
+    var regras = campanha && campanha.regras;
+    if (regras && regras.length) {
+      for (var i = 0; i < regras.length; i++) {
+        if (checkRegra(regras[i], config)) return true;
+      }
+      return false;
+    }
+    return checkRegra(campanha, config);
+  }
+
+  // A campanha tem ao menos uma regra do modo informado? (campanha.regras
+  // quando presente; senão o modo_identificacao legado). Usado pra decidir
+  // quais campanhas a reavaliação por mudança de URL (SPA) deve considerar.
+  function campanhaTemModo(campanha, modo) {
+    var regras = campanha && campanha.regras;
+    if (regras && regras.length) {
+      for (var i = 0; i < regras.length; i++) {
+        if ((regras[i].modo_identificacao || 'sistema_tela') === modo) return true;
+      }
+      return false;
+    }
+    return (campanha.modo_identificacao || 'sistema_tela') === modo;
   }
 
   // ─── Segmentação de Tours por contexto (MVP) ───────────────────────────────
@@ -3754,7 +3796,7 @@
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
           var modo = c.modo_identificacao || 'sistema_tela';
-          if (modo !== 'url_contem') {
+          if (!campanhaTemModo(c, 'url_contem')) {
             if (debugState.enabled) linhasDebug.push({ id: c.id, titulo: c.titulo || c.slug || null, modo_identificacao: modo, motivo: 'ignorada: só avalia modo url_contem aqui' });
             continue;
           }
@@ -11316,6 +11358,15 @@
     // nunca só por ter renderizado (ver comentário em destaqueElementoMontar).
     wasShown: wasShown,
     markShown: markShown,
+    // Múltiplas telas/URLs por campanha — checkMode faz OR entre campanha.regras
+    // (ou cai nos campos legados quando `regras` não vem); checkRegra avalia
+    // UMA regra; campanhaTemModo diz se há regra de um modo. Puras (checkRegra
+    // toca só document.querySelector/location, sem estado do widget). Ver
+    // server/src/widgetCampanhaMultiplasTelas.test.ts.
+    checkMode: checkMode,
+    checkRegra: checkRegra,
+    campanhaTemModo: campanhaTemModo,
+    shownKey: shownKey,
     // Ícone do cabeçalho da modal por tipo de campanha (comunicado/melhoria/
     // pesquisa) — regra pura, exposta só pra confirmar por teste que fica em
     // paridade com iconeTipoCampanha/ICONES_TIPO_CAMPANHA (CampanhaForm.tsx,

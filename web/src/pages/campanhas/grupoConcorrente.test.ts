@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import type { Campanha } from '../../types'
-import { chaveGrupoConcorrente, agruparCampanhasConcorrentes, rotuloGrupoConcorrente } from './grupoConcorrente'
+import type { Campanha, CampanhaRegraExibicao } from '../../types'
+import { chavesGrupoConcorrente, agruparCampanhasConcorrentes, rotuloGrupoConcorrente } from './grupoConcorrente'
 
 function campanha(overrides: Partial<Campanha> & { id: string }): Campanha {
   return {
@@ -39,41 +39,73 @@ function campanha(overrides: Partial<Campanha> & { id: string }): Campanha {
   } as Campanha
 }
 
-describe('chaveGrupoConcorrente', () => {
-  test('sistema_tela: mesma sistema+tela -> mesma chave', () => {
-    const a = chaveGrupoConcorrente(campanha({ id: 'a' }))
-    const b = chaveGrupoConcorrente(campanha({ id: 'b' }))
-    assert.equal(a, b)
-    assert.ok(a)
+function regra(o: Partial<CampanhaRegraExibicao>): CampanhaRegraExibicao {
+  return { id: 'r', campanha_id: 'c', modo_identificacao: 'sistema_tela', tela: null, url_contem: null, data_cy: null, ordem: 0, ...o }
+}
+const concorrem = (a: Campanha, b: Campanha) =>
+  chavesGrupoConcorrente(a).some(k => chavesGrupoConcorrente(b).includes(k))
+
+describe('chavesGrupoConcorrente — conjunto de chaves (1 por regra)', () => {
+  test('sem `regras`: mesma sistema+tela -> concorrem', () => {
+    assert.equal(concorrem(campanha({ id: 'a' }), campanha({ id: 'b' })), true)
   })
 
-  test('data_cy nunca forma grupo', () => {
-    assert.equal(chaveGrupoConcorrente(campanha({ id: 'a', modo_identificacao: 'data_cy' })), null)
+  test('sem `regras`: data_cy AGORA forma grupo (mesmo sistema + mesmo data-cy)', () => {
+    const a = campanha({ id: 'a', modo_identificacao: 'data_cy', data_cy: 'botao', tela: null })
+    const b = campanha({ id: 'b', modo_identificacao: 'data_cy', data_cy: 'botao', tela: null })
+    assert.equal(concorrem(a, b), true)
   })
 
-  test('url_contem sem valor -> sem grupo', () => {
-    assert.equal(chaveGrupoConcorrente(campanha({ id: 'a', modo_identificacao: 'url_contem', url_contem: null })), null)
+  test('sem `regras`: url_contem sem valor -> nenhuma chave', () => {
+    assert.deepEqual(chavesGrupoConcorrente(campanha({ id: 'a', modo_identificacao: 'url_contem', url_contem: null, tela: null })), [])
+  })
+
+  test('com `regras`: concorrência só por tela ADICIONAL', () => {
+    const a = campanha({ id: 'a', tela: 'Agenda', regras: [regra({ tela: 'Agenda' }), regra({ tela: 'Config', ordem: 1 })] })
+    const b = campanha({ id: 'b', tela: 'Home', regras: [regra({ tela: 'Home' }), regra({ tela: 'Config', ordem: 1 })] })
+    assert.equal(concorrem(a, b), true)
+  })
+
+  test('com `regras`: sem regra em comum -> não concorrem', () => {
+    const a = campanha({ id: 'a', regras: [regra({ tela: 'Agenda' }), regra({ tela: 'Config', ordem: 1 })] })
+    const b = campanha({ id: 'b', regras: [regra({ tela: 'Home' }), regra({ tela: 'Relatorios', ordem: 1 })] })
+    assert.equal(concorrem(a, b), false)
+  })
+
+  test('regras coincidentes duplicadas -> chave dedup', () => {
+    const a = campanha({ id: 'a', regras: [regra({ tela: 'Agenda' }), regra({ tela: 'Agenda', ordem: 1 })] })
+    assert.deepEqual(chavesGrupoConcorrente(a), ['esig::tela::Agenda::ao_abrir_tela'])
   })
 })
 
 describe('agruparCampanhasConcorrentes', () => {
-  test('agrupa por sistema+tela e descarta grupos com 1 único membro', () => {
-    const lista = [
+  test('agrupa por chave e descarta grupos com 1 único membro', () => {
+    const grupos = agruparCampanhasConcorrentes([
       campanha({ id: 'a', tela: 'Agenda' }),
       campanha({ id: 'b', tela: 'Agenda' }),
       campanha({ id: 'c', tela: 'Faturamento' }),
-    ]
-    const grupos = agruparCampanhasConcorrentes(lista)
+    ])
     assert.equal(grupos.length, 1)
     assert.deepEqual(grupos[0].campanhas.map(c => c.id), ['a', 'b'])
   })
 
-  test('campanhas em data_cy nunca aparecem em nenhum grupo', () => {
-    const lista = [
-      campanha({ id: 'a', modo_identificacao: 'data_cy', data_cy: 'botao' }),
-      campanha({ id: 'b', modo_identificacao: 'data_cy', data_cy: 'botao' }),
-    ]
-    assert.deepEqual(agruparCampanhasConcorrentes(lista), [])
+  test('concorrência por tela adicional forma o grupo', () => {
+    const grupos = agruparCampanhasConcorrentes([
+      campanha({ id: 'a', tela: 'Agenda', regras: [regra({ tela: 'Agenda' }), regra({ tela: 'Config', ordem: 1 })] }),
+      campanha({ id: 'b', tela: 'Home', regras: [regra({ tela: 'Home' }), regra({ tela: 'Config', ordem: 1 })] }),
+    ])
+    const configGrupo = grupos.find(g => g.chave === 'esig::tela::Config::ao_abrir_tela')
+    assert.ok(configGrupo)
+    assert.deepEqual(configGrupo!.campanhas.map(c => c.id).sort(), ['a', 'b'])
+  })
+
+  test('mais de uma regra em comum não duplica a campanha no grupo', () => {
+    const grupos = agruparCampanhasConcorrentes([
+      campanha({ id: 'a', regras: [regra({ tela: 'X' }), regra({ tela: 'X', ordem: 1 })] }),
+      campanha({ id: 'b', regras: [regra({ tela: 'X' })] }),
+    ])
+    const g = grupos.find(x => x.chave === 'esig::tela::X::ao_abrir_tela')!
+    assert.deepEqual(g.campanhas.map(c => c.id), ['a', 'b'])
   })
 
   test('lista vazia -> nenhum grupo', () => {
@@ -81,17 +113,14 @@ describe('agruparCampanhasConcorrentes', () => {
   })
 })
 
-describe('rotuloGrupoConcorrente', () => {
+describe('rotuloGrupoConcorrente — derivado da própria chave', () => {
   test('sistema_tela -> "sistema · tela"', () => {
-    const grupo = { chave: 'x', campanhas: [campanha({ id: 'a', sistema: 'esig', tela: 'Agenda' })] }
-    assert.equal(rotuloGrupoConcorrente(grupo), 'esig · Agenda')
+    assert.equal(rotuloGrupoConcorrente({ chave: 'esig::tela::Agenda::ao_abrir_tela', campanhas: [] }), 'esig · Agenda')
   })
-
   test('url_contem -> inclui o padrão de URL', () => {
-    const grupo = {
-      chave: 'x',
-      campanhas: [campanha({ id: 'a', sistema: 'esig', modo_identificacao: 'url_contem', url_contem: '/agenda', tela: null })],
-    }
-    assert.equal(rotuloGrupoConcorrente(grupo), 'esig · URL contém "/agenda"')
+    assert.equal(rotuloGrupoConcorrente({ chave: 'esig::url::/agenda::ao_abrir_tela', campanhas: [] }), 'esig · URL contém "/agenda"')
+  })
+  test('data_cy -> inclui o seletor', () => {
+    assert.equal(rotuloGrupoConcorrente({ chave: 'esig::datacy::btn-x::ao_abrir_tela', campanhas: [] }), 'esig · elemento [data-cy="btn-x"]')
   })
 })
