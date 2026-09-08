@@ -5,6 +5,7 @@ import {
   normalizarRegrasExibicao,
   regraBase,
   filtroRegrasCandidatas,
+  chaveRegraExibicao,
   MAX_REGRAS_EXIBICAO,
 } from './regrasExibicao'
 
@@ -130,5 +131,34 @@ describe('filtroRegrasCandidatas — fragmento Prisma `regras: { some: { OR: [..
       { modo_identificacao: 'data_cy' },
       { modo_identificacao: 'url_contem' },
     ])
+  })
+})
+
+// ─── chaveRegraExibicao — identidade estável da regra (escopo por destino) ─
+// Mesmo formato usado no widget.js. É a chave que separa o histórico de
+// exibição/reexibição de /app/home do de /app/profissional-saude.
+describe('chaveRegraExibicao', () => {
+  test('sistema_tela -> st|<tela>; tela vazia -> null', () => {
+    assert.equal(chaveRegraExibicao({ modo_identificacao: 'sistema_tela', tela: 'Agenda' }), 'st|Agenda')
+    assert.equal(chaveRegraExibicao({ modo_identificacao: 'sistema_tela', tela: '  ' }), null)
+    assert.equal(chaveRegraExibicao({ modo_identificacao: 'sistema_tela', tela: null }), null)
+  })
+  test('url_contem -> uc|<url>; vazio -> null', () => {
+    assert.equal(chaveRegraExibicao({ modo_identificacao: 'url_contem', url_contem: '/app/home' }), 'uc|/app/home')
+    assert.equal(chaveRegraExibicao({ modo_identificacao: 'url_contem', url_contem: '' }), null)
+  })
+  test('data_cy -> dc|<valor>; vazio -> null', () => {
+    assert.equal(chaveRegraExibicao({ modo_identificacao: 'data_cy', data_cy: 'btn-x' }), 'dc|btn-x')
+    assert.equal(chaveRegraExibicao({ modo_identificacao: 'data_cy', data_cy: null }), null)
+  })
+  test('modo ausente -> assume sistema_tela; modo desconhecido -> null', () => {
+    assert.equal(chaveRegraExibicao({ tela: 'X' }), 'st|X')
+    assert.equal(chaveRegraExibicao({ modo_identificacao: 'xpto', tela: 'X' }), null)
+  })
+  test('duas regras de telas diferentes -> chaves diferentes (escopo separado)', () => {
+    assert.notEqual(
+      chaveRegraExibicao({ modo_identificacao: 'url_contem', url_contem: '/app/home' }),
+      chaveRegraExibicao({ modo_identificacao: 'url_contem', url_contem: '/app/profissional-saude' }),
+    )
   })
 })

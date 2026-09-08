@@ -1,7 +1,7 @@
 import { Request, Response } from 'express'
 import prisma from '../lib/prisma'
 import { resolverTenantPublico } from '../lib/tenantGuards'
-import { filtroRegrasCandidatas } from '../lib/regrasExibicao'
+import { filtroRegrasCandidatas, chaveRegraExibicao } from '../lib/regrasExibicao'
 
 // tenant_id/codigo são identificadores internos/comerciais (fundação SaaS
 // multi-tenant, ver schema.prisma) — nenhum dos dois deve aparecer numa
@@ -283,6 +283,96 @@ async function verificarHistorico(
   }, agora)
 }
 
+// ─── Escopo de reexibição POR REGRA (destino) ─────────────────────────────
+// A política de "mostrar uma vez" / reexibição é aplicada por CAMPANHA +
+// REGRA de exibição, não pela campanha inteira: ver/dispensar/responder em
+// /app/home não pode suprimir a campanha em /app/profissional-saude. O
+// widget carimba `contexto.__up_regra` (chaveRegraExibicao) em
+// visualização/feedback/confirmação SÓ quando a campanha tem 2+ regras.
+// Linhas SEM essa chave (legado, ou campanha de 1 regra) contam para TODAS
+// as regras — nunca "reabrem" o que já estava bloqueado.
+
+// Lê a chave de regra carimbada no contexto de um evento/feedback/confirmação.
+export function chaveRegraDoContexto(ctx: unknown): string | null {
+  if (ctx && typeof ctx === 'object' && !Array.isArray(ctx)) {
+    const v = (ctx as Record<string, unknown>).__up_regra
+    return typeof v === 'string' && v ? v : null
+  }
+  return null
+}
+
+// Data mais recente, dentre `linhas` já ordenadas desc por criado_em, de uma
+// linha cujo `__up_regra` é EXATAMENTE `chave` OU está ausente (conta pra
+// qualquer regra). Função pura, testável sem Prisma.
+export function dataMaisRecentePorRegra(
+  linhas: Array<{ criado_em: Date; contexto: unknown }>,
+  chave: string,
+): Date | null {
+  for (const l of linhas) {
+    const k = chaveRegraDoContexto(l.contexto)
+    if (k === null || k === chave) return l.criado_em
+  }
+  return null
+}
+
+// Avalia a política de reexibição para CADA regra e devolve as chaves das
+// que estão bloqueadas agora. Campanha de 1 regra -> devolve [chave] ou []
+// (idêntico a verificarHistorico). Regras sem chave (valor vazio) são
+// ignoradas aqui (o gating cai no client / localStorage anônimo).
+async function verificarHistoricoPorRegra(
+  campanha: {
+    id: string
+    politica_reexibicao: string
+    reexibir_apos_dias: number | null
+    intervalo_reexibicao_dias: number | null
+    exige_confirmacao_leitura: boolean
+    feedback_habilitado: boolean
+    tipo_avaliacao_feedback: string
+  },
+  regras: Array<{ modo_identificacao: string; tela: string | null; url_contem: string | null; data_cy: string | null }>,
+  uidStr: string,
+  agora: Date,
+): Promise<string[]> {
+  const filtroFeedbackGeral = filtroFeedbackGeralReexibicao(campanha.id, uidStr, campanha.tipo_avaliacao_feedback)
+  const [vizs, fbs, confs] = await Promise.all([
+    prisma.eventoCampanha.findMany({
+      where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
+      orderBy: { criado_em: 'desc' },
+      select: { criado_em: true, contexto: true },
+    }),
+    prisma.feedback.findMany({ where: filtroFeedbackGeral, orderBy: { criado_em: 'desc' }, select: { criado_em: true, contexto: true } }),
+    prisma.confirmacaoLeitura.findMany({
+      where: { campanha_id: campanha.id, usuario_id: uidStr },
+      orderBy: { criado_em: 'desc' },
+      select: { criado_em: true, contexto: true },
+    }),
+  ])
+  const bloqueadas: string[] = []
+  for (const regra of regras) {
+    const chave = chaveRegraExibicao(regra)
+    if (!chave) continue
+    const resultado = avaliarPoliticaReexibicao(campanha, {
+      ultimaVisualizacao: dataMaisRecentePorRegra(vizs, chave),
+      ultimoFeedback: dataMaisRecentePorRegra(fbs, chave),
+      ultimaConfirmacao: dataMaisRecentePorRegra(confs, chave),
+    }, agora)
+    if (resultado.bloqueado) bloqueadas.push(chave)
+  }
+  return bloqueadas
+}
+
+// A campanha continua elegível se ALGUMA regra estiver "aberta": chave nula
+// (não escopável -> gating fica no client) OU não presente em `bloqueadas`.
+function algumaRegraAberta(
+  regras: Array<{ modo_identificacao: string; tela: string | null; url_contem: string | null; data_cy: string | null }>,
+  bloqueadas: string[],
+): boolean {
+  return regras.some(r => {
+    const k = chaveRegraExibicao(r)
+    return k === null || !bloqueadas.includes(k)
+  })
+}
+
 type ConclusaoResult = { bloqueado: false } | { bloqueado: true; eventoEm: Date }
 
 async function verificarConclusaoGlobal(
@@ -420,14 +510,19 @@ export async function buscarCampanha(req: Request, res: Response) {
       }
     }
 
+    let regrasBloqueadas: string[] = []
     if (usuario_id && !alwaysShow) {
-      const resultado = await verificarHistorico(campanha, String(usuario_id), agora)
-      if (resultado.bloqueado) {
-        return res.status(404).json({ erro: resultado.motivo })
+      regrasBloqueadas = await verificarHistoricoPorRegra(campanha, campanha.regras, String(usuario_id), agora)
+      if (!algumaRegraAberta(campanha.regras, regrasBloqueadas)) {
+        return res.status(404).json({ erro: 'Campanha já exibida para este usuário.' })
       }
     }
 
-    res.json(ocultarTenantId(alwaysShow ? { ...campanha, always_show_user: true } : campanha))
+    res.json(ocultarTenantId(
+      alwaysShow
+        ? { ...campanha, always_show_user: true }
+        : (regrasBloqueadas.length ? { ...campanha, regras_bloqueadas: regrasBloqueadas } : campanha)
+    ))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar campanha.' })
@@ -507,12 +602,16 @@ export async function buscarCandidatas(req: Request, res: Response) {
       return res.json(ocultarTenantId(semConclusao.map(c => ({ ...c, always_show_user: true }))))
     }
 
-    // Step 2: filter by reexhibition policy
-    const elegiveis: typeof segmentadas = []
+    // Step 2: política de reexibição, avaliada POR REGRA de exibição.
+    // A candidata só é descartada quando TODAS as suas regras estão
+    // bloqueadas; senão vai com `regras_bloqueadas` (o client, ao saber qual
+    // regra casou, pula se ela estiver na lista). Campanha de 1 regra ->
+    // some quando bloqueada, exatamente como antes.
+    const elegiveis: Array<(typeof segmentadas)[number] & { regras_bloqueadas?: string[] }> = []
     for (const campanha of semConclusao) {
-      const resultado = await verificarHistorico(campanha, uidStr, agora)
-      if (!resultado.bloqueado) {
-        elegiveis.push(campanha)
+      const bloqueadas = await verificarHistoricoPorRegra(campanha, campanha.regras, uidStr, agora)
+      if (algumaRegraAberta(campanha.regras, bloqueadas)) {
+        elegiveis.push(bloqueadas.length ? { ...campanha, regras_bloqueadas: bloqueadas } : campanha)
       }
     }
 
