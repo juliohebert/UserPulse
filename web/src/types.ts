@@ -267,6 +267,56 @@ export interface NpsPorPerfilItem {
   nps: number
 }
 
+// Evolução de NPS (Mensal | Trimestral | Anual) — mostra UM ano de referência
+// (default = ano atual, America/Sao_Paulo). Cada ponto já vem com o NPS
+// recalculado pelo backend a partir das respostas CRUAS do sub-período (ver
+// montarEvolucaoNps em server/src/lib/evolucaoNps.ts) — o frontend nunca
+// recalcula NPS. A comparação é opcional e é sempre "ano de referência ×
+// outro ano", alinhada pelo mesmo sub-período (Jan×Jan, Q1×Q1, ano×ano).
+export type EvolucaoNpsGranularidade = 'mensal' | 'trimestral' | 'anual'
+
+export interface EvolucaoNpsComparacao {
+  ano: number
+  // Mesmo sub-período no ano comparado: "Mar/2025" / "Q1/2025" / "2025".
+  label: string
+  // 0 quando o ano comparado não tem respostas nesse sub-período.
+  respostas: number
+  // null quando respostas === 0 — ausência de dados NÃO é NPS 0.
+  nps: number | null
+  // nps(referência) − nps(comparado), em pontos. null se algum lado é null.
+  variacao: number | null
+}
+
+export interface EvolucaoNpsPonto {
+  // "2026-03" (mensal) / "2026-Q1" (trimestral) / "2026" (anual)
+  bucket: string
+  // "Mar/2026" / "Q1/2026" / "2026" — rótulo completo
+  label: string
+  // Rótulo curto pro eixo X (o ano fica no cabeçalho): "Mar" / "Q1" / "2026"
+  rotuloCurto: string
+  respostas: number
+  promotores: number
+  neutros: number
+  detratores: number
+  // Sempre um número nos pontos emitidos (só se emite sub-período com dados).
+  nps: number | null
+  // true = sub-período AINDA EM ANDAMENTO (só no ano corrente). A comparação
+  // dele é contra o sub-período COMPLETO do ano comparado — o front sinaliza.
+  parcial: boolean
+  // null quando não se pediu comparação.
+  comparacao: EvolucaoNpsComparacao | null
+}
+
+export interface EvolucaoNps {
+  granularidade: EvolucaoNpsGranularidade
+  anoReferencia: number
+  anoComparacao: number | null
+  // Anos com pelo menos uma resposta NPS válida, mais recente primeiro.
+  anosDisponiveis: number[]
+  // Vazio = ano de referência sem respostas NPS.
+  pontos: EvolucaoNpsPonto[]
+}
+
 export interface DashboardData {
   campanha: Campanha
   periodo: { inicio: string | null; fim: string | null }
@@ -309,6 +359,9 @@ export interface DashboardData {
   quotes_nps: Feedback[]
   // Vazio quando nenhuma resposta do período carrega perfil identificável.
   nps_por_perfil: NpsPorPerfilItem[]
+  // Seção "Evolução de NPS" — ano de referência + comparação opcional ano×ano.
+  // Não segue o filtro de período do dashboard.
+  evolucao_nps: EvolucaoNps
   // Idem — só não-vazio pra campanhas modo_exibicao === 'destaque_elemento'.
   avaliacoes_destaques: AvaliacaoDestaqueItem[]
   avaliacoes_total: number

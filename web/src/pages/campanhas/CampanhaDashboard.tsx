@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { get, getBlob } from '../../services/api'
-import type { AvaliacaoDestaqueItem, DashboardData, DesempenhoConteudoItem, DesempenhoDestaqueItem, EventoCampanha, Feedback, NpsPorPerfilItem } from '../../types'
+import type { AvaliacaoDestaqueItem, DashboardData, DesempenhoConteudoItem, DesempenhoDestaqueItem, EventoCampanha, EvolucaoNps, EvolucaoNpsGranularidade, EvolucaoNpsPonto, Feedback, NpsPorPerfilItem } from '../../types'
 import { formatDateTime, getStatus, rotaEditarCampanha } from '../../utils/campanha'
 import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
@@ -233,6 +233,17 @@ export function CampanhaDashboard() {
   // clique_cta sem conteudo_item_id. Filtro server-side via conteudo_id.
   const [filtroConteudo, setFiltroConteudo] = useState('')
   const [periodo, setPeriodo] = useState<Periodo>(PERIODO_INICIAL)
+  // Controles PRÓPRIOS da seção "Evolução de NPS" — não se confundem com
+  // `periodo` acima. Granularidade default Mensal; ano de referência null =
+  // deixa o backend usar o ano atual (America/Sao_Paulo); comparação opcional
+  // ano×ano. O backend recalcula a série a cada troca (ver lib/evolucaoNps).
+  const [evolucaoNpsGran, setEvolucaoNpsGran] = useState<EvolucaoNpsGranularidade>('mensal')
+  const [evolucaoNpsAno, setEvolucaoNpsAno] = useState<number | null>(null)
+  const [evolucaoNpsCompararAno, setEvolucaoNpsCompararAno] = useState<number | null>(null)
+  const alterarEvolucaoNpsAno = (a: number) => {
+    setEvolucaoNpsAno(a)
+    if (evolucaoNpsCompararAno === a) setEvolucaoNpsCompararAno(null) // nunca comparar um ano com ele mesmo
+  }
   // Contas internas (contexto.usuario_tipo === 'SUPER_USUARIO') são
   // desconsideradas de TODO o dashboard por padrão — o backend faz o filtro
   // (ver semSuperUsuario em server/src/controllers/dashboard.ts). Marcar
@@ -284,6 +295,9 @@ export function CampanhaDashboard() {
     if (filtroUtilAvaliacao !== 'Todos') params.set('avaliacao_util', filtroUtilAvaliacao === 'Sim' ? 'sim' : 'nao')
     if (buscaAvaliacao.trim()) params.set('busca_avaliacao', buscaAvaliacao.trim())
     if (incluirSuperUsuario) params.set('incluir_super_usuario', 'true')
+    params.set('evolucao_nps_granularidade', evolucaoNpsGran)
+    if (evolucaoNpsAno != null) params.set('evolucao_nps_ano', String(evolucaoNpsAno))
+    if (evolucaoNpsCompararAno != null) params.set('evolucao_nps_comparar_ano', String(evolucaoNpsCompararAno))
     get<DashboardData>(`/dashboard/campanhas/${id}?${params}`, { signal })
       .then(setData)
       .catch(e => {
@@ -298,7 +312,7 @@ export function CampanhaDashboard() {
     const controller = new AbortController()
     load(controller.signal)
     return () => controller.abort()
-  }, [id, periodo, incluirSuperUsuario, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, filtroConteudo, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
+  }, [id, periodo, incluirSuperUsuario, evolucaoNpsGran, evolucaoNpsAno, evolucaoNpsCompararAno, filtros, pagResp, tamPagResp, pagInter, tamPagInter, pagAvaliacao, tamPagAvaliacao, filtroEvento, filtroDestaque, filtroConteudo, buscaEvento, filtroDestaqueAvaliacao, filtroUtilAvaliacao, buscaAvaliacao])
 
   useEffect(() => {
     if (!showColMenu) return
@@ -339,6 +353,15 @@ export function CampanhaDashboard() {
   // "Incluir superusuários" muda o universo de TODAS as seções — volta pra
   // primeira página em cada tabela pra não deixar paginação órfã.
   useEffect(() => { setPagResp(1); setPagInter(1); setPagAvaliacao(1) }, [incluirSuperUsuario])
+
+  // Evolução de NPS: se o usuário não escolheu ano e o ano atual (default do
+  // backend) não tem respostas, mas há anos com dados, encosta no mais recente.
+  useEffect(() => {
+    const evo = data?.evolucao_nps
+    if (evolucaoNpsAno == null && evo && evo.pontos.length === 0 && evo.anosDisponiveis.length > 0) {
+      setEvolucaoNpsAno(evo.anosDisponiveis[0])
+    }
+  }, [data, evolucaoNpsAno])
 
   const alterarIncluirSuperUsuario = (incluir: boolean) => {
     setIncluirSuperUsuario(incluir)
@@ -881,6 +904,24 @@ export function CampanhaDashboard() {
               resolvido pelo backend, coerente com o KPI de NPS do topo. */}
           {blocos.distribuicaoNotas && kpiTotal > 0 && (
             <NpsPorPerfilSection itens={npsPorPerfil} />
+          )}
+
+          {/* ── Seção: Evolução de NPS (Mensal | Trimestral | Anual) — gráfico
+              de barras verticais (linguagem visual da "Distribuição das
+              notas"). Mostra UM ano de referência (default = ano atual);
+              comparação opcional ano×ano alinhada por sub-período. Controles
+              próprios da seção, NÃO o filtro de período do dashboard; o NPS de
+              cada barra vem recalculado pelo backend (lib/evolucaoNps). Some
+              só quando a campanha nunca teve resposta NPS. */}
+          {blocos.resumoNps && data.evolucao_nps.anosDisponiveis.length > 0 && (
+            <EvolucaoNpsSection
+              evo={data.evolucao_nps}
+              granularidade={evolucaoNpsGran}
+              onGranularidade={setEvolucaoNpsGran}
+              anoSelecionado={evolucaoNpsAno}
+              onAno={alterarEvolucaoNpsAno}
+              onCompararAno={setEvolucaoNpsCompararAno}
+            />
           )}
 
           {/* ── Seção: Respostas (feedback geral/NPS — não existe pra
@@ -2523,6 +2564,404 @@ function NpsPorPerfilCard({ item }: { item: NpsPorPerfilItem }) {
         ))}
       </div>
     </div>
+  )
+}
+
+// ─── Seção: Evolução de NPS (Mensal | Trimestral | Anual) ─────────────────
+// Gráfico de BARRAS verticais (mesma linguagem visual de "Distribuição das
+// notas (0 a 10)"): uma barra por sub-período, eixo Y fixo de −100 a +100,
+// linha do zero em destaque, barras positivas acima / negativas abaixo.
+// Decisão de produto: mostra UM ano de referência por vez (default = ano
+// atual) — controles próprios da seção (granularidade + ano + comparação
+// ano×ano opcional), NUNCA o filtro de período do dashboard (a query no
+// backend não aplica data_inicio/data_fim). Cada barra já vem com o NPS
+// recalculado pelo backend (ver lib/evolucaoNps); aqui nunca se recalcula NPS.
+//
+// Cor da barra = semântica do NPS AGREGADO do período (não confundir com a
+// classificação de respostas 9–10 / 7–8 / 0–6): > 0 verde, < 0 vermelho,
+// = 0 amarelo. Reusa as classes de notaColor (bg-tertiary / bg-error / bg-amber-400).
+const TOOLTIP_EVOLUCAO_NPS = [
+  'Mostra um ano de referência por vez (não o filtro de período do dashboard).',
+  'Cada barra recalcula o NPS com todas as respostas NPS (nota 0–10) daquele',
+  'sub-período: promotores 9–10, neutros 7–8, detratores 0–6;',
+  'NPS = % de promotores − % de detratores.',
+  'A comparação opcional alinha o mesmo sub-período de outro ano',
+  '(Jan × Jan, Q1 × Q1, ano × ano) — nunca o período imediatamente anterior.',
+].join('\n')
+
+type PontoNpsDefinido = EvolucaoNpsPonto & { nps: number }
+
+// Cor da barra pela semântica do NPS agregado do período: positivo → verde,
+// negativo → vermelho, exatamente zero → amarelo (cor neutra já existente).
+// Mesmas classes de notaColor, mantendo a linguagem visual da distribuição.
+function corBarraNps(nps: number): string {
+  if (nps > 0) return 'bg-tertiary'
+  if (nps < 0) return 'bg-error'
+  return 'bg-amber-400'
+}
+
+// Geometria vertical de uma barra na escala fixa −100..+100: altura ∝ |NPS|,
+// crescendo pra cima (positivo) ou pra baixo (negativo) a partir do meio.
+function estiloBarraNps(nps: number, meta: number, radius: number): React.CSSProperties {
+  const h = Math.max(2, (Math.abs(nps) / 100) * meta)
+  return {
+    height: h,
+    top: nps >= 0 ? meta - h : meta,
+    borderRadius: nps >= 0 ? `${radius}px ${radius}px 0 0` : `0 0 ${radius}px ${radius}px`,
+  }
+}
+
+// Largura da barra/grupo em % da coluna do sub-período — que já é `flex-1`,
+// ou seja largura_disponível / n. A fração cresce com n (poucos grupos →
+// ocupam menos % de uma coluna larga, mas o resultado absoluto ainda é
+// grande; muitos grupos → ocupam quase toda a coluna estreita, empacotando
+// sem sobrepor). SEM max-width fixo: 1–2 grupos ficam grandes de verdade.
+function fracaoLarguraGrupo(n: number): number {
+  return Math.min(0.9, 0.44 + n * 0.045)
+}
+// Repartição interna do grupo (comparação): comparado à esquerda (menor),
+// referência à direita (maior, destaque), gap pequeno entre os dois.
+const PCT_BARRA_COMPARADA = 44
+const PCT_BARRA_REFERENCIA = 51
+const PCT_CENTRO_COMPARADA = PCT_BARRA_COMPARADA / 2 // 22
+const PCT_CENTRO_REFERENCIA = 100 - PCT_BARRA_REFERENCIA / 2 // 74.5
+
+function EvolucaoNpsSection({ evo, granularidade, onGranularidade, anoSelecionado, onAno, onCompararAno }: {
+  evo: EvolucaoNps
+  granularidade: EvolucaoNpsGranularidade
+  onGranularidade: (g: EvolucaoNpsGranularidade) => void
+  anoSelecionado: number | null
+  onAno: (a: number) => void
+  onCompararAno: (a: number | null) => void
+}) {
+  const [indiceAtivo, setIndiceAtivo] = useState<number | null>(null)
+
+  const pontos = evo.pontos.filter((p): p is PontoNpsDefinido => p.nps !== null)
+  const n = pontos.length
+  // Largura do grupo/barra em % da própria coluna (que é largura_total / n).
+  // Depende de n: poucos grupos → grandes; muitos → compactos. Sem cap fixo.
+  const larguraGrupoPct = `${(fracaoLarguraGrupo(Math.max(1, n)) * 100).toFixed(2)}%`
+  const anoRef = evo.anoReferencia
+  const anoComp = evo.anoComparacao
+  const comparando = anoComp !== null
+  const algumParcial = pontos.some(p => p.parcial)
+
+  const ALTURA = 200 // área de plotagem; cada metade (100px) = 100 pontos de NPS
+  const META = ALTURA / 2
+
+  // Nunca esconde barras nem dados (o hover sempre traz tudo) — só afina os
+  // rótulos do eixo X quando há muitos sub-períodos (Mensal de um ano cheio).
+  const passoLabel = n <= 12 ? 1 : n <= 24 ? 2 : Math.ceil(n / 10)
+  const mostraLabelX = (i: number) => i === 0 || i === n - 1 || i % passoLabel === 0
+  const mostraValor = (i: number) => n <= 28 || i % 2 === 0
+
+  const ultimo = pontos[n - 1] ?? null
+  const melhor = pontos.reduce<PontoNpsDefinido | null>((m, p) => (!m || p.nps > m.nps ? p : m), null)
+  const pior = pontos.reduce<PontoNpsDefinido | null>((m, p) => (!m || p.nps < m.nps ? p : m), null)
+  const fmtNps = (v: number) => `${v > 0 ? '+' : ''}${v}`
+  const fmtVar = (v: number) => `${v > 0 ? '+' : ''}${v} pts`
+
+  const rotuloUnidade = granularidade === 'mensal' ? 'mês' : granularidade === 'anual' ? 'ano' : 'trimestre'
+  const cap = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`
+  const ativo = indiceAtivo === null ? null : pontos[indiceAtivo] ?? null
+
+  // Opções dos selects — sempre incluem o ano de referência resolvido.
+  const opcoesAno = [...new Set([anoRef, ...evo.anosDisponiveis])].sort((a, b) => b - a)
+  const opcoesComparar = evo.anosDisponiveis.filter(a => a !== anoRef)
+
+  // Posição do tooltip: ao lado da barra ativa, invertendo esquerda/direita e
+  // presa dentro da área de plotagem.
+  const TT_W = 200
+  const TT_H = comparando ? 156 : 96
+  const ativoCentroPct = indiceAtivo === null ? 0 : ((indiceAtivo + 0.5) / n) * 100
+  const tooltipAEsquerda = ativoCentroPct > 50
+  const ativoBarH = ativo ? Math.max(2, (Math.abs(ativo.nps) / 100) * META) : 0
+  const ativoPontaBarra = ativo && ativo.nps >= 0 ? META - ativoBarH : META + ativoBarH
+  const tooltipTop = Math.min(ALTURA - TT_H, Math.max(0, ativoPontaBarra - TT_H / 2))
+
+  return (
+    <>
+      <SectionTitle icon="trending_up" tooltip={TOOLTIP_EVOLUCAO_NPS}>Evolução de NPS</SectionTitle>
+      <article className="mb-6 rounded-[22px] border border-[#e7ebf2] bg-white p-5 shadow-sm sm:p-[22px]">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">NPS ao longo do tempo</h3>
+            <p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">
+              Ano de referência: {anoRef}{comparando ? ` · comparando com ${anoComp}` : ''} — não segue o filtro de período do dashboard
+            </p>
+          </div>
+          <div className="flex flex-col items-start gap-2 sm:items-end">
+            <div className="inline-flex items-center gap-1 rounded-xl border border-[#e7ebf2] bg-white p-[5px]">
+              {(['mensal', 'trimestral', 'anual'] as const).map(g => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => onGranularidade(g)}
+                  aria-pressed={granularidade === g}
+                  className={`h-[32px] rounded-[9px] px-3 text-[12px] font-bold transition-all ${
+                    granularidade === g ? 'bg-[#101828] text-white' : 'text-[#667085] hover:bg-[#f5f7fb]'
+                  }`}
+                >
+                  {g === 'mensal' ? 'Mensal' : g === 'trimestral' ? 'Trimestral' : 'Anual'}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] font-semibold text-[#667085]">
+              <label className="inline-flex items-center gap-1.5">
+                Ano
+                <select
+                  value={anoSelecionado ?? anoRef}
+                  onChange={e => onAno(Number(e.target.value))}
+                  className="h-[28px] rounded-lg border border-[#e7ebf2] bg-white px-2 text-[11px] font-bold text-[#344054] focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                  {opcoesAno.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </label>
+              <label className="inline-flex items-center gap-1.5">
+                Comparar com
+                <select
+                  value={anoComp ?? ''}
+                  onChange={e => onCompararAno(e.target.value ? Number(e.target.value) : null)}
+                  className="h-[28px] rounded-lg border border-[#e7ebf2] bg-white px-2 text-[11px] font-bold text-[#344054] focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                  <option value="">Não comparar</option>
+                  {opcoesComparar.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {n === 0 ? (
+          <EmptySection
+            icon="trending_up"
+            title={`Sem respostas NPS em ${anoRef}`}
+            message={opcoesAno.length > 1 ? 'Escolha outro ano no seletor acima.' : 'O gráfico aparece quando a campanha receber respostas NPS.'}
+          />
+        ) : (
+          <>
+            {/* Painel de barras — mesma linguagem visual de "Distribuição das notas (0 a 10)" */}
+            <div className="rounded-[18px] border border-[#e7ebf2] bg-white p-[18px]">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[12px] font-extrabold text-[#475467]">
+                  NPS por {rotuloUnidade} — {anoRef}{comparando ? ` × ${anoComp}` : ''} (−100 a +100)
+                </p>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-bold text-[#98a2b3]">
+                  <span className="inline-flex items-center gap-1"><i className="h-[9px] w-[9px] rounded-full bg-tertiary" />Positivo</span>
+                  <span className="inline-flex items-center gap-1"><i className="h-[9px] w-[9px] rounded-full bg-amber-400" />Zero</span>
+                  <span className="inline-flex items-center gap-1"><i className="h-[9px] w-[9px] rounded-full bg-error" />Negativo</span>
+                  {comparando && (
+                    <span className="inline-flex items-center gap-1">
+                      <i className="h-[10px] w-[6px] rounded-[1px] bg-[#98a2b3]" />
+                      <i className="-ml-0.5 h-[10px] w-[4px] rounded-[1px] bg-[#98a2b3] opacity-55" />
+                      {anoRef} (referência) × {anoComp} (esmaecido)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                {/* Eixo Y fixo −100..+100 */}
+                <div className="flex w-9 shrink-0 flex-col justify-between text-right text-[9px] font-bold text-[#98a2b3]" style={{ height: ALTURA }}>
+                  {[100, 50, 0, -50, -100].map(v => <span key={v}>{fmtNps(v)}</span>)}
+                </div>
+
+                {/* Área de plotagem */}
+                <div className="relative min-w-0 flex-1" style={{ height: ALTURA }} onPointerLeave={() => setIndiceAtivo(null)}>
+                  {[0, 0.25, 0.5, 0.75, 1].map(f => (
+                    <div
+                      key={f}
+                      className="pointer-events-none absolute inset-x-0"
+                      style={{ top: f * ALTURA, borderTop: f === 0.5 ? '2px solid #98a2b3' : '1px dashed #eef1f5' }}
+                    />
+                  ))}
+
+                  {/* Barras. Sem comparação: 1 barra por sub-período, NPS logo
+                      acima. Com comparação (anoRef × anoComp, mesmo sub-período):
+                      SEMPRE 2 barras lado a lado — comparado à esquerda
+                      (esmaecido, menor) e referência à direita (cor cheia,
+                      maior); cada uma com seu NPS logo acima (os rótulos ficam
+                      no eixo X). Sub-período sem dados no ano comparado
+                      (comparacao.nps === null) → só a barra da referência
+                      (ausência ≠ NPS 0). Largura fluida por nº de grupos
+                      (fracaoLarguraGrupo): 1–2 grupos ficam grandes; muitos
+                      encolhem sem sobrepor. */}
+                  <div className="absolute inset-0 flex items-stretch">
+                    {pontos.map((p, i) => {
+                      const refH = Math.max(2, (Math.abs(p.nps) / 100) * META)
+                      const refPos = p.nps >= 0
+                      const npsComp = p.comparacao?.nps ?? null
+                      const comparaEste = comparando && npsComp !== null
+                      const compH = comparaEste ? Math.max(2, (Math.abs(npsComp!) / 100) * META) : 0
+                      const compPos = comparaEste ? npsComp! >= 0 : true
+                      const topValor = (pos: boolean, h: number, alt: number) =>
+                        pos ? Math.max(0, META - h - alt) : Math.min(ALTURA - alt + 1, META + h + 1)
+                      return (
+                        <div
+                          key={p.bucket}
+                          className="relative flex min-w-0 flex-1 justify-center"
+                          onPointerEnter={() => setIndiceAtivo(i)}
+                          onPointerDown={() => setIndiceAtivo(i)}
+                        >
+                          {comparaEste ? (
+                            <div className="relative h-full" style={{ width: larguraGrupoPct }}>
+                              <span
+                                className={`pointer-events-none absolute opacity-55 ${corBarraNps(npsComp!)}`}
+                                style={{ left: 0, width: `${PCT_BARRA_COMPARADA}%`, ...estiloBarraNps(npsComp!, META, 4) }}
+                              />
+                              <span
+                                className={`pointer-events-none absolute transition-[filter] ${corBarraNps(p.nps)} ${indiceAtivo === i ? 'brightness-90 ring-2 ring-inset ring-black/10' : ''}`}
+                                style={{ right: 0, width: `${PCT_BARRA_REFERENCIA}%`, ...estiloBarraNps(p.nps, META, 5) }}
+                              />
+                              {mostraValor(i) && (
+                                <>
+                                  <span
+                                    className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap text-[8px] font-bold text-[#98a2b3]"
+                                    style={{ left: `${PCT_CENTRO_COMPARADA}%`, top: topValor(compPos, compH, 10) }}
+                                  >
+                                    {fmtNps(npsComp!)}
+                                  </span>
+                                  <span
+                                    className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap text-[9px] font-extrabold text-[#475467]"
+                                    style={{ left: `${PCT_CENTRO_REFERENCIA}%`, top: topValor(refPos, refH, 11) }}
+                                  >
+                                    {fmtNps(p.nps)}{p.parcial ? '*' : ''}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          ) : (
+                            <>
+                              {mostraValor(i) && (
+                                <span
+                                  className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-extrabold text-[#475467]"
+                                  style={{ top: topValor(refPos, refH, 11) }}
+                                >
+                                  {fmtNps(p.nps)}{p.parcial ? '*' : ''}
+                                </span>
+                              )}
+                              <span
+                                className={`pointer-events-none absolute left-1/2 -translate-x-1/2 transition-[filter] ${corBarraNps(p.nps)} ${indiceAtivo === i ? 'brightness-90 ring-2 ring-inset ring-black/10' : ''}`}
+                                style={{ width: larguraGrupoPct, ...estiloBarraNps(p.nps, META, 5) }}
+                              />
+                            </>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Tooltip: sub-período de referência, NPS, (comparação ano×ano), totais */}
+                  {ativo && (
+                    <div
+                      className="pointer-events-none absolute z-10 w-[200px] rounded-xl border border-[#e7ebf2] bg-[#101828] p-3 text-white shadow-xl"
+                      style={{
+                        top: tooltipTop,
+                        left: `clamp(4px, ${tooltipAEsquerda ? `calc(${ativoCentroPct}% - 14px - ${TT_W}px)` : `calc(${ativoCentroPct}% + 14px)`}, calc(100% - ${TT_W + 4}px))`,
+                      }}
+                    >
+                      <p className="text-[12px] font-medium leading-4 text-[#d0d5dd]">{ativo.label}</p>
+                      <div className="mt-2 flex items-end justify-between gap-3">
+                        <span className="text-[11px] font-semibold text-[#98a2b3]">NPS</span>
+                        <strong className="text-[22px] leading-none">{fmtNps(ativo.nps)}</strong>
+                      </div>
+                      {ativo.parcial && (
+                        <p className="mt-1 text-[10px] font-semibold text-[#fdb022]">
+                          {cap(rotuloUnidade)} em andamento{comparando ? ` — comparação usa o ${rotuloUnidade} completo de ${anoComp}` : ''}
+                        </p>
+                      )}
+                      {comparando && (
+                        <div className="mt-2 space-y-0.5 border-t border-white/10 pt-2 text-[11px] font-semibold text-[#98a2b3]">
+                          {ativo.comparacao === null || ativo.comparacao.nps === null ? (
+                            <p>{ativo.comparacao?.label ?? anoComp}: sem respostas</p>
+                          ) : (
+                            <>
+                              <p>{ativo.comparacao.label}: NPS {fmtNps(ativo.comparacao.nps)}</p>
+                              {ativo.comparacao.variacao !== null && (
+                                <p className={ativo.comparacao.variacao > 0 ? 'text-[#6ce9a6]' : ativo.comparacao.variacao < 0 ? 'text-[#fda29b]' : 'text-[#d0d5dd]'}>
+                                  Variação {fmtVar(ativo.comparacao.variacao)}
+                                </p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                      <div className="mt-2 space-y-0.5 border-t border-white/10 pt-2 text-[11px] font-semibold text-[#98a2b3]">
+                        <p>{ativo.respostas.toLocaleString('pt-BR')} {ativo.respostas === 1 ? 'resposta' : 'respostas'}</p>
+                        <p>{ativo.promotores} promotores · {ativo.neutros} neutros · {ativo.detratores} detratores</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Eixo X. Sem comparação: rótulo completo ("Jan/2026") por barra,
+                  afinado se houver muitos. Com comparação: o sub-período uma vez
+                  ("Jan") + o ano de cada barra alinhado ao centro da sua barra,
+                  pra cada barra ter seu próprio rótulo sem depender do hover. */}
+              <div className="mt-1.5 flex pl-11">
+                {pontos.map((p, i) => (
+                  <div
+                    key={p.bucket}
+                    className="min-w-0 flex-1 overflow-hidden px-0.5 text-center leading-tight"
+                    title={comparando && p.comparacao ? `${p.comparacao.label} × ${p.label}` : p.label}
+                  >
+                    {comparando ? (
+                      <div className="relative mx-auto" style={{ width: larguraGrupoPct }}>
+                        {granularidade !== 'anual' && (
+                          <div className="truncate text-[9px] font-bold text-[#475467]">{p.rotuloCurto}{p.parcial ? '*' : ''}</div>
+                        )}
+                        <div className="relative mt-px h-[11px] text-[8px]">
+                          <span
+                            className="absolute -translate-x-1/2 whitespace-nowrap font-semibold text-[#98a2b3]"
+                            style={{ left: `${PCT_CENTRO_COMPARADA}%` }}
+                          >
+                            {anoComp}
+                          </span>
+                          <span
+                            className="absolute -translate-x-1/2 whitespace-nowrap font-extrabold text-[#475467]"
+                            style={{ left: `${PCT_CENTRO_REFERENCIA}%` }}
+                          >
+                            {anoRef}{granularidade === 'anual' && p.parcial ? '*' : ''}
+                          </span>
+                        </div>
+                      </div>
+                    ) : mostraLabelX(i) ? (
+                      <span className="block truncate text-[9px] font-bold text-[#98a2b3]">{p.label}{p.parcial ? '*' : ''}</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {algumParcial && (
+              <p className="mt-2 text-[11px] font-semibold text-[#98a2b3]">
+                <span className="text-[#fdb022]">*</span> {rotuloUnidade} em andamento — comparado com o {rotuloUnidade} completo do ano anterior; leia a variação com essa ressalva.
+              </p>
+            )}
+
+            {/* Cards inferiores — textos por granularidade, dentro do ano de referência */}
+            <div className="mt-3.5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="rounded-xl bg-[#f8fafc] px-3.5 py-3">
+                <p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">{cap(rotuloUnidade)} mais recente</p>
+                <p className="mt-1 text-[16px] font-extrabold text-[#344054]">{ultimo ? `${fmtNps(ultimo.nps)} · ${ultimo.label}` : '—'}</p>
+              </div>
+              <div className="rounded-xl bg-[#f8fafc] px-3.5 py-3">
+                <p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">Melhor {rotuloUnidade}</p>
+                <p className="mt-1 text-[16px] font-extrabold text-[#344054]">{melhor ? `${fmtNps(melhor.nps)} · ${melhor.label}` : '—'}</p>
+              </div>
+              <div className="rounded-xl bg-[#f8fafc] px-3.5 py-3">
+                <p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">Pior {rotuloUnidade}</p>
+                <p className="mt-1 text-[16px] font-extrabold text-[#344054]">{pior ? `${fmtNps(pior.nps)} · ${pior.label}` : '—'}</p>
+              </div>
+            </div>
+            {granularidade !== 'anual' && n === 1 && (
+              <p className="mt-3 text-center text-[12px] font-semibold text-[#98a2b3]">Apenas um {rotuloUnidade} com respostas em {anoRef}.</p>
+            )}
+          </>
+        )}
+      </article>
+    </>
   )
 }
 
