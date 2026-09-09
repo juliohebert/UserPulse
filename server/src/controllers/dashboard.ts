@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { FORMATO_DESTAQUE_ELEMENTO } from './campanhas'
+import { montarEvolucaoNps, normalizarAnoEvolucaoNps, normalizarGranularidadeEvolucaoNps } from '../lib/evolucaoNps'
 
 // ─── Desempenho por destaque (Fase 3 — múltiplos destaques) ────────────────
 // Igual ao restante deste dashboard (visualizacoes_unicas/cliques_unicos):
@@ -462,6 +463,17 @@ export async function buscarDashboard(req: Request, res: Response) {
     // numerador e denominador nunca usarem universos diferentes.
     const incluirSuper = incluirSuperUsuario(req.query)
     const sqlSemSuper = sqlSemSuperUsuario(incluirSuper)
+    // Evolução de NPS: controles PRÓPRIOS da seção (ver lib/evolucaoNps) —
+    // granularidade + ano de referência + ano de comparação. Não afetam
+    // nenhuma outra query do dashboard. "Hoje" em America/Sao_Paulo é
+    // resolvido aqui e passado à função pura (mantém-na determinística).
+    const evolucaoNpsGranularidade = normalizarGranularidadeEvolucaoNps(req.query.evolucao_nps_granularidade)
+    const [evolucaoNpsAnoHoje, evolucaoNpsMesHoje] = dataCivilSaoPaulo(new Date()).split('-').map(Number)
+    const evolucaoNpsOpcoes = {
+      anoReferencia: normalizarAnoEvolucaoNps(req.query.evolucao_nps_ano) ?? evolucaoNpsAnoHoje,
+      anoComparacao: normalizarAnoEvolucaoNps(req.query.evolucao_nps_comparar_ano),
+      hoje: { ano: evolucaoNpsAnoHoje, mes: evolucaoNpsMesHoje },
+    }
     // Filtros da tabela nunca podem alterar os KPIs, distribuição ou NPS.
     // Mantemos dois universos: período para o resumo e filtros para a lista.
     const feedbackPeriodoWhere: Prisma.FeedbackWhereInput = semSuperUsuario({ ...whereFeedbackNps(id), criado_em: range }, incluirSuper)
@@ -504,6 +516,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       quoteDetrator,
       itensConteudo, totaisPorConteudo, unicosPorConteudo, cliques_cta_sem_conteudo,
       npsPorPerfilRaw,
+      evolucaoNpsRaw,
     ] = await Promise.all([
       prisma.feedback.aggregate({
         where: feedbackPeriodoWhere,
@@ -702,6 +715,31 @@ export async function buscarDashboard(req: Request, res: Response) {
           ${sqlSemSuper}
         GROUP BY contexto->>'usuario_tipo'
       `,
+
+      // Evolução de NPS (Mensal | Trimestral | Anual) — matéria-prima do
+      // gráfico de barras. IGNORA data_inicio/data_fim de propósito (ver
+      // lib/evolucaoNps): a seção tem seus próprios controles (granularidade +
+      // ano de referência + ano de comparação), não o filtro de período do
+      // dashboard. A query devolve TODO o histórico na granularidade fina
+      // (ano + mês + nota, fuso America/Sao_Paulo, COUNT(*)); o recorte por ano,
+      // o corte de meses/trimestres futuros, a comparação ano×ano alinhada e a
+      // classificação 0–6 / 7–8 / 9–10 são derivados em lib/evolucaoNps (TS
+      // puro, testável), sem duplicar regra no SQL nem query nova.
+      // Tenant vem de campanha_id (já validado no findFirst do handler);
+      // SUPER_USUARIO via sqlSemSuper, igual ao resto do dashboard.
+      ehDestaqueElemento
+        ? Promise.resolve([])
+        : prisma.$queryRaw<Array<{ ano: number; mes: number; nota: number; quantidade: bigint }>>`
+            SELECT EXTRACT(YEAR FROM criado_em AT TIME ZONE 'America/Sao_Paulo')::int AS ano,
+                   EXTRACT(MONTH FROM criado_em AT TIME ZONE 'America/Sao_Paulo')::int AS mes,
+                   nota,
+                   COUNT(*)::bigint AS quantidade
+            FROM feedbacks
+            WHERE campanha_id = ${id} AND tipo_avaliacao = 'nps' AND nota IS NOT NULL AND nota BETWEEN 0 AND 10
+              ${sqlSemSuper}
+            GROUP BY ano, mes, nota
+            ORDER BY ano, mes
+          `,
     ])
 
     const distribuicao: Record<string, number> = {}
@@ -803,6 +841,7 @@ export async function buscarDashboard(req: Request, res: Response) {
       destaque_resumo_periodo: destaqueResumoPeriodo,
       quotes_nps: [quotePromotor, quoteDetrator].filter(Boolean),
       nps_por_perfil: montarNpsPorPerfil(npsPorPerfilRaw),
+      evolucao_nps: montarEvolucaoNps(evolucaoNpsRaw, evolucaoNpsGranularidade, evolucaoNpsOpcoes),
       // Só não-vazio pra campanhas destaque_elemento — ver ehDestaqueElemento.
       avaliacoes_destaques: ehDestaqueElemento ? avaliacoes_destaques : [],
       avaliacoes_total: ehDestaqueElemento ? avaliacoes_total : 0,
