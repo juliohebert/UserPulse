@@ -661,6 +661,26 @@ export function resolverModoIdentificacao(modoExibicao: string, modoIdentificaca
   return modoIdentificacaoBruto || 'sistema_tela'
 }
 
+// "Destaque em elemento" oculta o campo de destino "solto" no formulário
+// (o alvo real é o data_cy de cada item em `destaques`, configurado na aba
+// Exibição — ver comentário em CampanhaForm.tsx) então a regra base que o
+// front manda em `regras_exibicao` chega com data_cy em branco. Sem isso, a
+// validação abaixo rejeitaria a regra por "campo obrigatório em branco"
+// mesmo esse formato nunca exigindo URL — só o identificador do elemento,
+// que já foi resolvido em `dataCyResolvido` (1º item de `destaques`).
+export function corrigirDataCyRegrasDestaqueElemento(regras: unknown, dataCyResolvido: unknown): unknown {
+  if (!Array.isArray(regras)) return regras
+  return regras.map(r => {
+    if (!r || typeof r !== 'object') return r
+    const item = r as { modo_identificacao?: unknown; data_cy?: unknown }
+    const modo = typeof item.modo_identificacao === 'string' ? item.modo_identificacao : 'sistema_tela'
+    if (modo === 'data_cy' && !(typeof item.data_cy === 'string' && item.data_cy.trim())) {
+      return { ...item, data_cy: dataCyResolvido }
+    }
+    return r
+  })
+}
+
 // ─── Múltiplos destaques por campanha (Fase 2 de adoção) ───────────────────
 // 1 campanha destaque_elemento passa a ter N CampanhaDestaqueItem
 // independentes (ex.: filtro-status, filtro-profissional, filtro-convenio),
@@ -1044,6 +1064,7 @@ export async function criar(req: Request, res: Response) {
       req.body.data_cy = primeiro.data_cy
       req.body.texto_botao = typeof primeiro.texto_botao === 'string' ? primeiro.texto_botao : null
       req.body.url_botao = typeof primeiro.url_botao === 'string' ? primeiro.url_botao : null
+      req.body.regras_exibicao = corrigirDataCyRegrasDestaqueElemento(req.body.regras_exibicao, primeiro.data_cy)
     }
 
     // Etapa 2 — múltiplos conteúdos (independente de modo_exibicao/destaques
@@ -1307,6 +1328,7 @@ export async function atualizar(req: Request, res: Response) {
         req.body.data_cy = primeiro.data_cy
         req.body.texto_botao = typeof primeiro.texto_botao === 'string' ? primeiro.texto_botao : null
         req.body.url_botao = typeof primeiro.url_botao === 'string' ? primeiro.url_botao : null
+        req.body.regras_exibicao = corrigirDataCyRegrasDestaqueElemento(req.body.regras_exibicao, primeiro.data_cy)
       } else if (existente.destaques.length === 0) {
         return res.status(400).json({ erro: 'Para o formato "Destaque em elemento", adicione ao menos 1 destaque.' })
       }

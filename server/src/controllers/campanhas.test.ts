@@ -6,12 +6,14 @@ import {
   RICH_TEXT_MAX_TEXT_LENGTH,
   validarRichText,
 } from '../lib/richText'
+import { normalizarRegra } from '../lib/regrasExibicao'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
   normalizarDataCy,
   dataCyValido,
   validarFormatoDestaqueElemento,
   resolverModoIdentificacao,
+  corrigirDataCyRegrasDestaqueElemento,
   validarDestaques,
   validarOwnershipDestaques,
   sincronizarDestaques,
@@ -185,6 +187,38 @@ describe('resolverModoIdentificacao', () => {
   test('outros formatos preservam o modo_identificacao informado (ou o default sistema_tela)', () => {
     assert.equal(resolverModoIdentificacao('modal_automatica', 'url_contem'), 'url_contem')
     assert.equal(resolverModoIdentificacao('modal_automatica', ''), 'sistema_tela')
+  })
+})
+
+// Regressão: "Destaque em elemento" esconde o campo de destino "solto" no
+// formulário (o alvo real é o data_cy de cada item em `destaques`), então o
+// front manda a regra base de `regras_exibicao` com data_cy em branco. Sem
+// corrigirDataCyRegrasDestaqueElemento, normalizarRegra rejeitava essa regra
+// por "campo obrigatório em branco" mesmo esse formato nunca exigindo URL —
+// só o identificador do elemento (ver comentário na função).
+describe('corrigirDataCyRegrasDestaqueElemento', () => {
+  test('preenche o data_cy em branco da regra data_cy com o valor resolvido do 1º destaque', () => {
+    const regras = [{ modo_identificacao: 'data_cy', tela: null, url_contem: null, data_cy: '' }]
+    const corrigidas = corrigirDataCyRegrasDestaqueElemento(regras, 'filtro-status') as Array<{ data_cy: string }>
+    assert.equal(corrigidas[0].data_cy, 'filtro-status')
+  })
+
+  test('não exige url_contem: a regra corrigida valida como data_cy, nunca como url_contem', () => {
+    const regras = [{ modo_identificacao: 'data_cy', tela: null, url_contem: null, data_cy: null }]
+    const corrigidas = corrigirDataCyRegrasDestaqueElemento(regras, 'botao-cta') as unknown[]
+    assert.equal(corrigidas.some(r => normalizarRegra((r ?? {}) as never) === null), false)
+  })
+
+  test('não sobrescreve data_cy já preenchido pelo cliente', () => {
+    const regras = [{ modo_identificacao: 'data_cy', tela: null, url_contem: null, data_cy: 'ja-preenchido' }]
+    const corrigidas = corrigirDataCyRegrasDestaqueElemento(regras, 'outro-valor') as Array<{ data_cy: string }>
+    assert.equal(corrigidas[0].data_cy, 'ja-preenchido')
+  })
+
+  test('ignora regras de outros modos (sistema_tela/url_contem) e entradas não-array', () => {
+    const regras = [{ modo_identificacao: 'url_contem', tela: null, url_contem: null, data_cy: null }]
+    assert.deepEqual(corrigirDataCyRegrasDestaqueElemento(regras, 'x'), regras)
+    assert.equal(corrigirDataCyRegrasDestaqueElemento(undefined, 'x'), undefined)
   })
 })
 
