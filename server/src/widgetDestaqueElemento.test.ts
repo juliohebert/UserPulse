@@ -34,6 +34,7 @@ type Campanha = {
   atraso_ms?: number
   gatilho?: string
   destaques?: DestaqueItem[]
+  destaques_respondidos?: string[]
 }
 type ConfigWidget = { slug?: string; sistema?: string; tela?: string; usuario_id?: string }
 type DestaqueElementoSeletorSeguro = (dataCyBruto: unknown) => string | null
@@ -1988,6 +1989,82 @@ describe('avaliação de utilidade do destaque (utilidade_destaque)', () => {
     assert.equal(novas.length, 1);
     assert.equal(novas[0].body.tipo_evento, 'clique_cta');
     assert.equal(wasShown(campanha, config, 'item-util-nao-interfere'), false, 'CTA continua rastreado, mas identificado não ganha bloqueio local');
+  });
+
+  // Regressão: o bug relatado era exatamente "responder com sucesso não
+  // impede o destaque de reaparecer" — os testes acima confirmam que isso é
+  // esperado ENQUANTO nenhuma nova consulta ao servidor aconteceu (client
+  // nunca decide sozinho pra usuário identificado). O que faltava era o
+  // servidor (buscarDestaquesRespondidos, widget.ts) devolver
+  // `destaques_respondidos` na PRÓXIMA consulta — os testes abaixo cobrem o
+  // lado do widget que consome esse campo.
+  describe('destaques_respondidos (servidor) — o item respondido não reaparece na próxima avaliação', () => {
+    test('campanha data_cy não reaparece após resposta enviada com sucesso', async () => {
+      presentes.add('filtro-util-respondido');
+      const campanha: Campanha = {
+        id: 'destaque-util-respondido', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+        destaques: [{ id: 'item-util-respondido', data_cy: 'filtro-util-respondido', titulo: 'T' }],
+      };
+      const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-respondido', usuario_id: 'user-1' };
+      const listener = abrirTooltip(campanha, config);
+      listener({ target: elementoClique('data-up-util-sim') });
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Sem uma nova consulta ao servidor, o item ainda está elegível — igual
+      // ao comportamento já coberto acima (nunca um bloqueio local otimista).
+      assert.equal(wasShown(campanha, config, 'item-util-respondido'), false);
+
+      // Simula a PRÓXIMA busca de candidatas/campanha (o runtime real faz
+      // isso ao reavaliar contexto, navegar ou recarregar a página): o
+      // servidor agora reflete a resposta persistida.
+      const campanhaAtualizada: Campanha = { ...campanha, destaques_respondidos: ['item-util-respondido'] };
+      assert.equal(wasShown(campanhaAtualizada, config, 'item-util-respondido'), true, 'servidor confirmou a resposta: o destaque não deve mais reaparecer');
+
+      destaqueElementoMontarTodos(campanhaAtualizada, config);
+      assert.equal(destaqueElementoGetTestClickListener(0), null, 'o item respondido não é remontado depois da nova consulta');
+    });
+
+    test('destaques_respondidos só consome o item respondido — o item B da mesma campanha continua elegível (preserva múltiplos itens)', () => {
+      presentes.add('filtro-util-resp-a');
+      presentes.add('filtro-util-resp-b');
+      const campanha: Campanha = {
+        id: 'destaque-util-resp-ab', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+        destaques: [
+          { id: 'item-util-resp-a', data_cy: 'filtro-util-resp-a', titulo: 'A' },
+          { id: 'item-util-resp-b', data_cy: 'filtro-util-resp-b', titulo: 'B' },
+        ],
+        destaques_respondidos: ['item-util-resp-a'],
+      };
+      const config: ConfigWidget = { sistema: 'sis', tela: 'tela-util-resp-ab', usuario_id: 'user-1' };
+      destaqueElementoMontarTodos(campanha, config);
+      // Item A (respondido) é pulado por wasShown antes de montar — só o item
+      // B chega a virar instância, então ele é quem ocupa o índice 0.
+      const listenerB = destaqueElementoGetTestClickListener(0);
+      assert.notEqual(listenerB, null, 'item B (não respondido) continua sendo montado normalmente');
+      const antes = chamadasRastreamento.length;
+      listenerB!({ target: elementoClique('data-up-util-sim') });
+      assert.equal(chamadasRastreamento[antes].body.destaque_item_id, 'item-util-resp-b', 'a única instância montada é mesmo a do item B');
+    });
+
+    test('usuário anônimo continua usando localStorage (wasShown/markShown) — destaques_respondidos é exclusivo de usuário identificado', () => {
+      const campanhaComRespondidos: Campanha = {
+        id: 'destaque-util-resp-anonimo', modo_exibicao: 'destaque_elemento', mostrar_uma_vez: true, permitir_fechar_modal: true,
+        destaques_respondidos: ['item-anonimo'],
+      };
+      const configAnonimo: ConfigWidget = { sistema: 'sis', tela: 'tela-util-resp-anonimo' };
+      assert.equal(wasShown(campanhaComRespondidos, configAnonimo, 'item-anonimo'), false, 'anônimo nunca lê destaques_respondidos — só localStorage');
+    });
+
+    test('campanha modal_automatica (sem itemId) continua decidindo por regras_bloqueadas, sem destaques_respondidos interferir', () => {
+      const campanha: Campanha & { regras_bloqueadas?: string[]; regras?: unknown[]; _regraCasada?: unknown } = {
+        id: 'modal-resp-nao-interfere', modo_exibicao: 'modal_automatica', mostrar_uma_vez: true, permitir_fechar_modal: true,
+        destaques_respondidos: ['item-que-nao-existe-nesta-campanha'],
+      };
+      const config: ConfigWidget = { sistema: 'sis', tela: 'tela-modal-resp', usuario_id: 'user-1' };
+      // Sem itemId (fluxo modal tradicional) e sem regras_bloqueadas/regra
+      // casada — continua elegível, exatamente como antes desta correção.
+      assert.equal(wasShown(campanha, config), false);
+    });
   });
 })
 

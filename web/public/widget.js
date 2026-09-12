@@ -1631,12 +1631,27 @@
 
   function wasShown(campanha, config, itemId) {
     if (!itemId && fechadaManualmenteAqui(campanha)) return true;
-    // Para usuário identificado, /candidatas já aplicou a política POR
-    // CAMPANHA usando o histórico persistido. Falta só o recorte POR REGRA
-    // (múltiplas telas/URLs): a regra que casou está na lista de bloqueadas
-    // que o servidor devolveu? (campanha de 1 regra -> lista sempre vazia,
-    // comportamento idêntico ao de antes).
+    // Para usuário identificado, /candidatas (ou /campanha) já aplicou a
+    // política usando o histórico persistido — o client nunca decide sozinho
+    // (localStorage é exclusivo do usuário anônimo, ver ramo abaixo).
     if (config.usuario_id) {
+      // Destaque em elemento (itemId presente, Fase 2 — N itens
+      // independentes): cada item tem sua PRÓPRIA resposta de utilidade
+      // (POST /api/widget/feedback/utilidade-destaque), que nunca é a mesma
+      // coisa que a regra/destino (data_cy) casada pela campanha — 2+ itens
+      // tipicamente compartilham a mesma regra, então "regra bloqueada" abaixo
+      // nunca soube diferenciar item A de item B. `destaques_respondidos`
+      // (servidor, buscarDestaquesRespondidos em widget.ts) é a lista
+      // autoritativa de ids já respondidos por este usuário; sem ela (campanha
+      // sem esse campo, ou resposta ainda não refletida numa nova consulta),
+      // o item continua elegível — nunca um bloqueio local/otimista aqui.
+      if (itemId) {
+        var respondidos = campanha && campanha.destaques_respondidos;
+        return !!(respondidos && respondidos.indexOf(itemId) !== -1);
+      }
+      // Falta só o recorte POR REGRA (múltiplas telas/URLs): a regra que
+      // casou está na lista de bloqueadas que o servidor devolveu? (campanha
+      // de 1 regra -> lista sempre vazia, comportamento idêntico ao de antes).
       var bloq = campanha && campanha.regras_bloqueadas;
       if (bloq && bloq.length && campanha._regraCasada) {
         var chaveRegra = chaveRegraExibicao(campanha._regraCasada);

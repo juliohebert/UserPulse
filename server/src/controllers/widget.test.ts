@@ -9,6 +9,7 @@ import {
   passaSegmentacao,
   chaveRegraDoContexto,
   dataMaisRecentePorRegra,
+  destaquesRespondidos,
 } from './widget'
 
 const DIA_MS = 86_400_000
@@ -766,5 +767,36 @@ describe('dataMaisRecentePorRegra', () => {
   })
   test('lista vazia -> null', () => {
     assert.equal(dataMaisRecentePorRegra([], 'st|Agenda'), null)
+  })
+})
+
+// ─── "Destaque em elemento" (Fase 2, N itens) — consumo POR ITEM ──────────
+// destaquesRespondidos é a peça pura de buscarDestaquesRespondidos (que faz
+// a query Prisma, integration-only): dado as linhas de Feedback já filtradas
+// por tipo_avaliacao='utilidade_destaque' + usuario_id + destaque_item_id in
+// (...), reduz a uma lista de ids únicos. Regressão do bug "destaque em
+// elemento reaparece mesmo depois de uma resposta enviada com sucesso" —
+// causa raiz: nenhuma consulta devolvia ao widget quais itens o usuário
+// identificado já tinha respondido (a política POR REGRA/data_cy nunca
+// soube diferenciar item A de item B, e utilidade_destaque é, de propósito,
+// independente do feedback GERAL — ver filtroFeedbackGeralReexibicao).
+describe('destaquesRespondidos', () => {
+  test('extrai os ids únicos de destaque_item_id das linhas', () => {
+    assert.deepEqual(
+      destaquesRespondidos([{ destaque_item_id: 'item-a' }, { destaque_item_id: 'item-b' }]),
+      ['item-a', 'item-b']
+    )
+  })
+  test('deduplica ids repetidos (ex.: upsert re-respondido não deveria nem duplicar, mas a função é defensiva)', () => {
+    assert.deepEqual(
+      destaquesRespondidos([{ destaque_item_id: 'item-a' }, { destaque_item_id: 'item-a' }]),
+      ['item-a']
+    )
+  })
+  test('ignora linhas com destaque_item_id nulo (nunca deveria vir assim, filtro já pede utilidade_destaque, mas defensivo)', () => {
+    assert.deepEqual(destaquesRespondidos([{ destaque_item_id: null }]), [])
+  })
+  test('lista vazia -> lista vazia', () => {
+    assert.deepEqual(destaquesRespondidos([]), [])
   })
 })

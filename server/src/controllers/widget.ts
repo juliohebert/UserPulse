@@ -373,6 +373,46 @@ function algumaRegraAberta(
   })
 }
 
+// ─── "Destaque em elemento" (Fase 2, N itens): consumo POR ITEM ──────────
+// A política de reexibição acima (verificarHistoricoPorRegra) é por
+// REGRA/destino (data_cy da campanha) — todos os N itens de `destaques`
+// tipicamente compartilham a MESMA regra (o mesmo data_cy legado espelhado
+// do item 1, ver corrigirDataCyRegrasDestaqueElemento em campanhas.ts), então
+// ela nunca soube diferenciar "o usuário respondeu o item A" de "respondeu o
+// item B". A avaliação de utilidade (POST /api/widget/feedback/
+// utilidade-destaque, tipo_avaliacao='utilidade_destaque') é, de propósito,
+// independente do feedback GERAL da campanha (nps/csat) — ver
+// filtroFeedbackGeralReexibicao — mas ainda precisa impedir que O MESMO item
+// já respondido reapareça pro usuário identificado (wasShown/markShown via
+// localStorage, usado pro usuário anônimo, nunca roda pra identificado — a
+// elegibilidade dele é sempre autoritativa do servidor). Função pura o
+// bastante pra testar sem Prisma: recebe as linhas já buscadas.
+export function destaquesRespondidos(
+  linhas: Array<{ destaque_item_id: string | null }>,
+): string[] {
+  const ids = new Set<string>()
+  for (const l of linhas) {
+    if (l.destaque_item_id) ids.add(l.destaque_item_id)
+  }
+  return [...ids]
+}
+
+async function buscarDestaquesRespondidos(
+  destaqueItemIds: string[],
+  usuarioId: string,
+): Promise<string[]> {
+  if (destaqueItemIds.length === 0) return []
+  const linhas = await prisma.feedback.findMany({
+    where: {
+      tipo_avaliacao: 'utilidade_destaque',
+      usuario_id: usuarioId,
+      destaque_item_id: { in: destaqueItemIds },
+    },
+    select: { destaque_item_id: true },
+  })
+  return destaquesRespondidos(linhas)
+}
+
 type ConclusaoResult = { bloqueado: false } | { bloqueado: true; eventoEm: Date }
 
 async function verificarConclusaoGlobal(
@@ -511,17 +551,23 @@ export async function buscarCampanha(req: Request, res: Response) {
     }
 
     let regrasBloqueadas: string[] = []
+    let itensRespondidos: string[] = []
     if (usuario_id && !alwaysShow) {
       regrasBloqueadas = await verificarHistoricoPorRegra(campanha, campanha.regras, String(usuario_id), agora)
       if (!algumaRegraAberta(campanha.regras, regrasBloqueadas)) {
         return res.status(404).json({ erro: 'Campanha já exibida para este usuário.' })
       }
+      itensRespondidos = await buscarDestaquesRespondidos(campanha.destaques.map(d => d.id), String(usuario_id))
     }
 
     res.json(ocultarTenantId(
       alwaysShow
         ? { ...campanha, always_show_user: true }
-        : (regrasBloqueadas.length ? { ...campanha, regras_bloqueadas: regrasBloqueadas } : campanha)
+        : {
+            ...campanha,
+            ...(regrasBloqueadas.length ? { regras_bloqueadas: regrasBloqueadas } : {}),
+            ...(itensRespondidos.length ? { destaques_respondidos: itensRespondidos } : {}),
+          }
     ))
   } catch (err) {
     console.error(err)
@@ -607,12 +653,16 @@ export async function buscarCandidatas(req: Request, res: Response) {
     // bloqueadas; senão vai com `regras_bloqueadas` (o client, ao saber qual
     // regra casou, pula se ela estiver na lista). Campanha de 1 regra ->
     // some quando bloqueada, exatamente como antes.
-    const elegiveis: Array<(typeof segmentadas)[number] & { regras_bloqueadas?: string[] }> = []
+    const elegiveis: Array<(typeof segmentadas)[number] & { regras_bloqueadas?: string[]; destaques_respondidos?: string[] }> = []
     for (const campanha of semConclusao) {
       const bloqueadas = await verificarHistoricoPorRegra(campanha, campanha.regras, uidStr, agora)
-      if (algumaRegraAberta(campanha.regras, bloqueadas)) {
-        elegiveis.push(bloqueadas.length ? { ...campanha, regras_bloqueadas: bloqueadas } : campanha)
-      }
+      if (!algumaRegraAberta(campanha.regras, bloqueadas)) continue
+      const itensRespondidos = await buscarDestaquesRespondidos(campanha.destaques.map(d => d.id), uidStr)
+      elegiveis.push({
+        ...campanha,
+        ...(bloqueadas.length ? { regras_bloqueadas: bloqueadas } : {}),
+        ...(itensRespondidos.length ? { destaques_respondidos: itensRespondidos } : {}),
+      })
     }
 
     res.json(ocultarTenantId(elegiveis))
