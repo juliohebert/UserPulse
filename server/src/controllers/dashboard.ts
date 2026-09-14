@@ -205,9 +205,10 @@ export interface NpsPorPerfilItem {
   promotores: number
   neutros: number
   detratores: number
-  // NPS = % promotores − % detratores, cada percentual arredondado ANTES da
-  // subtração — mesma forma do KPI de NPS do topo do dashboard
-  // (CampanhaDashboard.tsx: pctProm/pctDetr) pros dois números baterem.
+  // NPS = (promotores − detratores) / respostas × 100, arredondado só no
+  // resultado final — mesma regra do KPI do topo do dashboard
+  // (CampanhaDashboard.tsx: npsScore) e da comparação com período anterior
+  // (buscarDashboard: nps de `comparacao`) pros três baterem.
   nps: number
 }
 
@@ -227,7 +228,7 @@ export function montarNpsPorPerfil(
       const neutros = Number(row.neutros)
       const detratores = Number(row.detratores)
       const nps = respostas > 0
-        ? Math.round((promotores / respostas) * 100) - Math.round((detratores / respostas) * 100)
+        ? Math.round(((promotores - detratores) / respostas) * 100)
         : 0
       return { perfil: row.perfil, respostas, promotores, neutros, detratores, nps }
     })

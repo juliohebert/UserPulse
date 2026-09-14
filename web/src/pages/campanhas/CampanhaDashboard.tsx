@@ -8,7 +8,7 @@ import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
-import { blocosDashboardVisiveis, diasCivisNoIntervalo, variacaoPercentual, type IndicadorResumoDef } from './dashboardBlocos'
+import { blocosDashboardVisiveis, calcularNpsScore, diasCivisNoIntervalo, variacaoPercentual, type IndicadorResumoDef } from './dashboardBlocos'
 import { conteudoEventoIdentificado, rotuloConteudoEvento, type ConteudoInfo } from './interacoesConteudo'
 
 // ─── filter types ─────────────────────────────────────────────────────────────
@@ -598,7 +598,7 @@ export function CampanhaDashboard() {
   const pctProm    = totalNps > 0 ? Math.round((promotores / totalNps) * 100) : 0
   const pctNeut    = totalNps > 0 ? Math.round((neutros    / totalNps) * 100) : 0
   const pctDetr    = totalNps > 0 ? Math.round((detratores / totalNps) * 100) : 0
-  const npsScore   = pctProm - pctDetr
+  const npsScore   = calcularNpsScore(promotores, detratores, totalNps)
 
   const serieImpressao = data?.serie_impressao ?? []
   const serieAnterior = data?.serie_impressao_anterior ?? []

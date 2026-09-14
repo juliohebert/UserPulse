@@ -106,7 +106,9 @@ interface AggSub {
 
 function npsDoAgg(agg: AggSub | undefined): number | null {
   if (!agg || agg.respostas <= 0) return null
-  return Math.round((agg.promotores / agg.respostas) * 100) - Math.round((agg.detratores / agg.respostas) * 100)
+  // Arredonda só o resultado final (não cada percentual antes de subtrair) —
+  // mesma regra do KPI do dashboard e do NPS por perfil.
+  return Math.round(((agg.promotores - agg.detratores) / agg.respostas) * 100)
 }
 
 export function montarEvolucaoNps(

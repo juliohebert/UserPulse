@@ -439,10 +439,24 @@ describe('montarNpsPorPerfil', () => {
     assert.deepEqual(montarNpsPorPerfil([]), [])
   })
 
-  test('cálculo por perfil — NPS = %promotores − %detratores, cada % arredondado antes de subtrair', () => {
+  test('cálculo por perfil — NPS = (promotores − detratores) / respostas × 100, arredondado só no resultado final', () => {
     // 10 respostas: 6 promotores (60%), 2 neutros, 2 detratores (20%) -> NPS 40
     const r = montarNpsPorPerfil([linha('MEDICO', 10, 6, 2, 2)])
     assert.deepEqual(r, [{ perfil: 'MEDICO', respostas: 10, promotores: 6, neutros: 2, detratores: 2, nps: 40 }])
+  })
+
+  test('5 promotores, 1 detrator, 6 respostas -> 67 (nunca 66: não pode arredondar cada % antes de subtrair)', () => {
+    // 83,333...% − 16,666...% = 66,666... -> arredonda só o resultado final: 67.
+    // Math.round(83,33) − Math.round(16,67) = 83 − 17 = 66 seria o valor do bug antigo.
+    const r = montarNpsPorPerfil([linha('MEDICO', 6, 5, 0, 1)])
+    assert.equal(r[0].nps, 67)
+  })
+
+  test('distribuição que resulta em NPS exatamente inteiro sem arredondamento nenhum', () => {
+    // 8 respostas: 5 promotores, 1 neutro, 2 detratores -> (5-2)/8*100 = 37.5... não serve;
+    // usa 20 respostas: 12 promotores, 0 neutros, 8 detratores -> (12-8)/20*100 = 20 exato
+    const r = montarNpsPorPerfil([linha('MEDICO', 20, 12, 0, 8)])
+    assert.equal(r[0].nps, 20)
   })
 
   test('arredondamento — 3 respostas, 1 promotor (33%) e 1 detrator (33%) -> NPS 0', () => {
