@@ -205,10 +205,10 @@ export interface NpsPorPerfilItem {
   promotores: number
   neutros: number
   detratores: number
-  // NPS = (promotores − detratores) / respostas × 100, arredondado só no
-  // resultado final — mesma regra do KPI do topo do dashboard
-  // (CampanhaDashboard.tsx: npsScore) e da comparação com período anterior
-  // (buscarDashboard: nps de `comparacao`) pros três baterem.
+  // NPS = (promotores − detratores) / respostas × 100, arredondado para 1
+  // casa decimal só no resultado final — mesma regra do KPI do topo do
+  // dashboard (CampanhaDashboard.tsx: npsScore) e da comparação com período
+  // anterior (buscarDashboard: nps de `comparacao`) pros três baterem.
   nps: number
 }
 
@@ -228,7 +228,7 @@ export function montarNpsPorPerfil(
       const neutros = Number(row.neutros)
       const detratores = Number(row.detratores)
       const nps = respostas > 0
-        ? Math.round(((promotores - detratores) / respostas) * 100)
+        ? Math.round(((promotores - detratores) / respostas) * 100 * 10) / 10
         : 0
       return { perfil: row.perfil, respostas, promotores, neutros, detratores, nps }
     })
@@ -807,7 +807,7 @@ export async function buscarDashboard(req: Request, res: Response) {
         visualizacoes: visualizacoesAnterior,
         respostas: respostasAnteriores,
         cliques_cta: cliquesAnterior,
-        nps: totalNotasAnteriores > 0 ? Math.round((promotoresAnteriores - detratoresAnteriores) / totalNotasAnteriores * 100) : null,
+        nps: totalNotasAnteriores > 0 ? Math.round((promotoresAnteriores - detratoresAnteriores) / totalNotasAnteriores * 100 * 10) / 10 : null,
         media: mediaAnterior._avg.nota !== null ? Math.round(mediaAnterior._avg.nota * 10) / 10 : null,
       }
       serie_impressao_anterior = normalizarSerieImpressao(serieAnterior)

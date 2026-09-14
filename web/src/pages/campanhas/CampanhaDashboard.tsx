@@ -8,7 +8,7 @@ import { TypeBadge } from '../../components/ui/TypeBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { LoadingSpinner, ErrorState } from '../../components/ui/EmptyState'
 import { TooltipIconButton } from '../../components/ui/TooltipIconButton'
-import { blocosDashboardVisiveis, calcularNpsScore, diasCivisNoIntervalo, variacaoPercentual, type IndicadorResumoDef } from './dashboardBlocos'
+import { blocosDashboardVisiveis, calcularNpsScore, diasCivisNoIntervalo, formatarNps, variacaoPercentual, type IndicadorResumoDef } from './dashboardBlocos'
 import { conteudoEventoIdentificado, rotuloConteudoEvento, type ConteudoInfo } from './interacoesConteudo'
 
 // ─── filter types ─────────────────────────────────────────────────────────────
@@ -824,7 +824,7 @@ export function CampanhaDashboard() {
               {kpiTotal > 0 ? (
                 <KpiCard
                   icon="speed" iconColor="text-amber-600" iconBg="bg-amber-50"
-                  label="NPS" value={`${npsScore > 0 ? '+' : ''}${npsScore}`}
+                  label="NPS" value={formatarNps(npsScore)}
                   sub={`${promotores} promotores · ${neutros} neutros · ${detratores} detratores`}
                   tooltip="NPS = % de promotores − % de detratores. Promotores: notas 9 e 10. Neutros: notas 7 e 8. Detratores: notas de 0 a 6."
                 />
@@ -1946,13 +1946,13 @@ function ActivityPanel({ atividade, maiorDia, total, percentualMaiorDia, nomesDi
 
 function NpsExecutive({ score, media, detratores, percentualDetratores, quotes }: { score: number; media: number | null; detratores: number; percentualDetratores: number; quotes: Feedback[] }) {
   const zona = npsZona(score)
-  const itens = [{ rotulo: 'Zona atual', valor: `${score > 0 ? '+' : ''}${score}`, texto: `A campanha está em ${zona.nome.toLowerCase()}.` }, { rotulo: 'Nota média', valor: media === null ? '—' : media.toFixed(1), texto: 'Média geral das respostas recebidas.' }, { rotulo: 'Ponto de atenção', valor: detratores.toLocaleString('pt-BR'), texto: `${percentualDetratores}% das respostas vieram de detratores.` }]
+  const itens = [{ rotulo: 'Zona atual', valor: formatarNps(score), texto: `A campanha está em ${zona.nome.toLowerCase()}.` }, { rotulo: 'Nota média', valor: media === null ? '—' : media.toFixed(1), texto: 'Média geral das respostas recebidas.' }, { rotulo: 'Ponto de atenção', valor: detratores.toLocaleString('pt-BR'), texto: `${percentualDetratores}% das respostas vieram de detratores.` }]
   return <article className="rounded-[22px] border border-[#e7ebf2] bg-white p-[22px] shadow-sm"><h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">Leitura do NPS</h3><p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">Resumo executivo das notas</p><div className="mt-2.5 grid gap-3">{itens.map(item => <div key={item.rotulo} className="flex items-center justify-between gap-4 rounded-2xl border border-[#e7ebf2] bg-[#fbfcfe] p-[15px]"><div><p className="mb-2 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">{item.rotulo}</p><p className="text-[12px] font-semibold leading-[1.45] text-[#98a2b3]">{item.texto}</p></div><strong className="shrink-0 text-[24px] tracking-[-0.04em] text-[#101828]">{item.valor}</strong></div>)}</div><div className="mt-4 border-t border-[#e7ebf2] pt-4"><p className="mb-3 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">Sinais qualitativos</p>{quotes.length === 0 ? <p className="text-[12px] font-semibold text-[#98a2b3]">Ainda não há comentários no período.</p> : <div className="grid gap-2.5">{quotes.map(item => <div key={item.id} className="rounded-xl border border-[#e7ebf2] bg-[#fbfcfe] px-3 py-2.5 text-[12px] font-semibold leading-[1.45] text-[#475467]"><strong className={`mb-1 block text-[10px] uppercase tracking-[.04em] ${npsLabel(item.nota) === 'Promotor' ? 'text-tertiary' : 'text-error'}`}>{npsLabel(item.nota)} · nota {item.nota}</strong>“{item.observacao}”</div>)}</div>}</div></article>
 }
 
 function NpsDeepDive({ score, promotores, neutros, detratores, pctProm, pctNeut, pctDetr, distribuicao, maxDist, notaMaisFrequente }: { score: number; promotores: number; neutros: number; detratores: number; pctProm: number; pctNeut: number; pctDetr: number; distribuicao: Record<string, number>; maxDist: number; notaMaisFrequente: { nota: number; total: number } }) {
   return <article className="mb-6 rounded-[22px] border border-[#e7ebf2] bg-white p-[22px] shadow-sm"><div className="mb-[18px]"><h3 className="text-[16px] font-extrabold tracking-[-0.015em] text-[#101828]">Distribuição e leitura das notas</h3><p className="mt-1 text-[12px] font-semibold text-[#98a2b3]">Detalhamento para entender melhor a qualidade das respostas do NPS</p></div><div className="grid grid-cols-1 items-start gap-[18px] xl:grid-cols-[300px_minmax(0,1fr)_300px]">
-    <div className="h-full rounded-[18px] border border-[#e7ebf2] bg-[#fbfcfe] p-[18px]"><div className="mx-auto h-[112px] w-[190px] overflow-hidden"><div className="relative h-[190px] w-[190px] rounded-full" style={{ background: 'conic-gradient(from 270deg, #f04438 0deg 52deg, #ffb74a 52deg 91deg, #42c77a 91deg 180deg, #edf1f6 180deg 360deg)' }}><div className="absolute left-[26px] top-[26px] h-[138px] w-[138px] rounded-full bg-[#fbfcfe]" /><div className="absolute bottom-[78px] left-1/2 z-10 -translate-x-1/2 text-center"><strong className="text-[31px] tracking-[-0.04em] text-[#101828]">{score > 0 ? '+' : ''}{score}</strong><p className="text-[11px] font-bold text-[#98a2b3]">NPS atual</p></div></div></div><div className="mt-4">{[["#12b76a", 'Promotores', promotores, pctProm], ["#ffb74a", 'Neutros', neutros, pctNeut], ["#f04438", 'Detratores', detratores, pctDetr]].map(([cor, label, total, pct]) => <div key={String(label)} className="flex items-center justify-between border-b border-[#e7ebf2] py-2.5 text-[12px] font-bold text-[#475467] last:border-0"><span><i className="mr-2 inline-block h-[9px] w-[9px] rounded-full" style={{ backgroundColor: String(cor) }} />{label}</span><strong className="text-[14px] text-[#101828]">{total} · {pct}%</strong></div>)}</div></div>
+    <div className="h-full rounded-[18px] border border-[#e7ebf2] bg-[#fbfcfe] p-[18px]"><div className="mx-auto h-[112px] w-[190px] overflow-hidden"><div className="relative h-[190px] w-[190px] rounded-full" style={{ background: 'conic-gradient(from 270deg, #f04438 0deg 52deg, #ffb74a 52deg 91deg, #42c77a 91deg 180deg, #edf1f6 180deg 360deg)' }}><div className="absolute left-[26px] top-[26px] h-[138px] w-[138px] rounded-full bg-[#fbfcfe]" /><div className="absolute bottom-[78px] left-1/2 z-10 -translate-x-1/2 text-center"><strong className="text-[31px] tracking-[-0.04em] text-[#101828]">{formatarNps(score)}</strong><p className="text-[11px] font-bold text-[#98a2b3]">NPS atual</p></div></div></div><div className="mt-4">{[["#12b76a", 'Promotores', promotores, pctProm], ["#ffb74a", 'Neutros', neutros, pctNeut], ["#f04438", 'Detratores', detratores, pctDetr]].map(([cor, label, total, pct]) => <div key={String(label)} className="flex items-center justify-between border-b border-[#e7ebf2] py-2.5 text-[12px] font-bold text-[#475467] last:border-0"><span><i className="mr-2 inline-block h-[9px] w-[9px] rounded-full" style={{ backgroundColor: String(cor) }} />{label}</span><strong className="text-[14px] text-[#101828]">{total} · {pct}%</strong></div>)}</div></div>
     <div className="min-w-0 rounded-[18px] border border-[#e7ebf2] bg-white p-[18px]"><p className="mb-3.5 text-[12px] font-extrabold text-[#475467]">Distribuição das notas (0 a 10)</p><div className="overflow-x-auto"><div className="grid h-[220px] min-w-[460px] grid-cols-11 items-end gap-2">{Array.from({ length: 11 }, (_, nota) => { const total = distribuicao[String(nota)] ?? 0; return <div key={nota} className="flex min-w-0 flex-col items-center justify-end gap-2"><span className="text-[10px] font-extrabold text-[#475467]">{total}</span><div className={`w-full max-w-[42px] rounded-t-[10px] ${notaColor(nota)}`} style={{ height: `${Math.max(8, Math.round(total / maxDist * 150))}px` }} /><span className="text-[10px] font-bold text-[#98a2b3]">{nota}</span></div>})}</div></div></div>
     <div className="grid gap-3"><div className="rounded-[18px] border border-[#e7ebf2] bg-[#fbfcfe] p-4"><p className="mb-2 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">Maior concentração</p><strong className="text-[26px] tracking-[-0.04em] text-[#101828]">Nota {notaMaisFrequente.nota}</strong><p className="mt-1.5 text-[12px] font-semibold leading-[1.5] text-[#667085]">{notaMaisFrequente.total} respostas estão nessa nota, a maior concentração do período.</p></div><div className="rounded-[18px] border border-[#e7ebf2] bg-[#fbfcfe] p-4"><p className="mb-2 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#667085]">Risco atual</p><strong className="text-[26px] tracking-[-0.04em] text-[#101828]">{pctDetr}%</strong><p className="mt-1.5 text-[12px] font-semibold leading-[1.5] text-[#667085]">O percentual de detratores é o principal ponto de atenção desta campanha.</p></div></div>
   </div></article>
@@ -2519,7 +2519,7 @@ function NpsPorPerfilSection({ itens }: { itens: NpsPorPerfilItem[] }) {
                       <td className="px-4 py-3 whitespace-nowrap align-middle text-[13px] text-on-surface">{item.detratores.toLocaleString('pt-BR')}</td>
                       <td className="px-4 py-3 whitespace-nowrap align-middle">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[13px] font-bold ${npsPillClasses(item.nps)}`}>
-                          {item.nps > 0 ? '+' : ''}{item.nps}
+                          {formatarNps(item.nps)}
                         </span>
                       </td>
                     </tr>
@@ -2547,7 +2547,7 @@ function NpsPorPerfilCard({ item }: { item: NpsPorPerfilItem }) {
       <div className="flex items-center justify-between gap-3">
         <span className={`text-[13px] font-semibold ${item.perfil ? 'text-on-surface' : 'text-outline italic'}`}>{item.perfil ?? NI}</span>
         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[13px] font-bold ${npsPillClasses(item.nps)}`}>
-          {item.nps > 0 ? '+' : ''}{item.nps}
+          {formatarNps(item.nps)}
         </span>
       </div>
       <div className="mt-3 pt-3 border-t border-outline-variant/20 grid grid-cols-2 gap-x-3 gap-y-2.5">
@@ -2658,8 +2658,10 @@ function EvolucaoNpsSection({ evo, granularidade, onGranularidade, anoSelecionad
   const ultimo = pontos[n - 1] ?? null
   const melhor = pontos.reduce<PontoNpsDefinido | null>((m, p) => (!m || p.nps > m.nps ? p : m), null)
   const pior = pontos.reduce<PontoNpsDefinido | null>((m, p) => (!m || p.nps < m.nps ? p : m), null)
-  const fmtNps = (v: number) => `${v > 0 ? '+' : ''}${v}`
-  const fmtVar = (v: number) => `${v > 0 ? '+' : ''}${v} pts`
+  // Só pros rótulos fixos do eixo (100/50/0/-50/-100) — são escala, não
+  // valores calculados de NPS, então não levam casa decimal.
+  const fmtEixo = (v: number) => `${v > 0 ? '+' : ''}${v}`
+  const fmtVar = (v: number) => `${formatarNps(v)} pts`
 
   const rotuloUnidade = granularidade === 'mensal' ? 'mês' : granularidade === 'anual' ? 'ano' : 'trimestre'
   const cap = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`
@@ -2763,7 +2765,7 @@ function EvolucaoNpsSection({ evo, granularidade, onGranularidade, anoSelecionad
               <div className="flex gap-2">
                 {/* Eixo Y fixo −100..+100 */}
                 <div className="flex w-9 shrink-0 flex-col justify-between text-right text-[9px] font-bold text-[#98a2b3]" style={{ height: ALTURA }}>
-                  {[100, 50, 0, -50, -100].map(v => <span key={v}>{fmtNps(v)}</span>)}
+                  {[100, 50, 0, -50, -100].map(v => <span key={v}>{fmtEixo(v)}</span>)}
                 </div>
 
                 {/* Área de plotagem */}
@@ -2819,13 +2821,13 @@ function EvolucaoNpsSection({ evo, granularidade, onGranularidade, anoSelecionad
                                     className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap text-[8px] font-bold text-[#98a2b3]"
                                     style={{ left: `${PCT_CENTRO_COMPARADA}%`, top: topValor(compPos, compH, 10) }}
                                   >
-                                    {fmtNps(npsComp!)}
+                                    {formatarNps(npsComp!)}
                                   </span>
                                   <span
                                     className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap text-[9px] font-extrabold text-[#475467]"
                                     style={{ left: `${PCT_CENTRO_REFERENCIA}%`, top: topValor(refPos, refH, 11) }}
                                   >
-                                    {fmtNps(p.nps)}{p.parcial ? '*' : ''}
+                                    {formatarNps(p.nps)}{p.parcial ? '*' : ''}
                                   </span>
                                 </>
                               )}
@@ -2837,7 +2839,7 @@ function EvolucaoNpsSection({ evo, granularidade, onGranularidade, anoSelecionad
                                   className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-[9px] font-extrabold text-[#475467]"
                                   style={{ top: topValor(refPos, refH, 11) }}
                                 >
-                                  {fmtNps(p.nps)}{p.parcial ? '*' : ''}
+                                  {formatarNps(p.nps)}{p.parcial ? '*' : ''}
                                 </span>
                               )}
                               <span
@@ -2863,7 +2865,7 @@ function EvolucaoNpsSection({ evo, granularidade, onGranularidade, anoSelecionad
                       <p className="text-[12px] font-medium leading-4 text-[#d0d5dd]">{ativo.label}</p>
                       <div className="mt-2 flex items-end justify-between gap-3">
                         <span className="text-[11px] font-semibold text-[#98a2b3]">NPS</span>
-                        <strong className="text-[22px] leading-none">{fmtNps(ativo.nps)}</strong>
+                        <strong className="text-[22px] leading-none">{formatarNps(ativo.nps)}</strong>
                       </div>
                       {ativo.parcial && (
                         <p className="mt-1 text-[10px] font-semibold text-[#fdb022]">
@@ -2876,7 +2878,7 @@ function EvolucaoNpsSection({ evo, granularidade, onGranularidade, anoSelecionad
                             <p>{ativo.comparacao?.label ?? anoComp}: sem respostas</p>
                           ) : (
                             <>
-                              <p>{ativo.comparacao.label}: NPS {fmtNps(ativo.comparacao.nps)}</p>
+                              <p>{ativo.comparacao.label}: NPS {formatarNps(ativo.comparacao.nps)}</p>
                               {ativo.comparacao.variacao !== null && (
                                 <p className={ativo.comparacao.variacao > 0 ? 'text-[#6ce9a6]' : ativo.comparacao.variacao < 0 ? 'text-[#fda29b]' : 'text-[#d0d5dd]'}>
                                   Variação {fmtVar(ativo.comparacao.variacao)}
@@ -2944,15 +2946,15 @@ function EvolucaoNpsSection({ evo, granularidade, onGranularidade, anoSelecionad
             <div className="mt-3.5 grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="rounded-xl bg-[#f8fafc] px-3.5 py-3">
                 <p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">{cap(rotuloUnidade)} mais recente</p>
-                <p className="mt-1 text-[16px] font-extrabold text-[#344054]">{ultimo ? `${fmtNps(ultimo.nps)} · ${ultimo.label}` : '—'}</p>
+                <p className="mt-1 text-[16px] font-extrabold text-[#344054]">{ultimo ? `${formatarNps(ultimo.nps)} · ${ultimo.label}` : '—'}</p>
               </div>
               <div className="rounded-xl bg-[#f8fafc] px-3.5 py-3">
                 <p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">Melhor {rotuloUnidade}</p>
-                <p className="mt-1 text-[16px] font-extrabold text-[#344054]">{melhor ? `${fmtNps(melhor.nps)} · ${melhor.label}` : '—'}</p>
+                <p className="mt-1 text-[16px] font-extrabold text-[#344054]">{melhor ? `${formatarNps(melhor.nps)} · ${melhor.label}` : '—'}</p>
               </div>
               <div className="rounded-xl bg-[#f8fafc] px-3.5 py-3">
                 <p className="text-[10px] font-extrabold uppercase tracking-[.05em] text-[#98a2b3]">Pior {rotuloUnidade}</p>
-                <p className="mt-1 text-[16px] font-extrabold text-[#344054]">{pior ? `${fmtNps(pior.nps)} · ${pior.label}` : '—'}</p>
+                <p className="mt-1 text-[16px] font-extrabold text-[#344054]">{pior ? `${formatarNps(pior.nps)} · ${pior.label}` : '—'}</p>
               </div>
             </div>
             {granularidade !== 'anual' && n === 1 && (
