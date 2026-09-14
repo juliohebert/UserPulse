@@ -200,6 +200,42 @@ describe('montarEvolucaoNps — ano de referência + comparação ano×ano alinh
       { respostas: serie.respostas, promotores: serie.promotores, neutros: serie.neutros, detratores: serie.detratores },
       { respostas: 9, promotores: 4, neutros: 2, detratores: 3 },
     )
-    assert.equal(serie.nps, 11) // round(44.4)=44 ; round(33.3)=33 ; 44 - 33
+    assert.equal(serie.nps, 11) // round((4-3)/9*100) = round(11,11) = 11
+  })
+})
+
+// ─── npsDoAgg (via montarEvolucaoNps) — arredonda só o resultado final ────
+describe('montarEvolucaoNps — NPS arredonda só o resultado final, nunca cada % antes de subtrair', () => {
+  const HOJE = { ano: 2026, mes: 9 }
+  function serieDe(promotores: number, neutros: number, detratores: number) {
+    const rows = [
+      ...(promotores > 0 ? [{ ano: 2026, mes: 1, nota: 10, quantidade: promotores }] : []),
+      ...(neutros > 0 ? [{ ano: 2026, mes: 1, nota: 7, quantidade: neutros }] : []),
+      ...(detratores > 0 ? [{ ano: 2026, mes: 1, nota: 0, quantidade: detratores }] : []),
+    ]
+    return montarEvolucaoNps(rows, 'mensal', { anoReferencia: 2026, anoComparacao: null, hoje: HOJE }).pontos[0]
+  }
+
+  test('5 promotores, 1 detrator, 6 respostas -> 67 (não 66: nunca arredondar cada % antes de subtrair)', () => {
+    // 83,333...% − 16,666...% = 66,666... -> arredonda só o resultado final: 67.
+    const p = serieDe(5, 0, 1)
+    assert.equal(p.nps, 67)
+  })
+
+  test('distribuição que resulta em NPS exatamente inteiro', () => {
+    // 20 respostas: 12 promotores, 8 detratores -> (12-8)/20*100 = 20 exato
+    const p = serieDe(12, 0, 8)
+    assert.equal(p.nps, 20)
+  })
+
+  test('NPS negativo quando detratores predominam', () => {
+    // 7 respostas: 1 promotor, 6 detratores -> (1-6)/7*100 = -71,42... -> -71
+    const p = serieDe(1, 0, 6)
+    assert.equal(p.nps, -71)
+  })
+
+  test('zero respostas -> nps null (preserva comportamento existente, nunca 0 nem NaN)', () => {
+    const res = montarEvolucaoNps([], 'mensal', { anoReferencia: 2026, anoComparacao: null, hoje: HOJE })
+    assert.deepEqual(res.pontos, [])
   })
 })

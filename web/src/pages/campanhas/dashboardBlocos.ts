@@ -39,6 +39,16 @@ export function variacaoPercentual(atual: number, anterior: number | null | unde
   return Math.round(((atual - anterior) / anterior) * 100)
 }
 
+/**
+ * NPS = (promotores − detratores) / total × 100, arredondado só no resultado
+ * final (nunca cada percentual antes de subtrair — senão 5 promotores/1
+ * detrator em 6 respostas vira 83-17=66 em vez de 67). Mesma regra do
+ * NPS por perfil e da evolução de NPS no backend (dashboard.ts, evolucaoNps.ts).
+ */
+export function calcularNpsScore(promotores: number, detratores: number, total: number): number {
+  return total > 0 ? Math.round(((promotores - detratores) / total) * 100) : 0
+}
+
 // `key` identifica qual valor já calculado no componente entra em cada chip
 // (ver valoresIndicadoresInteracoes em CampanhaDashboard.tsx) — este módulo
 // só decide QUAIS chips e com QUE RÓTULO aparecem, nunca os valores em si
