@@ -106,9 +106,9 @@ interface AggSub {
 
 function npsDoAgg(agg: AggSub | undefined): number | null {
   if (!agg || agg.respostas <= 0) return null
-  // Arredonda só o resultado final (não cada percentual antes de subtrair) —
-  // mesma regra do KPI do dashboard e do NPS por perfil.
-  return Math.round(((agg.promotores - agg.detratores) / agg.respostas) * 100)
+  // Arredonda só o resultado final, para 1 casa decimal (não cada percentual
+  // antes de subtrair) — mesma regra do KPI do dashboard e do NPS por perfil.
+  return Math.round(((agg.promotores - agg.detratores) / agg.respostas) * 100 * 10) / 10
 }
 
 export function montarEvolucaoNps(
@@ -187,7 +187,9 @@ export function montarEvolucaoNps(
         label: rotular(sub, anoComparacao!).label,
         respostas: aggC?.respostas ?? 0,
         nps: npsC,
-        variacao: npsR !== null && npsC !== null ? npsR - npsC : null,
+        // Arredonda a subtração explicitamente pra 1 casa decimal — evita
+        // resíduo de ponto flutuante (ex.: 66.7 - (-20) = 86.70000000000001).
+        variacao: npsR !== null && npsC !== null ? Math.round((npsR - npsC) * 10) / 10 : null,
       }
     }
 

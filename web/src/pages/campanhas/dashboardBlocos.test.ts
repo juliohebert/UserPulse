@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { blocosDashboardVisiveis, calcularNpsScore, diasCivisNoIntervalo, variacaoPercentual } from './dashboardBlocos'
+import { blocosDashboardVisiveis, calcularNpsScore, diasCivisNoIntervalo, formatarNps, variacaoPercentual } from './dashboardBlocos'
 
 describe('diasCivisNoIntervalo', () => {
   test('inclui dias sem eventos entre o início e o fim no fuso de São Paulo', () => {
@@ -27,9 +27,9 @@ describe('variacaoPercentual', () => {
 })
 
 describe('calcularNpsScore', () => {
-  test('5 promotores, 1 detrator, 6 respostas -> 67 (não 66: nunca arredondar cada % antes de subtrair)', () => {
-    // 83,333...% − 16,666...% = 66,666... -> arredonda só o resultado final: 67.
-    assert.equal(calcularNpsScore(5, 1, 6), 67)
+  test('5 promotores, 1 detrator, 6 respostas -> 66,7 (não 66 inteiro: nunca arredondar cada % antes de subtrair)', () => {
+    // 83,333...% − 16,666...% = 66,666... -> arredonda só o resultado final, pra 1 casa decimal: 66,7.
+    assert.equal(calcularNpsScore(5, 1, 6), 66.7)
   })
 
   test('distribuição que resulta em NPS exatamente inteiro', () => {
@@ -38,13 +38,31 @@ describe('calcularNpsScore', () => {
   })
 
   test('NPS negativo quando detratores predominam', () => {
-    // 7 respostas: 1 promotor, 6 detratores -> (1-6)/7*100 = -71,42... -> -71
-    assert.equal(calcularNpsScore(1, 6, 7), -71)
+    // 7 respostas: 1 promotor, 6 detratores -> (1-6)/7*100 = -71,42... -> -71,4
+    assert.equal(calcularNpsScore(1, 6, 7), -71.4)
   })
 
   test('zero respostas -> 0, nunca NaN (preserva comportamento existente)', () => {
     assert.equal(calcularNpsScore(0, 0, 0), 0)
     assert.equal(Number.isNaN(calcularNpsScore(0, 0, 0)), false)
+  })
+})
+
+describe('formatarNps — 1 casa decimal fixa, vírgula pt-BR, sinal + preservado', () => {
+  test('66.7 -> "+66,7"', () => {
+    assert.equal(formatarNps(66.7), '+66,7')
+  })
+
+  test('20 -> "+20,0" (força a casa decimal mesmo em valor exatamente inteiro)', () => {
+    assert.equal(formatarNps(20), '+20,0')
+  })
+
+  test('-71.4 -> "-71,4" (sinal negativo já vem do toLocaleString, sem "+")', () => {
+    assert.equal(formatarNps(-71.4), '-71,4')
+  })
+
+  test('0 -> "0,0" (sem sinal, nem "+" nem "-")', () => {
+    assert.equal(formatarNps(0), '0,0')
   })
 })
 

@@ -200,7 +200,19 @@ describe('montarEvolucaoNps — ano de referência + comparação ano×ano alinh
       { respostas: serie.respostas, promotores: serie.promotores, neutros: serie.neutros, detratores: serie.detratores },
       { respostas: 9, promotores: 4, neutros: 2, detratores: 3 },
     )
-    assert.equal(serie.nps, 11) // round((4-3)/9*100) = round(11,11) = 11
+    assert.equal(serie.nps, 11.1) // round((4-3)/9*100 * 10) / 10 = round(111,11) / 10 = 11,1
+  })
+
+  test('variação entre dois NPS não gera resíduo de ponto flutuante (ex.: -50 - (-33,3) deve ser -16,7, não -16.700000000000003)', () => {
+    const rows = [
+      r(2026, 3, 0, 1), r(2026, 3, 7, 1), // ano referência: 1 detrator, 1 neutro, total 2 -> nps -50
+      r(2025, 3, 0, 1), r(2025, 3, 7, 2), // ano comparado: 1 detrator, 2 neutros, total 3 -> nps -33,3
+    ]
+    const p = montar(rows, 'mensal', 2026, 2025).pontos.find(p => p.bucket === '2026-03')!
+    assert.equal(p.nps, -50)
+    assert.equal(p.comparacao!.nps, -33.3)
+    assert.equal(p.comparacao!.variacao, -16.7)
+    assert.equal(String(p.comparacao!.variacao), '-16.7') // nunca "-16.700000000000003"
   })
 })
 
@@ -216,10 +228,10 @@ describe('montarEvolucaoNps — NPS arredonda só o resultado final, nunca cada 
     return montarEvolucaoNps(rows, 'mensal', { anoReferencia: 2026, anoComparacao: null, hoje: HOJE }).pontos[0]
   }
 
-  test('5 promotores, 1 detrator, 6 respostas -> 67 (não 66: nunca arredondar cada % antes de subtrair)', () => {
-    // 83,333...% − 16,666...% = 66,666... -> arredonda só o resultado final: 67.
+  test('5 promotores, 1 detrator, 6 respostas -> 66,7 (não 66 inteiro: nunca arredondar cada % antes de subtrair)', () => {
+    // 83,333...% − 16,666...% = 66,666... -> arredonda só o resultado final, pra 1 casa decimal: 66,7.
     const p = serieDe(5, 0, 1)
-    assert.equal(p.nps, 67)
+    assert.equal(p.nps, 66.7)
   })
 
   test('distribuição que resulta em NPS exatamente inteiro', () => {
@@ -229,9 +241,9 @@ describe('montarEvolucaoNps — NPS arredonda só o resultado final, nunca cada 
   })
 
   test('NPS negativo quando detratores predominam', () => {
-    // 7 respostas: 1 promotor, 6 detratores -> (1-6)/7*100 = -71,42... -> -71
+    // 7 respostas: 1 promotor, 6 detratores -> (1-6)/7*100 = -71,42... -> -71,4
     const p = serieDe(1, 0, 6)
-    assert.equal(p.nps, -71)
+    assert.equal(p.nps, -71.4)
   })
 
   test('zero respostas -> nps null (preserva comportamento existente, nunca 0 nem NaN)', () => {

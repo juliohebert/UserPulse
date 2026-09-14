@@ -40,13 +40,25 @@ export function variacaoPercentual(atual: number, anterior: number | null | unde
 }
 
 /**
- * NPS = (promotores − detratores) / total × 100, arredondado só no resultado
- * final (nunca cada percentual antes de subtrair — senão 5 promotores/1
- * detrator em 6 respostas vira 83-17=66 em vez de 67). Mesma regra do
- * NPS por perfil e da evolução de NPS no backend (dashboard.ts, evolucaoNps.ts).
+ * NPS = (promotores − detratores) / total × 100, arredondado para 1 casa
+ * decimal só no resultado final (nunca cada percentual antes de subtrair —
+ * senão 5 promotores/1 detrator em 6 respostas vira 83-17=66 em vez de
+ * 66,7). Mesma regra do NPS por perfil e da evolução de NPS no backend
+ * (dashboard.ts, evolucaoNps.ts).
  */
 export function calcularNpsScore(promotores: number, detratores: number, total: number): number {
-  return total > 0 ? Math.round(((promotores - detratores) / total) * 100) : 0
+  return total > 0 ? Math.round(((promotores - detratores) / total) * 100 * 10) / 10 : 0
+}
+
+/**
+ * Formata um NPS já calculado para exibição: 1 casa decimal fixa, vírgula
+ * (pt-BR), com sinal `+` preservado nos valores positivos (mesmo padrão que
+ * a UI já usava pro NPS inteiro). Ex.: 66.7 -> "+66,7" ; -71.4 -> "-71,4" ;
+ * 20 -> "+20,0".
+ */
+export function formatarNps(valor: number): string {
+  const texto = valor.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  return valor > 0 ? `+${texto}` : texto
 }
 
 // `key` identifica qual valor já calculado no componente entra em cada chip
