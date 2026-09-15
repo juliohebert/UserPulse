@@ -10,6 +10,7 @@ import {
   planoEfetivoParaLimite,
 } from '../lib/tenantGuards'
 import { normalizarDominio } from '../lib/dominio'
+import { gatilhoPermiteExecucao, gatilhosLegados, validarDistribuicaoTour, validarGatilhosTour, type GatilhoTour } from '../lib/tourContracts'
 
 const MODOS_IDENTIFICACAO = ['sistema_tela', 'data_cy', 'url_contem']
 // 'area' reaproveita o mesmo mecanismo de localização de 'css' (o runtime do
@@ -137,9 +138,13 @@ function getCamposObrigatorios(modo: string): string[] {
 // validarSegmentacaoRegras) para ser testada direto em tours.test.ts, já que
 // é a única validação por trás de "ativar sem seletor bloqueia".
 export function validarPassos(passos: unknown, exigirSeletor: boolean): { erro: string | null; lista: PassoInput[] } {
-  if (!Array.isArray(passos) || passos.length === 0) {
+  if (!Array.isArray(passos)) {
+    if (!exigirSeletor && passos === undefined) return { erro: null, lista: [] }
     return { erro: 'O tour precisa ter ao menos um passo.', lista: [] }
   }
+  if (passos.length === 0) return exigirSeletor
+    ? { erro: 'O tour precisa ter ao menos um passo.', lista: [] }
+    : { erro: null, lista: [] }
   for (const [i, p] of (passos as PassoInput[]).entries()) {
     if (!p.titulo?.trim()) return { erro: `Passo ${i + 1}: título é obrigatório.`, lista: [] }
     if (exigirSeletor && !p.seletor?.trim()) {
@@ -170,6 +175,7 @@ export interface FiltrosListaTours {
   sistema?: string
   status?: string
   passos?: string
+  origem?: string
 }
 
 // Pura — monta só o where do Prisma a partir dos filtros já usados hoje na
@@ -182,6 +188,9 @@ export function montarWhereListaTours(filtros: FiltrosListaTours): Prisma.TourGu
   else if (filtros.status === 'inativos') where.ativo = false
   if (filtros.passos === 'com') where.passos = { some: {} }
   else if (filtros.passos === 'sem') where.passos = { none: {} }
+  if (filtros.origem === 'autonomo') where.permite_autonomo = true
+  else if (filtros.origem === 'jornada') where.permite_jornada = true
+  else if (filtros.origem === 'ambos') { where.permite_autonomo = true; where.permite_jornada = true }
   if (filtros.sistema?.trim()) where.sistema = filtros.sistema.trim()
   if (filtros.busca?.trim()) {
     const termo = filtros.busca.trim()
@@ -224,8 +233,8 @@ function montarOrderByListaTours(sortKey?: string, sortDirection?: string): Pris
 export async function listar(req: Request, res: Response) {
   try {
     const tenantId = req.adminUser!.tenant_id
-    const { busca, sistema, status, passos, page, pageSize, sortKey, sortDirection } = req.query as Record<string, string | undefined>
-    const where = { ...montarWhereListaTours({ busca, sistema, status, passos }), tenant_id: tenantId }
+    const { busca, sistema, status, passos, origem, page, pageSize, sortKey, sortDirection } = req.query as Record<string, string | undefined>
+    const where = { ...montarWhereListaTours({ busca, sistema, status, passos, origem }), tenant_id: tenantId }
     const orderBy = montarOrderByListaTours(sortKey, sortDirection)
 
     // Sem page/pageSize, devolve o array puro de sempre — compatibilidade com
@@ -236,7 +245,7 @@ export async function listar(req: Request, res: Response) {
       const tours = await prisma.tourGuiado.findMany({
         where,
         orderBy,
-        include: { _count: { select: { passos: true } } },
+        include: { _count: { select: { passos: true, etapasJornada: true } } },
       })
       return res.json(tours)
     }
@@ -247,7 +256,7 @@ export async function listar(req: Request, res: Response) {
       prisma.tourGuiado.findMany({
         where,
         orderBy,
-        include: { _count: { select: { passos: true } } },
+        include: { _count: { select: { passos: true, etapasJornada: true } } },
         skip: (pageNum - 1) * perPageNum,
         take: perPageNum,
       }),
@@ -288,7 +297,13 @@ export async function buscarPorId(req: Request, res: Response) {
   try {
     const tour = await prisma.tourGuiado.findFirst({
       where: { id: req.params.id as string, tenant_id: req.adminUser!.tenant_id },
-      include: { passos: { orderBy: { ordem: 'asc' } } },
+      include: {
+        passos: { orderBy: { ordem: 'asc' } },
+        etapasJornada: {
+          include: { bloco: { include: { jornada: { select: { id: true, titulo: true, ativo: true } } } } },
+          orderBy: { ordem: 'asc' },
+        },
+      },
     })
     if (!tour) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
     res.json(tour)
@@ -296,6 +311,29 @@ export async function buscarPorId(req: Request, res: Response) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar tour guiado.' })
   }
+}
+
+export async function buscarDependencias(req: Request, res: Response) {
+  const tour = await prisma.tourGuiado.findFirst({
+    where: { id: String(req.params.id), tenant_id: req.adminUser!.tenant_id },
+    select: {
+      id: true,
+      etapasJornada: {
+        orderBy: [{ bloco: { jornada: { titulo: 'asc' } } }, { ordem: 'asc' }],
+        select: { id: true, titulo: true, ordem: true, bloco: { select: { id: true, titulo: true, ordem: true, jornada: { select: { id: true, titulo: true, ativo: true } } } } },
+      },
+    },
+  })
+  if (!tour) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
+  res.json(tour.etapasJornada.map(etapa => ({
+    jornada_id: etapa.bloco.jornada.id,
+    jornada_titulo: etapa.bloco.jornada.titulo,
+    jornada_ativo: etapa.bloco.jornada.ativo,
+    bloco_id: etapa.bloco.id,
+    bloco_titulo: etapa.bloco.titulo,
+    etapa_id: etapa.id,
+    etapa_titulo: etapa.titulo,
+  })))
 }
 
 export async function criar(req: Request, res: Response) {
@@ -308,7 +346,8 @@ export async function criar(req: Request, res: Response) {
     const bloqueioRecurso = motivoRecursoNaoPermitido(tenant.plano, 'permite_tours')
     if (bloqueioRecurso) return res.status(403).json({ erro: bloqueioRecurso })
 
-    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras } = req.body
+    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras,
+      permite_autonomo, permite_jornada, publico_geral, gatilhos, frequencia, frequencia_intervalo_dias } = req.body
 
     if (!titulo?.trim() || !sistema?.trim()) {
       return res.status(400).json({ erro: 'titulo e sistema são obrigatórios.' })
@@ -317,15 +356,23 @@ export async function criar(req: Request, res: Response) {
     if (!MODOS_IDENTIFICACAO.includes(modo)) {
       return res.status(400).json({ erro: 'modo_identificacao inválido.' })
     }
-    const faltando = getCamposObrigatorios(modo).filter(c => !req.body[c]?.toString().trim())
-    if (faltando.length > 0) {
-      return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
-    }
 
     // Rascunho por padrão: um tour novo só fica ativo (elegível pro uso
     // autônomo) se o pedido pedir isso explicitamente (o formulário admin já
     // envia ativo: false por padrão). Não afeta uso como etapa de Jornada.
     const ativoBool = ativo !== undefined ? Boolean(ativo) : false
+    const autonomoInformado = permite_autonomo !== undefined ? Boolean(permite_autonomo) : ativoBool
+    const gatilhosEntrada = gatilhos === undefined
+      ? [...gatilhosLegados(modo, tela, data_cy, url_contem), ...(ativoBool ? [{ tipo: 'manual' as const }] : [])]
+      : gatilhos
+    const temSegmentacao = Array.isArray(segmentacao_regras) && segmentacao_regras.length > 0
+    const distribuicao = validarDistribuicaoTour({ permite_autonomo: autonomoInformado, permite_jornada,
+      publico_geral: publico_geral === undefined ? !temSegmentacao : publico_geral, gatilhos: gatilhosEntrada, frequencia, frequencia_intervalo_dias, ativo: ativoBool, segmentacao_regras })
+    if (distribuicao.erro) return res.status(400).json({ erro: distribuicao.erro })
+    const faltando = autonomoInformado && ativoBool
+      ? getCamposObrigatorios(modo).filter(c => !req.body[c]?.toString().trim())
+      : []
+    if (faltando.length > 0) return res.status(400).json({ erro: `Campos obrigatórios faltando: ${faltando.join(', ')}.` })
 
     if (ativoBool) {
       const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
@@ -359,6 +406,12 @@ export async function criar(req: Request, res: Response) {
         url_contem: url_contem?.trim() || null,
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
         ativo: ativoBool,
+        permite_autonomo: distribuicao.valor.permite_autonomo,
+        permite_jornada: distribuicao.valor.permite_jornada,
+        publico_geral: distribuicao.valor.publico_geral,
+        gatilhos: distribuicao.valor.gatilhos as unknown as Prisma.InputJsonValue,
+        frequencia: distribuicao.valor.frequencia,
+        frequencia_intervalo_dias: distribuicao.valor.frequencia_intervalo_dias,
         // Omitido (não Prisma.DbNull) quando não há regras — deixa a coluna
         // no default (NULL), igual a um tour criado antes desta feature existir.
         ...(listaSegmentacao && { segmentacao_regras: listaSegmentacao as unknown as Prisma.InputJsonValue }),
@@ -368,7 +421,7 @@ export async function criar(req: Request, res: Response) {
             titulo: p.titulo!.trim(),
             descricao: p.descricao?.trim() || null,
             seletor_tipo: p.seletor_tipo?.trim() || 'data_cy',
-            seletor: p.seletor!.trim(),
+            seletor: p.seletor?.trim() || '',
             tooltip_posicao: p.tooltip_posicao?.trim() || 'auto',
             acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
             modo_avanco_interacao: p.modo_avanco_interacao?.trim() || 'manual',
@@ -402,19 +455,44 @@ export async function atualizar(req: Request, res: Response) {
     })
     if (!existente) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
 
-    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras } = req.body
+    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras,
+      permite_autonomo, permite_jornada, publico_geral, gatilhos, frequencia, frequencia_intervalo_dias } = req.body
+
+    if (permite_jornada === false && existente.permite_jornada) {
+      const dependencias = await prisma.etapaJornada.count({ where: { tour_id: id, bloco: { jornada: { tenant_id: tenantId } } } })
+      if (dependencias > 0 && req.body.confirmar_impacto !== true) return res.status(409).json({ erro: 'Este Tour é usado por Jornadas. Confirme a remoção da origem.', dependencias })
+    }
 
     const modo = (modo_identificacao !== undefined ? modo_identificacao?.trim() : existente.modo_identificacao) as string
     if (!MODOS_IDENTIFICACAO.includes(modo)) {
       return res.status(400).json({ erro: 'modo_identificacao inválido.' })
     }
     const merged = { ...req.body, modo_identificacao: modo }
-    const vazios = getCamposObrigatorios(modo).filter(c => c in req.body && !merged[c]?.toString().trim())
+    const permiteAutonomoEfetivo = permite_autonomo !== undefined ? Boolean(permite_autonomo) : existente.permite_autonomo
+    const gatilhosEfetivos = gatilhos !== undefined
+      ? gatilhos
+      : (existente.gatilhos ?? gatilhosLegados(modo, tela !== undefined ? tela : existente.tela, data_cy !== undefined ? data_cy : existente.data_cy, url_contem !== undefined ? url_contem : existente.url_contem))
+    const vazios = permiteAutonomoEfetivo && (ativo !== undefined ? Boolean(ativo) : existente.ativo)
+      ? getCamposObrigatorios(modo).filter(c => c in req.body && !merged[c]?.toString().trim())
+      : []
     if (vazios.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
     }
 
     const ativoEfetivo = ativo !== undefined ? Boolean(ativo) : existente.ativo
+    const distribuicao = validarDistribuicaoTour({ permite_autonomo: permite_autonomo, permite_jornada,
+      publico_geral: publico_geral === undefined && segmentacao_regras !== undefined ? !(Array.isArray(segmentacao_regras) && segmentacao_regras.length > 0) : publico_geral,
+      gatilhos: gatilhosEfetivos, frequencia, frequencia_intervalo_dias,
+      ativo: ativoEfetivo, segmentacao_regras: segmentacao_regras !== undefined ? segmentacao_regras : existente.segmentacao_regras }, {
+      permite_autonomo: existente.permite_autonomo,
+      permite_jornada: existente.permite_jornada,
+      publico_geral: existente.publico_geral,
+      gatilhos: Array.isArray(existente.gatilhos) ? existente.gatilhos as unknown as GatilhoTour[] : [],
+      frequencia: existente.frequencia as any,
+      frequencia_intervalo_dias: existente.frequencia_intervalo_dias,
+      prioridade: existente.prioridade,
+    })
+    if (distribuicao.erro) return res.status(400).json({ erro: distribuicao.erro })
 
     // Só checa bloqueio/limite/recurso do plano quando a requisição está de
     // fato LIGANDO o tour (false -> true) — mesmo raciocínio de
@@ -439,7 +517,7 @@ export async function atualizar(req: Request, res: Response) {
     } else if (ativoEfetivo) {
       // Ativando sem reenviar os passos (ex.: toggle rápido na listagem) —
       // valida os passos já salvos, que são os que o widget vai usar.
-      const semSeletor = existente.passos.some(p => !p.seletor?.trim())
+      const semSeletor = existente.passos.length === 0 || existente.passos.some(p => !p.seletor?.trim())
       if (semSeletor) {
         return res.status(400).json({ erro: 'Para ativar o tour, todos os passos precisam ter um seletor/data-cy informado.' })
       }
@@ -478,6 +556,12 @@ export async function atualizar(req: Request, res: Response) {
           ...(url_contem !== undefined && { url_contem: url_contem?.trim() || null }),
           ...(prioridade !== undefined && { prioridade: Number(prioridade) }),
           ...(ativo !== undefined && { ativo: Boolean(ativo) }),
+          ...(permite_autonomo !== undefined && { permite_autonomo: distribuicao.valor.permite_autonomo }),
+          ...(permite_jornada !== undefined && { permite_jornada: distribuicao.valor.permite_jornada }),
+          ...((publico_geral !== undefined || segmentacaoInformada) && { publico_geral: distribuicao.valor.publico_geral }),
+          ...(gatilhos !== undefined && { gatilhos: distribuicao.valor.gatilhos as unknown as Prisma.InputJsonValue }),
+          ...(frequencia !== undefined && { frequencia: distribuicao.valor.frequencia }),
+          ...(frequencia_intervalo_dias !== undefined && { frequencia_intervalo_dias: distribuicao.valor.frequencia_intervalo_dias }),
           ...(segmentacaoInformada && { segmentacao_regras: (listaSegmentacao as unknown as Prisma.InputJsonValue) ?? Prisma.DbNull }),
           ...(listaPassos && {
             passos: {
@@ -486,7 +570,7 @@ export async function atualizar(req: Request, res: Response) {
                 titulo: p.titulo!.trim(),
                 descricao: p.descricao?.trim() || null,
                 seletor_tipo: p.seletor_tipo?.trim() || 'data_cy',
-                seletor: p.seletor!.trim(),
+                seletor: p.seletor?.trim() || '',
                 tooltip_posicao: p.tooltip_posicao?.trim() || 'auto',
                 acao_ao_avancar: p.acao_ao_avancar?.trim() || 'apenas_avancar',
                 modo_avanco_interacao: p.modo_avanco_interacao?.trim() || 'manual',
@@ -526,6 +610,10 @@ export async function remover(req: Request, res: Response) {
     // Etapas de jornada que referenciam este tour ficam com tour_id=null
     // (SetNull, decisão já tomada no schema) — não bloqueiam a remoção.
     const totalEventos = await prisma.eventoTour.count({ where: { tour_id: id } })
+    const dependencias = await prisma.etapaJornada.count({ where: { tour_id: id, bloco: { jornada: { tenant_id: req.adminUser!.tenant_id } } } })
+    if (dependencias > 0 && req.query.confirmar !== 'true' && req.body?.confirmar !== true) {
+      return res.status(409).json({ erro: 'Este Tour é usado por Jornadas. Confirme a exclusão explicitamente.', dependencias })
+    }
     if (totalEventos > 0) {
       return res.status(409).json({ erro: 'Não é possível remover porque já existem eventos vinculados. Inative este item.' })
     }
@@ -590,6 +678,12 @@ export async function duplicar(req: Request, res: Response) {
         url_contem: original.url_contem,
         prioridade: original.prioridade,
         ativo: false,
+        permite_autonomo: original.permite_autonomo,
+        permite_jornada: original.permite_jornada,
+        publico_geral: original.publico_geral,
+        gatilhos: original.gatilhos as Prisma.InputJsonValue,
+        frequencia: original.frequencia,
+        frequencia_intervalo_dias: original.frequencia_intervalo_dias,
         ...(original.segmentacao_regras !== null && { segmentacao_regras: original.segmentacao_regras as Prisma.InputJsonValue }),
         passos: {
           create: original.passos.map(p => ({
@@ -640,6 +734,12 @@ export async function exportar(req: Request, res: Response) {
         data_cy: tour.data_cy,
         url_contem: tour.url_contem,
         prioridade: tour.prioridade,
+        permite_autonomo: tour.permite_autonomo,
+        permite_jornada: tour.permite_jornada,
+        publico_geral: tour.publico_geral,
+        gatilhos: tour.gatilhos,
+        frequencia: tour.frequencia,
+        frequencia_intervalo_dias: tour.frequencia_intervalo_dias,
         segmentacao_regras: tour.segmentacao_regras,
         passos: tour.passos.map(p => ({
           titulo: p.titulo,
@@ -687,7 +787,8 @@ export async function importar(req: Request, res: Response) {
     }
     const dados = (body.tour && typeof body.tour === 'object') ? body.tour : body
 
-    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, passos, segmentacao_regras } = dados
+    const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, passos, segmentacao_regras,
+      permite_autonomo, permite_jornada, publico_geral, gatilhos, frequencia, frequencia_intervalo_dias } = dados
 
     if (!titulo?.trim() || !sistema?.trim()) {
       return res.status(400).json({ erro: 'titulo e sistema são obrigatórios no JSON importado.' })
@@ -712,6 +813,10 @@ export async function importar(req: Request, res: Response) {
     // segmentacao_regras, e isso é válido (nasce sem segmentação).
     const { erro: erroSegmentacao, lista: listaSegmentacao } = validarSegmentacaoRegras(segmentacao_regras)
     if (erroSegmentacao) return res.status(400).json({ erro: `${erroSegmentacao} (JSON importado)` })
+    const distribuicao = validarDistribuicaoTour({ permite_autonomo, permite_jornada, publico_geral,
+      gatilhos: gatilhos ?? gatilhosLegados(modo, tela, data_cy, url_contem), frequencia,
+      frequencia_intervalo_dias, ativo: false, segmentacao_regras }, { permite_autonomo: false, permite_jornada: true, publico_geral: !(listaSegmentacao?.length), gatilhos: [] })
+    if (distribuicao.erro) return res.status(400).json({ erro: `${distribuicao.erro} (JSON importado)` })
 
     const slug = await slugUnico(tenantId, gerarSlugBase(titulo))
 
@@ -728,6 +833,12 @@ export async function importar(req: Request, res: Response) {
         url_contem: url_contem?.trim() || null,
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
         ativo: false,
+        permite_autonomo: distribuicao.valor.permite_autonomo,
+        permite_jornada: distribuicao.valor.permite_jornada,
+        publico_geral: distribuicao.valor.publico_geral,
+        gatilhos: distribuicao.valor.gatilhos as unknown as Prisma.InputJsonValue,
+        frequencia: distribuicao.valor.frequencia,
+        frequencia_intervalo_dias: distribuicao.valor.frequencia_intervalo_dias,
         ...(listaSegmentacao && { segmentacao_regras: listaSegmentacao as unknown as Prisma.InputJsonValue }),
         passos: {
           create: listaPassos.map((p, i) => ({
@@ -816,6 +927,65 @@ export function montarFunilPorPasso(
   })
 }
 
+export function montarFunilPorExecucoes(
+  passos: Array<{ ordem: number; titulo: string }>,
+  eventos: Array<{ id: string; tipo_evento: string; passo_ordem: number | null; execucao_id: string | null }>,
+) {
+  const modernos = new Map<string, typeof eventos>()
+  const legados = eventos.filter(evento => !evento.execucao_id)
+  for (const evento of eventos) {
+    if (!evento.execucao_id) continue
+    const grupo = modernos.get(evento.execucao_id) ?? []
+    grupo.push(evento)
+    modernos.set(evento.execucao_id, grupo)
+  }
+
+  const visualizacoesLegadas: Record<number, number> = {}
+  const naoEncontradosLegados: Record<number, number> = {}
+  for (const evento of legados) {
+    if (evento.passo_ordem == null) continue
+    if (evento.tipo_evento === 'passo_visualizado') visualizacoesLegadas[evento.passo_ordem] = (visualizacoesLegadas[evento.passo_ordem] ?? 0) + 1
+    if (evento.tipo_evento === 'elemento_nao_encontrado') naoEncontradosLegados[evento.passo_ordem] = (naoEncontradosLegados[evento.passo_ordem] ?? 0) + 1
+  }
+  const funilLegado = montarFunilPorPasso(
+    passos,
+    visualizacoesLegadas,
+    naoEncontradosLegados,
+    legados.filter(evento => evento.tipo_evento === 'concluido').length,
+  )
+
+  return passos.map((passo, indice) => {
+    const legado = funilLegado[indice]
+    let visualizacoes = legado.visualizacoes
+    let elemento_nao_encontrado = legado.elemento_nao_encontrado
+    let avancos_estimados = legado.avancos_estimados
+    let abandonos_estimados = legado.abandonos_estimados
+    const proximaOrdem = passos[indice + 1]?.ordem
+    for (const grupo of modernos.values()) {
+      const ordensVistas = new Set(grupo.filter(e => e.tipo_evento === 'passo_visualizado' && e.passo_ordem != null).map(e => e.passo_ordem as number))
+      if (!ordensVistas.has(passo.ordem)) continue
+      visualizacoes++
+      if (grupo.some(e => e.tipo_evento === 'elemento_nao_encontrado' && e.passo_ordem === passo.ordem)) elemento_nao_encontrado++
+      const concluiu = grupo.some(e => e.tipo_evento === 'concluido')
+      const avancou = proximaOrdem === undefined ? concluiu : ordensVistas.has(proximaOrdem)
+      if (avancou) avancos_estimados++
+      const ultimaOrdemVista = Math.max(...ordensVistas)
+      if (!concluiu && ultimaOrdemVista === passo.ordem && grupo.some(e => e.tipo_evento === 'pulado')) abandonos_estimados++
+    }
+    const taxa_continuidade = visualizacoes > 0 ? Math.round((avancos_estimados / visualizacoes) * 1000) / 10 : null
+    return {
+      ...legado,
+      visualizacoes,
+      elemento_nao_encontrado,
+      proximo_passo_visualizacoes: proximaOrdem === undefined ? null : avancos_estimados,
+      avancos_estimados,
+      abandonos_estimados,
+      taxa_continuidade,
+      taxa_queda: taxa_continuidade == null ? null : Math.round((100 - taxa_continuidade) * 10) / 10,
+    }
+  })
+}
+
 export type CategoriaFeedbackTour = 'positivo' | 'neutro' | 'negativo'
 
 export interface FeedbackPorValorItem {
@@ -832,6 +1002,38 @@ export interface ResumoFeedbackTour {
   neutros: number
   negativos: number
   por_valor: FeedbackPorValorItem[]
+}
+
+export type OrigemMetricaTour = 'autonomo' | 'jornada' | 'desconhecida'
+
+export interface ResumoOrigemTour {
+  origem: OrigemMetricaTour
+  execucoes: number
+  iniciados: number
+  concluidos: number
+  pulados: number
+  taxa_conclusao: number
+}
+
+export function montarResumoPorOrigem(eventos: Array<{ id: string; tipo_evento: string; execucao_id: string | null; origem: string | null }>): ResumoOrigemTour[] {
+  const grupos = new Map<OrigemMetricaTour, Map<string, Set<string>>>()
+  for (const origem of ['autonomo', 'jornada', 'desconhecida'] as OrigemMetricaTour[]) grupos.set(origem, new Map())
+  for (const evento of eventos) {
+    const origem: OrigemMetricaTour = evento.origem === 'autonomo' || evento.origem === 'jornada' ? evento.origem : 'desconhecida'
+    const chave = evento.execucao_id || `legado:${evento.id}`
+    const grupo = grupos.get(origem)!
+    if (!grupo.has(chave)) grupo.set(chave, new Set())
+    grupo.get(chave)!.add(evento.tipo_evento)
+  }
+  return Array.from(grupos.entries()).filter(([, execucoes]) => execucoes.size > 0).map(([origem, execucoes]) => {
+    let iniciados = 0, concluidos = 0, pulados = 0
+    for (const tipos of execucoes.values()) {
+      if (tipos.has('inicio')) iniciados++
+      if (tipos.has('concluido')) concluidos++
+      if (tipos.has('pulado')) pulados++
+    }
+    return { origem, execucoes: execucoes.size, iniciados, concluidos, pulados, taxa_conclusao: iniciados ? Math.round((concluidos / iniciados) * 1000) / 10 : 0 }
+  })
 }
 
 // Mesmos 3 valores/labels/emojis de TOUR_FEEDBACK_INFO em widget.js — mantidos
@@ -886,7 +1088,7 @@ export async function buscarDashboard(req: Request, res: Response) {
     if (!tour) return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
 
     const {
-      data_inicio, data_fim, tipo_evento, passo_id, passo_ordem, cliente, usuario, unidade, busca, page, per_page,
+      data_inicio, data_fim, tipo_evento, passo_id, passo_ordem, cliente, usuario, unidade, busca, origem, page, per_page,
     } = req.query as Record<string, string | undefined>
 
     // Filtros comuns aos 4 cards E à lista de eventos: período, passo,
@@ -896,6 +1098,9 @@ export async function buscarDashboard(req: Request, res: Response) {
     // Sem nenhum filtro informado, whereComum fica igual a { tour_id: id },
     // preservando o comportamento atual.
     const whereComum: Prisma.EventoTourWhereInput = { tour_id: id }
+
+    if (origem === 'autonomo' || origem === 'jornada') whereComum.origem = origem
+    else if (origem === 'desconhecida') whereComum.OR = [{ origem: null }, { origem: { notIn: ['autonomo', 'jornada'] } }]
 
     if (data_inicio?.trim() || data_fim?.trim()) {
       const criadoEm: Prisma.DateTimeFilter = {}
@@ -1025,12 +1230,9 @@ export async function buscarDashboard(req: Request, res: Response) {
     const perPageNum = Math.min(100, Math.max(1, Math.trunc(Number(per_page)) || PER_PAGE_PADRAO))
 
     const [
-      iniciados, concluidos, pulados, elementos_nao_encontrados, totalEventos, eventosRecentes,
-      visualizacoesGroup, naoEncontradoGroup, feedbackEventos,
+      elementos_nao_encontrados, totalEventos, eventosRecentes,
+       feedbackEventos, eventosMetricas,
     ] = await Promise.all([
-      prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'inicio' } }),
-      prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'concluido' } }),
-      prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'pulado' } }),
       prisma.eventoTour.count({ where: { ...whereComum, tipo_evento: 'elemento_nao_encontrado' } }),
       // Total de eventos que casam com os filtros (incl. tipo_evento/busca),
       // sem paginação — usado pro contador do card e pro cálculo de páginas.
@@ -1046,16 +1248,6 @@ export async function buscarDashboard(req: Request, res: Response) {
       // Funil por passo — sempre sobre whereComum (mesmos filtros de
       // período/cliente/usuário/unidade dos cards, nunca a paginação/busca de
       // whereEventos), como qualquer contagem agregada desta rota.
-      prisma.eventoTour.groupBy({
-        by: ['passo_ordem'],
-        where: { ...whereComum, tipo_evento: 'passo_visualizado' },
-        _count: { _all: true },
-      }),
-      prisma.eventoTour.groupBy({
-        by: ['passo_ordem'],
-        where: { ...whereComum, tipo_evento: 'elemento_nao_encontrado' },
-        _count: { _all: true },
-      }),
       // Só o contexto (onde mora feedback_valor) — nunca usuario_id/demais
       // colunas do evento; montarResumoFeedback já ignora qualquer campo do
       // contexto além de feedback_valor.
@@ -1063,20 +1255,23 @@ export async function buscarDashboard(req: Request, res: Response) {
         where: { ...whereComum, tipo_evento: 'feedback_tour' },
         select: { contexto: true },
       }),
+      prisma.eventoTour.findMany({
+        where: whereComum,
+        select: { id: true, tipo_evento: true, passo_ordem: true, execucao_id: true, origem: true },
+      }),
     ])
 
-    const visualizacoesPorPasso: Record<number, number> = {}
-    for (const g of visualizacoesGroup) if (g.passo_ordem != null) visualizacoesPorPasso[g.passo_ordem] = g._count._all
-    const naoEncontradoPorPasso: Record<number, number> = {}
-    for (const g of naoEncontradoGroup) if (g.passo_ordem != null) naoEncontradoPorPasso[g.passo_ordem] = g._count._all
-
-    const funil_por_passo = montarFunilPorPasso(tour.passos, visualizacoesPorPasso, naoEncontradoPorPasso, concluidos)
+    const funil_por_passo = montarFunilPorExecucoes(tour.passos, eventosMetricas)
     const feedback = montarResumoFeedback(feedbackEventos)
+    const por_origem = montarResumoPorOrigem(eventosMetricas)
+    const iniciadosPorExecucao = por_origem.reduce((total, item) => total + item.iniciados, 0)
+    const concluidosPorExecucao = por_origem.reduce((total, item) => total + item.concluidos, 0)
+    const puladosPorExecucao = por_origem.reduce((total, item) => total + item.pulados, 0)
 
     const total_pages = Math.max(1, Math.ceil(totalEventos / perPageNum))
 
-    const taxa_conclusao = iniciados > 0
-      ? Math.round((concluidos / iniciados) * 1000) / 10
+    const taxa_conclusao = iniciadosPorExecucao > 0
+      ? Math.round((concluidosPorExecucao / iniciadosPorExecucao) * 1000) / 10
       : 0
 
     // passo_titulo é derivado do passo ATUAL na ordem registrada — se o tour foi
@@ -1104,20 +1299,28 @@ export async function buscarDashboard(req: Request, res: Response) {
         // "unidade" e "clínica" são sinônimos usados por sistemas diferentes —
         // já resolvidos aqui para os campos normalizados unidade_id/unidade_nome.
         unidade_id: strContexto(contexto?.unidade_id) ?? strContexto(contexto?.clinica_id),
-        unidade_nome: strContexto(contexto?.unidade_nome) ?? strContexto(contexto?.clinica_nome),
+         unidade_nome: strContexto(contexto?.unidade_nome) ?? strContexto(contexto?.clinica_nome),
+        execucao_id: ev.execucao_id,
+        origem: ev.origem,
+        gatilho: ev.gatilho,
+        jornada_id: ev.jornada_id,
+        bloco_id: ev.bloco_id,
+        etapa_id: ev.etapa_id,
         criado_em: ev.criado_em,
       }
     })
 
     res.json({
       tour,
-      iniciados,
-      concluidos,
-      pulados,
+      iniciados: iniciadosPorExecucao,
+      concluidos: concluidosPorExecucao,
+      pulados: puladosPorExecucao,
       elementos_nao_encontrados,
       taxa_conclusao,
       funil_por_passo,
-      feedback,
+         feedback,
+      por_origem,
+      execucoes: por_origem.reduce((total, item) => total + item.execucoes, 0),
       eventos_recentes,
       page: pageNum,
       per_page: perPageNum,

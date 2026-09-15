@@ -878,6 +878,12 @@ model TourGuiado {
   url_contem         String?
   prioridade         Int      @default(0)
   ativo              Boolean  @default(true)
+  permite_autonomo   Boolean  @default(false)
+  permite_jornada    Boolean  @default(true)
+  publico_geral      Boolean  @default(true)
+  gatilhos           Json?
+  frequencia         String   @default("uma_vez_por_usuario")
+  frequencia_intervalo_dias Int?
   // Segmentação por contexto (MVP) — lista de regras simples avaliada pelo
   // widget (ver avaliarSegmentacaoTour em widget.js), formato:
   //   [{ campo: 'cliente_id'|'unidade_id'|'organizacao_id'|'clinica_id'|
@@ -917,11 +923,20 @@ model EventoTour {
   navegador   String?
   dispositivo String?
   contexto    Json?
+  execucao_id String?
+  origem      String?
+  gatilho     String?
+  jornada_id  String?
+  bloco_id    String?
+  etapa_id    String?
   criado_em   DateTime @default(now())
 
   tour TourGuiado @relation(fields: [tour_id], references: [id])
 
   @@index([tour_id])
+  @@index([tour_id, origem, criado_em], map: "eventos_tour_tour_origem_data_idx")
+  @@index([execucao_id], map: "eventos_tour_execucao_idx")
+  @@index([tour_id, usuario_id, origem, criado_em], map: "eventos_tour_tour_usuario_origem_data_idx")
   @@map("eventos_tour")
 }
 
@@ -985,7 +1000,7 @@ model Jornada {
   slug                        String
   titulo                      String
   descricao                   String?
-  ativo                       Boolean  @default(true)
+  ativo                       Boolean  @default(false)
   permitir_refazer            Boolean  @default(false)
   permitir_pacotes_fora_ordem Boolean  @default(true)
   segmentar_cliente_ids       String[] @default([])
@@ -1082,6 +1097,8 @@ model EventoJornada {
   navegador   String?
   dispositivo String?
   contexto    Json?
+  execucao_jornada_id String?
+  chave_idempotencia String?
   criado_em   DateTime @default(now())
 
   jornada Jornada       @relation(fields: [jornada_id], references: [id])
@@ -1089,6 +1106,7 @@ model EventoJornada {
   etapa   EtapaJornada? @relation(fields: [etapa_id], references: [id], onDelete: SetNull)
 
   @@index([jornada_id])
+  @@unique([jornada_id, chave_idempotencia])
   @@map("eventos_jornada")
 }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { TourGuiado, TourGuiadoListaPaginada, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour, Sistema } from '../../types'
+import type { TourGuiado, TourGuiadoListaPaginada, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour, Sistema, GatilhoTour, FrequenciaTour, TourDependenciaJornada } from '../../types'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
@@ -36,6 +36,12 @@ interface FormState {
   url_contem: string
   prioridade: string
   ativo: boolean
+  permite_autonomo: boolean
+  permite_jornada: boolean
+  publico_geral: boolean
+  gatilhos: GatilhoTour[]
+  frequencia: FrequenciaTour
+  frequencia_intervalo_dias: string
 }
 
 // Um tour novo começa com a exibição autônoma inativa — precisa ser testado
@@ -45,6 +51,8 @@ interface FormState {
 const EMPTY: FormState = {
   titulo: '', descricao: '', sistema: '', modo_identificacao: 'sistema_tela',
   tela: '', data_cy: '', url_contem: '', prioridade: '0', ativo: false,
+  permite_autonomo: false, permite_jornada: true, publico_geral: true, gatilhos: [],
+  frequencia: 'uma_vez_por_usuario', frequencia_intervalo_dias: '',
 }
 
 const PASSO_VAZIO: PassoState = {
@@ -592,6 +600,8 @@ export function TourForm() {
   // Apenas quando...) é derivado disso, não um campo separado (ver
   // segmentado abaixo, mesmo padrão de isSegmented em campanhas/Form.tsx).
   const [regrasSegmentacao, setRegrasSegmentacao] = useState<RegraSegmentacaoTour[]>([])
+  const [usosJornada, setUsosJornada] = useState<TourDependenciaJornada[]>([])
+  const [confirmarImpactoJornada, setConfirmarImpactoJornada] = useState(false)
   const [loadingTour, setLoadingTour] = useState(isEdit)
   // Fase 6E — só relevante na criação (isEdit=false): busca resumo.total
   // (mesmo endpoint paginado já usado em tours/Index.tsx, ver
@@ -706,7 +716,13 @@ export function TourForm() {
           data_cy: t.data_cy ?? '',
           url_contem: t.url_contem ?? '',
           prioridade: String(t.prioridade ?? 0),
-          ativo: t.ativo,
+          ativo: t.ativo && (t.permite_autonomo ?? t.ativo),
+          permite_autonomo: t.permite_autonomo ?? t.ativo,
+          permite_jornada: t.permite_jornada ?? true,
+          publico_geral: !(t.segmentacao_regras?.length),
+          gatilhos: t.gatilhos ?? [],
+          frequencia: t.frequencia ?? 'uma_vez_por_usuario',
+          frequencia_intervalo_dias: t.frequencia_intervalo_dias != null ? String(t.frequencia_intervalo_dias) : '',
         })
         // Preserva a ordem já retornada pela API (buscarPorId ordena por
         // `ordem` — ver include em tours.ts) e o id de cada passo existente
@@ -754,6 +770,15 @@ export function TourForm() {
         const caiuEmPassoVazio = passosTransformados.length === 0
         setPassos(caiuEmPassoVazio ? [{ ...PASSO_VAZIO }] : passosTransformados)
         setRegrasSegmentacao(t.segmentacao_regras ?? [])
+        setUsosJornada((t.etapasJornada ?? []).map(etapa => ({
+          jornada_id: etapa.bloco.jornada.id,
+          jornada_titulo: etapa.bloco.jornada.titulo,
+          jornada_ativo: etapa.bloco.jornada.ativo,
+          bloco_id: etapa.bloco.id,
+          bloco_titulo: etapa.bloco.titulo,
+          etapa_id: etapa.id,
+          etapa_titulo: etapa.titulo,
+        })))
       })
       .catch(e => {
         if (sinal.cancelado) return
@@ -807,8 +832,14 @@ export function TourForm() {
   // ─── Segmentação por contexto ──────────────────────────────────────────
   const segmentado = regrasSegmentacao.length > 0
 
-  const ativarSegmentacao = () => setRegrasSegmentacao([{ ...REGRA_SEGMENTACAO_VAZIA }])
-  const desativarSegmentacao = () => setRegrasSegmentacao([])
+  const ativarSegmentacao = () => {
+    setRegrasSegmentacao([{ ...REGRA_SEGMENTACAO_VAZIA }])
+    set('publico_geral', false)
+  }
+  const desativarSegmentacao = () => {
+    setRegrasSegmentacao([])
+    set('publico_geral', true)
+  }
 
   const adicionarRegraSegmentacao = () =>
     setRegrasSegmentacao(prev => [...prev, { ...REGRA_SEGMENTACAO_VAZIA }])
@@ -817,13 +848,11 @@ export function TourForm() {
     setRegrasSegmentacao(prev => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
 
   const removerRegraSegmentacao = (index: number) =>
-    setRegrasSegmentacao(prev => {
-      const proxima = prev.filter((_, i) => i !== index)
-      // Sem regra nenhuma sobrando, volta pro modo "Todos os usuários" em vez
-      // de deixar o modo "restrito" selecionado com uma lista vazia (que já
-      // vale como "sem segmentação" pro backend, mas confundiria a UI).
-      return proxima
-    })
+    setRegrasSegmentacao(prev => prev.filter((_, i) => i !== index))
+
+  useEffect(() => {
+    setForm(prev => ({ ...prev, publico_geral: regrasSegmentacao.length === 0 }))
+  }, [regrasSegmentacao.length])
 
   // Só disponível na criação (isEdit é sempre false aqui, ver render abaixo).
   // Preenche apenas título, descrição e passos base — sistema, modo de
@@ -1150,9 +1179,16 @@ export function TourForm() {
     data_cy: form.modo_identificacao === 'data_cy' ? form.data_cy : null,
     url_contem: form.modo_identificacao === 'url_contem' ? form.url_contem : null,
     prioridade: Number(form.prioridade || 0),
+    permite_autonomo: form.permite_autonomo,
+    permite_jornada: form.permite_jornada,
+    publico_geral: !segmentado,
+    gatilhos: form.gatilhos,
+    frequencia: form.frequencia,
+    frequencia_intervalo_dias: form.frequencia === 'intervalo_dias' ? Number(form.frequencia_intervalo_dias) : null,
     segmentacao_regras: segmentado
       ? regrasSegmentacao.map(r => ({ campo: r.campo, operador: r.operador, valor: r.valor.trim() }))
       : null,
+    ...(confirmarImpactoJornada && { confirmar_impacto: true }),
     passos: passosParaEnviar.map(p => ({
       titulo: p.titulo.trim(),
       descricao: p.descricao.trim() || null,
@@ -1166,10 +1202,36 @@ export function TourForm() {
     })),
   })
 
+  const alterarPermissaoJornada = async (permitir: boolean) => {
+    if (permitir || !id) {
+      setConfirmarImpactoJornada(false)
+      set('permite_jornada', permitir)
+      return
+    }
+    try {
+      const dependencias = await get<TourDependenciaJornada[]>(`/tours/${id}/dependencias`)
+      setUsosJornada(dependencias)
+      if (dependencias.length > 0 && !window.confirm(`Este Tour é usado em ${dependencias.length} etapa(s):\n\n${dependencias.map(item => `${item.jornada_titulo} · ${item.bloco_titulo} · ${item.etapa_titulo}`).join('\n')}\n\nDeseja remover a permissão de Jornada?`)) return
+      setConfirmarImpactoJornada(dependencias.length > 0)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Não foi possível consultar o impacto nas Jornadas.')
+      return
+    }
+    set('permite_jornada', false)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (passos.length === 0 || passos.some(p => !p.titulo.trim())) {
       setError('Todo passo precisa de título preenchido.')
+      return
+    }
+    if (!form.permite_autonomo && !form.permite_jornada) {
+      setError('Habilite ao menos uma origem: execução independente ou etapa de Jornada.')
+      return
+    }
+    if (form.ativo && !form.permite_autonomo) {
+      setError('A exibição autônoma só pode ficar ativa quando a execução independente está habilitada.')
       return
     }
     // Seletor só é exigido para ativar a exibição autônoma — com ela
@@ -1199,6 +1261,7 @@ export function TourForm() {
       if (isEdit) {
         // Já estamos na rota final (/tours/:id/editar) — mostra as ações direto.
         setSuccess(true)
+        setConfirmarImpactoJornada(false)
       } else {
         // Troca /tours/novo por /tours/:id/editar (necessário para que um novo
         // "Salvar" vire PUT em vez de criar outro tour) e leva o aviso de
@@ -1786,7 +1849,7 @@ export function TourForm() {
                         disabled={i === 0}
                         title="Mover para cima"
                         aria-label={`Mover passo ${i + 1} para cima`}
-                        className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
                       </button>
@@ -1796,7 +1859,7 @@ export function TourForm() {
                         disabled={i === passos.length - 1}
                         title="Mover para baixo"
                         aria-label={`Mover passo ${i + 1} para baixo`}
-                        className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
                       </button>
@@ -1805,7 +1868,7 @@ export function TourForm() {
                         onClick={() => duplicarPasso(i)}
                         title="Duplicar passo"
                         aria-label={`Duplicar passo ${i + 1}`}
-                        className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
                       >
                         <span className="material-symbols-outlined text-[16px]">content_copy</span>
                       </button>
@@ -1815,7 +1878,7 @@ export function TourForm() {
                         disabled={passos.length === 1}
                         title="Remover passo"
                         aria-label={`Remover passo ${i + 1}`}
-                        className="p-1.5 rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-30"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-30"
                       >
                         <span className="material-symbols-outlined text-[16px]">delete</span>
                       </button>
@@ -2013,18 +2076,81 @@ export function TourForm() {
                   <input
                     type="checkbox"
                     checked={form.ativo}
+                    disabled={!form.permite_autonomo}
                     onChange={e => set('ativo', e.target.checked)}
                     className="sr-only peer"
                   />
-                  <div className="w-11 h-6 bg-outline-variant rounded-full peer peer-checked:bg-primary peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative" />
+                  <div className="w-11 h-6 bg-outline-variant rounded-full peer peer-checked:bg-primary peer-disabled:opacity-50 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative" />
                   <span className="ml-3 text-body-md text-on-surface">{form.ativo ? 'Ativa' : 'Inativa'}</span>
                 </label>
                 <p className="text-[12px] text-on-surface-variant mt-1.5 leading-relaxed">
-                  Quando ativada, este tour pode ser exibido automaticamente ou iniciado pela integração. Jornadas podem utilizá-lo independentemente desta configuração.
+                  {!form.permite_autonomo
+                    ? 'Habilite “Pode ser executado de forma independente” na seção Distribuição para ativar a exibição autônoma.'
+                    : 'Quando ativada, este tour pode ser exibido automaticamente ou iniciado pela integração. Jornadas podem utilizá-lo independentemente desta configuração.'}
                 </p>
               </div>
             </div>
           </div>
+
+          <div className={card}>
+            <CardHeader number={nextStep()} icon="share" iconBg="bg-primary-fixed" iconColor="text-primary" title="Distribuição" description="Defina onde este Tour pode ser executado." />
+            <div className="space-y-3 max-w-3xl">
+              <label className="flex min-h-11 items-center gap-3 text-body-md text-on-surface">
+                <input type="checkbox" checked={form.permite_autonomo} onChange={e => setForm(prev => ({ ...prev, permite_autonomo: e.target.checked, ativo: e.target.checked ? prev.ativo : false }))} className="h-5 w-5 accent-primary" />
+                Pode ser executado de forma independente
+              </label>
+              <label className="flex min-h-11 items-center gap-3 text-body-md text-on-surface">
+                 <input type="checkbox" checked={form.permite_jornada} onChange={e => alterarPermissaoJornada(e.target.checked)} className="h-5 w-5 accent-primary" />
+                Pode ser usado como etapa de Jornada
+              </label>
+              {form.permite_autonomo && <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-2xl bg-surface-container-low p-3">
+                <label className="text-label-md text-on-surface-variant">Frequência
+                  <select value={form.frequencia} onChange={e => set('frequencia', e.target.value)} className={`${field} mt-1`}>
+                    <option value="sempre">Sempre</option><option value="uma_vez_por_usuario">Uma vez por usuário</option><option value="uma_vez_por_sessao">Uma vez por sessão</option><option value="ate_concluir">Até concluir</option><option value="intervalo_dias">Intervalo em dias</option>
+                  </select>
+                </label>
+                {form.frequencia === 'intervalo_dias' && <label className="text-label-md text-on-surface-variant">Intervalo em dias
+                  <input type="number" min={1} step={1} value={form.frequencia_intervalo_dias} onChange={e => set('frequencia_intervalo_dias', e.target.value)} className={`${field} mt-1`} />
+                </label>}
+                 <div className="md:col-span-2 space-y-2">
+                   <div className="flex items-center justify-between"><p className="text-label-md font-bold text-on-surface">Gatilhos autônomos</p><button type="button" onClick={() => setForm(prev => ({ ...prev, gatilhos: [...prev.gatilhos, { tipo: 'manual' }] }))} className="min-h-11 px-2 text-label-md font-bold text-primary">+ Adicionar</button></div>
+                   {form.gatilhos.length === 0 && <p className="text-[12px] text-error">Adicione ao menos um gatilho para publicar a execução autônoma.</p>}
+                   {form.gatilhos.map((gatilho, index) => <div key={index} className="grid grid-cols-1 gap-2 rounded-xl border border-outline-variant bg-surface-bright p-2 md:grid-cols-[180px_1fr_auto]">
+                     <Select size="sm" value={gatilho.tipo} options={[{ value: 'entrada_tela', label: 'Entrada na tela' }, { value: 'url', label: 'URL' }, { value: 'elemento', label: 'Elemento' }, { value: 'botao_ajuda', label: 'Botão de ajuda' }, { value: 'manual', label: 'Manual' }, { value: 'evento', label: 'Evento' }]} onChange={valor => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { tipo: valor as GatilhoTour['tipo'] } : item) }))} />
+                     {(gatilho.tipo === 'entrada_tela') && <input value={gatilho.tela ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, tela: e.target.value } : item) }))} placeholder="Nome da tela" className={field} />}
+                     {(gatilho.tipo === 'url') && <input value={gatilho.url_contem ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, url_contem: e.target.value } : item) }))} placeholder="Parte da URL" className={field} />}
+                     {(gatilho.tipo === 'elemento') && <input value={gatilho.seletor ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, seletor_tipo: 'css', seletor: e.target.value } : item) }))} placeholder="Seletor CSS" className={field} />}
+                     {(gatilho.tipo === 'evento') && <input value={gatilho.evento ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, evento: e.target.value } : item) }))} placeholder="Nome do evento track()" className={field} />}
+                      <button type="button" onClick={() => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.filter((_, i) => i !== index) }))} className="min-h-11 px-2 text-label-md font-bold text-error">Remover</button>
+                   </div>)}
+                 </div>
+              </div>}
+            </div>
+          </div>
+
+          {isEdit && (
+            <div className={card}>
+              <CardHeader number={nextStep()} icon="route" iconBg="bg-secondary-fixed" iconColor="text-secondary" title="Usado em Jornadas" description="Veja onde este Tour é reutilizado antes de alterar sua distribuição." />
+              {usosJornada.length === 0 ? (
+                <p className="text-body-md text-on-surface-variant">Este Tour não é usado por nenhuma Jornada.</p>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-label-md text-on-surface-variant">
+                    {new Set(usosJornada.map(uso => uso.jornada_id)).size} Jornada(s), {usosJornada.length} uso(s) em etapas.
+                  </p>
+                  {usosJornada.map(uso => (
+                    <button key={uso.etapa_id} type="button" onClick={() => navigate(`/jornadas/${uso.jornada_id}/editar`)} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-outline-variant bg-surface-container-low px-3 py-2 text-left transition-colors hover:border-primary">
+                      <span className="min-w-0">
+                        <span className="block truncate text-body-md font-bold text-on-surface">{uso.jornada_titulo}</span>
+                        <span className="block truncate text-label-md text-on-surface-variant">{uso.bloco_titulo} · {uso.etapa_titulo}</span>
+                      </span>
+                      <span className={`shrink-0 text-label-sm font-bold ${uso.jornada_ativo ? 'text-tertiary' : 'text-outline'}`}>{uso.jornada_ativo ? 'Ativa' : 'Inativa'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Segmentação por contexto */}
           <div className={card}>
@@ -2103,7 +2229,7 @@ export function TourForm() {
                       <button
                         type="button"
                         onClick={() => removerRegraSegmentacao(index)}
-                        className="shrink-0 p-2 text-outline hover:text-error transition-colors self-end sm:self-center"
+                        className="flex h-11 w-11 shrink-0 items-center justify-center text-outline hover:text-error transition-colors self-end sm:self-center"
                         title="Remover regra"
                       >
                         <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -2113,7 +2239,7 @@ export function TourForm() {
                   <button
                     type="button"
                     onClick={adicionarRegraSegmentacao}
-                    className="inline-flex items-center gap-1.5 text-label-md text-primary hover:text-primary/80 transition-colors"
+                    className="inline-flex min-h-11 items-center gap-1.5 px-2 text-label-md text-primary hover:text-primary/80 transition-colors"
                   >
                     <span className="material-symbols-outlined text-[16px]">add</span>
                     Adicionar regra

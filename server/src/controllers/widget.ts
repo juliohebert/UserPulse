@@ -1,7 +1,10 @@
 import { Request, Response } from 'express'
+import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { resolverTenantPublico } from '../lib/tenantGuards'
 import { filtroRegrasCandidatas, chaveRegraExibicao } from '../lib/regrasExibicao'
+import { FREQUENCIAS_TOUR, validarContextoExecucaoTour } from '../lib/tourContracts'
+import { verificarTokenPreviewJornada } from '../lib/jornadaPreviewToken'
 
 // tenant_id/codigo são identificadores internos/comerciais (fundação SaaS
 // multi-tenant, ver schema.prisma) — nenhum dos dois deve aparecer numa
@@ -15,6 +18,170 @@ import { filtroRegrasCandidatas, chaveRegraExibicao } from '../lib/regrasExibica
 // desses modelos é consultado aqui), e a função não depende disso pra estar
 // correta. Não remove nem altera nenhum outro campo.
 const CHAVES_INTERNAS = new Set(['tenant_id', 'codigo', 'nome_interno'])
+
+interface ContextoCampanhaJornada {
+  jornada_id: string
+  bloco_id: string
+  etapa_id: string
+  execucao_jornada_id: string
+}
+
+interface ProgressoConclusaoJornada {
+  bloco_concluido: boolean
+  jornada_concluida: boolean
+}
+
+export function calcularConclusoesJornada(
+  blocos: Array<{ id: string; ativo: boolean; obrigatorio: boolean; etapas: Array<{ id: string; obrigatoria: boolean }> }>,
+  etapasConcluidas: ReadonlySet<string>,
+  blocoId: string,
+): ProgressoConclusaoJornada {
+  const bloco = blocos.find(item => item.id === blocoId && item.ativo)
+  const blocoConcluido = Boolean(bloco) && bloco!.etapas.every(etapa => !etapa.obrigatoria || etapasConcluidas.has(etapa.id))
+  const jornadaConcluida = blocos
+    .filter(item => item.ativo && item.obrigatorio)
+    .every(item => item.etapas.every(etapa => !etapa.obrigatoria || etapasConcluidas.has(etapa.id)))
+  return { bloco_concluido: blocoConcluido, jornada_concluida: jornadaConcluida }
+}
+
+async function sincronizarConclusoesJornadaEmTransacao(
+  tx: Prisma.TransactionClient,
+  jornadaId: string,
+  blocoId: string,
+  usuarioId: string,
+  execucaoJornadaId: string,
+): Promise<ProgressoConclusaoJornada> {
+  const blocos = await tx.blocoJornada.findMany({
+    where: { jornada_id: jornadaId, ativo: true },
+    select: { id: true, ativo: true, obrigatorio: true, etapas: { select: { id: true, obrigatoria: true } } },
+  })
+  const eventos = await tx.eventoJornada.findMany({
+    where: { jornada_id: jornadaId, usuario_id: usuarioId, tipo_evento: 'etapa_concluida' },
+    select: { etapa_id: true },
+  })
+  const concluidas = new Set(eventos.flatMap(evento => evento.etapa_id ? [evento.etapa_id] : []))
+  const progresso = calcularConclusoesJornada(blocos, concluidas, blocoId)
+
+  if (progresso.bloco_concluido) {
+    const chave = chaveEventoJornada({ execucao_jornada_id: execucaoJornadaId, jornada_id: jornadaId, bloco_id: blocoId, tipo_evento: 'bloco_concluido' })
+    await tx.eventoJornada.upsert({
+      where: { jornada_id_chave_idempotencia: { jornada_id: jornadaId, chave_idempotencia: chave } },
+      create: { jornada_id: jornadaId, bloco_id: blocoId, tipo_evento: 'bloco_concluido', usuario_id: usuarioId, execucao_jornada_id: execucaoJornadaId, chave_idempotencia: chave },
+      update: {},
+    })
+  }
+  if (progresso.jornada_concluida) {
+    const chave = chaveEventoJornada({ execucao_jornada_id: execucaoJornadaId, jornada_id: jornadaId, tipo_evento: 'jornada_concluida' })
+    await tx.eventoJornada.upsert({
+      where: { jornada_id_chave_idempotencia: { jornada_id: jornadaId, chave_idempotencia: chave } },
+      create: { jornada_id: jornadaId, tipo_evento: 'jornada_concluida', usuario_id: usuarioId, execucao_jornada_id: execucaoJornadaId, chave_idempotencia: chave },
+      update: {},
+    })
+  }
+  return progresso
+}
+
+function extrairContextoCampanhaJornada(contexto: unknown): ContextoCampanhaJornada | null {
+  if (!contexto || typeof contexto !== 'object' || Array.isArray(contexto)) return null
+  const bruto = (contexto as Record<string, unknown>).__up_jornada
+  if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto)) return null
+  const valor = bruto as Record<string, unknown>
+  const campos = ['jornada_id', 'bloco_id', 'etapa_id', 'execucao_jornada_id']
+  if (campos.some(campo => typeof valor[campo] !== 'string' || !valor[campo])) return null
+  return {
+    jornada_id: String(valor.jornada_id),
+    bloco_id: String(valor.bloco_id),
+    etapa_id: String(valor.etapa_id),
+    execucao_jornada_id: String(valor.execucao_jornada_id),
+  }
+}
+
+async function concluirEtapaCampanhaEmTransacao(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  campanhaId: string,
+  usuarioId: string,
+  contexto: unknown,
+): Promise<{ aplicada: boolean; erro?: string; progresso?: ProgressoConclusaoJornada }> {
+  const jornada = extrairContextoCampanhaJornada(contexto)
+  if (!jornada) return { aplicada: false }
+
+  const etapa = await tx.etapaJornada.findFirst({
+    where: {
+      id: jornada.etapa_id,
+      bloco_id: jornada.bloco_id,
+      campanha_id: campanhaId,
+      tipo: 'campanha',
+      bloco: { jornada_id: jornada.jornada_id, jornada: { tenant_id: tenantId, ativo: true }, ativo: true },
+    },
+    select: { id: true, bloco_id: true },
+  })
+  if (!etapa) return { aplicada: false, erro: 'Contexto de Jornada da Campanha inválido.' }
+
+  const chave = `campanha:${jornada.execucao_jornada_id}:etapa:${etapa.id}:concluida`
+  const evento = await tx.eventoJornada.upsert({
+    where: { jornada_id_chave_idempotencia: { jornada_id: jornada.jornada_id, chave_idempotencia: chave } },
+    create: {
+      jornada_id: jornada.jornada_id,
+      bloco_id: etapa.bloco_id,
+      etapa_id: etapa.id,
+      tipo_evento: 'etapa_concluida',
+      usuario_id: usuarioId,
+      execucao_jornada_id: jornada.execucao_jornada_id,
+      chave_idempotencia: chave,
+      contexto: { origem: 'campanha', campanha_id: campanhaId },
+    },
+    update: {},
+  })
+  if (!contextoEventoJornadaCorresponde(evento, {
+    jornada_id: jornada.jornada_id,
+    bloco_id: etapa.bloco_id,
+    etapa_id: etapa.id,
+    tipo_evento: 'etapa_concluida',
+    usuario_id: usuarioId,
+    execucao_jornada_id: jornada.execucao_jornada_id,
+  })) return { aplicada: false, erro: 'Contexto de Jornada da Campanha conflita com uma conclusão existente.' }
+  const progresso = await sincronizarConclusoesJornadaEmTransacao(
+    tx, jornada.jornada_id, etapa.bloco_id, usuarioId, jornada.execucao_jornada_id,
+  )
+  return { aplicada: true, progresso }
+}
+
+export function chaveEventoJornada(input: {
+  execucao_jornada_id: string
+  jornada_id: string
+  bloco_id?: string | null
+  etapa_id?: string | null
+  tipo_evento: string
+}): string {
+  return `${input.execucao_jornada_id}:${input.jornada_id}:${input.bloco_id || ''}:${input.etapa_id || ''}:${input.tipo_evento}`
+}
+
+export function contextoEventoJornadaCorresponde(
+  evento: { jornada_id: string; bloco_id: string | null; etapa_id: string | null; tipo_evento: string; usuario_id: string | null; execucao_jornada_id: string | null },
+  input: { jornada_id: string; bloco_id?: string | null; etapa_id?: string | null; tipo_evento: string; usuario_id?: string | null; execucao_jornada_id?: string | null },
+): boolean {
+  return evento.jornada_id === input.jornada_id
+    && evento.bloco_id === (input.bloco_id || null)
+    && evento.etapa_id === (input.etapa_id || null)
+    && evento.tipo_evento === input.tipo_evento
+    && evento.usuario_id === (input.usuario_id || null)
+    && evento.execucao_jornada_id === (input.execucao_jornada_id || null)
+}
+
+function campanhaPublicaExecutavel(campanha: {
+  feedback_habilitado: boolean
+  exige_confirmacao_leitura: boolean
+  url_botao: string | null
+  conteudos: Array<{ url_botao: string | null }>
+  destaques: Array<{ url_botao: string | null }>
+}): boolean {
+  return campanha.feedback_habilitado || campanha.exige_confirmacao_leitura || Boolean(
+    campanha.url_botao?.trim()
+    || campanha.conteudos.some(item => item.url_botao?.trim())
+    || campanha.destaques.some(item => item.url_botao?.trim())
+  )
+}
 
 export function ocultarTenantId<T>(valor: T): T {
   if (Array.isArray(valor)) {
@@ -773,23 +940,32 @@ export async function registrarEvento(req: Request, res: Response) {
     const { erro: erroConteudo, conteudoItemId } = validarConteudoItemEvento(conteudo_item_id, itemConteudo, campanha_id)
     if (erroConteudo) return res.status(400).json({ erro: erroConteudo })
 
-    await prisma.eventoCampanha.create({
-      data: {
-        campanha_id,
-        tipo_evento,
-        destaque_item_id: destaqueItemId,
-        conteudo_item_id: conteudoItemId,
-        usuario_id: usuario_id || null,
-        sistema: sistema || null,
-        tela: tela || null,
-        navegador: navegador || null,
-        dispositivo: dispositivo || null,
-        contexto: contexto ?? null,
-      },
+    const resultado = await prisma.$transaction(async tx => {
+      const evento = await tx.eventoCampanha.create({
+        data: {
+          campanha_id,
+          tipo_evento,
+          destaque_item_id: destaqueItemId,
+          conteudo_item_id: conteudoItemId,
+          usuario_id: usuario_id || null,
+          sistema: sistema || null,
+          tela: tela || null,
+          navegador: navegador || null,
+          dispositivo: dispositivo || null,
+          contexto: contexto ?? null,
+        },
+      })
+      const deveConcluir = tipo_evento === 'clique_cta' && usuario_id
+      const conclusao = deveConcluir
+        ? await concluirEtapaCampanhaEmTransacao(tx, resolucao.tenantId, campanha_id, String(usuario_id), contexto)
+        : { aplicada: false }
+      if ('erro' in conclusao && conclusao.erro) throw new Error(conclusao.erro)
+      return { evento, conclusao: conclusao.aplicada, progresso: conclusao.progresso }
     })
 
-    res.status(201).json({ ok: true })
+    res.status(201).json({ ok: true, etapa_concluida: resultado.conclusao, ...(resultado.progresso ?? {}) })
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Contexto de Jornada')) return res.status(400).json({ erro: err.message })
     console.error(err)
     res.status(500).json({ erro: 'Erro ao registrar evento.' })
   }
@@ -813,18 +989,24 @@ export async function registrarConfirmacao(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Esta campanha não exige confirmação de leitura.' })
     }
 
-    const confirmacao = await prisma.confirmacaoLeitura.create({
-      data: {
-        campanha_id,
-        usuario_id: String(usuario_id),
-        usuario_nome: usuario_nome || null,
-        usuario_email: usuario_email || null,
-        contexto: contexto ?? null,
-      },
+    const resultado = await prisma.$transaction(async tx => {
+      const confirmacao = await tx.confirmacaoLeitura.create({
+        data: {
+          campanha_id,
+          usuario_id: String(usuario_id),
+          usuario_nome: usuario_nome || null,
+          usuario_email: usuario_email || null,
+          contexto: contexto ?? null,
+        },
+      })
+      const conclusao = await concluirEtapaCampanhaEmTransacao(tx, resolucao.tenantId, campanha_id, String(usuario_id), contexto)
+      if (conclusao.erro) throw new Error(conclusao.erro)
+      return { confirmacao, conclusao: conclusao.aplicada, progresso: conclusao.progresso }
     })
 
-    res.status(201).json(confirmacao)
+    res.status(201).json({ ...resultado.confirmacao, etapa_concluida: resultado.conclusao, ...(resultado.progresso ?? {}) })
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Contexto de Jornada')) return res.status(400).json({ erro: err.message })
     console.error(err)
     res.status(500).json({ erro: 'Erro ao registrar confirmação.' })
   }
@@ -925,7 +1107,8 @@ export async function registrarFeedback(req: Request, res: Response) {
 
     // A escrita aplica a mesma regra autoritativa das candidatas: conhecer
     // campanha_id e usuario_id não permite antecipar uma nova resposta.
-    if (!isAlwaysShowUser(String(usuario_id))) {
+    const contextoJornada = extrairContextoCampanhaJornada(contexto)
+    if (!contextoJornada && !isAlwaysShowUser(String(usuario_id))) {
       // A visualização da exibição atual já foi registrada antes do submit e
       // não pode bloquear a primeira resposta legítima. Feedback/confirmação
       // persistidos continuam sendo considerados normalmente.
@@ -955,27 +1138,33 @@ export async function registrarFeedback(req: Request, res: Response) {
       return res.status(400).json({ erro: 'Observação é obrigatória para esta campanha.' })
     }
 
-    const feedback = await prisma.feedback.create({
-      data: {
-        campanha_id,
-        tipo_avaliacao: tipoAvaliacao,
-        nota: notaValidada,
-        util,
-        destaque_item_id: destaqueItemId,
-        observacao: observacao?.toString().trim() || null,
-        usuario_id: String(usuario_id),
-        usuario_nome: usuario_nome || null,
-        usuario_email: usuario_email || null,
-        sistema: sistema || null,
-        tela: tela || null,
-        navegador: navegador || null,
-        dispositivo: dispositivo || null,
-        contexto: contexto ?? null,
-      },
+    const resultado = await prisma.$transaction(async tx => {
+      const feedback = await tx.feedback.create({
+        data: {
+          campanha_id,
+          tipo_avaliacao: tipoAvaliacao,
+          nota: notaValidada,
+          util,
+          destaque_item_id: destaqueItemId,
+          observacao: observacao?.toString().trim() || null,
+          usuario_id: String(usuario_id),
+          usuario_nome: usuario_nome || null,
+          usuario_email: usuario_email || null,
+          sistema: sistema || null,
+          tela: tela || null,
+          navegador: navegador || null,
+          dispositivo: dispositivo || null,
+          contexto: contexto ?? null,
+        },
+      })
+      const conclusao = await concluirEtapaCampanhaEmTransacao(tx, resolucao.tenantId, campanha_id, String(usuario_id), contexto)
+      if (conclusao.erro) throw new Error(conclusao.erro)
+      return { feedback, conclusao: conclusao.aplicada, progresso: conclusao.progresso }
     })
 
-    res.status(201).json(feedback)
+    res.status(201).json({ ...resultado.feedback, etapa_concluida: resultado.conclusao, ...(resultado.progresso ?? {}) })
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Contexto de Jornada')) return res.status(400).json({ erro: err.message })
     console.error(err)
     res.status(500).json({ erro: 'Erro ao registrar feedback.' })
   }
@@ -1247,7 +1436,10 @@ export async function buscarTour(req: Request, res: Response) {
     // aqui (ver buscarJornadas, que embute o tour inteiro na etapa sem
     // passar por esta rota).
     const tour = await prisma.tourGuiado.findFirst({
-      where: { tenant_id: resolucao.tenantId, slug: String(slug), ativo: true },
+      where: {
+        tenant_id: resolucao.tenantId, slug: String(slug), ativo: true, permite_autonomo: true,
+        gatilhos: { array_contains: [{ tipo: 'manual' }] },
+      },
       include: { passos: { orderBy: { ordem: 'asc' } } },
     })
     if (!tour) return res.status(404).json({ erro: 'Nenhum tour guiado ativo encontrado.' })
@@ -1302,18 +1494,10 @@ export async function buscarTourCandidatos(req: Request, res: Response) {
     const resolucao = await resolverTenantPublico(public_key)
     if (!resolucao.ok) return res.json([])
 
-    // sistema_tela tours are filtered by tela server-side (tela deve corresponder).
-    // data_cy e url_contem são sempre incluídos — o widget valida no client.
-    // Segmentação por contexto (segmentacao_regras) é avaliada no client
-    // (avaliarSegmentacaoTour em widget.js) — o campo já vem no tour completo,
-    // sem filtro adicional aqui.
-    const modoFiltros: object[] = []
-    if (tela) modoFiltros.push({ modo_identificacao: 'sistema_tela', tela: String(tela) })
-    modoFiltros.push({ modo_identificacao: 'data_cy' })
-    modoFiltros.push({ modo_identificacao: 'url_contem' })
-
     const tours = await prisma.tourGuiado.findMany({
-      where: { tenant_id: resolucao.tenantId, ativo: true, sistema: String(sistema), OR: modoFiltros },
+      // `gatilhos` pode conter vários destinos e é avaliado no widget. As
+      // colunas de identificação ficam apenas como fallback para dados antigos.
+      where: { tenant_id: resolucao.tenantId, ativo: true, permite_autonomo: true, sistema: String(sistema) },
       orderBy: [{ prioridade: 'desc' }, { criado_em: 'desc' }],
       include: { passos: { orderBy: { ordem: 'asc' } } },
     })
@@ -1333,17 +1517,30 @@ export async function buscarTourCandidatos(req: Request, res: Response) {
     // Reexibição mínima (MVP): não reabrir automaticamente um tour que este
     // usuário já concluiu ou pulou. iniciarTour(slug) manual ignora este filtro
     // (busca o tour direto por slug, não passa por aqui).
-    const jaVistos = await prisma.eventoTour.findMany({
+    const historico = await prisma.eventoTour.findMany({
       where: {
         usuario_id: uidStr,
         tour_id: { in: tours.map(t => t.id) },
-        tipo_evento: { in: ['concluido', 'pulado'] },
+        tipo_evento: { in: ['inicio', 'concluido', 'pulado'] },
+        origem: 'autonomo',
       },
-      select: { tour_id: true },
+      select: { tour_id: true, tipo_evento: true, criado_em: true },
     })
-    const vistos = new Set(jaVistos.map(e => e.tour_id))
+    const agora = Date.now()
+    const bloqueados = new Set<string>()
+    for (const tour of tours) {
+      const eventos = historico.filter(e => e.tour_id === tour.id)
+      const inicio = eventos.filter(e => e.tipo_evento === 'inicio').sort((a, b) => b.criado_em.getTime() - a.criado_em.getTime())[0]
+      const concluido = eventos.some(e => e.tipo_evento === 'concluido')
+      const encerrado = eventos.some(e => e.tipo_evento === 'pulado' || e.tipo_evento === 'concluido')
+      if (tour.frequencia === 'uma_vez_por_usuario' && inicio) bloqueados.add(tour.id)
+      else if (tour.frequencia === 'ate_concluir' && concluido) bloqueados.add(tour.id)
+      else if (tour.frequencia === 'intervalo_dias' && inicio && agora - inicio.criado_em.getTime() < (tour.frequencia_intervalo_dias || 0) * 86400000) bloqueados.add(tour.id)
+      else if (!tour.frequencia || !FREQUENCIAS_TOUR.includes(tour.frequencia as typeof FREQUENCIAS_TOUR[number])) bloqueados.add(tour.id)
+      void encerrado
+    }
 
-    res.json(ocultarTenantId(tours.filter(t => !vistos.has(t.id))))
+    res.json(ocultarTenantId(tours.filter(t => !bloqueados.has(t.id))))
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar tours candidatos.' })
@@ -1352,7 +1549,8 @@ export async function buscarTourCandidatos(req: Request, res: Response) {
 
 export async function registrarEventoTour(req: Request, res: Response) {
   try {
-    const { public_key, tour_id, tipo_evento, passo_ordem, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
+    const { public_key, tour_id, tipo_evento, passo_ordem, usuario_id, sistema, tela, navegador, dispositivo, contexto,
+      execucao_id, origem, gatilho, jornada_id, bloco_id, etapa_id, execucao_jornada_id, modo_teste } = req.body
 
     if (!tour_id) return res.status(400).json({ erro: 'tour_id é obrigatório.' })
     if (!tipo_evento) return res.status(400).json({ erro: 'tipo_evento é obrigatório.' })
@@ -1373,8 +1571,31 @@ export async function registrarEventoTour(req: Request, res: Response) {
       return res.status(404).json({ erro: 'Tour guiado não encontrado.' })
     }
 
-    await prisma.eventoTour.create({
-      data: {
+    if (modo_teste === true) return res.status(200).json({ ok: true, modo_teste: true })
+    if (!execucao_id || (origem !== 'autonomo' && origem !== 'jornada')) return res.status(400).json({ erro: 'execucao_id e origem válidos são obrigatórios.' })
+    const erroContextoExecucao = validarContextoExecucaoTour({
+      origem, gatilho, ativo: tour.ativo, permite_autonomo: tour.permite_autonomo,
+      permite_jornada: tour.permite_jornada, gatilhos: tour.gatilhos,
+    })
+    if (erroContextoExecucao) return res.status(400).json({ erro: erroContextoExecucao })
+    if (origem === 'autonomo' && (jornada_id || bloco_id || etapa_id || execucao_jornada_id)) return res.status(400).json({ erro: 'Contexto de Jornada só pode ser enviado para origem jornada.' })
+    if (origem === 'jornada') {
+      if (!jornada_id || !bloco_id || !etapa_id || !execucao_jornada_id || !usuario_id) return res.status(400).json({ erro: 'Contexto de Jornada incompleto.' })
+      const etapa = await prisma.etapaJornada.findFirst({
+        where: {
+          id: String(etapa_id), bloco_id: String(bloco_id),
+          bloco: { jornada_id: String(jornada_id), ativo: true, jornada: { tenant_id: resolucao.tenantId, ativo: true } },
+        },
+      })
+      if (!etapa || etapa.tour_id !== tour.id) return res.status(404).json({ erro: 'Contexto de Jornada não encontrado.' })
+    }
+
+    const resultado = await prisma.$transaction(async tx => {
+      const eventoExistente = await tx.eventoTour.findFirst({
+        where: { tour_id, execucao_id: String(execucao_id), tipo_evento, passo_ordem: passo_ordem != null ? Number(passo_ordem) : null },
+      })
+      if (!eventoExistente) await tx.eventoTour.create({
+        data: {
         tour_id,
         tipo_evento,
         passo_ordem: passo_ordem != null ? Number(passo_ordem) : null,
@@ -1384,11 +1605,37 @@ export async function registrarEventoTour(req: Request, res: Response) {
         navegador: navegador || null,
         dispositivo: dispositivo || null,
         contexto: contexto ?? null,
-      },
+        execucao_id: String(execucao_id),
+        origem: String(origem),
+        gatilho: String(gatilho),
+        jornada_id: origem === 'jornada' ? String(jornada_id) : null,
+        bloco_id: origem === 'jornada' ? String(bloco_id) : null,
+        etapa_id: origem === 'jornada' ? String(etapa_id) : null,
+        },
+      })
+       if (origem === 'jornada' && tipo_evento === 'concluido') {
+         const chave = `tour:${execucao_id}:etapa:${etapa_id}:concluida`
+        const eventoJornada = await tx.eventoJornada.upsert({
+          where: { jornada_id_chave_idempotencia: { jornada_id: String(jornada_id), chave_idempotencia: chave } },
+          create: { jornada_id: String(jornada_id), bloco_id: String(bloco_id), etapa_id: String(etapa_id), tipo_evento: 'etapa_concluida', usuario_id: usuario_id || null, execucao_jornada_id: execucao_jornada_id ? String(execucao_jornada_id) : null, chave_idempotencia: chave },
+          update: {},
+        })
+        if (!contextoEventoJornadaCorresponde(eventoJornada, {
+          jornada_id: String(jornada_id), bloco_id: String(bloco_id), etapa_id: String(etapa_id),
+          tipo_evento: 'etapa_concluida', usuario_id: usuario_id || null,
+          execucao_jornada_id: execucao_jornada_id ? String(execucao_jornada_id) : null,
+         })) throw new Error('Contexto de Jornada do Tour conflita com uma conclusão existente.')
+         const progresso = await sincronizarConclusoesJornadaEmTransacao(
+           tx, String(jornada_id), String(bloco_id), String(usuario_id), String(execucao_jornada_id),
+         )
+         return { etapa_concluida: true, ...progresso }
+       }
+       return { etapa_concluida: false, bloco_concluido: false, jornada_concluida: false }
     })
 
-    res.status(201).json({ ok: true })
+    res.status(201).json({ ok: true, ...resultado })
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Contexto de Jornada')) return res.status(409).json({ erro: err.message })
     console.error(err)
     res.status(500).json({ erro: 'Erro ao registrar evento do tour.' })
   }
@@ -1427,8 +1674,15 @@ export async function buscarJornadas(req: Request, res: Response) {
             etapas: {
               orderBy: { ordem: 'asc' },
               include: {
-                tour: { include: { passos: { orderBy: { ordem: 'asc' } } } },
-                campanha: { select: { id: true, nome_interno: true, titulo: true, slug: true, ativo: true } },
+                tour: { where: { permite_jornada: true }, include: { passos: { orderBy: { ordem: 'asc' } } } },
+                campanha: {
+                  where: { status: 'ATIVA', ativo: true },
+                  include: {
+                    regras: { orderBy: { ordem: 'asc' } },
+                    destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } },
+                    conteudos: { orderBy: { ordem: 'asc' } },
+                  },
+                },
               },
             },
           },
@@ -1445,7 +1699,18 @@ export async function buscarJornadas(req: Request, res: Response) {
       dominio: dominio ? String(dominio) : undefined,
     }
 
-    const elegiveis = jornadas.filter(j => passaSegmentacao(j, ctx))
+    const publicaveis = jornadas.map(j => ({
+      ...j,
+      blocos: j.blocos.filter(b => b.ativo).map(b => ({
+        ...b,
+        etapas: b.etapas.filter(e => {
+          if (e.tipo === 'tour') return Boolean(e.tour && e.tour.passos.length > 0 && e.tour.passos.every(p => p.seletor.trim()))
+          if (e.tipo === 'campanha') return Boolean(e.campanha && campanhaPublicaExecutavel(e.campanha))
+          return e.tipo === 'link' && Boolean(e.url?.trim())
+        }),
+      })).filter(b => b.etapas.length > 0),
+    })).filter(j => j.blocos.length > 0)
+    const elegiveis = publicaveis.filter(j => passaSegmentacao(j, ctx))
 
     // Sem usuario_id não há como calcular progresso — tudo volta pendente (o
     // widget não registra eventos de progresso sem usuario_id).
@@ -1455,9 +1720,9 @@ export async function buscarJornadas(req: Request, res: Response) {
         blocos: j.blocos.map(b => ({
           ...b,
           etapas: b.etapas.map(e => ({ ...e, status: 'pendente' as const })),
-          progresso: { concluido: false, etapas_concluidas: 0, etapas_total: b.etapas.length },
+           progresso: { concluido: false, etapas_concluidas: 0, etapas_total: b.ativo ? b.etapas.length : 0 },
         })),
-        progresso: { concluida: false, blocos_concluidos: 0, blocos_total: j.blocos.length },
+         progresso: { concluida: false, blocos_concluidos: 0, blocos_total: j.blocos.filter(b => b.ativo).length },
       }))))
     }
 
@@ -1468,22 +1733,12 @@ export async function buscarJornadas(req: Request, res: Response) {
       where: {
         usuario_id: uidStr,
         jornada_id: { in: jornadaIds },
-        tipo_evento: { in: ['etapa_concluida', 'etapa_pulada', 'bloco_concluido', 'jornada_concluida'] },
+        tipo_evento: { in: ['etapa_concluida', 'etapa_pulada'] },
       },
     })
 
     const statusPorEtapa = new Map<string, 'concluida' | 'pulada'>()
-    const blocosConcluidos = new Set<string>()
-    const jornadasConcluidas = new Set<string>()
     for (const ev of eventos) {
-      if (ev.tipo_evento === 'jornada_concluida') {
-        jornadasConcluidas.add(ev.jornada_id)
-        continue
-      }
-      if (ev.tipo_evento === 'bloco_concluido') {
-        if (ev.bloco_id) blocosConcluidos.add(ev.bloco_id)
-        continue
-      }
       if (!ev.etapa_id) continue
       // "concluida" tem prioridade sobre "pulada", independente da ordem dos
       // eventos — uma vez concluída, não regride para pulada.
@@ -1501,10 +1756,7 @@ export async function buscarJornadas(req: Request, res: Response) {
         }))
         const concluidas = etapasComStatus.filter(e => e.status === 'concluida').length
         const obrigatoriasPendentes = etapasComStatus.filter(e => e.obrigatoria && e.status !== 'concluida')
-        // Bloco concluído: evento bloco_concluido já registrado OU (fallback,
-        // caso o widget ainda não tenha tido chance de registrar) todas as
-        // etapas obrigatórias já concluídas.
-        const blocoConcluido = blocosConcluidos.has(b.id) || obrigatoriasPendentes.length === 0
+        const blocoConcluido = obrigatoriasPendentes.length === 0
         return {
           ...b,
           etapas: etapasComStatus,
@@ -1512,8 +1764,8 @@ export async function buscarJornadas(req: Request, res: Response) {
         }
       })
 
-      const blocosObrigatoriosPendentes = blocosComStatus.filter(b => b.obrigatorio && !b.progresso.concluido)
-      const jornadaConcluida = jornadasConcluidas.has(j.id) || blocosObrigatoriosPendentes.length === 0
+       const blocosObrigatoriosPendentes = blocosComStatus.filter(b => b.ativo && b.obrigatorio && !b.progresso.concluido)
+      const jornadaConcluida = blocosObrigatoriosPendentes.length === 0
 
       return {
         ...j,
@@ -1533,9 +1785,39 @@ export async function buscarJornadas(req: Request, res: Response) {
   }
 }
 
+export async function buscarPreviewJornada(req: Request, res: Response) {
+  try {
+    const token = typeof req.query.token === 'string' ? req.query.token : ''
+    const payload = verificarTokenPreviewJornada(token)
+    if (!payload) return res.status(404).json({ erro: 'Preview de Jornada inválido ou expirado.' })
+    const jornada = await prisma.jornada.findFirst({
+    where: { id: payload.jornada_id, tenant_id: payload.tenant_id },
+    include: {
+      blocos: {
+        orderBy: { ordem: 'asc' },
+        include: {
+          etapas: {
+            orderBy: { ordem: 'asc' },
+            include: {
+              tour: { include: { passos: { orderBy: { ordem: 'asc' } } } },
+              campanha: { include: { regras: { orderBy: { ordem: 'asc' } }, destaques: { where: { ativo: true }, orderBy: { ordem: 'asc' } }, conteudos: { orderBy: { ordem: 'asc' } } } },
+            },
+          },
+        },
+      },
+    },
+    })
+    if (!jornada) return res.status(404).json({ erro: 'Preview de Jornada não encontrado.' })
+    res.json({ modo_teste: true, jornada: ocultarTenantId(jornada), expira_em: payload.exp ? new Date(payload.exp * 1000).toISOString() : null })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ erro: 'Erro ao buscar preview da Jornada.' })
+  }
+}
+
 export async function registrarEventoJornada(req: Request, res: Response) {
   try {
-    const { public_key, jornada_id, bloco_id, etapa_id, tipo_evento, usuario_id, sistema, tela, navegador, dispositivo, contexto } = req.body
+    const { public_key, jornada_id, bloco_id, etapa_id, tipo_evento, usuario_id, sistema, tela, navegador, dispositivo, contexto, execucao_jornada_id, chave_idempotencia } = req.body
 
     if (!jornada_id) return res.status(400).json({ erro: 'jornada_id é obrigatório.' })
     if (!tipo_evento) return res.status(400).json({ erro: 'tipo_evento é obrigatório.' })
@@ -1547,12 +1829,47 @@ export async function registrarEventoJornada(req: Request, res: Response) {
     if (!resolucao.ok) return res.status(404).json({ erro: 'Jornada não encontrada.' })
 
     const jornada = await prisma.jornada.findUnique({ where: { id: jornada_id } })
-    if (!jornada || jornada.tenant_id !== resolucao.tenantId) {
+    if (!jornada || jornada.tenant_id !== resolucao.tenantId || !jornada.ativo) {
       return res.status(404).json({ erro: 'Jornada não encontrada.' })
     }
 
-    await prisma.eventoJornada.create({
-      data: {
+    const bloco = bloco_id ? await prisma.blocoJornada.findFirst({ where: { id: String(bloco_id), jornada_id } }) : null
+    const etapa = etapa_id ? await prisma.etapaJornada.findFirst({ where: { id: String(etapa_id), bloco: { jornada_id } } }) : null
+    const nivelJornada = ['jornada_aberta', 'jornada_iniciada', 'jornada_concluida'].includes(String(tipo_evento))
+    const nivelBloco = ['bloco_aberto', 'bloco_iniciado', 'bloco_concluido'].includes(String(tipo_evento))
+    const nivelEtapa = ['etapa_aberta', 'etapa_concluida', 'etapa_pulada'].includes(String(tipo_evento))
+    if ((nivelJornada && (bloco_id || etapa_id)) || (nivelBloco && (!bloco_id || etapa_id)) || (nivelEtapa && (!bloco_id || !etapa_id)) || (!nivelJornada && !nivelBloco && !nivelEtapa)) {
+      return res.status(400).json({ erro: 'IDs não correspondem ao nível do evento.' })
+    }
+    if (bloco_id && !bloco) return res.status(404).json({ erro: 'Pacote não encontrado.' })
+    if (etapa_id && (!etapa || etapa.bloco_id !== bloco_id)) return res.status(404).json({ erro: 'Etapa não encontrada.' })
+    if (tipo_evento === 'etapa_concluida' && etapa && (etapa.tipo === 'tour' || etapa.tipo === 'campanha')) {
+      return res.status(400).json({ erro: 'A conclusão desta etapa deve ser registrada pelo endpoint do conteúdo.' })
+    }
+
+    const execucaoId = typeof execucao_jornada_id === 'string' && execucao_jornada_id.trim() ? execucao_jornada_id.trim() : null
+    const chave = typeof chave_idempotencia === 'string' && chave_idempotencia.trim() ? chave_idempotencia.trim() : null
+    if (!execucaoId || !chave) {
+      return res.status(400).json({ erro: 'execucao_jornada_id e chave_idempotencia são obrigatórios.' })
+    }
+    if (!usuario_id) return res.status(400).json({ erro: 'usuario_id é obrigatório para eventos de Jornada.' })
+    if (chave && (!execucaoId || chave !== chaveEventoJornada({ execucao_jornada_id: execucaoId, jornada_id: String(jornada_id), bloco_id, etapa_id, tipo_evento: String(tipo_evento) }))) {
+      return res.status(400).json({ erro: 'chave_idempotencia não corresponde ao contexto do evento.' })
+    }
+
+    if (tipo_evento === 'bloco_concluido' || tipo_evento === 'jornada_concluida') {
+      const blocoReferencia = tipo_evento === 'bloco_concluido'
+        ? String(bloco_id)
+        : (await prisma.blocoJornada.findFirst({ where: { jornada_id, ativo: true }, select: { id: true } }))?.id
+      if (!blocoReferencia) return res.status(409).json({ erro: 'Jornada não possui progresso obrigatório concluível.' })
+      const progresso = await prisma.$transaction(tx => sincronizarConclusoesJornadaEmTransacao(
+        tx, String(jornada_id), blocoReferencia, String(usuario_id), execucaoId,
+      ))
+      const confirmado = tipo_evento === 'bloco_concluido' ? progresso.bloco_concluido : progresso.jornada_concluida
+      if (!confirmado) return res.status(409).json({ erro: 'Progresso obrigatório ainda não foi concluído.', ...progresso })
+      return res.status(200).json({ ok: true, deduplicado: true, execucao_jornada_id: execucaoId, ...progresso })
+    }
+    const dadosEvento = {
         jornada_id,
         bloco_id: bloco_id || null,
         etapa_id: etapa_id || null,
@@ -1563,10 +1880,32 @@ export async function registrarEventoJornada(req: Request, res: Response) {
         navegador: navegador || null,
         dispositivo: dispositivo || null,
         contexto: contexto ?? null,
-      },
-    })
+        execucao_jornada_id: execucaoId,
+        chave_idempotencia: chave,
+    }
+    try {
+      const progresso = await prisma.$transaction(async tx => {
+        await tx.eventoJornada.create({ data: dadosEvento })
+        if (tipo_evento !== 'etapa_concluida') return null
+        return sincronizarConclusoesJornadaEmTransacao(tx, String(jornada_id), String(bloco_id), String(usuario_id), execucaoId)
+      })
+      return res.status(201).json({ ok: true, execucao_jornada_id: execucaoId, etapa_concluida: tipo_evento === 'etapa_concluida', ...(progresso ?? {}) })
+    } catch (err) {
+      if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002' || !chave) throw err
+      const existente = await prisma.eventoJornada.findUnique({
+        where: { jornada_id_chave_idempotencia: { jornada_id: String(jornada_id), chave_idempotencia: chave } },
+      })
+      if (!existente || !contextoEventoJornadaCorresponde(existente, dadosEvento)) {
+        return res.status(409).json({ erro: 'Chave de idempotência já utilizada em outro contexto.' })
+      }
+      const progresso = tipo_evento === 'etapa_concluida'
+        ? await prisma.$transaction(tx => sincronizarConclusoesJornadaEmTransacao(
+            tx, String(jornada_id), String(bloco_id), String(usuario_id), execucaoId,
+          ))
+        : null
+      return res.status(200).json({ ok: true, deduplicado: true, execucao_jornada_id: execucaoId, etapa_concluida: tipo_evento === 'etapa_concluida', ...(progresso ?? {}) })
+    }
 
-    res.status(201).json({ ok: true })
   } catch (err) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao registrar evento da jornada.' })

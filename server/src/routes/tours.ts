@@ -15,6 +15,7 @@ router.post('/', requireEscritaConteudo('TOURS'), tours.criar)
 // permissoes_personalizadas=true, GERENCIAR em TOURS já cobre importar
 // (não há nível mais granular nesta fase, ver requireEscritaTenant.ts).
 router.post('/importar', requireExclusaoOuImportacaoConteudo('TOURS'), tours.importar)
+router.get('/:id/dependencias', requireAcessoModulo('TOURS', 'VISUALIZAR'), tours.buscarDependencias)
 router.get('/:id/dashboard', requireAcessoModulo('TOURS', 'VISUALIZAR'), tours.buscarDashboard)
 router.get('/:id/exportar', requireAcessoModulo('TOURS', 'VISUALIZAR'), tours.exportar)
 router.post('/:id/duplicar', requireEscritaConteudo('TOURS'), tours.duplicar)

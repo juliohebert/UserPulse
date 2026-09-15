@@ -1,6 +1,61 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { validarSegmentacaoRegras, validarPassos, montarFunilPorPasso, montarResumoFeedback, montarWhereListaTours, normalizarPaginacaoTours } from './tours'
+import { readFileSync } from 'node:fs'
+import { validarSegmentacaoRegras, validarPassos, montarFunilPorPasso, montarFunilPorExecucoes, montarResumoFeedback, montarResumoPorOrigem, montarWhereListaTours, normalizarPaginacaoTours } from './tours'
+import { gatilhosLegados, validarContextoExecucaoTour, validarDistribuicaoTour, validarGatilhosTour } from '../lib/tourContracts'
+
+describe('contrato de distribuição de Tour', () => {
+  test('converte identificação legada', () => {
+    assert.deepEqual(gatilhosLegados('data_cy', null, 'botao', null), [{ tipo: 'elemento', seletor_tipo: 'data_cy', seletor: 'botao' }])
+  })
+  test('migration tipa com segurança o gatilho de elemento legado', () => {
+    const migration = readFileSync(new URL('../../prisma/migrations/20260914120000_add_tour_distribution_context/migration.sql', import.meta.url), 'utf8')
+    assert.match(migration, /'tipo', 'elemento', 'seletor_tipo', 'data_cy', 'seletor'/)
+  })
+  test('rejeita gatilhos inválidos ou incompletos', () => {
+    assert.match(validarGatilhosTour([{ tipo: 'futuro' }]).erro ?? '', /tipo inválido/)
+    assert.match(validarGatilhosTour([{ tipo: 'evento' }]).erro ?? '', /evento é obrigatório/)
+  })
+  test('valida intervalo e origens', () => {
+    assert.match(validarDistribuicaoTour({ permite_autonomo: false, permite_jornada: false }).erro ?? '', /pelo menos uma origem/)
+    assert.match(validarDistribuicaoTour({ permite_autonomo: true, permite_jornada: false, ativo: true, gatilhos: [{ tipo: 'manual' }], frequencia: 'intervalo_dias', frequencia_intervalo_dias: 0 }).erro ?? '', /inteiro positivo/)
+  })
+  test('valida disponibilidade e gatilho conforme a origem', () => {
+    const base = { ativo: true, permite_autonomo: true, permite_jornada: true, gatilhos: [{ tipo: 'manual' }] }
+    assert.equal(validarContextoExecucaoTour({ ...base, origem: 'autonomo', gatilho: 'manual' }), null)
+    assert.match(validarContextoExecucaoTour({ ...base, origem: 'autonomo', gatilho: 'evento' }) ?? '', /não configurado/)
+    assert.match(validarContextoExecucaoTour({ ...base, origem: 'jornada', gatilho: 'manual' }) ?? '', /etapa_jornada/)
+    assert.equal(validarContextoExecucaoTour({ ...base, origem: 'jornada', gatilho: 'etapa_jornada' }), null)
+  })
+})
+
+test('métricas agrupam uma execução uma única vez e preservam legado como desconhecido', () => {
+  const resumo = montarResumoPorOrigem([
+    { id: '1', tipo_evento: 'inicio', execucao_id: 'exec-1', origem: 'jornada' },
+    { id: '2', tipo_evento: 'passo_visualizado', execucao_id: 'exec-1', origem: 'jornada' },
+    { id: '3', tipo_evento: 'concluido', execucao_id: 'exec-1', origem: 'jornada' },
+    { id: '4', tipo_evento: 'inicio', execucao_id: null, origem: null },
+  ])
+  assert.deepEqual(resumo.find(item => item.origem === 'jornada'), { origem: 'jornada', execucoes: 1, iniciados: 1, concluidos: 1, pulados: 0, taxa_conclusao: 100 })
+  assert.equal(resumo.find(item => item.origem === 'desconhecida')?.execucoes, 1)
+})
+
+test('funil agrupa visualizações por execução e conta abandono explícito no último passo visto', () => {
+  const funil = montarFunilPorExecucoes([
+    { ordem: 0, titulo: 'Primeiro' }, { ordem: 1, titulo: 'Segundo' },
+  ], [
+    { id: '1', tipo_evento: 'passo_visualizado', passo_ordem: 0, execucao_id: 'a' },
+    { id: '2', tipo_evento: 'passo_visualizado', passo_ordem: 0, execucao_id: 'a' },
+    { id: '3', tipo_evento: 'passo_visualizado', passo_ordem: 1, execucao_id: 'a' },
+    { id: '4', tipo_evento: 'concluido', passo_ordem: null, execucao_id: 'a' },
+    { id: '5', tipo_evento: 'passo_visualizado', passo_ordem: 0, execucao_id: 'b' },
+    { id: '6', tipo_evento: 'pulado', passo_ordem: null, execucao_id: 'b' },
+  ])
+  assert.equal(funil[0].visualizacoes, 2)
+  assert.equal(funil[0].avancos_estimados, 1)
+  assert.equal(funil[0].abandonos_estimados, 1)
+  assert.equal(funil[1].visualizacoes, 1)
+})
 
 // validarSegmentacaoRegras é a única peça de lógica de Segmentação de Tours
 // que vive no backend — decide o que criar()/atualizar()/importar() persistem
@@ -323,9 +378,10 @@ describe('validarPassos — regra "seletor obrigatório só pra ativar" (Tour.at
   const PASSO_SEM_SELETOR = { titulo: 'Passo 1' }
   const PASSO_SEM_TITULO = { seletor: '[data-cy="botao"]' }
 
-  test('lista vazia ou não-array => erro, mesmo com exigirSeletor=false (rascunho precisa de ao menos 1 passo)', () => {
-    assert.equal(validarPassos([], false).erro, 'O tour precisa ter ao menos um passo.')
-    assert.equal(validarPassos(undefined, false).erro, 'O tour precisa ter ao menos um passo.')
+  test('rascunho pode ficar vazio, mas publicação autônoma exige ao menos um passo', () => {
+    assert.equal(validarPassos([], false).erro, null)
+    assert.equal(validarPassos(undefined, false).erro, null)
+    assert.equal(validarPassos([], true).erro, 'O tour precisa ter ao menos um passo.')
   })
 
   test('título é sempre obrigatório, independente de exigirSeletor', () => {

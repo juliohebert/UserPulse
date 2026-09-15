@@ -11,6 +11,7 @@ const router = Router()
 router.get('/', requireAcessoModulo('JORNADAS', 'VISUALIZAR'), jornadas.listar)
 router.post('/', requireEscritaConteudo('JORNADAS'), jornadas.criar)
 router.get('/:id', requireAcessoModulo('JORNADAS', 'VISUALIZAR'), jornadas.buscarPorId)
+router.post('/:id/preview-token', requireAcessoModulo('JORNADAS', 'VISUALIZAR'), jornadas.emitirTokenPreview)
 router.put('/:id', requireEscritaConteudo('JORNADAS'), jornadas.atualizar)
 // Exclusão de verdade (hard delete, ver controller) — reservada a ADMIN.
 router.delete('/:id', requireExclusaoOuImportacaoConteudo('JORNADAS'), jornadas.remover)
