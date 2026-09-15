@@ -22,13 +22,14 @@ interface FiltrosDashboard {
   usuario: string
   unidade: string
   busca: string
+  origem: string
 }
 
 const FILTROS_AVANCADOS_INICIAIS = {
   data_inicio: '', data_fim: '', passo_ordem: '', cliente: '', usuario: '', unidade: '',
 }
 
-const FILTROS_INICIAIS: FiltrosDashboard = { ...FILTROS_AVANCADOS_INICIAIS, tipo_evento: '', busca: '' }
+const FILTROS_INICIAIS: FiltrosDashboard = { ...FILTROS_AVANCADOS_INICIAIS, tipo_evento: '', busca: '', origem: '' }
 
 function formatarDataInput(d: Date): string {
   return d.toISOString().slice(0, 10)
@@ -47,6 +48,7 @@ function montarQuery(filtros: FiltrosDashboard, pagina: number): string {
   if (filtros.usuario.trim()) params.set('usuario', filtros.usuario.trim())
   if (filtros.unidade.trim()) params.set('unidade', filtros.unidade.trim())
   if (filtros.busca.trim()) params.set('busca', filtros.busca.trim())
+  if (filtros.origem) params.set('origem', filtros.origem)
   params.set('page', String(pagina))
   params.set('per_page', String(PER_PAGE))
   return `?${params.toString()}`
@@ -136,6 +138,12 @@ export function TourDashboard() {
 
   const alternarTipoEvento = (valor: string) => {
     const novo = { ...filtros, tipo_evento: filtros.tipo_evento === valor ? '' : valor }
+    setFiltros(novo)
+    aplicarFiltro(novo)
+  }
+
+  const definirOrigem = (valor: string) => {
+    const novo = { ...filtros, origem: valor }
     setFiltros(novo)
     aplicarFiltro(novo)
   }
@@ -230,6 +238,23 @@ export function TourDashboard() {
           sub={`${data.concluidos} de ${data.iniciados}`} />
       </div>
 
+      <div className="mb-6 rounded-xl border border-outline-variant bg-surface-container-lowest p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-title-md font-bold text-on-surface">Execuções por origem</h3>
+              <p className="text-label-md text-on-surface-variant">Uma execução é contada uma única vez.</p>
+            </div>
+            <Select value={filtros.origem} onChange={definirOrigem} options={[{ value: '', label: 'Todas as origens' }, { value: 'autonomo', label: 'Autônomo' }, { value: 'jornada', label: 'Jornada' }, { value: 'desconhecida', label: 'Desconhecida' }]} />
+          </div>
+        {data.por_origem.length > 0 ? (
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            {data.por_origem.map(item => <div key={item.origem} className="rounded-lg bg-surface-container-low p-3"><p className="text-label-md font-bold text-on-surface-variant capitalize">{item.origem}</p><p className="mt-1 text-title-lg font-bold text-on-surface">{item.execucoes} execuções</p><p className="text-label-md text-on-surface-variant">{item.taxa_conclusao.toLocaleString('pt-BR')}% concluídas</p></div>)}
+          </div>
+        ) : (
+          <p className="rounded-lg bg-surface-container-low p-3 text-body-md text-on-surface-variant">Nenhuma execução corresponde à origem e aos demais filtros aplicados.</p>
+        )}
+      </div>
+
       {/* Resumo interpretativo */}
       <p className="text-body-md text-on-surface-variant mb-6 flex items-start gap-2">
         <span className="material-symbols-outlined text-[18px] text-primary shrink-0 mt-0.5">insights</span>
@@ -293,7 +318,7 @@ export function TourDashboard() {
             <ChipFiltro label="Últimos 30 dias" active={ehAtalhoPeriodo(filtros, 29)} onClick={() => definirAtalhoPeriodo(29)} />
             <button
               onClick={() => setShowAvancados(v => !v)}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-all ${
+              className={`flex min-h-11 items-center gap-1 px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-all ${
                 qtdFiltrosAvancados(filtros) > 0
                   ? 'bg-secondary/10 text-secondary border-secondary/30'
                   : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary/50 hover:text-primary'
@@ -415,7 +440,7 @@ export function TourDashboard() {
                 <table className="w-full text-left">
                   <thead className="bg-surface-container-low border-b border-outline-variant">
                     <tr>
-                      {['Data/Hora', 'Tipo', 'Passo', 'Usuário', 'Cliente', 'Clínica/Unidade'].map(h => (
+                      {['Data/Hora', 'Tipo', 'Passo', 'Usuário', 'Cliente', 'Clínica/Unidade', 'Contexto'].map(h => (
                         <th key={h} className="px-4 py-2.5 text-label-md text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
                       ))}
                     </tr>
@@ -438,7 +463,7 @@ function ChipFiltro({ label, active, onClick }: { label: string; active: boolean
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all border whitespace-nowrap ${
+      className={`min-h-11 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all border whitespace-nowrap ${
         active
           ? 'bg-primary text-on-primary border-primary'
           : 'bg-surface-container-low text-on-surface-variant border-outline-variant hover:border-primary/50 hover:text-primary'
@@ -451,23 +476,23 @@ function ChipFiltro({ label, active, onClick }: { label: string; active: boolean
 
 // Prioriza nome sobre e-mail/ID. Quando só sobra o ID como identificador,
 // ele é exibido — mas marcado como "fallback" para render discreto na tabela.
-function resolverPessoa(evento: EventoTourDashboard): { texto: string; isFallbackId: boolean } {
-  if (evento.usuario_nome) return { texto: evento.usuario_nome, isFallbackId: false }
-  if (evento.usuario_email) return { texto: evento.usuario_email, isFallbackId: false }
-  if (evento.usuario_id) return { texto: evento.usuario_id, isFallbackId: true }
-  return { texto: '—', isFallbackId: false }
+function resolverPessoa(evento: EventoTourDashboard): { texto: string; id: string | null } {
+  if (evento.usuario_nome) return { texto: evento.usuario_nome, id: evento.usuario_id ?? evento.usuario_email }
+  if (evento.usuario_email) return { texto: evento.usuario_email, id: evento.usuario_id }
+  if (evento.usuario_id) return { texto: evento.usuario_id, id: null }
+  return { texto: '—', id: null }
 }
 
-function resolverCliente(evento: EventoTourDashboard): { texto: string; isFallbackId: boolean } {
-  if (evento.cliente_nome) return { texto: evento.cliente_nome, isFallbackId: false }
-  if (evento.cliente_id) return { texto: evento.cliente_id, isFallbackId: true }
-  return { texto: '—', isFallbackId: false }
+function resolverCliente(evento: EventoTourDashboard): { texto: string; id: string | null } {
+  if (evento.cliente_nome) return { texto: evento.cliente_nome, id: evento.cliente_id }
+  if (evento.cliente_id) return { texto: evento.cliente_id, id: null }
+  return { texto: '—', id: null }
 }
 
-function resolverUnidade(evento: EventoTourDashboard): { texto: string; isFallbackId: boolean } {
-  if (evento.unidade_nome) return { texto: evento.unidade_nome, isFallbackId: false }
-  if (evento.unidade_id) return { texto: evento.unidade_id, isFallbackId: true }
-  return { texto: '—', isFallbackId: false }
+function resolverUnidade(evento: EventoTourDashboard): { texto: string; id: string | null } {
+  if (evento.unidade_nome) return { texto: evento.unidade_nome, id: evento.unidade_id }
+  if (evento.unidade_id) return { texto: evento.unidade_id, id: null }
+  return { texto: '—', id: null }
 }
 
 function EventoRow({ evento }: { evento: EventoTourDashboard }) {
@@ -497,20 +522,26 @@ function EventoRow({ evento }: { evento: EventoTourDashboard }) {
       <td className="px-4 py-2.5 whitespace-nowrap align-middle">
         <PessoaCell {...resolverUnidade(evento)} />
       </td>
+      <td className="px-4 py-2.5 align-middle">
+        <div className="min-w-[180px] text-[12px] text-on-surface-variant">
+          <p className="font-bold capitalize">{evento.origem ?? 'origem desconhecida'}{evento.gatilho ? ` · ${evento.gatilho}` : ''}</p>
+          {evento.execucao_id && <p className="font-mono text-[11px]">Execução: {evento.execucao_id}</p>}
+          {evento.jornada_id && <p className="font-mono text-[11px]">Jornada: {evento.jornada_id}</p>}
+          {(evento.bloco_id || evento.etapa_id) && <p className="font-mono text-[11px]">Pacote: {evento.bloco_id ?? '—'} · Etapa: {evento.etapa_id ?? '—'}</p>}
+        </div>
+      </td>
     </tr>
   )
 }
 
-function PessoaCell({ texto, isFallbackId }: { texto: string; isFallbackId: boolean }) {
+function PessoaCell({ texto, id }: { texto: string; id: string | null }) {
   if (texto === '—') {
     return <span className="text-[13px] text-outline italic">—</span>
   }
   return (
-    <span
-      className={isFallbackId ? 'text-[12px] text-on-surface-variant font-mono' : 'text-[13px] text-on-surface'}
-      title={isFallbackId ? 'ID — nome não informado' : undefined}
-    >
+    <span className="block text-[13px] text-on-surface">
       {texto}
+      {id && <span className="block font-mono text-[11px] text-on-surface-variant">ID: {id}</span>}
     </span>
   )
 }
@@ -765,7 +796,7 @@ function FunilPassoRow({ item, tourId, onFiltrarPorPasso }: {
             type="button"
             onClick={() => navigate(`/tours/${tourId}/editar?passo=${item.passo_ordem}`)}
             title="Editar passo"
-            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
           >
             <span className="material-symbols-outlined text-[16px]">edit</span>
           </button>
@@ -773,7 +804,7 @@ function FunilPassoRow({ item, tourId, onFiltrarPorPasso }: {
             type="button"
             onClick={() => onFiltrarPorPasso(item.passo_ordem)}
             title="Ver eventos deste passo"
-            className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
           >
             <span className="material-symbols-outlined text-[16px]">list_alt</span>
           </button>

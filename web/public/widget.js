@@ -6,6 +6,7 @@
   var state = {
     config: null,
     campanha: null,
+    campanhaJornadaContexto: null,
     root: null,
     open: false,
     nota: null,
@@ -40,6 +41,162 @@
     phoneError: '',
     closeTimer: null,
   };
+
+  // Coordenador único de foco. A fila é deliberadamente volátil: ela resolve
+  // concorrência durante a vida desta página, sem criar estado persistido.
+  var presentationState = {
+    ativo: null,
+    aguardando: [],
+    sequencia: 0,
+    geracaoContexto: 0,
+    drenando: false,
+    coletasPorGeracao: {},
+  };
+
+  function presentationComparar(a, b) {
+    if (a.prioridadeClasse !== b.prioridadeClasse) return a.prioridadeClasse - b.prioridadeClasse;
+    if (a.prioridadeNegocio !== b.prioridadeNegocio) return b.prioridadeNegocio - a.prioridadeNegocio;
+    if (a.elegivelEm !== b.elegivelEm) return a.elegivelEm - b.elegivelEm;
+    return a.sequencia - b.sequencia;
+  }
+
+  function presentationNormalizar(item) {
+    var entrada = item || {};
+    var tipo = entrada.tipo || 'tour';
+    var entidade = entrada.entidadeId || (entrada.payload && entrada.payload.id) || '';
+    var origem = entrada.origem || 'autonomo';
+    var etapa = entrada.etapaId || '';
+    return {
+      key: entrada.key || tipo + ':' + entidade + ':' + origem + ':' + etapa,
+      tipo: tipo,
+      origem: origem,
+      gatilho: entrada.gatilho || 'manual',
+      prioridadeClasse: Number.isFinite(Number(entrada.prioridadeClasse)) ? Number(entrada.prioridadeClasse) : 5,
+      prioridadeNegocio: Number.isFinite(Number(entrada.prioridadeNegocio)) ? Number(entrada.prioridadeNegocio) : 0,
+      elegivelEm: Number.isFinite(Number(entrada.elegivelEm)) ? Number(entrada.elegivelEm) : Date.now(),
+      validoAte: entrada.validoAte == null ? null : Number(entrada.validoAte),
+      geracaoContexto: entrada.geracaoContexto == null ? presentationState.geracaoContexto : entrada.geracaoContexto,
+      modoTeste: Boolean(entrada.modoTeste),
+      validar: typeof entrada.validar === 'function' ? entrada.validar : null,
+      payload: entrada.payload || {},
+      abrir: typeof entrada.abrir === 'function' ? entrada.abrir : function () {},
+      sequencia: presentationState.sequencia++,
+    };
+  }
+
+  function presentationItemValido(item, agora) {
+    var momento = agora == null ? Date.now() : agora;
+    return item.geracaoContexto === presentationState.geracaoContexto
+      && (item.validoAte == null || item.validoAte > momento);
+  }
+
+  function presentationDrenar() {
+    if (presentationState.drenando || presentationState.ativo) return;
+    if ((presentationState.coletasPorGeracao[presentationState.geracaoContexto] || 0) > 0) return;
+    presentationState.drenando = true;
+    try {
+      presentationState.aguardando = presentationState.aguardando.filter(function (item) {
+        return presentationItemValido(item);
+      });
+      while (presentationState.aguardando.length) {
+        presentationState.aguardando.sort(presentationComparar);
+        var proximo = presentationState.aguardando.shift();
+        if (proximo.validar && !proximo.validar()) continue;
+        presentationState.ativo = proximo;
+        proximo.abrir(proximo);
+        break;
+      }
+    } finally {
+      presentationState.drenando = false;
+    }
+  }
+
+  function presentationIniciarColeta() {
+    var geracao = presentationState.geracaoContexto;
+    presentationState.coletasPorGeracao[geracao] = (presentationState.coletasPorGeracao[geracao] || 0) + 1;
+    var finalizada = false;
+    return function () {
+      if (finalizada) return;
+      finalizada = true;
+      presentationState.coletasPorGeracao[geracao] = Math.max(0, (presentationState.coletasPorGeracao[geracao] || 1) - 1);
+      if (geracao === presentationState.geracaoContexto) presentationDrenar();
+    };
+  }
+
+  function presentationLiberar(key, aguardarDrenagem) {
+    if (!presentationState.ativo) return false;
+    if (key && presentationState.ativo.key !== key) return false;
+    presentationState.ativo = null;
+    if (!aguardarDrenagem) presentationDrenar();
+    return true;
+  }
+
+  function presentationEnfileirar(item) {
+    var normalizado = presentationNormalizar(item);
+    if (!presentationItemValido(normalizado)) return false;
+    if (presentationState.ativo && presentationState.ativo.key === normalizado.key) return false;
+    for (var i = 0; i < presentationState.aguardando.length; i++) {
+      if (presentationState.aguardando[i].key === normalizado.key) return false;
+    }
+    presentationState.aguardando.push(normalizado);
+    presentationDrenar();
+    return true;
+  }
+
+  function presentationAssumirFoco(item) {
+    var normalizado = presentationNormalizar(item);
+    if (!presentationItemValido(normalizado)) return false;
+    presentationState.ativo = null;
+    presentationState.aguardando = presentationState.aguardando.filter(function (pendente) {
+      return pendente.key !== normalizado.key;
+    });
+    if (normalizado.validar && !normalizado.validar()) {
+      presentationDrenar();
+      return false;
+    }
+    presentationState.ativo = normalizado;
+    normalizado.abrir(normalizado);
+    return true;
+  }
+
+  function presentationNovoContexto() {
+    var novaGeracao = presentationState.geracaoContexto + 1;
+    presentationState.geracaoContexto++;
+    presentationState.aguardando = presentationState.aguardando.filter(function (item) {
+      if (item.origem !== 'usuario' || (item.validoAte != null && item.validoAte <= Date.now())) return false;
+      // Ações explícitas continuam válidas após navegação; apenas passam a
+      // pertencer ao novo contexto para não serem descartadas pelo guard de
+      // geração.
+      item.geracaoContexto = novaGeracao;
+      return true;
+    });
+  }
+
+  function presentationGetTestSnapshot() {
+    return {
+      ativo: presentationState.ativo ? presentationState.ativo.key : null,
+      aguardando: presentationState.aguardando.slice().sort(presentationComparar).map(function (item) { return item.key; }),
+      geracaoContexto: presentationState.geracaoContexto,
+    };
+
+  }
+
+  function presentationResetTestState() {
+    presentationState.ativo = null;
+    presentationState.aguardando = [];
+    presentationState.sequencia = 0;
+    presentationState.geracaoContexto = 0;
+    presentationState.drenando = false;
+    presentationState.coletasPorGeracao = {};
+  }
+
+  function presentationReiniciarRuntime() {
+    presentationState.ativo = null;
+    presentationState.aguardando = [];
+    presentationState.drenando = false;
+    presentationState.coletasPorGeracao = {};
+    presentationState.geracaoContexto++;
+  }
 
   var spaListenerBound = false;
   var lastUrl = '';
@@ -180,13 +337,34 @@
     return out;
   }
 
+  function contextoCampanhaAtual(config, campanha, jornadaParam) {
+    var base = contextoComRegra(config, campanha);
+    var jornada = jornadaParam === undefined ? state.campanhaJornadaContexto : jornadaParam;
+    if (!jornada) return base;
+    var out = {};
+    if (base && typeof base === 'object') {
+      for (var chave in base) if (Object.prototype.hasOwnProperty.call(base, chave)) out[chave] = base[chave];
+    }
+    out.__up_jornada = {
+      jornada_id: jornada.jornadaId,
+      bloco_id: jornada.blocoId,
+      etapa_id: jornada.etapaId,
+      execucao_jornada_id: jornada.execucaoJornadaId,
+    };
+    out.__up_origem = 'jornada';
+    return out;
+  }
+
   function registrarEvento(tipoEvento, campanhaParam, configParam, destaqueItemId, opcoes) {
     try {
       var campanha = campanhaParam || state.campanha;
       var config = configParam || state.config;
+      var jornadaContexto = state.campanhaJornadaContexto;
       if (!campanha || !config) return;
+      if (runtimeEmPreview()) return Promise.resolve(null);
       var conteudoItemId = opcoes && opcoes.conteudo_item_id ? opcoes.conteudo_item_id : undefined;
-      fetch(apiUrl('/api/widget/evento'), {
+      var contextoCapturado = contextoCampanhaAtual(config, campanha, jornadaContexto);
+      return fetch(apiUrl('/api/widget/evento'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
@@ -200,10 +378,14 @@
           tela: config.tela || undefined,
           navegador: window.navigator.userAgent,
           dispositivo: getDevice(),
-          contexto: contextoComRegra(config, campanha),
+          contexto: contextoCapturado,
         }),
-      }).catch(function () { /* fail silently */ });
+      }).then(function (response) {
+        if (!response.ok) return null;
+        return response.json().catch(function () { return null; });
+      }).catch(function () { return null; });
     } catch (_e) { /* rastreamento nunca pode quebrar o site do cliente */ }
+    return null;
   }
 
   function getDevice() {
@@ -220,6 +402,7 @@
     style.id = STYLE_ID;
     style.textContent = [
       '.up-widget-root{position:fixed;z-index:2147483000;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Arial,sans-serif;color:#0b1c30}',
+      '.up-modo-teste::before{content:"MODO TESTE";position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:2147483647;padding:5px 10px;border-radius:999px;background:#5b21b6;color:#fff;font-size:10px;font-weight:800;letter-spacing:.08em;box-shadow:0 4px 14px rgba(91,33,182,.3);pointer-events:none}',
       '.up-widget-overlay{inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(11,28,48,.45)}',
       '.up-widget-root *{box-sizing:border-box}',
       '.up-fab{width:56px;height:56px;border:0;border-radius:999px;background:#0058be;color:#fff;box-shadow:0 18px 40px rgba(0,88,190,.28);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,opacity .18s ease}',
@@ -1561,7 +1744,7 @@
     }
 
     if (state.open) {
-      state.root.className = 'up-widget-root up-widget-overlay';
+      state.root.className = 'up-widget-root up-widget-overlay' + (runtimeEmPreview() ? ' up-modo-teste' : '');
     } else {
       state.root.className = 'up-widget-root';
     }
@@ -1698,16 +1881,22 @@
     if (!shouldAutoOpen(campanha) || wasShown(campanha, config)) return;
     var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
     state.timer = window.setTimeout(function () {
-      // Um tour (retomado após reload/navegação ou automático) já pode ter
-      // ocupado a tela nesse meio-tempo — não compete por cima dele.
-      if (tourState.ativo) return;
-      state.open = true;
-      markShown(campanha, config);
-      if (!state.visualizacaoRegistrada) {
-        state.visualizacaoRegistrada = true;
-        registrarEvento('visualizacao');
-      }
-      render();
+      state.timer = null;
+      presentationEnfileirar({
+        tipo: 'campanha', entidadeId: campanha.id, origem: 'autonomo', gatilho: 'entrada_tela',
+        prioridadeClasse: 6, prioridadeNegocio: campanha.prioridade || 0,
+        payload: { campanha: campanha, config: config },
+        validar: function () { return !runtimeEmPreview() && checkMode(campanha, config) && !wasShown(campanha, config); },
+        abrir: function () {
+          state.campanha = campanha;
+          state.open = true;
+          state.visualizacaoRegistrada = false;
+          markShown(campanha, config);
+          state.visualizacaoRegistrada = true;
+          registrarEvento('visualizacao');
+          render();
+        },
+      });
     }, delay);
   }
 
@@ -1834,6 +2023,7 @@
   function destaqueElementoDesmontarInstancia(instancia) {
     if (!instancia || instancia.desmontada) return;
     instancia.desmontada = true;
+    if (instancia.presentationKey) presentationLiberar(instancia.presentationKey);
     destaqueElementoUtilCancelarAutoClose(instancia);
     if (instancia.reposicionar) {
       window.removeEventListener('scroll', instancia.reposicionar, true);
@@ -2557,8 +2747,26 @@
       if (toggleEl) {
         markShown(campanha, config, item.id);
         registrarEvento('interacao_badge', campanha, config, item.id);
-        instancia.aberto = !instancia.aberto;
-        destaqueElementoRender(instancia);
+        if (instancia.aberto) {
+          instancia.aberto = false;
+          destaqueElementoRender(instancia);
+          presentationLiberar(instancia.presentationKey);
+          return;
+        }
+        presentationEnfileirar({
+          key: 'destaque:' + campanha.id + ':' + (item.id || 'legado'),
+          tipo: 'destaque', entidadeId: campanha.id, origem: 'autonomo', gatilho: 'elemento',
+          prioridadeClasse: 1, prioridadeNegocio: campanha.prioridade || 0,
+          abrir: function (entrada) {
+            instancia.presentationKey = entrada.key;
+            if (instancia.desmontada) {
+              presentationLiberar(entrada.key);
+              return;
+            }
+            instancia.aberto = true;
+            destaqueElementoRender(instancia);
+          },
+        });
         return;
       }
 
@@ -2860,7 +3068,7 @@
   // registra campanhaFechadaManualmente pra reavaliações de rotina na MESMA
   // URL não reabrirem a campanha logo em seguida. handleUrlChange (navegação)
   // e scheduleAutoClose (auto-close pós-feedback) chamam sem o flag.
-  function doClose(fechamentoManual) {
+  function doClose(fechamentoManual, aguardarDrenagem) {
     if (state.closeTimer) {
       window.clearTimeout(state.closeTimer);
       state.closeTimer = null;
@@ -2883,6 +3091,7 @@
     state.confirmacaoMarcada = false;
     state.conteudoSlideIndex = 0;
     state.error = '';
+    state.campanhaJornadaContexto = null;
     if (fechamentoManual && state.campanha && state.campanha.id) {
       campanhaFechadaManualmente = {
         id: state.campanha.id,
@@ -2891,6 +3100,7 @@
       };
     }
     render();
+    presentationLiberar(null, aguardarDrenagem);
   }
 
   function scheduleAutoClose(delayMs) {
@@ -3058,7 +3268,11 @@
         // conteudoRenderItemHtml). Ausente no fallback legado (id:null) — aí
         // o clique é registrado sem conteudo_item_id, igual a antes.
         var ctaConteudoId = ctaButton.getAttribute('data-up-conteudo-id');
-        registrarEvento('clique_cta', null, null, null, ctaConteudoId ? { conteudo_item_id: ctaConteudoId } : undefined);
+        var ctaEmPreview = runtimeEmPreview();
+        Promise.resolve(registrarEvento('clique_cta', null, null, null, ctaConteudoId ? { conteudo_item_id: ctaConteudoId } : undefined))
+          .then(function (data) {
+            if (ctaEmPreview || (data && data.etapa_concluida)) concluirCampanhaJornadaAtual(data);
+          });
         return;
       }
 
@@ -3432,14 +3646,35 @@
     return { ok: true, motivo: 'atendida', regraFalhou: null };
   }
 
+  function concluirCampanhaJornadaAtual(respostaAutoritativa) {
+    var contexto = state.campanhaJornadaContexto;
+    if (!contexto || !state.config || !state.config.usuario_id) return;
+    var jornada = jornadaEncontrar(contexto.jornadaId);
+    var bloco = jornadaEncontrarBloco(jornada, contexto.blocoId);
+    var etapa = jornadaEncontrarEtapa(bloco, contexto.etapaId);
+    if (!jornada || !bloco || !etapa || etapa.status === 'concluida') return;
+    var resposta = runtimeEmPreview()
+      ? { etapa_concluida: true, bloco_concluido: true, jornada_concluida: true }
+      : respostaAutoritativa;
+    jornadaMarcarConcluida(jornada, bloco, etapa, { origem: 'campanha' }, resposta);
+  }
+
   function submitFeedback() {
     var campanha = state.campanha;
     var config = state.config;
     if (!campanha || !config || state.nota === null || state.submitting) return;
     if (campanha.feedback_habilitado === false) return;
 
+    if (runtimeEmPreview()) {
+      state.submitted = true;
+      concluirCampanhaJornadaAtual();
+      render();
+      return;
+    }
+
     if (!config.usuario_id) {
       state.submitted = true;
+      if (jornadaState && jornadaState.modoTeste) concluirCampanhaJornadaAtual();
       render();
       return;
     }
@@ -3459,6 +3694,8 @@
       if (errEl) errEl.textContent = '';
     }
 
+    var jornadaContexto = state.campanhaJornadaContexto;
+    var contextoCapturado = contextoCampanhaAtual(config, campanha, jornadaContexto);
     fetch(apiUrl('/api/widget/feedback'), {
       method: 'POST',
       headers: {
@@ -3477,7 +3714,7 @@
         tela: config.tela || undefined,
         navegador: window.navigator.userAgent,
         dispositivo: getDevice(),
-        contexto: contextoComRegra(config, campanha),
+        contexto: contextoCapturado,
       }),
     })
       .then(function (response) {
@@ -3495,6 +3732,7 @@
       .then(function (data) {
         state.submitted = true;
         state.feedbackId = (data && data.id) ? data.id : null;
+        if (data && data.etapa_concluida) concluirCampanhaJornadaAtual(data);
       })
       .catch(function (error) {
         state.error = error && error.message ? error.message : 'Erro ao enviar feedback.';
@@ -3516,8 +3754,17 @@
       return;
     }
 
+
+    if (runtimeEmPreview()) {
+      state.submitted = true;
+      concluirCampanhaJornadaAtual();
+      render();
+      return;
+    }
+
     if (!config.usuario_id) {
       state.submitted = true;
+      if (jornadaState && jornadaState.modoTeste) concluirCampanhaJornadaAtual();
       render();
       return;
     }
@@ -3531,6 +3778,8 @@
       if (errEl) errEl.textContent = '';
     }
 
+    var jornadaContexto = state.campanhaJornadaContexto;
+    var contextoCapturado = contextoCampanhaAtual(config, campanha, jornadaContexto);
     fetch(apiUrl('/api/widget/confirmacao'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -3540,7 +3789,7 @@
         usuario_id: config.usuario_id,
         usuario_nome: config.usuario_nome || undefined,
         usuario_email: config.usuario_email || undefined,
-        contexto: contextoComRegra(config, campanha),
+        contexto: contextoCapturado,
       }),
     })
       .then(function (response) {
@@ -3553,8 +3802,9 @@
         }
         return response.json();
       })
-      .then(function () {
+      .then(function (data) {
         state.submitted = true;
+        if (data && data.etapa_concluida) concluirCampanhaJornadaAtual(data);
       })
       .catch(function (error) {
         state.error = error && error.message ? error.message : 'Erro ao confirmar leitura.';
@@ -3638,7 +3888,7 @@
     // (evaluateUrlCampaigns) continuam intactos.
     if (
       state.config &&
-      (state.open || state.timer) &&
+      (state.open || state.timer || tourState.ativo || jornadaState.aberto) &&
       !Object.keys(pendingContext).length &&
       initConfigEfetivaIgual(normalizeConfig(config || {}), state.config)
     ) {
@@ -3677,6 +3927,15 @@
     // evaluateCampaigns() (de um updateContext() anterior) ainda em voo —
     // a resposta dela nunca pode agir sobre o contexto deste init() novo.
     destaqueElementoDesmontarTodos();
+    if (tourState.ativo) finalizarTour('reinit_config_alterada', false, true);
+    if (jornadaState.aberto) {
+      jornadaState.aberto = false;
+      var painelAnterior = document.getElementById(JORNADA_PAINEL_ID);
+      if (painelAnterior) painelAnterior.remove();
+    }
+    // init() inicia uma nova sessão do widget, portanto nenhuma candidatura
+    // antiga pode continuar ocupando ou aguardando o foco.
+    presentationReiniciarRuntime();
     evaluateCampaignsToken++;
     // A busca inicial também é assíncrona. Se updateContext() ou outro
     // init() iniciar uma avaliação depois desta, a resposta antiga não pode
@@ -3693,6 +3952,12 @@
       pendingContext = {};
     }
     state.config = normalized;
+    jornadaPreviewGeracao++;
+    jornadaPreviewPendente = false;
+    jornadaState.modoTeste = false;
+    jornadaState.jornadas = [];
+    jornadaState.execucoes = {};
+    var previewJornadaAtivo = iniciarPreviewJornadaSeNecessario();
     debugLog('Widget carregado / init()', {
       config: debugSanitizar(normalized),
       url: debugStatusUrl(),
@@ -3705,8 +3970,11 @@
     if (!normalized.public_key) {
       debugLog('public_key ausente em init() — usando fallback temporário pro tenant Quark. Defina { public_key: "..." } antes que isso deixe de funcionar.', {});
     }
-    iniciarGravadorSeNecessario();
-    iniciarPreviewSeNecessario();
+    var previewTourAtivo = false;
+    if (!previewJornadaAtivo) {
+      iniciarGravadorSeNecessario();
+      previewTourAtivo = iniciarPreviewSeNecessario();
+    }
     state.campanha = null;
     state.open = false;
     state.nota = null;
@@ -3751,6 +4019,10 @@
     bindSpaListeners();
 
     ensureStyles();
+
+    // O token de preview é reconhecido de forma síncrona, antes de qualquer
+    // busca real. A única chamada permitida nesta sessão é a do snapshot.
+    if (previewJornadaAtivo || previewTourAtivo) return;
 
     // Aparência do widget (cor principal + logo do tour) — a busca em si roda
     // em paralelo com tudo abaixo (nunca bloqueia o fetch de campanha/tour
@@ -3894,6 +4166,7 @@
           .catch(function () {});
       } else {
         var contextoInit = resolveContexto();
+        var finalizarColetaInicial = presentationIniciarColeta();
         fetchCandidatas(normalized.sistema, normalized.tela, 'ao_abrir_tela', null, normalized.usuario_id, contextoInit)
           .then(function (candidatos) {
             if (meuTokenInicial !== evaluateCampaignsToken) return;
@@ -3923,7 +4196,8 @@
               scheduleAutoOpen(selecionada, normalized);
             }
           })
-          .catch(function () {});
+          .catch(function () {})
+          .then(finalizarColetaInicial, finalizarColetaInicial);
       }
       if (normalized.sistema) avaliarTourAutomatico(normalized);
     });
@@ -3936,11 +4210,13 @@
 
   function track(eventoNome, metadataOpcional) {
     if (!state.config || !eventoNome) return;
+    if (runtimeEmPreview()) return;
     var config = state.config;
     if (!config.sistema) return;
 
     // Resolve context first — shared between conclusao POST and fetchCandidatas
     var contextoTrack = resolveContexto();
+    var geracaoTrack = presentationState.geracaoContexto;
 
     // Register event in global user history — enables retroactive blocking for
     // campaigns created after this event fires.
@@ -3958,8 +4234,10 @@
       }).catch(function () { /* fail silently */ });
     }
 
+    var finalizarColetaCampanha = presentationIniciarColeta();
     fetchCandidatas(config.sistema, config.tela, 'apos_evento', eventoNome, config.usuario_id, contextoTrack)
       .then(function (candidatos) {
+        if (geracaoTrack !== presentationState.geracaoContexto || runtimeEmPreview()) return;
         var exibida = false;
         var linhasDebug = [];
         for (var i = 0; i < candidatos.length; i++) {
@@ -3989,43 +4267,56 @@
             state.config = Object.assign({}, config, { contexto: merged });
           }
 
-          state.campanha = campanha;
-          state.open = false;
-          state.nota = null;
-          state.observacao = '';
-          state.confirmacaoMarcada = false;
-          state.conteudoSlideIndex = 0;
-          state.submitting = false;
-          state.submitted = false;
-          state.error = '';
-          state.visualizacaoRegistrada = false;
-          state.feedbackId = null;
-          state.telefone = '';
-          state.phoneSubmitting = false;
-          state.phoneDone = false;
-          state.phoneError = '';
-          ensureStyles();
-          resetRoot();
-          state.open = true;
-          markShown(campanha, config);
-          state.visualizacaoRegistrada = true;
-          registrarEvento('visualizacao');
-          render();
+           presentationEnfileirar({
+             tipo: 'campanha', entidadeId: campanha.id, origem: 'host', gatilho: 'evento',
+             geracaoContexto: geracaoTrack,
+             prioridadeClasse: 1, prioridadeNegocio: campanha.prioridade || 0,
+             abrir: function () {
+               state.campanha = campanha;
+               state.open = false;
+               state.nota = null;
+               state.observacao = '';
+               state.confirmacaoMarcada = false;
+               state.conteudoSlideIndex = 0;
+               state.submitting = false;
+               state.submitted = false;
+               state.error = '';
+               state.visualizacaoRegistrada = false;
+               state.feedbackId = null;
+               state.telefone = '';
+               state.phoneSubmitting = false;
+               state.phoneDone = false;
+               state.phoneError = '';
+               ensureStyles();
+               resetRoot();
+               state.open = true;
+               markShown(campanha, config);
+               state.visualizacaoRegistrada = true;
+               registrarEvento('visualizacao');
+               render();
+             },
+           });
           break;
         }
         if (debugState.enabled) debugLog('Campanhas candidatas (apos_evento: ' + eventoNome + ')', linhasDebug);
       })
-      .catch(function () { /* fail silently */ });
+      .catch(function () { /* fail silently */ })
+      .then(finalizarColetaCampanha, finalizarColetaCampanha);
+    avaliarTourAutomatico(config, 'evento', String(eventoNome));
   }
 
   function evaluateUrlCampaigns() {
     var config = state.config;
     if (!config || !config.sistema) return;
-    if (state.open) return;
+    if (runtimeEmPreview()) return;
+    if (state.open || presentationState.ativo) return;
 
     var contextoUrl = resolveContexto();
+    var geracaoUrl = presentationState.geracaoContexto;
+    var finalizarColeta = presentationIniciarColeta();
     fetchCandidatas(config.sistema, '', 'ao_abrir_tela', null, config.usuario_id, contextoUrl)
       .then(function (candidatos) {
+        if (geracaoUrl !== presentationState.geracaoContexto || runtimeEmPreview()) return;
         // Re-checa state.open DEPOIS do fetch resolver (mesma proteção que
         // evaluateCampaigns já tem, ver logo abaixo). Sem isso, uma
         // reavaliação de rotina disparada por handleUrlChange enquanto o modal
@@ -4036,7 +4327,7 @@
         // doClose do fix anterior não cobria). Também é o que impede a
         // proteção equivalente de evaluateCampaigns de ser derrotada por esta
         // função rodar primeiro e zerar state.open.
-        if (state.open) return;
+        if (state.open || presentationState.ativo) return;
         var linhasDebug = [];
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
@@ -4083,7 +4374,8 @@
         }
         if (debugState.enabled) debugLog('Campanhas candidatas (url_contem)', linhasDebug);
       })
-      .catch(function () {});
+      .catch(function () {})
+      .then(finalizarColeta, finalizarColeta);
   }
 
   // Incrementado em init() e a cada chamada de evaluateCampaigns() — guarda
@@ -4118,16 +4410,19 @@
   function evaluateCampaigns() {
     var config = state.config;
     if (!config || !config.sistema) return;
-    if (state.open) return;
+    if (runtimeEmPreview()) return;
+    if (state.open || presentationState.ativo) return;
     var contexto = resolveContexto();
     var meuToken = ++evaluateCampaignsToken;
+    var geracaoCampanhas = presentationState.geracaoContexto;
+    var finalizarColeta = presentationIniciarColeta();
     fetchCandidatas(config.sistema, config.tela, 'ao_abrir_tela', null, config.usuario_id, contexto)
       .then(function (candidatos) {
         // Resposta atrasada de uma avaliação já superada por outra mais
         // recente (novo updateContext() ou init()) — nunca pode agir sobre
         // um contexto que não existe mais. Ver evaluateCampaignsToken.
-        if (meuToken !== evaluateCampaignsToken) return;
-        if (state.open) return;
+        if (meuToken !== evaluateCampaignsToken || geracaoCampanhas !== presentationState.geracaoContexto || runtimeEmPreview()) return;
+        if (state.open || presentationState.ativo) return;
         var linhasDebug = [];
         // null quando nenhuma candidata destaque_elemento passa nos filtros
         // desta rodada — destaqueElementoSincronizarSelecao (chamado sempre,
@@ -4184,7 +4479,8 @@
         destaqueElementoSincronizarSelecao(destaqueSelecionado, config);
         if (debugState.enabled) debugLog('Campanhas candidatas (updateContext/evaluateCampaigns, tela: ' + config.tela + ')', linhasDebug);
       })
-      .catch(function () {});
+      .catch(function () {})
+      .then(finalizarColeta, finalizarColeta);
   }
 
   // ─── SPA Context Updates ──────────────────────────────────────────────────
@@ -4200,6 +4496,7 @@
       return;
     }
     state.config.contexto = Object.assign({}, state.config.contexto || {}, novoContexto);
+    presentationNovoContexto();
     evaluateCampaigns();
     // updateContext() é o jeito "leve" de atualizar contexto sem chamar
     // init() de novo (ex.: usuario_id só ficou disponível depois do mount
@@ -4235,6 +4532,7 @@
     if (currentUrl === lastUrl && !forcarReavaliacao) return;
     var urlAnterior = lastUrl;
     lastUrl = currentUrl;
+    presentationNovoContexto();
     if (urlChangeTimer) { window.clearTimeout(urlChangeTimer); urlChangeTimer = null; }
     urlChangeTimer = window.setTimeout(function () {
       urlChangeTimer = null;
@@ -4408,6 +4706,9 @@
 
   var tourState = {
     tour: null,
+    execucao_id: null,
+    origem: null,
+    gatilho: null,
     // { cor_principal, logo_url } vindo de GET /api/widget/aparencia (ver
     // fetchAparencia/init) — null até resolver (ou se o sistema não tiver
     // nenhuma configuração salva). Nunca bloqueia a renderização: enquanto
@@ -4513,6 +4814,7 @@
     // não dependem de um elemento no DOM, renderizadas antes/depois dos passos.
     tela: null,
     feedbackEscolhido: null,
+    concluindo: false,
     fimTimer: null,
     // true só durante "Pré-visualizar tour" do gravador (ver
     // recorderPreVisualizarTour) — nesse modo, registrarEventoTour/
@@ -4769,18 +5071,46 @@
     return 'userpulse:tour:' + tour.id;
   }
 
+  function tourSessaoShownKey(tour) {
+    return tourShownKey(tour) + ':sessao';
+  }
+
   function tourWasShown(tour) {
     try {
-      return window.localStorage.getItem(tourShownKey(tour)) === '1';
+      var frequencia = tour.frequencia || 'uma_vez_por_usuario';
+      if (frequencia === 'sempre') return false;
+      if (frequencia === 'uma_vez_por_sessao') return window.sessionStorage.getItem(tourSessaoShownKey(tour)) === '1';
+      var bruto = window.localStorage.getItem(tourShownKey(tour));
+      if (!bruto) return false;
+      if (bruto === '1') return true;
+      var registro = JSON.parse(bruto);
+      if (frequencia === 'ate_concluir') return registro.status === 'concluido';
+      if (frequencia === 'intervalo_dias') {
+        var dias = Number(tour.frequencia_intervalo_dias) || 0;
+        return dias > 0 && Date.now() - Number(registro.iniciadoEm || 0) < dias * 86400000;
+      }
+      return Boolean(registro.iniciadoEm);
     } catch (_err) {
       return false;
     }
   }
 
-  function tourMarkShown(tour) {
+  function tourMarkShown(tour, status) {
+    if (jornadaState && jornadaState.modoTeste) return;
     if (tourState.preview) return; // prévia do gravador nunca marca "já visto" no navegador real
     try {
-      window.localStorage.setItem(tourShownKey(tour), '1');
+      var frequencia = tour.frequencia || 'uma_vez_por_usuario';
+      if (frequencia === 'sempre') return;
+      if (frequencia === 'uma_vez_por_sessao') {
+        window.sessionStorage.setItem(tourSessaoShownKey(tour), '1');
+        return;
+      }
+      var chave = tourShownKey(tour);
+      var registro = {};
+      try { registro = JSON.parse(window.localStorage.getItem(chave) || '{}'); } catch (_e) {}
+      if (!registro.iniciadoEm) registro.iniciadoEm = Date.now();
+      registro.status = status || registro.status || 'iniciado';
+      window.localStorage.setItem(chave, JSON.stringify(registro));
     } catch (_err) {}
   }
 
@@ -4792,11 +5122,15 @@
   function registrarEventoTour(tipoEvento, passoOrdem, contextoExtra) {
     var tour = tourState.tour;
     var config = state.config;
-    if (!tour || !config || tourState.preview) return; // prévia do gravador nunca gera evento real
+    if (!tour || !config || runtimeEmPreview()) return Promise.resolve(null); // previews nunca geram evento real
+    var jornadaContexto = tourState.jornadaContexto;
+    var execucaoId = tourState.execucao_id;
+    var origem = tourState.origem || (jornadaContexto ? 'jornada' : 'autonomo');
+    var gatilho = tourState.gatilho || (jornadaContexto ? 'etapa_jornada' : 'manual');
     var contexto = contextoExtra
       ? Object.assign({}, config.contexto || {}, contextoExtra)
       : (config.contexto || undefined);
-    fetch(apiUrl('/api/widget/tour/evento'), {
+    return fetch(apiUrl('/api/widget/tour/evento'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
@@ -4810,8 +5144,18 @@
         navegador: window.navigator.userAgent,
         dispositivo: getDevice(),
         contexto: contexto,
+        execucao_id: execucaoId || undefined,
+        origem: origem,
+        gatilho: gatilho,
+        jornada_id: jornadaContexto ? jornadaContexto.jornadaId : undefined,
+        bloco_id: jornadaContexto ? jornadaContexto.blocoId : undefined,
+        etapa_id: jornadaContexto ? jornadaContexto.etapaId : undefined,
+        execucao_jornada_id: jornadaContexto ? jornadaContexto.execucaoJornadaId : undefined,
       }),
-    }).catch(function () { /* fail silently */ });
+    }).then(function (response) {
+      if (!response.ok) return null;
+      return response.json().catch(function () { return null; });
+    }).catch(function () { return null; });
   }
 
   // Aceita tanto o valor cru ("meu-valor") quanto colado por engano no formato
@@ -5610,7 +5954,7 @@
     if (oldRoot) oldRoot.remove();
     var root = document.createElement('div');
     root.id = TOUR_WIDGET_ID;
-    root.className = 'up-tour-overlay';
+    root.className = 'up-tour-overlay' + (runtimeEmPreview() ? ' up-modo-teste' : '');
     tourState.root = root;
     root.innerHTML = [
       '<div class="up-tour-tooltip up-tour-tooltip-central" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)">',
@@ -5651,7 +5995,7 @@
 
     var root = document.createElement('div');
     root.id = TOUR_WIDGET_ID;
-    root.className = 'up-tour-overlay';
+    root.className = 'up-tour-overlay' + (runtimeEmPreview() ? ' up-modo-teste' : '');
     tourState.root = root;
     // Todo renderTourInterno() constrói um DOM novo — o marcador só volta a
     // apontar pra um índice de verdade (ver tourAtualizarPosicaoDOM) se a
@@ -5822,6 +6166,7 @@
   // continuação normalmente no mesmo ciclo — ela só sobra em sessionStorage
   // pra ser lida de fato quando o reload de fato interrompeu o JS no meio.
   var TOUR_RESUME_STORAGE_KEY = 'userpulse:tour_resume:v1';
+  var TOUR_PREVIEW_RESUME_STORAGE_KEY = 'userpulse:tour_preview_resume:v1';
   // Generoso o bastante pra cobrir uma navegação/carregamento lento de SPA,
   // mas curto o bastante pra nunca retomar algo que o usuário claramente já
   // abandonou (aba fechada e reaberta bem depois, por exemplo).
@@ -5850,9 +6195,11 @@
   // tourRetomarSeHouver.
   function tourSalvarContinuacao(indiceProximo, concluir) {
     if (!tourState.tour) return;
+    if (jornadaState && jornadaState.modoTeste) return;
     try {
       var modo = tourModoAtual();
-      window.sessionStorage.setItem(TOUR_RESUME_STORAGE_KEY, JSON.stringify({
+      var storageKey = tourState.preview ? TOUR_PREVIEW_RESUME_STORAGE_KEY : TOUR_RESUME_STORAGE_KEY;
+      window.sessionStorage.setItem(storageKey, JSON.stringify({
         v: 1,
         modo: modo,
         tourSlug: tourState.tour.slug || null,
@@ -5861,6 +6208,9 @@
         indiceProximo: concluir ? null : indiceProximo,
         concluir: Boolean(concluir),
         jornadaContexto: tourState.jornadaContexto || null,
+        execucao_id: tourState.execucao_id || null,
+        origem: tourState.origem || null,
+        gatilho: tourState.gatilho || null,
         savedAt: Date.now(),
         // 'pendente' até tourRetomarSeHouver() começar a processar essa
         // continuação (ver lá, onde vira 'retomando') — aqui é sempre uma
@@ -5872,7 +6222,7 @@
 
   function tourLimparContinuacao() {
     try {
-      window.sessionStorage.removeItem(TOUR_RESUME_STORAGE_KEY);
+      window.sessionStorage.removeItem(tourState.preview ? TOUR_PREVIEW_RESUME_STORAGE_KEY : TOUR_RESUME_STORAGE_KEY);
     } catch (_e) {}
   }
 
@@ -5891,7 +6241,7 @@
   function tourContinuacaoValidaParaSpa() {
     if (!tourState.ativo || !tourState.tour) return null;
     var bruto;
-    try { bruto = window.sessionStorage.getItem(TOUR_RESUME_STORAGE_KEY); } catch (_e) { return null; }
+    try { bruto = window.sessionStorage.getItem(tourState.preview ? TOUR_PREVIEW_RESUME_STORAGE_KEY : TOUR_RESUME_STORAGE_KEY); } catch (_e) { return null; }
     if (!bruto) return null;
     var dados;
     try { dados = JSON.parse(bruto); } catch (_e) { return null; }
@@ -5922,6 +6272,8 @@
     fetchJornadas(config.sistema, config.tela, config.usuario_id, contexto).then(function (jornadas) {
       jornadaState.jornadas = (jornadas || []).map(function (j) {
         j._concluidaRegistrada = Boolean(j.progresso && j.progresso.concluida);
+        var execucaoSalva = jornadaLerExecucao(j.id);
+        if (execucaoSalva) jornadaState.execucoes[j.id] = execucaoSalva;
         return j;
       });
       callback();
@@ -5935,14 +6287,17 @@
   // "manter sessão e tentar novamente até expirar" / "nunca sumir
   // silenciosamente"). Antes desistia depois de só 4 tentativas (~1.4s no
   // total) — bem antes da sessão realmente expirar.
-  function fetchTourComRetry(slug, tentativa, callback, prazoLimite) {
+  function fetchTourComRetry(slug, tentativa, callback, prazoLimite, geracaoCapturada) {
+    var geracaoFetch = geracaoCapturada == null ? presentationState.geracaoContexto : geracaoCapturada;
     fetchTour(slug).then(function (tour) {
+      if (geracaoFetch !== presentationState.geracaoContexto) return;
       if (tour) { callback(tour); return; }
       if (Date.now() >= prazoLimite) { callback(null); return; }
-      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback, prazoLimite); }, tourIntervaloRetry(tentativa));
+      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback, prazoLimite, geracaoFetch); }, tourIntervaloRetry(tentativa));
     }).catch(function () {
+      if (geracaoFetch !== presentationState.geracaoContexto) return;
       if (Date.now() >= prazoLimite) { callback(null); return; }
-      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback, prazoLimite); }, tourIntervaloRetry(tentativa));
+      window.setTimeout(function () { fetchTourComRetry(slug, tentativa + 1, callback, prazoLimite, geracaoFetch); }, tourIntervaloRetry(tentativa));
     });
   }
 
@@ -5961,7 +6316,14 @@
   // sem tour pra retomar, índice inválido).
   function tourRetomarSeHouver(callback) {
     var bruto;
-    try { bruto = window.sessionStorage.getItem(TOUR_RESUME_STORAGE_KEY); } catch (_e) { callback(); return; }
+    var usarPreview = false;
+    var storageKeyRetomada = TOUR_RESUME_STORAGE_KEY;
+    try {
+      var paramsRetomada = new URLSearchParams(window.location.search || '');
+      usarPreview = recorderState.ativo || paramsRetomada.get('userpulse_preview') === '1' || paramsRetomada.get('userpulse_recorder') === '1';
+      storageKeyRetomada = usarPreview ? TOUR_PREVIEW_RESUME_STORAGE_KEY : TOUR_RESUME_STORAGE_KEY;
+      bruto = window.sessionStorage.getItem(storageKeyRetomada);
+    } catch (_e) { callback(); return; }
     if (!bruto) { callback(); return; }
     var dados;
     try { dados = JSON.parse(bruto); } catch (_e) { tourLimparContinuacao(); callback(); return; }
@@ -5990,7 +6352,7 @@
         recorderState.previewIndices = dados.previewContexto.previewIndices;
       }
       dados.status = 'retomando';
-      try { window.sessionStorage.setItem(TOUR_RESUME_STORAGE_KEY, JSON.stringify(dados)); } catch (_e) {}
+      try { window.sessionStorage.setItem(storageKeyRetomada, JSON.stringify(dados)); } catch (_e) {}
       if (dados.concluir) {
         finalizarTour('retomada_preview_concluir');
         tourState.tour = tourPreview;
@@ -6008,7 +6370,7 @@
         callback();
         return;
       }
-      iniciarTour(tourPreview, true, true, modo === 'preview_usuario', null, indicePreview, true);
+       iniciarTour(tourPreview, true, true, modo === 'preview_usuario', null, indicePreview, true, null, dados.execucao_id || null);
       callback();
       return;
     }
@@ -6016,7 +6378,7 @@
     if (!dados.tourSlug) { tourLimparContinuacao(); callback(); return; }
 
     dados.status = 'retomando';
-    try { window.sessionStorage.setItem(TOUR_RESUME_STORAGE_KEY, JSON.stringify(dados)); } catch (_e) {}
+    try { window.sessionStorage.setItem(storageKeyRetomada, JSON.stringify(dados)); } catch (_e) {}
 
     function prosseguir(tour) {
       if (!tour || !tour.passos || tour.passos.length === 0) { tourLimparContinuacao(); callback(); return; }
@@ -6029,6 +6391,9 @@
         finalizarTour('retomada_apos_reload_concluir');
         tourState.tour = tour;
         tourState.ativo = true;
+        tourState.execucao_id = dados.execucao_id || null;
+        tourState.origem = dados.origem || (jornadaContexto ? 'jornada' : 'autonomo');
+        tourState.gatilho = dados.gatilho || (jornadaContexto ? 'etapa_jornada' : 'manual');
         tourState.indice = tour.passos.length - 1;
         tourState.jornadaContexto = jornadaContexto;
         tourConcluir();
@@ -6042,7 +6407,7 @@
       // true impede que a própria chamada a finalizarTour() dentro de
       // iniciarTour() (limpeza de um tour anterior, se houver) apague a sessão
       // prematuramente, antes desse desfecho real acontecer.
-      iniciarTour(tour, true, false, false, jornadaContexto, indice, true);
+       iniciarTour(tour, true, false, false, jornadaContexto, indice, true, dados.gatilho || null, dados.execucao_id || null);
       callback();
     }
 
@@ -6494,7 +6859,7 @@
 
   function tourPular() {
     registrarEventoTour('pulado', tourState.indice);
-    if (tourState.tour && (!state.config || !state.config.usuario_id)) tourMarkShown(tourState.tour);
+    if (tourState.tour) tourMarkShown(tourState.tour, 'pulado');
     finalizarTour('usuario_pulou');
   }
 
@@ -6650,8 +7015,20 @@
   // em vez de encerrar na hora — finalizarTour() só roda quando o usuário
   // fecha essa tela (botão fechar, Esc ou o auto-fechar após o feedback).
   function tourConcluir() {
-    registrarEventoTour('concluido', tourState.indice);
-    if (tourState.tour && (!state.config || !state.config.usuario_id)) tourMarkShown(tourState.tour);
+    if (tourState.concluindo) return;
+    var execucaoCapturada = tourState.execucao_id;
+    var jornadaCapturada = tourState.jornadaContexto;
+    tourState.concluindo = true;
+    var confirmar = runtimeEmPreview()
+      ? Promise.resolve({ ok: true, etapa_concluida: true })
+      : registrarEventoTour('concluido', tourState.indice);
+    confirmar.then(function (resultado) {
+      if (!tourState.ativo || tourState.execucao_id !== execucaoCapturada) return;
+      if (!resultado || (jornadaCapturada && !resultado.etapa_concluida)) {
+        tourState.concluindo = false;
+        return;
+      }
+      if (tourState.tour) tourMarkShown(tourState.tour, 'concluido');
     limparBuscaTimer();
     limparInteracao();
     limparNextClickTimer();
@@ -6667,15 +7044,17 @@
     // Tour iniciado por uma etapa de Jornada — só agora, com o tour realmente
     // concluído (não ao meramente iniciar), a etapa é marcada concluída. Ver
     // jornadaEtapaClicar e a declaração de jornadaContexto em tourState.
-    if (tourState.jornadaContexto) {
-      var jc = tourState.jornadaContexto;
+    if (jornadaCapturada) {
+      var jc = jornadaCapturada;
       tourState.jornadaContexto = null;
       var jornadaC = jornadaEncontrar(jc.jornadaId);
       var blocoC = jornadaEncontrarBloco(jornadaC, jc.blocoId);
       var etapaC = jornadaEncontrarEtapa(blocoC, jc.etapaId);
-      if (jornadaC && blocoC && etapaC) jornadaMarcarConcluida(jornadaC, blocoC, etapaC, jc.contextoExtra);
+      if (jornadaC && blocoC && etapaC) jornadaMarcarConcluida(jornadaC, blocoC, etapaC, jc.contextoExtra, resultado);
     }
+    tourState.concluindo = false;
     renderTour();
+    });
   }
 
   // motivo (obrigatório em espírito, opcional em runtime): string curta e
@@ -6693,7 +7072,7 @@
   // 'retomando' — ver iniciarTour() e o bug que isso causava: a sessão sumia
   // do sessionStorage assim que a retomada começava, antes de qualquer
   // desfecho real (passo achado, fallback, conclusão ou abandono).
-  function finalizarTour(motivo, preservarContinuacao) {
+  function finalizarTour(motivo, preservarContinuacao, manterApresentacao) {
     limparBuscaTimer();
     limparInteracao();
     limparNextClickTimer();
@@ -6706,11 +7085,15 @@
     if (oldRoot) oldRoot.remove();
     tourState.ativo = false;
     tourState.tour = null;
+    tourState.execucao_id = null;
+    tourState.origem = null;
+    tourState.gatilho = null;
     tourState.root = null;
     tourState.elementoAtual = null;
     tourState.naoEncontrado = false;
     tourState.tela = null;
     tourState.feedbackEscolhido = null;
+    tourState.concluindo = false;
     tourState.suprimirAbandonoNavegacao = false;
     tourState.avancoResolvidoEm = 0;
     // Fechar/pular/concluir o tour aqui (não em iniciarTour(), que também
@@ -6737,6 +7120,7 @@
     // Tour encerrado (concluído, pulado ou fechado) — reavalia se o FAB
     // "Ajuda" deve voltar a aparecer agora que ele não está mais ocupando a tela.
     jornadaReavaliarFab();
+    if (!manterApresentacao) presentationLiberar();
   }
 
   // "Começar tour" na introdução — só agora o tour é considerado iniciado de
@@ -6744,6 +7128,7 @@
   // aqui, não em iniciarTour() (que só monta a introdução).
   function tourIntroComecar() {
     tourState.tela = null;
+    if (tourState.tour) tourMarkShown(tourState.tour, 'iniciado');
     registrarEventoTour('inicio', 0);
     bindTourReposHandlers();
     irParaPasso(0);
@@ -6784,14 +7169,48 @@
   // limpa quando irParaPasso() de fato resolver o próximo passo (achado ou
   // "não encontrado") — nunca antes, por causa desta limpeza automática de
   // "tour anterior" que finalizarTour() sempre faz aqui.
-  function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal, jornadaContexto, indiceInicial, preservarContinuacaoAoIniciar) {
+  function iniciarTour(tour, pularIntro, preview, modoUsuarioFinal, jornadaContexto, indiceInicial, preservarContinuacaoAoIniciar, gatilho, execucaoId, iniciadoPelaFila, origemSolicitada, assumirFoco) {
     if (!tour || !tour.passos || tour.passos.length === 0) return;
-    finalizarTour('novo_tour_iniciado', preservarContinuacaoAoIniciar);
+    // Uma ação explícita não pode destruir silenciosamente um Tour que já ocupa
+    // o foco. A fila completa é evolutiva, mas a proteção aqui evita a perda da
+    // execução atual enquanto outro conteúdo está aberto.
+    if (!iniciadoPelaFila) {
+      var origemFila = origemSolicitada || (jornadaContexto ? 'jornada' : 'usuario');
+      var itemFila = {
+        tipo: 'tour', entidadeId: tour.id || tour.slug || 'temporario',
+        origem: origemFila,
+        gatilho: gatilho || (jornadaContexto ? 'etapa_jornada' : 'manual'),
+        prioridadeClasse: origemFila === 'autonomo' ? 4 : (jornadaContexto ? 2 : 1),
+        prioridadeNegocio: tour.prioridade || 0,
+        aguardarColeta: false,
+        payload: { tour: tour },
+        validar: function () {
+          if (!tour || !tour.passos || !tour.passos.length) return false;
+          if (!preview && runtimeEmPreview()) return false;
+          if (!jornadaContexto || !assumirFoco) return true;
+          var jornadaAtual = jornadaEncontrar(jornadaContexto.jornadaId);
+          var blocoAtual = jornadaEncontrarBloco(jornadaAtual, jornadaContexto.blocoId);
+          var etapaAtual = jornadaEncontrarEtapa(blocoAtual, jornadaContexto.etapaId);
+          return Boolean(etapaAtual && etapaAtual.tour && etapaAtual.tour.id === tour.id);
+        },
+        abrir: function () {
+          iniciarTour(tour, pularIntro, preview, modoUsuarioFinal, jornadaContexto, indiceInicial,
+            preservarContinuacaoAoIniciar, gatilho, execucaoId, true, origemFila, false);
+        },
+      };
+      if (assumirFoco) presentationAssumirFoco(itemFila);
+      else presentationEnfileirar(itemFila);
+      return;
+    }
+    finalizarTour('novo_tour_iniciado', preservarContinuacaoAoIniciar, true);
     ensureStyles();
     tourState.tour = tour;
     tourState.ativo = true;
     tourState.preview = Boolean(preview);
     tourState.previewModoUsuarioFinal = Boolean(modoUsuarioFinal);
+    tourState.execucao_id = preview ? null : (execucaoId || ('up_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2)));
+    tourState.origem = origemSolicitada === 'jornada' || jornadaContexto ? 'jornada' : 'autonomo';
+    tourState.gatilho = gatilho || (jornadaContexto ? 'etapa_jornada' : 'manual');
     // Setado depois de finalizarTour() acima de propósito — ele zera
     // jornadaContexto (limpeza do tour anterior), e esse aqui é do tour que
     // está começando agora.
@@ -6817,7 +7236,47 @@
   // ativo:true, então nunca chega aqui um candidato inativo. Não interfere
   // com Jornada: jornadaEtapaClicar inicia o tour embutido na etapa direto
   // via iniciarTour(), sem passar por esta função.
-  function avaliarTourAutomatico(config) {
+  function tourElementoDoGatilho(gatilho) {
+    if (!gatilho || !gatilho.seletor) return null;
+    var tipo = gatilho.seletor_tipo || 'data_cy';
+    try {
+      if (tipo === 'id') return document.getElementById(tourNormalizarId(gatilho.seletor));
+      if (tipo === 'css') return document.querySelector(gatilho.seletor);
+      if (tipo !== 'data_cy') return null;
+      var valor = tourNormalizarDataCy(gatilho.seletor);
+      if (!valor) return null;
+      var escapado = (window.CSS && typeof window.CSS.escape === 'function')
+        ? window.CSS.escape(valor)
+        : valor.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\n\r\f]/g, ' ');
+      return document.querySelector('[data-cy="' + escapado + '"]');
+    } catch (_e) { return null; }
+  }
+
+  function tourResolverGatilho(tour, config, gatilhoSolicitado, eventoNome) {
+    var gatilhos = Array.isArray(tour.gatilhos) && tour.gatilhos.length ? tour.gatilhos : null;
+    if (!gatilhos) {
+      if (gatilhoSolicitado === 'evento' || gatilhoSolicitado === 'botao_ajuda') return null;
+      var legado = tour.modo_identificacao || 'sistema_tela';
+      return legado === 'url_contem' ? 'url' : (legado === 'data_cy' ? 'elemento' : 'entrada_tela');
+    }
+    for (var i = 0; i < gatilhos.length; i++) {
+      var g = gatilhos[i] || {};
+      if (gatilhoSolicitado && g.tipo !== gatilhoSolicitado) continue;
+      if (g.tipo === 'evento' && g.evento === eventoNome) return 'evento';
+      if (g.tipo === 'botao_ajuda') return 'botao_ajuda';
+      if (g.tipo === 'entrada_tela' && (!g.tela || g.tela === config.tela)) return 'entrada_tela';
+      if (g.tipo === 'url' && g.url_contem && window.location.href.indexOf(g.url_contem) !== -1) return 'url';
+      if (g.tipo === 'elemento' && g.seletor) {
+        if (tourElementoDoGatilho(g)) return 'elemento';
+      }
+    }
+    return null;
+  }
+
+  var tourAvaliacaoToken = 0;
+
+  function avaliarTourAutomatico(config, gatilhoSolicitado, eventoNome) {
+    var tokenAvaliacao = ++tourAvaliacaoToken;
     // Central de ajuda aberta não pode ser coberta por um tour automático —
     // o usuário abriu ela de propósito, então não compete por cima.
     if (tourState.ativo || jornadaState.aberto || !config.sistema) {
@@ -6826,21 +7285,30 @@
           motivo: tourState.ativo ? 'já há um tour ativo' : (jornadaState.aberto ? 'Central de Jornadas aberta' : 'config sem "sistema"'),
         });
       }
-      return;
+      return Promise.resolve(false);
     }
-    fetchTourCandidatos(config.sistema, config.tela, config.usuario_id, config.contexto)
+    if (runtimeEmPreview()) return Promise.resolve(false);
+    var geracaoCapturada = presentationState.geracaoContexto;
+    var finalizarColeta = presentationIniciarColeta();
+    return fetchTourCandidatos(config.sistema, config.tela, config.usuario_id, config.contexto)
       .then(function (candidatos) {
+        if (tokenAvaliacao !== tourAvaliacaoToken || geracaoCapturada !== presentationState.geracaoContexto || runtimeEmPreview()) return false;
         if (tourState.ativo || jornadaState.aberto) return;
         var selecionado = null;
+        var gatilhoSelecionado = null;
         var linhas = [];
         for (var i = 0; i < candidatos.length; i++) {
           var c = candidatos[i];
-          var okModo = checkMode(c, config);
+          var usaLegado = !Array.isArray(c.gatilhos) || c.gatilhos.length === 0;
+          var okModo = !usaLegado || checkMode(c, config);
           var seg = avaliarSegmentacaoTour(c, config);
+          var gatilhoReal = tourResolverGatilho(c, config, gatilhoSolicitado, eventoNome);
           // Com usuario_id, confia no backend (já fez dedupe/reexibição). Sem
           // usuario_id, o servidor não tem como identificar o usuário — cai
           // no fallback localStorage.
-          var jaVisto = !config.usuario_id && tourWasShown(c);
+          var jaVisto = c.frequencia === 'uma_vez_por_sessao'
+            ? tourWasShown(c)
+            : (!config.usuario_id && tourWasShown(c));
           if (debugState.enabled) {
             var motivo;
             if (!okModo) motivo = 'bloqueado: modo_identificacao não corresponde';
@@ -6856,13 +7324,18 @@
               motivo: motivo,
             });
           }
-          if (!okModo || !seg.ok || jaVisto) continue;
-          if (!selecionado) selecionado = c;
+          if (!okModo || !seg.ok || jaVisto || !gatilhoReal) continue;
+          if (!selecionado) { selecionado = c; gatilhoSelecionado = gatilhoReal; }
         }
         if (debugState.enabled) debugLog('Tour automático — candidatos (' + config.tela + ')', linhas);
-        if (selecionado) aguardarAparenciaEIniciarTour(selecionado);
+        if (selecionado) {
+          aguardarAparenciaEIniciarTour(selecionado, gatilhoSelecionado, geracaoCapturada, config);
+          return true;
+        }
+        return false;
       })
-      .catch(function () { /* fail silently */ });
+      .catch(function () { return false; })
+      .then(function (resultado) { finalizarColeta(); return resultado; }, function () { finalizarColeta(); return false; });
   }
 
   // Adia iniciarTour() até a aparência (cor/logo) do sistema atual estar
@@ -6874,13 +7347,15 @@
   // essa promise já está resolvida (aparenciaPromise é setada uma vez em
   // init() e reaproveitada por toda a sessão da SPA), então isso resolve no
   // mesmo tick, sem atraso perceptível.
-  function aguardarAparenciaEIniciarTour(tour) {
+  function aguardarAparenciaEIniciarTour(tour, gatilho, geracaoCapturada, configCapturado) {
     var promise = aparenciaPromise || Promise.resolve(null);
     promise.then(function () {
       // Reconfere depois da espera: outro tour pode ter iniciado, ou a
       // Central de Ajuda pode ter sido aberta, nesse meio-tempo.
-      if (tourState.ativo || jornadaState.aberto) return;
-      iniciarTour(tour);
+      if (geracaoCapturada !== presentationState.geracaoContexto || runtimeEmPreview()) return;
+      var usaLegado = !Array.isArray(tour.gatilhos) || tour.gatilhos.length === 0;
+      if (tourState.ativo || jornadaState.aberto || (usaLegado && !checkMode(tour, configCapturado))) return;
+      iniciarTour(tour, false, false, false, null, undefined, undefined, gatilho, null, false, 'autonomo');
     });
   }
 
@@ -10604,14 +11079,14 @@
   // preferimos nunca iniciar preview nesse caso, mesmo que por algum motivo
   // futuro o gravador viesse a não ativar de fato.
   function iniciarPreviewSeNecessario() {
-    if (recorderState.ativo || tourState.ativo) return;
+    if (recorderState.ativo || tourState.ativo) return false;
     var params;
-    try { params = new URLSearchParams(window.location.search); } catch (_e) { return; }
-    if (params.get('userpulse_recorder') === '1') return;
-    if (params.get('userpulse_preview') !== '1') return;
+    try { params = new URLSearchParams(window.location.search); } catch (_e) { return false; }
+    if (params.get('userpulse_recorder') === '1') return false;
+    if (params.get('userpulse_preview') !== '1') return false;
 
     var passos = recorderLerPassosIniciais(params, 'up_preview_passos');
-    if (passos.length === 0) return;
+    if (passos.length === 0) return false;
 
     var tourPreview = {
       id: null,
@@ -10620,6 +11095,7 @@
       passos: passos,
     };
     iniciarTour(tourPreview, false, true);
+    return true;
   }
 
   // API pública para disparar um tour manualmente (ex.: botão "Ver tour" no host):
@@ -10628,10 +11104,16 @@
   // backend) — um tour inativo (rascunho) simplesmente não é encontrado,
   // então não inicia por slug, sem precisar de checagem extra aqui.
   // jornadaContexto (opcional, uso interno) — ver jornadaEtapaClicar/tourConcluir.
+  var iniciarTourIntencao = 0;
+
   function iniciarTourPublico(slug, jornadaContexto) {
     if (!slug) return;
+    if (runtimeEmPreview()) return;
+    var minhaIntencao = ++iniciarTourIntencao;
+    var geracaoIntencao = presentationState.geracaoContexto;
     fetchTour(slug).then(function (tour) {
-      if (tour) iniciarTour(tour, false, false, false, jornadaContexto);
+      if (minhaIntencao !== iniciarTourIntencao || geracaoIntencao !== presentationState.geracaoContexto || runtimeEmPreview()) return;
+      if (tour) iniciarTour(tour, false, false, false, jornadaContexto, undefined, undefined, jornadaContexto ? 'etapa_jornada' : 'manual');
     }).catch(function () { /* fail silently */ });
   }
 
@@ -10676,7 +11158,109 @@
     // Texto da busca da Central de ajuda — só se aplica na lista de pacotes
     // (some da tela quando dentro de um pacote específico).
     busca: '',
+    execucoes: {},
+    modoTeste: false,
   };
+
+  var jornadaPreviewStorageKey = 'userpulse:jornada_preview:v1';
+  var jornadaPreviewGeracao = 0;
+  var jornadaPreviewPendente = false;
+  var JORNADA_EXECUCAO_STORAGE_PREFIX = 'userpulse:jornada_execucao:v1:';
+
+  function runtimeEmPreview() {
+    return jornadaPreviewPendente || Boolean(jornadaState && jornadaState.modoTeste) || Boolean(tourState && tourState.preview);
+  }
+
+  function jornadaExecucaoStorageKey(jornadaId) {
+    var config = state.config || {};
+    return JORNADA_EXECUCAO_STORAGE_PREFIX + (config.public_key || config.sistema || 'default') + ':' + (config.usuario_id || 'anonimo') + ':' + jornadaId;
+  }
+
+  function jornadaLerExecucao(jornadaId) {
+    try { return window.sessionStorage.getItem(jornadaExecucaoStorageKey(jornadaId)); } catch (_e) { return null; }
+  }
+
+  function jornadaSalvarExecucao(jornadaId, execucaoId) {
+    if (!execucaoId || runtimeEmPreview()) return;
+    jornadaState.execucoes[jornadaId] = execucaoId;
+    try { window.sessionStorage.setItem(jornadaExecucaoStorageKey(jornadaId), execucaoId); } catch (_e) {}
+  }
+
+  function jornadaGarantirExecucao(jornadaId) {
+    var execucao = jornadaState.execucoes[jornadaId] || jornadaLerExecucao(jornadaId);
+    if (!execucao) {
+      execucao = 'upj_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2);
+      jornadaSalvarExecucao(jornadaId, execucao);
+    } else {
+      jornadaState.execucoes[jornadaId] = execucao;
+    }
+    return execucao;
+  }
+
+  function lerTokenPreviewJornada() {
+    var token = null;
+    try {
+      var fragmento = (window.location.hash || '').replace(/^#/, '');
+      var indiceQuery = fragmento.indexOf('?');
+      var rotaHash = indiceQuery >= 0 ? fragmento.slice(0, indiceQuery) : '';
+      var queryHash = indiceQuery >= 0 ? fragmento.slice(indiceQuery + 1) : fragmento;
+      var params = new URLSearchParams(queryHash);
+      token = params.get('userpulse_jornada_preview');
+      if (token) {
+        params.delete('userpulse_jornada_preview');
+        var queryRestante = params.toString();
+        var fragmentoSemToken = rotaHash + (queryRestante ? '?' + queryRestante : '');
+        var urlSemToken = window.location.href.replace(/#.*$/, '') + (fragmentoSemToken ? '#' + fragmentoSemToken : '');
+        window.history.replaceState(window.history.state, document.title, urlSemToken);
+        window.sessionStorage.setItem(jornadaPreviewStorageKey, JSON.stringify({ token: token }));
+      } else {
+        var salvo = window.sessionStorage.getItem(jornadaPreviewStorageKey);
+        if (salvo) token = JSON.parse(salvo).token || null;
+      }
+    } catch (_e) { return null; }
+    return token;
+  }
+
+  function iniciarPreviewJornadaSeNecessario() {
+    var token = lerTokenPreviewJornada();
+    if (!token) return false;
+    jornadaPreviewPendente = true;
+    jornadaState.modoTeste = true;
+    var minhaGeracao = ++jornadaPreviewGeracao;
+    fetch(apiUrl('/api/widget/jornadas/preview?token=' + encodeURIComponent(token)), { headers: { Accept: 'application/json' } })
+      .then(function (response) {
+        if (!response.ok) throw new Error('Preview de Jornada expirado.');
+        return response.json();
+      })
+      .then(function (dados) {
+        if (minhaGeracao !== jornadaPreviewGeracao) return;
+        if (!dados || !dados.modo_teste || !dados.jornada) throw new Error('Snapshot de Jornada inválido.');
+        jornadaPreviewPendente = false;
+        jornadaState.modoTeste = true;
+        jornadaState.jornadas = [dados.jornada];
+        var jornadaId = dados.jornada.id;
+        jornadaState.execucoes[jornadaId] = 'preview_' + Date.now().toString(36);
+        jornadaState.fabDisponivel = true;
+        presentationEnfileirar({
+          key: 'jornada_panel:preview:' + jornadaId, tipo: 'jornada_panel', origem: 'usuario', gatilho: 'fab',
+          prioridadeClasse: 1, modoTeste: true,
+          abrir: function () {
+            jornadaState.aberto = true;
+            jornadaState.blocoAtivo = null;
+            jornadaState.busca = '';
+            renderJornadaFab(false);
+            renderJornadaPainel();
+          },
+        });
+      })
+      .catch(function () {
+        if (minhaGeracao !== jornadaPreviewGeracao) return;
+        jornadaPreviewPendente = false;
+        jornadaState.modoTeste = false;
+        try { window.sessionStorage.removeItem(jornadaPreviewStorageKey); } catch (_e) {}
+      });
+    return true;
+  }
 
   function fetchJornadas(sistema, tela, usuario_id, contexto) {
     var params = new URLSearchParams();
@@ -10723,10 +11307,12 @@
   function registrarEventoJornada(jornadaId, blocoId, etapaId, tipoEvento, contextoExtra) {
     var config = state.config;
     if (!config || !jornadaId) return;
+    if (jornadaState.modoTeste) return;
     var contexto = contextoExtra
       ? Object.assign({}, config.contexto || {}, contextoExtra)
       : (config.contexto || undefined);
-    fetch(apiUrl('/api/widget/jornada/evento'), {
+    var execucaoCapturada = jornadaGarantirExecucao(jornadaId);
+    return fetch(apiUrl('/api/widget/jornada/evento'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
@@ -10741,13 +11327,21 @@
         navegador: window.navigator.userAgent,
         dispositivo: getDevice(),
         contexto: contexto,
+        execucao_jornada_id: execucaoCapturada || undefined,
+        chave_idempotencia: execucaoCapturada + ':' + jornadaId + ':' + (blocoId || '') + ':' + (etapaId || '') + ':' + tipoEvento,
       }),
-    }).catch(function () { /* fail silently */ });
+    }).then(function (response) {
+      if (!response.ok) return null;
+      return response.json().catch(function () { return null; });
+    }).then(function (dados) {
+      if (dados && dados.execucao_jornada_id) jornadaSalvarExecucao(jornadaId, String(dados.execucao_jornada_id));
+      return dados;
+    }).catch(function () { return null; });
   }
 
   function jornadaTipoLabel(etapa) {
     if (etapa.tipo === 'tour') return 'Tour guiado';
-    if (etapa.tipo === 'campanha') return 'Campanha · em breve';
+    if (etapa.tipo === 'campanha') return 'Campanha';
     return 'Link';
   }
 
@@ -10765,14 +11359,14 @@
     // disabled nativo bloqueia clique/reexecução no próprio DOM (o clique nem
     // chega ao listener delegado) — não depende só da checagem em
     // jornadaPainelClick, que fica como segunda camada de segurança.
-    var desabilitada = (concluida && !podeRefazer && !podeRever) || etapa.tipo === 'campanha';
+    var desabilitada = concluida && !podeRefazer && !podeRever;
     var classe = 'up-jorn-etapa' + (concluida ? ' up-jorn-etapa-concluida' : '');
     var marcador = concluida
       ? '<span class="up-jorn-etapa-check">' + icon('check') + '</span>'
       : '<span class="up-jorn-etapa-num">' + (index + 1) + '</span>';
     var tituloAttr = concluida
         ? (podeRefazer ? ' title="Clique para refazer esta etapa."' : (podeRever ? ' title="Clique para rever o tour."' : ' title="Etapa já concluída."'))
-        : (etapa.tipo === 'campanha' ? ' title="Campanha será suportada em breve."' : '');
+        : '';
     var tipoTexto = concluida
         ? (podeRefazer ? 'Concluída · Refazer' : (podeRever ? 'Concluída · Rever tour' : 'Concluída'))
         : jornadaTipoLabel(etapa) + (etapa.obrigatoria ? '' : ' · opcional');
@@ -11057,7 +11651,7 @@
     if (!root) {
       root = document.createElement('div');
       root.id = JORNADA_PAINEL_ID;
-      root.className = 'up-widget-root';
+      root.className = 'up-widget-root' + (runtimeEmPreview() ? ' up-modo-teste' : '');
       document.body.appendChild(root);
       root.addEventListener('click', jornadaPainelClick);
       root.addEventListener('input', jornadaPainelInput);
@@ -11080,13 +11674,14 @@
     renderJornadaPainel();
   }
 
-  function fecharJornadaPainel() {
+  function fecharJornadaPainel(aguardarDrenagem) {
     if (!jornadaState.aberto) return;
     jornadaState.aberto = false;
     jornadaState.blocoAtivo = null;
     var existente = document.getElementById(JORNADA_PAINEL_ID);
     if (existente) existente.remove();
     renderJornadaFab(jornadaState.fabDisponivel);
+    presentationLiberar(null, aguardarDrenagem);
     // Segunda checagem defensiva, um instante depois de fechar — mesma
     // lógica usada após o fetch de elegibilidade.
     window.setTimeout(jornadaGarantirFabNoDom, 400);
@@ -11101,7 +11696,8 @@
     renderJornadaPainel();
   }
 
-  function jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra) {
+  function jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra, respostaAutoritativa) {
+    if (!respostaAutoritativa || !respostaAutoritativa.etapa_concluida) return;
     // Só conta pra progresso na primeira conclusão — refazer uma etapa já
     // concluída (permitir_refazer=true) não pode incrementar de novo, senão
     // etapas_concluidas passaria de etapas_total.
@@ -11110,37 +11706,28 @@
     if (primeiraConclusao && bloco.progresso) {
       bloco.progresso.etapas_concluidas = Math.min(bloco.progresso.etapas_concluidas + 1, bloco.progresso.etapas_total);
     }
-    registrarEventoJornada(jornada.id, bloco.id, etapa.id, 'etapa_concluida', contextoExtra);
     renderJornadaPainel();
-    jornadaChecarConclusaoBloco(jornada, bloco);
+    jornadaChecarConclusaoBloco(jornada, bloco, respostaAutoritativa);
   }
 
   // Bloco (Pacote) concluído: todas as suas etapas obrigatórias concluídas.
-  function jornadaChecarConclusaoBloco(jornada, bloco) {
+  function jornadaChecarConclusaoBloco(jornada, bloco, respostaAutoritativa) {
     if (bloco.progresso && bloco.progresso.concluido) return
-    var pendentesObrigatorias = (bloco.etapas || []).filter(function (e) {
-      return e.obrigatoria && e.status !== 'concluida';
-    });
-    if (pendentesObrigatorias.length === 0) {
+    if (respostaAutoritativa && respostaAutoritativa.bloco_concluido) {
       if (bloco.progresso) bloco.progresso.concluido = true;
       if (jornada.progresso) {
         jornada.progresso.blocos_concluidos = Math.min(jornada.progresso.blocos_concluidos + 1, jornada.progresso.blocos_total);
       }
-      registrarEventoJornada(jornada.id, bloco.id, null, 'bloco_concluido');
-      jornadaChecarConclusaoGeral(jornada);
+      jornadaChecarConclusaoGeral(jornada, respostaAutoritativa);
     }
   }
 
   // Jornada concluída: todos os pacotes obrigatórios concluídos.
-  function jornadaChecarConclusaoGeral(jornada) {
+  function jornadaChecarConclusaoGeral(jornada, respostaAutoritativa) {
     if (jornada._concluidaRegistrada) return;
-    var pendentesObrigatorios = (jornada.blocos || []).filter(function (b) {
-      return b.obrigatorio && !(b.progresso && b.progresso.concluido);
-    });
-    if (pendentesObrigatorios.length === 0) {
+    if (respostaAutoritativa && respostaAutoritativa.jornada_concluida) {
       jornada._concluidaRegistrada = true;
       if (jornada.progresso) jornada.progresso.concluida = true;
-      registrarEventoJornada(jornada.id, null, null, 'jornada_concluida');
     }
   }
 
@@ -11190,6 +11777,8 @@
 
     if (!jornada._iniciadaRegistrada) {
       jornada._iniciadaRegistrada = true;
+      jornadaState.execucoes[jornada.id] = jornadaState.execucoes[jornada.id] || jornadaLerExecucao(jornada.id) || ('upj_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2));
+      jornadaSalvarExecucao(jornada.id, jornadaState.execucoes[jornada.id]);
       registrarEventoJornada(jornada.id, null, null, 'jornada_iniciada');
     }
     if (!bloco._iniciadoRegistrado) {
@@ -11200,25 +11789,69 @@
 
     if (etapa.tipo === 'link' && etapa.url) {
       window.open(etapa.url, etapa.abrir_nova_aba ? '_blank' : '_self', 'noopener,noreferrer');
-      jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra);
+      if (jornadaState.modoTeste) {
+        jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra, { etapa_concluida: true, bloco_concluido: true, jornada_concluida: true });
+      } else {
+        registrarEventoJornada(jornada.id, bloco.id, etapa.id, 'etapa_concluida', contextoExtra).then(function (dados) {
+          jornadaMarcarConcluida(jornada, bloco, etapa, contextoExtra, dados);
+        });
+      }
     } else if (etapa.tipo === 'tour' && etapa.tour && etapa.tour.passos) {
       if (revendoTour) {
         // Já concluída — só reabre o tour pra revisão, sem re-registrar
         // etapa_concluida nem mexer no progresso da jornada.
-        fecharJornadaPainel();
-        iniciarTour(etapa.tour, false, false, false);
+        fecharJornadaPainel(true);
+        iniciarTour(etapa.tour, false, jornadaState.modoTeste, false, null, undefined, undefined, 'botao_ajuda', null, false, 'usuario', true);
       } else {
         // A etapa só é marcada concluída quando o tour é de fato concluído
         // (tourConcluir(), via tourState.jornadaContexto) — nunca já ao
         // iniciar. Encerrar/pular/abandonar o tour no meio não conta como
         // conclusão da etapa.
-        fecharJornadaPainel();
-        iniciarTour(etapa.tour, false, false, false, {
-          jornadaId: jornada.id, blocoId: bloco.id, etapaId: etapa.id, contextoExtra: contextoExtra,
-        });
+        fecharJornadaPainel(true);
+         iniciarTour(etapa.tour, false, jornadaState.modoTeste, false, {
+            jornadaId: jornada.id, blocoId: bloco.id, etapaId: etapa.id, execucaoJornadaId: jornadaState.execucoes[jornada.id], contextoExtra: contextoExtra,
+         }, undefined, undefined, 'etapa_jornada', null, false, 'jornada', true);
       }
+    } else if (etapa.tipo === 'campanha' && etapa.campanha) {
+      var chaveCampanha = jornadaState.execucoes[jornada.id];
+      fecharJornadaPainel(true);
+      presentationAssumirFoco({
+        key: 'campanha:' + etapa.campanha.id + ':jornada:' + etapa.id,
+        tipo: 'campanha', entidadeId: etapa.campanha.id, origem: 'jornada', gatilho: 'etapa_jornada',
+        prioridadeClasse: 1, prioridadeNegocio: etapa.campanha.prioridade || 0,
+        modoTeste: jornadaState.modoTeste,
+        payload: { campanha: etapa.campanha },
+        validar: function () {
+          var jornadaAtual = jornadaEncontrar(jornada.id);
+          var blocoAtual = jornadaEncontrarBloco(jornadaAtual, bloco.id);
+          var etapaAtual = jornadaEncontrarEtapa(blocoAtual, etapa.id);
+          return Boolean(jornadaAtual && blocoAtual && etapaAtual && etapaAtual.campanha && etapaAtual.campanha.id === etapa.campanha.id);
+        },
+        abrir: function () {
+          state.campanhaJornadaContexto = {
+            jornadaId: jornada.id, blocoId: bloco.id, etapaId: etapa.id,
+            execucaoJornadaId: chaveCampanha,
+          };
+          state.campanha = etapa.campanha;
+          state.open = false;
+          state.nota = null;
+          state.observacao = '';
+          state.confirmacaoMarcada = false;
+          state.submitting = false;
+          state.submitted = false;
+          state.error = '';
+          state.visualizacaoRegistrada = false;
+          state.feedbackId = null;
+          ensureStyles();
+          resetRoot();
+          state.open = true;
+          if (!jornadaState.modoTeste) {
+            registrarEvento('visualizacao');
+          }
+          render();
+        },
+      });
     }
-    // tipo === 'campanha': sem ação — botão fica desabilitado (ver renderJornadaEtapaHtml).
   }
 
   // Sem usuario_id, ou em telas de pré-login/pré-contexto, a Central de ajuda
@@ -11242,7 +11875,7 @@
   // usada tanto pelo FAB quanto por abrirJornadasPublico(), pra manter as
   // duas checagens sempre em sincronia.
   function jornadaPodeAbrirCentral() {
-    return jornadaContextoValido() && !tourState.ativo && !(state.open && state.campanha);
+    return jornadaContextoValido();
   }
 
   function jornadaMostrarAvisoIndisponivel() {
@@ -11300,6 +11933,7 @@
   // sistema/tela, só por segmentação) só para decidir se o botão flutuante
   // aparece. Nunca abre o painel sozinho, nunca inicia tour sozinho.
   function avaliarJornadasParaBotao(config) {
+    if (jornadaState.modoTeste) return;
     var meuToken = ++jornadaElegibilidadeToken;
     var contexto = resolveContexto();
     fetchJornadas(config.sistema, config.tela, config.usuario_id, contexto).then(function (jornadas) {
@@ -11333,11 +11967,31 @@
   //   window.UserPulse.abrirJornadas()
   function abrirJornadasPublico() {
     var config = state.config;
+    if (!config || runtimeEmPreview() || !config.sistema) {
+      abrirJornadasDepoisGatilho();
+      return;
+    }
+    avaliarTourAutomatico(config, 'botao_ajuda').then(function (tourSelecionado) {
+      if (!tourSelecionado) abrirJornadasDepoisGatilho();
+    });
+  }
+
+  function abrirJornadasDepoisGatilho() {
+    var config = state.config;
     if (!config) return;
-    // Mesma regra do FAB: sem contexto de usuário válido (tela de
-    // autenticação, sem usuario_id) ou com tour/campanha ocupando a tela, não
-    // abre — só avisa discretamente, em vez de competir visualmente por cima.
-    if (!jornadaPodeAbrirCentral()) {
+    if (jornadaState.modoTeste) {
+      if (!jornadaState.jornadas.length) return;
+      presentationEnfileirar({
+        key: 'jornada_panel:preview:' + jornadaState.jornadas[0].id, tipo: 'jornada_panel', origem: 'usuario', gatilho: 'fab',
+        prioridadeClasse: 1, modoTeste: true,
+        abrir: function () { jornadaState.aberto = true; jornadaState.blocoAtivo = null; renderJornadaFab(false); renderJornadaPainel(); },
+      });
+      return;
+    }
+    // Sem contexto de usuário válido (tela de autenticação ou sem usuario_id),
+    // não há Central para abrir. Se outro conteúdo ocupa o foco, a abertura
+    // explícita segue para a fila em vez de competir visualmente por cima.
+    if (!jornadaContextoValido()) {
       jornadaMostrarAvisoIndisponivel();
       return;
     }
@@ -11353,6 +12007,8 @@
       // vem certo do servidor, sem precisar de flag equivalente por bloco.
       jornadaState.jornadas = (jornadas || []).map(function (j) {
         j._concluidaRegistrada = Boolean(j.progresso && j.progresso.concluida);
+        var execucaoSalva = jornadaLerExecucao(j.id);
+        if (execucaoSalva) jornadaState.execucoes[j.id] = execucaoSalva;
         return j;
       });
       // Essa busca acabou de provar se existe (ou não) jornada elegível agora
@@ -11364,22 +12020,35 @@
       // fechar o painel podia usar um valor antigo de fabDisponivel e o botão
       // "Ajuda" ficava escondido mesmo com jornada elegível de verdade.
       jornadaState.fabDisponivel = jornadaState.jornadas.length > 0;
-      jornadaState.blocoAtivo = null;
-      jornadaState.busca = '';
-      jornadaState.aberto = true;
-      renderJornadaFab(false);
-      renderJornadaPainel();
-      for (var i = 0; i < jornadaState.jornadas.length; i++) {
-        registrarEventoJornada(jornadaState.jornadas[i].id, null, null, 'jornada_aberta');
-      }
+      if (!jornadaState.jornadas.length) return;
+      presentationEnfileirar({
+        tipo: 'jornada_panel', entidadeId: 'central', origem: 'usuario', gatilho: 'fab',
+        prioridadeClasse: 1, prioridadeNegocio: 0,
+        abrir: function () {
+          jornadaState.blocoAtivo = null;
+          jornadaState.busca = '';
+          jornadaState.aberto = true;
+          renderJornadaFab(false);
+          renderJornadaPainel();
+          for (var i = 0; i < jornadaState.jornadas.length; i++) {
+            registrarEventoJornada(jornadaState.jornadas[i].id, null, null, 'jornada_aberta');
+          }
+        },
+      });
     }).catch(function () {
       jornadaState.jornadas = [];
       jornadaState.fabDisponivel = false;
-      jornadaState.blocoAtivo = null;
-      jornadaState.busca = '';
-      jornadaState.aberto = true;
-      renderJornadaFab(false);
-      renderJornadaPainel();
+      presentationEnfileirar({
+        key: 'jornada_panel:central', tipo: 'jornada_panel', origem: 'usuario', gatilho: 'fab',
+        prioridadeClasse: 1, prioridadeNegocio: 0,
+        abrir: function () {
+          jornadaState.blocoAtivo = null;
+          jornadaState.busca = '';
+          jornadaState.aberto = true;
+          renderJornadaFab(false);
+          renderJornadaPainel();
+        },
+      });
     });
   }
 
@@ -11513,6 +12182,13 @@
   //     produção sem abrir esse atalho — ver
   //     server/src/widgetTourFeedback.test.ts.
   window.UserPulse._internal = {
+    presentationEnfileirar: presentationEnfileirar,
+    presentationAssumirFoco: presentationAssumirFoco,
+    presentationLiberar: presentationLiberar,
+    presentationNovoContexto: presentationNovoContexto,
+    presentationIniciarColeta: presentationIniciarColeta,
+    presentationGetTestSnapshot: presentationGetTestSnapshot,
+    presentationResetTestState: presentationResetTestState,
     avaliarSegmentacaoTour: avaliarSegmentacaoTour,
     tourVoltar: tourVoltar,
     finalizarTour: finalizarTour,

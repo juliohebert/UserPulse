@@ -10,11 +10,15 @@ import {
   chaveRegraDoContexto,
   dataMaisRecentePorRegra,
   destaquesRespondidos,
+  chaveEventoJornada,
+  contextoEventoJornadaCorresponde,
+  calcularConclusoesJornada,
 } from './widget'
 
 const DIA_MS = 86_400_000
 const AGORA = new Date('2026-07-10T12:00:00Z')
 const FONTE_WIDGET = readFileSync(new URL('./widget.ts', import.meta.url), 'utf8')
+const FONTE_WIDGET_JS = readFileSync(new URL('../../../web/public/widget.js', import.meta.url), 'utf8')
 const FONTE_SEED = readFileSync(new URL('../../prisma/seed.ts', import.meta.url), 'utf8')
 
 function diasAtras(dias: number): Date {
@@ -44,6 +48,93 @@ describe('contrato de eventos das campanhas demo', () => {
     assert.match(FONTE_SEED, /idSeed\('destaque', tenant_id/)
     assert.match(FONTE_SEED, /where: \{ id: \{ notIn: destaques\.map/)
     assert.match(FONTE_SEED, /data: \{ ativo: false \}/)
+  })
+})
+
+describe('Campanha como etapa de Jornada e preview', () => {
+  test('conclusão de Campanha ocorre dentro da mesma transação do evento real', () => {
+    const inicio = FONTE_WIDGET.indexOf('export async function registrarEvento(req')
+    const fim = FONTE_WIDGET.indexOf('export async function registrarConfirmacao')
+    const controller = FONTE_WIDGET.slice(inicio, fim)
+    assert.match(controller, /prisma\.\$transaction\(async tx/)
+    assert.match(controller, /concluirEtapaCampanhaEmTransacao\(tx, resolucao\.tenantId, campanha_id/)
+    assert.match(controller, /tipo_evento === 'clique_cta'/)
+    assert.match(controller, /etapa_concluida: resultado\.conclusao/)
+  })
+
+  test('contexto inválido não pode concluir etapa de outra Jornada ou Campanha', () => {
+    const inicio = FONTE_WIDGET.indexOf('async function concluirEtapaCampanhaEmTransacao')
+    const fim = FONTE_WIDGET.indexOf('export function ocultarTenantId')
+    const helper = FONTE_WIDGET.slice(inicio, fim)
+    assert.match(helper, /bloco_id: jornada\.bloco_id/)
+    assert.match(helper, /campanha_id: campanhaId/)
+    assert.match(helper, /bloco: \{ jornada_id: jornada\.jornada_id, jornada: \{ tenant_id: tenantId, ativo: true \}/)
+    assert.match(helper, /upsert\(/)
+  })
+
+  test('widget não registra eventos da Campanha quando a Jornada está em modo de teste', () => {
+    const inicio = FONTE_WIDGET_JS.indexOf('function registrarEvento(tipoEvento')
+    const fim = FONTE_WIDGET_JS.indexOf('function getDevice()')
+    const registrar = FONTE_WIDGET_JS.slice(inicio, fim)
+    assert.match(registrar, /runtimeEmPreview\(\)\) return Promise\.resolve\(null\)/)
+    assert.match(FONTE_WIDGET_JS, /out\.__up_jornada = \{/)
+  })
+})
+
+describe('idempotência contextual de Jornada', () => {
+  test('chave autoritativa inclui execução, Jornada, pacote, etapa e tipo', () => {
+    assert.equal(chaveEventoJornada({ execucao_jornada_id: 'x', jornada_id: 'j', bloco_id: 'b', etapa_id: 'e', tipo_evento: 'etapa_aberta' }), 'x:j:b:e:etapa_aberta')
+  })
+
+  test('duplicata só é aceita quando todo o contexto persistido corresponde', () => {
+    const evento = { jornada_id: 'j', bloco_id: 'b', etapa_id: 'e', tipo_evento: 'etapa_aberta', usuario_id: 'u', execucao_jornada_id: 'x' }
+    assert.equal(contextoEventoJornadaCorresponde(evento, evento), true)
+    assert.equal(contextoEventoJornadaCorresponde(evento, { ...evento, usuario_id: 'outro' }), false)
+    assert.equal(contextoEventoJornadaCorresponde(evento, { ...evento, jornada_id: 'outro-tenant' }), false)
+  })
+
+  test('endpoint genérico rejeita conclusão direta de Tour ou Campanha', () => {
+    const inicio = FONTE_WIDGET.indexOf('export async function registrarEventoJornada')
+    const controller = FONTE_WIDGET.slice(inicio)
+    assert.match(controller, /tipo_evento === 'etapa_concluida'/)
+    assert.match(controller, /etapa\.tipo === 'tour' \|\| etapa\.tipo === 'campanha'/)
+    assert.match(controller, /endpoint do conteúdo/)
+  })
+
+  test('agregados exigem todas as etapas e pacotes obrigatórios', () => {
+    const blocos = [
+      { id: 'b1', ativo: true, obrigatorio: true, etapas: [{ id: 'e1', obrigatoria: true }, { id: 'e2', obrigatoria: false }] },
+      { id: 'b2', ativo: true, obrigatorio: true, etapas: [{ id: 'e3', obrigatoria: true }] },
+    ]
+    assert.deepEqual(calcularConclusoesJornada(blocos, new Set(), 'b1'), { bloco_concluido: false, jornada_concluida: false })
+    assert.deepEqual(calcularConclusoesJornada(blocos, new Set(['e1']), 'b1'), { bloco_concluido: true, jornada_concluida: false })
+    assert.deepEqual(calcularConclusoesJornada(blocos, new Set(['e1', 'e3']), 'b1'), { bloco_concluido: true, jornada_concluida: true })
+  })
+
+  test('widget obtém execução antes do primeiro evento e não envia agregados', () => {
+    assert.doesNotMatch(FONTE_WIDGET_JS, /registrarEventoJornada\([^\n]+['"](?:bloco_concluido|jornada_concluida)['"]/)
+    assert.doesNotMatch(FONTE_WIDGET_JS, /sem-execucao/)
+    assert.match(FONTE_WIDGET_JS, /var execucaoCapturada = jornadaGarantirExecucao\(jornadaId\)/)
+    assert.match(FONTE_WIDGET_JS, /respostaAutoritativa\.etapa_concluida/)
+  })
+
+  test('backend recalcula e faz upsert dos agregados', () => {
+    const inicio = FONTE_WIDGET.indexOf('async function sincronizarConclusoesJornadaEmTransacao')
+    const fim = FONTE_WIDGET.indexOf('function extrairContextoCampanhaJornada')
+    const helper = FONTE_WIDGET.slice(inicio, fim)
+    assert.match(helper, /tipo_evento: 'etapa_concluida'/)
+    assert.match(helper, /tipo_evento: 'bloco_concluido'/)
+    assert.match(helper, /tipo_evento: 'jornada_concluida'/)
+    assert.match(helper, /\.upsert\(/)
+    assert.match(FONTE_WIDGET, /Progresso obrigatório ainda não foi concluído/)
+  })
+
+  test('candidatas de Tour não são filtradas pelas colunas legadas', () => {
+    const inicio = FONTE_WIDGET.indexOf('export async function buscarTourCandidatos')
+    const fim = FONTE_WIDGET.indexOf('export async function registrarEventoTour')
+    const controller = FONTE_WIDGET.slice(inicio, fim)
+    assert.match(controller, /permite_autonomo: true/)
+    assert.doesNotMatch(controller, /modo_identificacao:/)
   })
 })
 

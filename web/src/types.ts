@@ -100,6 +100,18 @@ export interface Campanha {
   regras?: CampanhaRegraExibicao[]
 }
 
+export type OrigemPermitidaTour = 'autonomo' | 'jornada'
+export type TipoGatilhoTour = 'entrada_tela' | 'url' | 'elemento' | 'botao_ajuda' | 'manual' | 'evento'
+export type FrequenciaTour = 'sempre' | 'uma_vez_por_usuario' | 'uma_vez_por_sessao' | 'ate_concluir' | 'intervalo_dias'
+export interface GatilhoTour {
+  tipo: TipoGatilhoTour
+  tela?: string
+  url_contem?: string
+  seletor_tipo?: 'data_cy' | 'id' | 'css'
+  seletor?: string
+  evento?: string
+}
+
 // Espelha CampanhaRegraExibicao (server/prisma/schema.prisma). Uma
 // tela/URL/data_cy em que a campanha deve aparecer. `modo_identificacao`
 // segue os 3 valores de sempre (sistema_tela / data_cy / url_contem) e cada
@@ -469,6 +481,28 @@ export interface RegraSegmentacaoTour {
   valor: string
 }
 
+export interface TourDependenciaJornada {
+  jornada_id: string
+  jornada_titulo: string
+  jornada_ativo: boolean
+  bloco_id: string
+  bloco_titulo: string
+  etapa_id: string
+  etapa_titulo: string
+}
+
+export interface TourEtapaJornadaUso {
+  id: string
+  titulo: string
+  ordem: number
+  bloco: {
+    id: string
+    titulo: string
+    ordem: number
+    jornada: { id: string; titulo: string; ativo: boolean }
+  }
+}
+
 export interface TourGuiado {
   id: string
   slug: string
@@ -481,13 +515,20 @@ export interface TourGuiado {
   url_contem: string | null
   prioridade: number
   ativo: boolean
+  permite_autonomo: boolean
+  permite_jornada: boolean
+  publico_geral: boolean
+  gatilhos: GatilhoTour[] | null
+  frequencia: FrequenciaTour
+  frequencia_intervalo_dias: number | null
   // null/ausente = sem segmentação (todos os contextos elegíveis, mesmo
   // comportamento de qualquer tour criado antes desta feature existir).
   segmentacao_regras: RegraSegmentacaoTour[] | null
   criado_em: string
   atualizado_em: string
   passos?: TourPasso[]
-  _count?: { passos: number }
+  _count?: { passos: number; etapasJornada?: number }
+  etapasJornada?: TourEtapaJornadaUso[]
 }
 
 // GET /tours?page=&pageSize=&... — só quando page/pageSize são enviados (ver
@@ -538,6 +579,12 @@ export interface TourExportData {
   data_cy: string | null
   url_contem: string | null
   prioridade: number
+  permite_autonomo?: boolean
+  permite_jornada?: boolean
+  publico_geral?: boolean
+  gatilhos?: GatilhoTour[] | null
+  frequencia?: FrequenciaTour
+  frequencia_intervalo_dias?: number | null
   segmentacao_regras: RegraSegmentacaoTour[] | null
   passos: TourExportPasso[]
 }
@@ -561,6 +608,21 @@ export interface EventoTourDashboard {
   unidade_id: string | null
   unidade_nome: string | null
   criado_em: string
+  execucao_id: string | null
+  origem: 'autonomo' | 'jornada' | null
+  gatilho: string | null
+  jornada_id: string | null
+  bloco_id: string | null
+  etapa_id: string | null
+}
+
+export interface ResumoOrigemTour {
+  origem: 'autonomo' | 'jornada' | 'desconhecida'
+  execucoes: number
+  iniciados: number
+  concluidos: number
+  pulados: number
+  taxa_conclusao: number
 }
 
 export interface FunilPassoItem {
@@ -607,6 +669,8 @@ export interface TourDashboardData {
   taxa_conclusao: number
   funil_por_passo: FunilPassoItem[]
   feedback: ResumoFeedbackTour
+  por_origem: ResumoOrigemTour[]
+  execucoes: number
   eventos_recentes: EventoTourDashboard[]
   // Paginação da lista de eventos — os cards acima sempre consideram todos
   // os dados filtrados, independente da página atual.
@@ -674,6 +738,12 @@ export interface Jornada {
   blocos?: BlocoJornada[]
   progresso?: { concluida: boolean; blocos_concluidos: number; blocos_total: number }
   _count?: { blocos: number; etapas: number }
+}
+
+export interface JornadaPreviewTokenResposta {
+  token: string
+  jornada_id: string
+  expira_em: string
 }
 
 export type CriterioStatus = 'ok' | 'bloqueado' | 'aviso' | 'nao_aplicavel'

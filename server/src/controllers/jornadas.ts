@@ -1,5 +1,7 @@
 import { Request, Response } from 'express'
+import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
+import { assinarTokenPreviewJornada, verificarTokenPreviewJornada, JORNADA_PREVIEW_TTL_SEGUNDOS } from '../lib/jornadaPreviewToken'
 import prisma from '../lib/prisma'
 import { checarLimiteJornadasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, motivoRecursoNaoPermitido, planoEfetivoParaLimite } from '../lib/tenantGuards'
 import { normalizarDominio } from '../lib/dominio'
@@ -7,6 +9,7 @@ import { normalizarDominio } from '../lib/dominio'
 const TIPOS_ETAPA = ['tour', 'campanha', 'link']
 
 interface EtapaInput {
+  id?: string
   titulo?: string
   descricao?: string
   tipo?: string
@@ -19,6 +22,7 @@ interface EtapaInput {
 }
 
 interface BlocoInput {
+  id?: string
   titulo?: string
   descricao?: string
   obrigatorio?: boolean
@@ -29,11 +33,34 @@ interface BlocoInput {
 // Bloco já validado, com as etapas resolvidas (nome técnico: BlocoJornada;
 // nome visual na UI/widget: "Pacote").
 interface BlocoValidado {
+  id?: string
   titulo: string
   descricao?: string
   obrigatorio?: boolean
   ativo?: boolean
   etapas: EtapaInput[]
+}
+
+export function idsDuplicados(blocos: BlocoValidado[]): string | null {
+  const idsBlocos = blocos.flatMap(b => b.id ? [b.id] : [])
+  if (new Set(idsBlocos).size !== idsBlocos.length) return 'Há IDs de pacotes duplicados.'
+  const idsEtapas = blocos.flatMap(b => b.etapas.flatMap(e => e.id ? [e.id] : []))
+  if (new Set(idsEtapas).size !== idsEtapas.length) return 'Há IDs de etapas duplicados.'
+  return null
+}
+
+export function campanhaExecutavelEmJornada(campanha: {
+  feedback_habilitado: boolean
+  exige_confirmacao_leitura: boolean
+  url_botao: string | null
+  conteudos: Array<{ url_botao: string | null }>
+  destaques: Array<{ url_botao: string | null }>
+}): boolean {
+  return campanha.feedback_habilitado || campanha.exige_confirmacao_leitura || Boolean(
+    campanha.url_botao?.trim()
+    || campanha.conteudos.some(item => item.url_botao?.trim())
+    || campanha.destaques.some(item => item.url_botao?.trim())
+  )
 }
 
 // Exportada pra ser testada diretamente em jornadas.test.ts — mesma
@@ -79,7 +106,9 @@ function validarEtapas(etapas: unknown, prefixo: string): { erro: string | null;
   if (!Array.isArray(etapas)) {
     return { erro: `${prefixo}: etapas deve ser uma lista.`, lista: [] }
   }
-  for (const [i, e] of (etapas as EtapaInput[]).entries()) {
+  for (const [i, bruto] of (etapas as unknown[]).entries()) {
+    if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto)) return { erro: `${prefixo} - Etapa ${i + 1}: configuração inválida.`, lista: [] }
+    const e = bruto as EtapaInput
     const rotulo = `${prefixo} - Etapa ${i + 1}`
     if (!e.titulo?.trim()) return { erro: `${rotulo}: título é obrigatório.`, lista: [] }
     if (!e.tipo || !TIPOS_ETAPA.includes(e.tipo)) {
@@ -112,7 +141,9 @@ function validarBlocos(blocos: unknown): { erro: string | null; lista: BlocoVali
     return { erro: 'blocos deve ser uma lista.', lista: [] }
   }
   const resultado: BlocoValidado[] = []
-  for (const [i, b] of (blocos as BlocoInput[]).entries()) {
+  for (const [i, bruto] of (blocos as unknown[]).entries()) {
+    if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto)) return { erro: `Pacote ${i + 1}: configuração inválida.`, lista: [] }
+    const b = bruto as BlocoInput
     const n = i + 1
     if (!b.titulo?.trim()) return { erro: `Pacote ${n}: título é obrigatório.`, lista: [] }
     const { erro: erroEtapas, lista: listaEtapas } = validarEtapas(b.etapas, `Pacote ${n}`)
@@ -121,6 +152,7 @@ function validarBlocos(blocos: unknown): { erro: string | null; lista: BlocoVali
     // widget (nenhuma etapa obrigatória pendente) — não é um estado válido.
     if (listaEtapas.length === 0) return { erro: `Pacote ${n}: adicione pelo menos uma etapa.`, lista: [] }
     resultado.push({
+      id: typeof b.id === 'string' ? b.id : undefined,
       titulo: b.titulo,
       descricao: b.descricao,
       obrigatorio: b.obrigatorio,
@@ -129,6 +161,51 @@ function validarBlocos(blocos: unknown): { erro: string | null; lista: BlocoVali
     })
   }
   return { erro: null, lista: resultado }
+}
+
+async function validarReferenciasConteudo(tenantId: string, blocos: BlocoValidado[], validarExecucao = false): Promise<string | null> {
+  const tours = [...new Set(blocos.flatMap(b => b.etapas.filter(e => e.tipo === 'tour' && e.tour_id).map(e => e.tour_id as string)))]
+  const campanhas = [...new Set(blocos.flatMap(b => b.etapas.filter(e => e.tipo === 'campanha' && e.campanha_id).map(e => e.campanha_id as string)))]
+  const [toursEncontrados, campanhasEncontradas] = await Promise.all([
+    tours.length ? prisma.tourGuiado.findMany({ where: { tenant_id: tenantId, id: { in: tours } }, select: { id: true, permite_jornada: true, passos: { select: { seletor: true } } } }) : [],
+    campanhas.length ? prisma.campanha.findMany({
+      where: { tenant_id: tenantId, id: { in: campanhas } },
+      select: {
+        id: true, ativo: true, status: true, feedback_habilitado: true,
+        exige_confirmacao_leitura: true, url_botao: true,
+        conteudos: { select: { url_botao: true } },
+        destaques: { where: { ativo: true }, select: { url_botao: true } },
+      },
+    }) : [],
+  ])
+  const idsTours = new Set(toursEncontrados.map(t => t.id))
+  const idsCampanhas = new Set(campanhasEncontradas.filter(c => campanhas.includes(c.id)).map(c => c.id))
+  for (const [bi, bloco] of blocos.entries()) for (const [ei, etapa] of bloco.etapas.entries()) {
+    const tour = etapa.tipo === 'tour' ? toursEncontrados.find(t => t.id === etapa.tour_id) : null
+    if (etapa.tipo === 'tour' && (!idsTours.has(etapa.tour_id!) || !tour?.permite_jornada || (validarExecucao && (tour.passos.length === 0 || tour.passos.some(p => !p.seletor.trim()))))) return `Pacote ${bi + 1}, etapa ${ei + 1}: Tour não disponível ou sem seletores válidos.`
+    const campanha = etapa.tipo === 'campanha' ? campanhasEncontradas.find(c => c.id === etapa.campanha_id) : null
+    if (etapa.tipo === 'campanha' && (!idsCampanhas.has(etapa.campanha_id!) || (validarExecucao && (!campanha || !campanha.ativo || campanha.status !== 'ATIVA' || !campanhaExecutavelEmJornada(campanha))))) return `Pacote ${bi + 1}, etapa ${ei + 1}: Campanha não está ativa, não foi encontrada ou não possui ação de conclusão.`
+  }
+  return null
+}
+
+export function validarEventoJornadaEstrutura(input: {
+  tipo_evento: string
+  bloco_id?: string | null
+  etapa_id?: string | null
+  bloco?: { jornada_id: string } | null
+  etapa?: { bloco_id: string } | null
+}): string | null {
+  const nivelJornada = ['jornada_aberta', 'jornada_iniciada', 'jornada_concluida'].includes(input.tipo_evento)
+  const nivelBloco = ['bloco_aberto', 'bloco_iniciado', 'bloco_concluido'].includes(input.tipo_evento)
+  const nivelEtapa = ['etapa_aberta', 'etapa_concluida', 'etapa_pulada'].includes(input.tipo_evento)
+  if (nivelJornada && (input.bloco_id || input.etapa_id)) return 'Este evento não aceita bloco_id ou etapa_id.'
+  if (nivelBloco && (!input.bloco_id || input.etapa_id)) return 'Este evento exige somente bloco_id.'
+  if (nivelEtapa && (!input.bloco_id || !input.etapa_id)) return 'Este evento exige bloco_id e etapa_id.'
+  if (!nivelJornada && !nivelBloco && !nivelEtapa) return 'Combinação de evento inválida.'
+  if (input.bloco_id && (!input.bloco || input.bloco.jornada_id === '')) return 'Pacote não pertence à jornada.'
+  if (input.etapa_id && (!input.etapa || input.etapa.bloco_id !== input.bloco_id)) return 'Etapa não pertence ao pacote informado.'
+  return null
 }
 
 function montarDadosEtapa(e: EtapaInput, ordem: number) {
@@ -144,6 +221,11 @@ function montarDadosEtapa(e: EtapaInput, ordem: number) {
     abrir_nova_aba: e.tipo === 'link' ? (e.abrir_nova_aba !== undefined ? Boolean(e.abrir_nova_aba) : true) : true,
     obrigatoria: e.obrigatoria !== undefined ? Boolean(e.obrigatoria) : true,
   }
+}
+
+function montarDadosEtapaSemOrdem(e: EtapaInput, ordem: number) {
+  const dados = montarDadosEtapa(e, ordem)
+  return dados
 }
 
 function montarDadosBloco(b: BlocoValidado, ordem: number) {
@@ -210,6 +292,9 @@ export async function listar(req: Request, res: Response) {
 
     res.json(resultado)
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('não pertence') || err.message.includes('não correspond'))) {
+      return res.status(400).json({ erro: err.message })
+    }
     console.error(err)
     res.status(500).json({ erro: 'Erro ao listar jornadas.' })
   }
@@ -227,6 +312,21 @@ export async function buscarPorId(req: Request, res: Response) {
     console.error(err)
     res.status(500).json({ erro: 'Erro ao buscar jornada.' })
   }
+}
+
+export async function emitirTokenPreview(req: Request, res: Response) {
+  const jornada = await prisma.jornada.findFirst({
+    where: { id: String(req.params.id), tenant_id: req.adminUser!.tenant_id },
+    select: { id: true },
+  })
+  if (!jornada) return res.status(404).json({ erro: 'Jornada não encontrada.' })
+  const token = assinarTokenPreviewJornada({
+    tenant_id: req.adminUser!.tenant_id,
+    jornada_id: jornada.id,
+    admin_user_id: req.adminUser!.id,
+    nonce: randomUUID(),
+  })
+  res.json({ token, jornada_id: jornada.id, expira_em: new Date(Date.now() + JORNADA_PREVIEW_TTL_SEGUNDOS * 1000).toISOString() })
 }
 
 export async function criar(req: Request, res: Response) {
@@ -248,16 +348,23 @@ export async function criar(req: Request, res: Response) {
     if (!titulo?.trim()) {
       return res.status(400).json({ erro: 'titulo é obrigatório.' })
     }
+    const ativoBool = ativo !== undefined ? Boolean(ativo) : false
 
     const { erro: erroBlocos, lista: listaBlocos } = validarBlocos(blocos)
     if (erroBlocos) return res.status(400).json({ erro: erroBlocos })
+    const erroIds = idsDuplicados(listaBlocos)
+    if (erroIds) return res.status(400).json({ erro: erroIds })
     // Jornada sem nenhum pacote apareceria como "concluída" automaticamente no
     // widget (nenhum pacote obrigatório pendente) — não é um estado válido.
     if (listaBlocos.length === 0) {
       return res.status(400).json({ erro: 'A jornada precisa ter pelo menos um pacote.' })
     }
+    const erroReferencias = await validarReferenciasConteudo(tenantId, listaBlocos, ativoBool)
+    if (erroReferencias) return res.status(400).json({ erro: erroReferencias })
+    if (ativoBool && !listaBlocos.some(b => b.ativo !== false)) {
+      return res.status(400).json({ erro: 'Jornada ativa precisa de pelo menos um pacote ativo.' })
+    }
 
-    const ativoBool = ativo !== undefined ? Boolean(ativo) : true
     if (ativoBool) {
       const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
@@ -344,15 +451,64 @@ export async function atualizar(req: Request, res: Response) {
         return res.status(400).json({ erro: 'A jornada precisa ter pelo menos um pacote.' })
       }
       listaBlocos = lista
+      const erroIds = idsDuplicados(listaBlocos)
+      if (erroIds) return res.status(400).json({ erro: erroIds })
+      const erroReferencias = await validarReferenciasConteudo(req.adminUser!.tenant_id, listaBlocos, ativo !== undefined ? Boolean(ativo) : existente.ativo)
+      if (erroReferencias) return res.status(400).json({ erro: erroReferencias })
+    }
+
+    const ativoEfetivo = ativo !== undefined ? Boolean(ativo) : existente.ativo
+    if (ativoEfetivo && listaBlocos && !listaBlocos.some(b => b.ativo !== false)) {
+      return res.status(400).json({ erro: 'Jornada ativa precisa de pelo menos um pacote ativo.' })
+    }
+    if (ativoEfetivo && !listaBlocos) {
+      const persistidos = await prisma.blocoJornada.findMany({
+        where: { jornada_id: id },
+        orderBy: { ordem: 'asc' },
+        include: { etapas: { orderBy: { ordem: 'asc' } } },
+      })
+      const validacao = validarBlocos(persistidos)
+      if (validacao.erro) return res.status(400).json({ erro: validacao.erro })
+      if (validacao.lista.length === 0) return res.status(400).json({ erro: 'A jornada precisa ter pelo menos um pacote.' })
+      if (!validacao.lista.some(b => b.ativo !== false)) return res.status(400).json({ erro: 'Jornada ativa precisa de pelo menos um pacote ativo.' })
+      const erroReferencias = await validarReferenciasConteudo(req.adminUser!.tenant_id, validacao.lista, true)
+      if (erroReferencias) return res.status(400).json({ erro: erroReferencias })
     }
 
     // Slug é gerado só no POST e nunca muda depois — estável pra não quebrar
     // referências/URLs internas e debug, mesmo que o título seja editado.
     const jornada = await prisma.$transaction(async tx => {
       if (listaBlocos) {
-        // Apaga e recria — mesma estratégia simples/segura de sempre. Excluir
-        // os blocos já remove as etapas dentro deles (onDelete: Cascade).
-        await tx.blocoJornada.deleteMany({ where: { jornada_id: id } })
+        const atuais = await tx.blocoJornada.findMany({ where: { jornada_id: id }, include: { etapas: true } })
+        const idsBlocosAtuais = new Set(atuais.map(b => b.id))
+        const idsBlocosEnviados = listaBlocos.filter(b => b.id).map(b => b.id as string)
+        if (idsBlocosEnviados.some(blocoId => !idsBlocosAtuais.has(blocoId))) {
+          throw new Error('Pacote não pertence à jornada informada.')
+        }
+        const idsEtapasAtuais = new Set(atuais.flatMap(b => b.etapas.map(e => e.id)))
+        const idsEtapasEnviadas = listaBlocos.flatMap(b => b.etapas.filter(e => e.id).map(e => e.id as string))
+        if (idsEtapasEnviadas.some(etapaId => !idsEtapasAtuais.has(etapaId))) {
+          throw new Error('Etapa não pertence à jornada informada.')
+        }
+        await tx.etapaJornada.deleteMany({ where: { bloco: { jornada_id: id }, id: { notIn: idsEtapasEnviadas } } })
+        await tx.blocoJornada.deleteMany({ where: { jornada_id: id, id: { notIn: idsBlocosEnviados } } })
+        for (const [bi, bloco] of listaBlocos.entries()) {
+          const dadosBloco = {
+            ordem: bi,
+            titulo: bloco.titulo.trim(),
+            descricao: bloco.descricao?.trim() || null,
+            obrigatorio: bloco.obrigatorio !== undefined ? Boolean(bloco.obrigatorio) : true,
+            ativo: bloco.ativo !== undefined ? Boolean(bloco.ativo) : true,
+          }
+          const salvo = bloco.id
+            ? await tx.blocoJornada.update({ where: { id: bloco.id }, data: dadosBloco })
+            : await tx.blocoJornada.create({ data: { jornada_id: id, ...dadosBloco } })
+          for (const [ei, etapa] of bloco.etapas.entries()) {
+            const dadosEtapa = montarDadosEtapaSemOrdem(etapa, ei)
+            if (etapa.id) await tx.etapaJornada.update({ where: { id: etapa.id }, data: { ...dadosEtapa, bloco_id: salvo.id } })
+            else await tx.etapaJornada.create({ data: { bloco_id: salvo.id, ...dadosEtapa } })
+          }
+        }
       }
       return tx.jornada.update({
         where: { id },
@@ -368,11 +524,6 @@ export async function atualizar(req: Request, res: Response) {
           ...(segmentar_usuario_tipos !== undefined && { segmentar_usuario_tipos: Array.isArray(segmentar_usuario_tipos) ? segmentar_usuario_tipos : [] }),
           ...(segmentar_estados !== undefined && { segmentar_estados: Array.isArray(segmentar_estados) ? segmentar_estados : [] }),
           ...(segmentar_dominios !== undefined && { segmentar_dominios: parseDominios(segmentar_dominios) }),
-          ...(listaBlocos && {
-            blocos: {
-              create: listaBlocos.map((b, i) => montarDadosBloco(b, i)),
-            },
-          }),
         },
         include: INCLUDE_BLOCOS,
       })
@@ -380,6 +531,9 @@ export async function atualizar(req: Request, res: Response) {
 
     res.json(jornada)
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('não pertence') || err.message.includes('não correspond'))) {
+      return res.status(400).json({ erro: err.message })
+    }
     console.error(err)
     res.status(500).json({ erro: 'Erro ao atualizar jornada.' })
   }

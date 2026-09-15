@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { Campanha, Jornada, Sistema, TipoEtapaJornada, TourGuiado } from '../../types'
+import type { Campanha, Jornada, JornadaPreviewTokenResposta, Sistema, TipoEtapaJornada, TourGuiado } from '../../types'
 import { LoadingSpinner, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../hooks/useAuth'
 import { limiteTrial } from '../../utils/limiteTrial'
+import { podeGerenciarModulo, podeVisualizarModulo } from '../../utils/permissions'
+import { assinaturaRascunho, avisosQualidadeReferencias, resumoQualidadeTour, urlComTokenPreviewJornada, urlPermitidaNosDominios } from './jornadaForm.utils'
 
 interface FormState {
   titulo: string
@@ -32,7 +34,7 @@ interface FormState {
 const EMPTY: FormState = {
   titulo: '',
   descricao: '',
-  ativo: true,
+  ativo: false,
   permitir_refazer: false,
   permitir_pacotes_fora_ordem: true,
   segmentar_cliente_ids: [],
@@ -44,6 +46,7 @@ const EMPTY: FormState = {
 }
 
 interface EtapaFormState {
+  id?: string
   titulo: string
   descricao: string
   tipo: TipoEtapaJornada
@@ -69,6 +72,7 @@ const ETAPA_VAZIA: EtapaFormState = {
 
 // Nome técnico: BlocoJornada. Nome visual nesta tela e no widget: "Pacote".
 interface BlocoFormState {
+  id?: string
   titulo: string
   descricao: string
   obrigatorio: boolean
@@ -133,6 +137,28 @@ function pendenciasJornada(form: FormState, blocos: BlocoFormState[]): string[] 
   return pendencias
 }
 
+function blocosDaJornada(jornada: Jornada): BlocoFormState[] {
+  return (jornada.blocos ?? []).map(b => ({
+    id: b.id,
+    titulo: b.titulo,
+    descricao: b.descricao ?? '',
+    obrigatorio: b.obrigatorio,
+    ativo: b.ativo,
+    etapas: (b.etapas ?? []).map(e => ({
+      id: e.id,
+      titulo: e.titulo,
+      descricao: e.descricao ?? '',
+      tipo: e.tipo,
+      tour_id: e.tour_id ?? '',
+      campanha_id: e.campanha_id ?? '',
+      url: e.url ?? '',
+      texto_cta: e.texto_cta ?? 'Abrir',
+      abrir_nova_aba: e.abrir_nova_aba,
+      obrigatoria: e.obrigatoria,
+    })),
+  }))
+}
+
 function totalSegmentos(form: FormState): number {
   return SEGMENTOS.reduce((total, segmento) => total + form[segmento.key].length, 0) + form.segmentar_dominios.length
 }
@@ -143,12 +169,17 @@ export function JornadaForm() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const podeGerenciarTours = podeGerenciarModulo(user, 'TOURS')
+  const podeVisualizarTours = podeVisualizarModulo(user, 'TOURS')
+  const podeVisualizarCampanhas = podeVisualizarModulo(user, 'CAMPANHAS')
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [slug, setSlug] = useState('')
   const [blocos, setBlocos] = useState<BlocoFormState[]>([])
-  const [tours, setTours] = useState<TourGuiado[]>([])
-  const [campanhas, setCampanhas] = useState<Campanha[]>([])
+  // null significa catálogo desconhecido/não carregável. Uma lista vazia só
+  // representa ausência real depois de uma leitura autorizada bem-sucedida.
+  const [tours, setTours] = useState<TourGuiado[] | null>(null)
+  const [campanhas, setCampanhas] = useState<Campanha[] | null>(null)
   const [todasJornadas, setTodasJornadas] = useState<Jornada[]>([])
   const [loadingJornada, setLoadingJornada] = useState(isEdit)
   const [carregandoLimite, setCarregandoLimite] = useState(!isEdit)
@@ -158,7 +189,10 @@ export function JornadaForm() {
   const [selecionado, setSelecionado] = useState<Selecionado>({ tipo: 'jornada' })
   const [previewAberto, setPreviewAberto] = useState(false)
   const [previewBlocoIndex, setPreviewBlocoIndex] = useState<number | null>(null)
-  const [previewRealAberto, setPreviewRealAberto] = useState(false)
+  const [gerandoPreview, setGerandoPreview] = useState(false)
+  const [criandoTourInline, setCriandoTourInline] = useState(false)
+  const [erroTourInline, setErroTourInline] = useState<string | null>(null)
+  const assinaturaSalvaRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (isEdit && (location.state as { justSaved?: boolean } | null)?.justSaved) {
@@ -169,9 +203,13 @@ export function JornadaForm() {
   }, [isEdit, location.state])
 
   useEffect(() => {
-    get<TourGuiado[]>('/tours').then(setTours).catch(() => {})
-    get<Campanha[]>('/campanhas').then(setCampanhas).catch(() => {})
-  }, [])
+    if (podeVisualizarTours) {
+      get<TourGuiado[]>('/tours').then(lista => setTours(lista.filter(t => t.permite_jornada !== false))).catch(() => setTours(null))
+    } else setTours(null)
+    if (podeVisualizarCampanhas) {
+      get<Campanha[]>('/campanhas').then(setCampanhas).catch(() => setCampanhas(null))
+    } else setCampanhas(null)
+  }, [podeVisualizarCampanhas, podeVisualizarTours])
 
   // Catálogo de domínios pro campo de segmentação abaixo — Jornada não tem
   // sistema/tela (central aberta manualmente pelo usuário), então oferece a
@@ -191,7 +229,7 @@ export function JornadaForm() {
     if (!id) return
     get<Jornada>(`/jornadas/${id}`)
       .then(j => {
-        setForm({
+        const proximoForm: FormState = {
           titulo: j.titulo,
           descricao: j.descricao ?? '',
           ativo: j.ativo,
@@ -203,27 +241,12 @@ export function JornadaForm() {
           segmentar_usuario_tipos: j.segmentar_usuario_tipos ?? [],
           segmentar_estados: j.segmentar_estados ?? [],
           segmentar_dominios: j.segmentar_dominios ?? [],
-        })
+        }
+        const proximosBlocos = blocosDaJornada(j)
+        setForm(proximoForm)
         setSlug(j.slug)
-        setBlocos(
-          (j.blocos ?? []).map(b => ({
-            titulo: b.titulo,
-            descricao: b.descricao ?? '',
-            obrigatorio: b.obrigatorio,
-            ativo: b.ativo,
-            etapas: (b.etapas ?? []).map(e => ({
-              titulo: e.titulo,
-              descricao: e.descricao ?? '',
-              tipo: e.tipo,
-              tour_id: e.tour_id ?? '',
-              campanha_id: e.campanha_id ?? '',
-              url: e.url ?? '',
-              texto_cta: e.texto_cta ?? 'Abrir',
-              abrir_nova_aba: e.abrir_nova_aba,
-              obrigatoria: e.obrigatoria,
-            })),
-          }))
-        )
+        setBlocos(proximosBlocos)
+        assinaturaSalvaRef.current = assinaturaRascunho(proximoForm, proximosBlocos)
       })
       .catch(() => setError('Jornada não encontrada.'))
       .finally(() => setLoadingJornada(false))
@@ -292,7 +315,10 @@ export function JornadaForm() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
 
-    const pendencias = pendenciasJornada(form, blocos)
+    const pendencias = [
+      ...pendenciasJornada(form, blocos),
+      ...(form.ativo ? avisosQualidadeReferencias(blocos, tours, campanhas) : []),
+    ]
     if (pendencias.length > 0) {
       setError(pendencias[0])
       return
@@ -315,11 +341,13 @@ export function JornadaForm() {
         segmentar_estados: form.segmentar_estados,
         segmentar_dominios: form.segmentar_dominios,
         blocos: blocos.map(b => ({
+          id: b.id,
           titulo: b.titulo.trim(),
           descricao: b.descricao.trim() || null,
           obrigatorio: b.obrigatorio,
           ativo: b.ativo,
           etapas: b.etapas.map(et => ({
+            id: et.id,
             titulo: et.titulo.trim(),
             descricao: et.descricao.trim() || null,
             tipo: et.tipo,
@@ -337,12 +365,82 @@ export function JornadaForm() {
         ? await put<Jornada>(`/jornadas/${id}`, payload)
         : await post<Jornada>('/jornadas', payload)
 
-      if (isEdit) setSuccessMsg('Jornada atualizada com sucesso.')
+      if (isEdit) {
+        const blocosSalvos = blocosDaJornada(saved)
+        setBlocos(blocosSalvos)
+        assinaturaSalvaRef.current = assinaturaRascunho(form, blocosSalvos)
+        setSuccessMsg('Jornada atualizada com sucesso.')
+      }
       else navigate(`/jornadas/${saved.id}/editar`, { state: { justSaved: true } })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Não foi possível salvar a jornada. Tente novamente.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const abrirPreviewHospedado = async () => {
+    if (!id) {
+      setError('Salve a Jornada como rascunho antes de iniciar o teste.')
+      return
+    }
+    if (assinaturaSalvaRef.current !== assinaturaRascunho(form, blocos)) {
+      setError('Salve as alterações da Jornada antes de testar. O preview sempre usa a última versão salva.')
+      return
+    }
+    const alvo = window.prompt('URL da aplicação onde o widget está instalado:')
+    if (!alvo) return
+    let url: URL
+    try {
+      url = new URL(alvo)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('protocolo')
+    } catch {
+      setError('Informe uma URL HTTP ou HTTPS válida para a aplicação-alvo.')
+      return
+    }
+    if (!urlPermitidaNosDominios(url, form.segmentar_dominios)) {
+      setError(`A URL precisa usar um dos domínios configurados nesta Jornada: ${form.segmentar_dominios.join(', ')}.`)
+      return
+    }
+    const abaPreview = window.open('about:blank', '_blank')
+    if (!abaPreview) {
+      setError('O navegador bloqueou a nova aba. Permita pop-ups para o UserPulse e tente novamente.')
+      return
+    }
+    abaPreview.opener = null
+    abaPreview.document.title = 'Preparando preview da Jornada...'
+    setGerandoPreview(true)
+    setError(null)
+    try {
+      const resposta = await post<JornadaPreviewTokenResposta>(`/jornadas/${id}/preview-token`, {})
+      abaPreview.location.replace(urlComTokenPreviewJornada(url, resposta.token).toString())
+    } catch (e) {
+      abaPreview.close()
+      setError(e instanceof Error ? e.message : 'Não foi possível iniciar o teste da Jornada.')
+    } finally {
+      setGerandoPreview(false)
+    }
+  }
+
+  const criarTourInline = async (onCreated: (tour: TourGuiado) => void) => {
+    if (!podeGerenciarTours) return
+    const titulo = window.prompt('Título do novo Tour para esta Jornada:', 'Novo tour de Jornada')?.trim()
+    if (!titulo) return
+    setCriandoTourInline(true)
+    setErroTourInline(null)
+    try {
+      const tour = await post<TourGuiado>('/tours', {
+        titulo, descricao: null, sistema: sistemasConfig[0]?.identificador || 'aplicacao',
+        modo_identificacao: 'sistema_tela', tela: null, data_cy: null, url_contem: null, ativo: false,
+        permite_autonomo: false, permite_jornada: true, publico_geral: true, gatilhos: [], frequencia: 'uma_vez_por_usuario',
+        frequencia_intervalo_dias: null, passos: [], segmentacao_regras: null,
+      })
+      setTours(prev => [...(prev ?? []), tour])
+      onCreated(tour)
+    } catch (e) {
+      setErroTourInline(e instanceof Error ? e.message : 'Não foi possível criar o Tour em rascunho.')
+    } finally {
+      setCriandoTourInline(false)
     }
   }
 
@@ -364,7 +462,7 @@ export function JornadaForm() {
     }
   }
 
-  const pendencias = pendenciasJornada(form, blocos)
+  const pendencias = [...pendenciasJornada(form, blocos), ...avisosQualidadeReferencias(blocos, tours, campanhas)]
   const segmentos = totalSegmentos(form)
   const selecionadoExiste = selecionado.tipo === 'bloco'
     ? Boolean(blocos[selecionado.blocoIndex])
@@ -391,9 +489,9 @@ export function JornadaForm() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" onClick={() => navigate('/jornadas')} variant="ghost">Cancelar</Button>
+              <Button type="button" onClick={() => navigate('/jornadas')} variant="ghost" disabled={submitting}>Cancelar</Button>
               <Button form="jornada-form" type="submit" disabled={submitting} size="md" variant="gradient">
-                {submitting ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Publicar jornada'}
+                {submitting ? 'Salvando...' : isEdit ? 'Salvar alterações' : 'Salvar como rascunho'}
               </Button>
             </div>
           </div>
@@ -412,9 +510,10 @@ export function JornadaForm() {
           </div>
         )}
 
-        <form id="jornada-form" onSubmit={handleSubmit} className="grid grid-cols-1 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-          <div className="space-y-5 xl:order-2">
-            <div className="rounded-[28px] border border-outline-variant bg-surface p-4 shadow-sm sm:p-5">
+        <form id="jornada-form" onSubmit={handleSubmit} aria-busy={submitting} className="grid grid-cols-1 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+          <fieldset disabled={submitting} className="contents">
+            <div className="order-2 space-y-5 xl:order-2">
+              <div className="rounded-[28px] border border-outline-variant bg-surface p-4 shadow-sm sm:p-5">
               <div className="border-b border-outline-variant/50 pb-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -424,11 +523,11 @@ export function JornadaForm() {
                   </div>
                   <Button
                     type="button"
-                    onClick={() => setPreviewRealAberto(true)}
+                    onClick={abrirPreviewHospedado}
                     variant="secondary"
                     iconLeft={<span className="material-symbols-outlined text-[18px]">visibility</span>}
                   >
-                    Preview real
+                    {gerandoPreview ? 'Gerando teste...' : 'Testar na aplicação'}
                   </Button>
                 </div>
               </div>
@@ -454,11 +553,11 @@ export function JornadaForm() {
                 onMoveEtapa={moveEtapa}
                 onRemoveEtapa={removeEtapa}
               />
+              </div>
             </div>
-          </div>
 
-          <aside className="xl:sticky xl:top-5 xl:order-1 xl:self-start">
-            <div className="overflow-hidden rounded-[28px] border border-outline-variant bg-surface shadow-sm">
+            <aside className="order-1 xl:sticky xl:top-5 xl:order-1 xl:self-start">
+              <div className="overflow-hidden rounded-[28px] border border-outline-variant bg-surface shadow-sm">
               <div className="border-b border-outline-variant/50 bg-surface-container-low/50 p-4">
                 <p className="text-label-md font-bold uppercase tracking-wide text-primary">Painel de edição</p>
                 <h3 className="mt-1 text-title-md font-bold text-on-surface">{tituloPainel(selecaoAtual, blocos)}</h3>
@@ -483,6 +582,10 @@ export function JornadaForm() {
                     etapaIndex={selecaoAtual.etapaIndex}
                     tours={tours}
                     campanhas={campanhas}
+                    podeGerenciarTours={podeGerenciarTours}
+                    criandoTour={criandoTourInline}
+                    erroCriacaoTour={erroTourInline}
+                    onCriarTour={() => criarTourInline(tour => setEtapa(selecaoAtual.blocoIndex, selecaoAtual.etapaIndex, { tour_id: tour.id }))}
                     onPatch={patch => setEtapa(selecaoAtual.blocoIndex, selecaoAtual.etapaIndex, patch)}
                   />
                 )}
@@ -498,17 +601,11 @@ export function JornadaForm() {
                   </ul>
                 )}
               </div>
-            </div>
-          </aside>
+              </div>
+            </aside>
+          </fieldset>
         </form>
 
-        {previewRealAberto && (
-          <JornadaPreviewReal
-            form={form}
-            blocos={blocos}
-            onClose={() => setPreviewRealAberto(false)}
-          />
-        )}
       </section>
     </div>
   )
@@ -519,132 +616,6 @@ function tituloPainel(selecionado: Selecionado, blocos: BlocoFormState[]): strin
   if (selecionado.tipo === 'bloco') return blocos[selecionado.blocoIndex]?.titulo || `Pacote ${selecionado.blocoIndex + 1}`
   if (selecionado.tipo === 'etapa') return blocos[selecionado.blocoIndex]?.etapas[selecionado.etapaIndex]?.titulo || `Etapa ${selecionado.etapaIndex + 1}`
   return 'Informações da jornada'
-}
-
-function JornadaPreviewReal({ form, blocos, onClose }: { form: FormState; blocos: BlocoFormState[]; onClose: () => void }) {
-  const [painelAberto, setPainelAberto] = useState(true)
-  const [blocoAbertoIndex, setBlocoAbertoIndex] = useState<number | null>(null)
-  const blocoAberto = blocoAbertoIndex == null ? null : blocos[blocoAbertoIndex]
-  const titulo = form.titulo.trim() || 'Jornada de ativação'
-  const descricao = form.descricao.trim()
-
-  return (
-    <div className="fixed inset-0 z-[2147483000] bg-slate-950/45 backdrop-blur-[2px]">
-      <div className="absolute left-4 top-4 z-[2147483010] flex items-center gap-2 rounded-full bg-white px-3 py-2 shadow-lg">
-        <span className="material-symbols-outlined text-[17px] text-primary">visibility</span>
-        <span className="text-label-md font-bold text-on-surface">Preview real</span>
-        <button type="button" onClick={onClose} className="ml-1 flex h-7 w-7 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high" aria-label="Fechar preview real">
-          <span className="material-symbols-outlined text-[17px]">close</span>
-        </button>
-      </div>
-
-      <div className="h-full w-full bg-[radial-gradient(circle_at_20%_10%,rgba(255,255,255,.30),transparent_24%),linear-gradient(135deg,#eef4ff,#f8fafc_45%,#e8edf6)] p-8">
-        <div className="mx-auto mt-16 max-w-5xl rounded-[32px] border border-white/80 bg-white/70 p-6 shadow-xl backdrop-blur">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <div className="h-3 w-36 rounded-full bg-slate-300" />
-              <div className="mt-3 h-8 w-72 rounded-full bg-slate-200" />
-            </div>
-            <div className="h-10 w-32 rounded-full bg-primary/15" />
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div className="h-40 rounded-3xl bg-white shadow-sm" />
-            <div className="h-40 rounded-3xl bg-white shadow-sm" />
-            <div className="h-40 rounded-3xl bg-white shadow-sm" />
-          </div>
-          <div className="mt-5 rounded-3xl bg-white p-5 shadow-sm">
-            <div className="mb-4 h-3 w-48 rounded-full bg-slate-200" />
-            <div className="space-y-2">
-              <div className="h-3 rounded-full bg-slate-200" />
-              <div className="h-3 w-5/6 rounded-full bg-slate-200" />
-              <div className="h-3 w-2/3 rounded-full bg-slate-200" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {!painelAberto && (
-        <button type="button" onClick={() => setPainelAberto(true)} className="fixed bottom-[88px] right-6 z-[2147483030] flex h-11 items-center gap-2 rounded-full bg-[#0058be] px-[18px] pl-3.5 text-[13px] font-extrabold text-white shadow-[0_14px_32px_rgba(0,88,190,.28)] transition-transform hover:-translate-y-0.5">
-          <span className="material-symbols-outlined text-[18px]">route</span>
-          Ajuda
-        </button>
-      )}
-
-      {painelAberto && (
-        <div className="fixed bottom-0 right-0 top-0 z-[2147483040] flex w-[360px] max-w-[92vw] flex-col border-l border-[#e0e2ef] bg-white shadow-[-12px_0_32px_rgba(11,28,48,.14)]">
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e0e2ef]/70 px-[18px] py-4">
-            <h3 className="m-0 text-[16px] font-extrabold text-[#0b1c30]">Central de ajuda</h3>
-            <button type="button" onClick={() => setPainelAberto(false)} aria-label="Fechar central de ajuda" className="flex h-8 w-8 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#f1f3fa]">
-              <span className="material-symbols-outlined text-[18px]">close</span>
-            </button>
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col gap-[14px] overflow-y-auto px-4 py-[14px]">
-            {blocoAberto ? (
-              <div>
-                <button type="button" onClick={() => setBlocoAbertoIndex(null)} className="mb-2 flex items-center gap-1 text-[12px] font-bold text-[#0058be] hover:underline">
-                  <span className="material-symbols-outlined text-[15px]">arrow_back</span>
-                  Voltar para pacotes
-                </button>
-                <h4 className="m-0 text-[14px] font-extrabold text-[#0b1c30]">{blocoAberto.titulo || `Pacote ${blocoAbertoIndex! + 1}`}</h4>
-                {blocoAberto.descricao && <p className="mb-3 mt-1 text-[12.5px] leading-[1.4] text-[#424754]">{blocoAberto.descricao}</p>}
-                <div className="flex flex-col gap-2">
-                  {blocoAberto.etapas.length === 0 ? (
-                    <div className="rounded-[14px] border border-dashed border-[#e0e2ef] bg-[#f8f9ff] p-5 text-center text-[13px] text-[#727785]">Nenhuma etapa neste pacote.</div>
-                  ) : blocoAberto.etapas.map((etapa, ei) => {
-                    const tipo = tipoEtapaConfig(etapa.tipo)
-                    return (
-                      <button key={ei} type="button" className="flex w-full items-start gap-2.5 rounded-[12px] border border-[#e0e2ef] bg-white p-3 text-left transition-colors hover:border-[#0058be] hover:bg-[#f6f9ff]">
-                        <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-[#eff4ff] text-[11px] font-extrabold text-[#0058be]">{ei + 1}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[13px] font-bold text-[#0b1c30]">{etapa.titulo || `Etapa ${ei + 1}`}</span>
-                          {etapa.descricao && <span className="mt-0.5 block text-[11.5px] leading-[1.35] text-[#424754]">{etapa.descricao}</span>}
-                          <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[.02em] text-[#8a90a3]">{tipo.label}{etapa.obrigatoria ? '' : ' · opcional'}</span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="relative shrink-0">
-                  <span className="material-symbols-outlined pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-[#8a90a3]">search</span>
-                  <input readOnly value="" placeholder="Buscar etapas, pacotes ou jornadas" className="h-9 w-full rounded-[10px] border border-[#e0e2ef] bg-[#f8f9ff] pl-8 pr-3 text-[12.5px] text-[#0b1c30] outline-none" />
-                </div>
-                <div className="flex flex-col gap-[14px]">
-                  <h4 className="m-0 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#8a90a3]">Jornadas</h4>
-                  <div>
-                    <h4 className="m-0 text-[14px] font-extrabold text-[#0b1c30]">{titulo}</h4>
-                    {descricao && <p className="mb-2 mt-1 text-[12.5px] leading-[1.4] text-[#424754]">{descricao}</p>}
-                    {blocos.length > 0 && <p className="mb-2 text-[11px] font-bold text-[#727785]">0 de {blocos.length} pacotes concluídos</p>}
-                    <div className="flex flex-col gap-2">
-                      {blocos.length === 0 ? (
-                        <div className="rounded-[14px] border border-dashed border-[#e0e2ef] bg-[#f8f9ff] p-5 text-center text-[13px] text-[#727785]">Nenhum pacote disponível.</div>
-                      ) : blocos.map((bloco, bi) => (
-                        <button key={bi} type="button" onClick={() => setBlocoAbertoIndex(bi)} className="flex w-full items-center justify-between gap-2 rounded-[12px] border border-[#e0e2ef] bg-white p-3 text-left transition-colors hover:border-[#0058be] hover:bg-[#f6f9ff]">
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-center justify-between gap-2">
-                              <span className="truncate text-[13px] font-bold text-[#0b1c30]">{bloco.titulo || `Pacote ${bi + 1}`}</span>
-                              <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-extrabold uppercase tracking-[.02em] text-[#8a90a3]"><span className="h-1.5 w-1.5 rounded-full bg-[#8a90a3]" />Não iniciado</span>
-                            </span>
-                            {bloco.descricao && <span className="mt-1 block text-[11.5px] leading-[1.35] text-[#424754]">{bloco.descricao}</span>}
-                            <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-[#e0e2ef]"><span className="block h-full w-0 rounded-full bg-[#0058be]" /></span>
-                            <span className="mt-1 block text-[11px] font-bold text-[#727785]">0 de {bloco.etapas.length} etapas concluídas</span>
-                          </span>
-                          <span className="text-[11px] font-extrabold text-[#0058be]">Iniciar</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
 }
 
 function JornadaProdutoPreview({
@@ -728,7 +699,7 @@ function JornadaProdutoPreview({
           <div className="absolute inset-y-0 right-0 flex w-[360px] max-w-[92%] flex-col border-l border-[#e0e2ef] bg-white shadow-[-12px_0_32px_rgba(11,28,48,.14)]">
             <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e0e2ef]/70 px-[18px] py-4">
               <h3 className="m-0 text-[16px] font-extrabold text-[#0b1c30]">Central de ajuda</h3>
-              <button type="button" onClick={onFechar} aria-label="Fechar prévia" className="flex h-8 w-8 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#f1f3fa]">
+              <button type="button" onClick={onFechar} aria-label="Fechar prévia" className="flex h-11 w-11 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#f1f3fa]">
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
@@ -756,7 +727,7 @@ function JornadaProdutoPreview({
                   <div className="flex flex-col gap-[14px]">
                     <div className="flex items-center justify-between gap-2">
                       <h4 className="m-0 text-[11px] font-extrabold uppercase tracking-[.04em] text-[#8a90a3]">Jornadas</h4>
-                      <button type="button" onClick={onAddBloco} className="inline-flex items-center gap-1 rounded-full border border-[#bcd6f7] bg-[#eff4ff] px-3 py-1.5 text-[11px] font-extrabold text-[#0058be] transition-colors hover:bg-[#e4efff]">
+                      <button type="button" onClick={onAddBloco} className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[#bcd6f7] bg-[#eff4ff] px-3 py-1.5 text-[11px] font-extrabold text-[#0058be] transition-colors hover:bg-[#e4efff]">
                         <span className="material-symbols-outlined text-[14px]">add</span>
                         Novo pacote
                       </button>
@@ -844,9 +815,9 @@ function PreviewPacoteCard({ bloco, index, total, ativo, onOpen, onEditar, onMov
           Editar
         </button>
         <div className="flex items-center gap-1">
-          <button type="button" onClick={() => onMove(-1)} disabled={index === 0} title="Mover para cima" aria-label="Mover pacote para cima" className="flex h-8 w-8 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#eef1f8] disabled:opacity-30"><span className="material-symbols-outlined text-[16px]">arrow_upward</span></button>
-          <button type="button" onClick={() => onMove(1)} disabled={index === total - 1} title="Mover para baixo" aria-label="Mover pacote para baixo" className="flex h-8 w-8 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#eef1f8] disabled:opacity-30"><span className="material-symbols-outlined text-[16px]">arrow_downward</span></button>
-          <button type="button" onClick={onRemove} title="Remover pacote" aria-label="Remover pacote" className="flex h-8 w-8 items-center justify-center rounded-full text-error transition-colors hover:bg-error-container"><span className="material-symbols-outlined text-[16px]">delete</span></button>
+          <button type="button" onClick={() => onMove(-1)} disabled={index === 0} title="Mover para cima" aria-label="Mover pacote para cima" className="flex h-11 w-11 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#eef1f8] disabled:opacity-30"><span className="material-symbols-outlined text-[16px]">arrow_upward</span></button>
+          <button type="button" onClick={() => onMove(1)} disabled={index === total - 1} title="Mover para baixo" aria-label="Mover pacote para baixo" className="flex h-11 w-11 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#eef1f8] disabled:opacity-30"><span className="material-symbols-outlined text-[16px]">arrow_downward</span></button>
+          <button type="button" onClick={onRemove} title="Remover pacote" aria-label="Remover pacote" className="flex h-11 w-11 items-center justify-center rounded-full text-error transition-colors hover:bg-error-container"><span className="material-symbols-outlined text-[16px]">delete</span></button>
         </div>
       </div>
     </div>
@@ -902,9 +873,9 @@ function PreviewEtapasPacote({ bloco, blocoIndex, selecionado, onVoltar, onEdita
                     Editar
                   </button>
                   <div className="flex items-center gap-1">
-                    <button type="button" onClick={() => onMoveEtapa(blocoIndex, ei, -1)} disabled={ei === 0} title="Mover para cima" aria-label="Mover etapa para cima" className="flex h-8 w-8 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#eef1f8] disabled:opacity-30"><span className="material-symbols-outlined text-[16px]">arrow_upward</span></button>
-                    <button type="button" onClick={() => onMoveEtapa(blocoIndex, ei, 1)} disabled={ei === bloco.etapas.length - 1} title="Mover para baixo" aria-label="Mover etapa para baixo" className="flex h-8 w-8 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#eef1f8] disabled:opacity-30"><span className="material-symbols-outlined text-[16px]">arrow_downward</span></button>
-                    <button type="button" onClick={() => onRemoveEtapa(blocoIndex, ei)} title="Remover etapa" aria-label="Remover etapa" className="flex h-8 w-8 items-center justify-center rounded-full text-error transition-colors hover:bg-error-container"><span className="material-symbols-outlined text-[16px]">delete</span></button>
+                    <button type="button" onClick={() => onMoveEtapa(blocoIndex, ei, -1)} disabled={ei === 0} title="Mover para cima" aria-label="Mover etapa para cima" className="flex h-11 w-11 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#eef1f8] disabled:opacity-30"><span className="material-symbols-outlined text-[16px]">arrow_upward</span></button>
+                    <button type="button" onClick={() => onMoveEtapa(blocoIndex, ei, 1)} disabled={ei === bloco.etapas.length - 1} title="Mover para baixo" aria-label="Mover etapa para baixo" className="flex h-11 w-11 items-center justify-center rounded-full text-[#727785] transition-colors hover:bg-[#eef1f8] disabled:opacity-30"><span className="material-symbols-outlined text-[16px]">arrow_downward</span></button>
+                    <button type="button" onClick={() => onRemoveEtapa(blocoIndex, ei)} title="Remover etapa" aria-label="Remover etapa" className="flex h-11 w-11 items-center justify-center rounded-full text-error transition-colors hover:bg-error-container"><span className="material-symbols-outlined text-[16px]">delete</span></button>
                   </div>
                 </div>
               </div>
@@ -1032,7 +1003,7 @@ function PainelBloco({ bloco, index, onPatch, onAddEtapa }: { bloco: BlocoFormSt
   )
 }
 
-function PainelEtapa({ etapa, blocoIndex, etapaIndex, tours, campanhas, onPatch }: { etapa: EtapaFormState; blocoIndex: number; etapaIndex: number; tours: TourGuiado[]; campanhas: Campanha[]; onPatch: (patch: Partial<EtapaFormState>) => void }) {
+function PainelEtapa({ etapa, blocoIndex, etapaIndex, tours, campanhas, podeGerenciarTours, criandoTour, erroCriacaoTour, onCriarTour, onPatch }: { etapa: EtapaFormState; blocoIndex: number; etapaIndex: number; tours: TourGuiado[] | null; campanhas: Campanha[] | null; podeGerenciarTours: boolean; criandoTour: boolean; erroCriacaoTour: string | null; onCriarTour: () => void; onPatch: (patch: Partial<EtapaFormState>) => void }) {
   return (
     <div className="space-y-4">
       <p className="text-label-md font-bold text-primary">Pacote {blocoIndex + 1} · Etapa {etapaIndex + 1}</p>
@@ -1051,15 +1022,19 @@ function PainelEtapa({ etapa, blocoIndex, etapaIndex, tours, campanhas, onPatch 
       {etapa.tipo === 'tour' && (
         <div>
           <label className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Tour guiado <span className="text-error">*</span></label>
-          <Select size="sm" value={etapa.tour_id} onChange={v => onPatch({ tour_id: v })} placeholder="Selecione um tour existente" options={tours.map(t => ({ value: t.id, label: t.titulo }))} />
-          {tours.length === 0 && <p className="mt-1 text-label-sm text-outline">Nenhum tour guiado cadastrado ainda.</p>}
+           <Select size="sm" value={etapa.tour_id} onChange={v => onPatch({ tour_id: v })} placeholder="Selecione um tour existente" options={tours?.map(t => ({ value: t.id, label: `${t.titulo} · ${resumoQualidadeTour(t)}` })) ?? (etapa.tour_id ? [{ value: etapa.tour_id, label: 'Tour atual (catálogo indisponível)' }] : [])} />
+           {podeGerenciarTours ? <button type="button" disabled={criandoTour} onClick={onCriarTour} className="mt-2 min-h-11 text-label-md font-bold text-primary hover:underline disabled:opacity-50">{criandoTour ? 'Criando rascunho...' : '+ Criar Tour exclusivo desta Jornada'}</button> : <p className="mt-2 text-label-sm text-on-surface-variant">Você não tem permissão para criar Tours inline.</p>}
+           {erroCriacaoTour && <p className="mt-1 rounded-lg bg-error-container p-2 text-label-sm text-on-error-container">{erroCriacaoTour}</p>}
+          {tours === null && <p className="mt-1 text-label-sm text-outline">O catálogo de Tours não está disponível. A referência atual será preservada e validada pelo servidor.</p>}
+          {tours?.length === 0 && <p className="mt-1 text-label-sm text-outline">Nenhum tour guiado cadastrado ainda.</p>}
         </div>
       )}
       {etapa.tipo === 'campanha' && (
         <div>
           <label className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Campanha <span className="text-error">*</span></label>
-          <Select size="sm" value={etapa.campanha_id} onChange={v => onPatch({ campanha_id: v })} placeholder="Selecione uma campanha existente" options={campanhas.map(c => ({ value: c.id, label: `${c.nome_interno} — ${c.titulo}${c.status === 'RASCUNHO' ? ' (rascunho)' : c.status === 'INATIVA' ? ' (inativa)' : ''}` }))} />
-          {campanhas.length === 0 && <p className="mt-1 text-label-sm text-outline">Nenhuma campanha cadastrada ainda.</p>}
+          <Select size="sm" value={etapa.campanha_id} onChange={v => onPatch({ campanha_id: v })} placeholder="Selecione uma campanha existente" options={campanhas?.map(c => ({ value: c.id, label: `${c.nome_interno} — ${c.titulo}${c.status === 'RASCUNHO' ? ' (rascunho)' : c.status === 'INATIVA' ? ' (inativa)' : ''}` })) ?? (etapa.campanha_id ? [{ value: etapa.campanha_id, label: 'Campanha atual (catálogo indisponível)' }] : [])} />
+          {campanhas === null && <p className="mt-1 text-label-sm text-outline">O catálogo de Campanhas não está disponível. A referência atual será preservada e validada pelo servidor.</p>}
+          {campanhas?.length === 0 && <p className="mt-1 text-label-sm text-outline">Nenhuma campanha cadastrada ainda.</p>}
         </div>
       )}
       {etapa.tipo === 'link' && (
@@ -1082,7 +1057,7 @@ function PainelEtapa({ etapa, blocoIndex, etapaIndex, tours, campanhas, onPatch 
 
 function SwitchRow({ checked, onChange, title, desc }: { checked: boolean; onChange: (value: boolean) => void; title: string; desc: string }) {
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-outline-variant bg-surface-container-low/50 p-3">
+    <div className="flex min-h-14 items-center gap-3 rounded-2xl border border-outline-variant bg-surface-container-low/50 p-3">
       <ToggleSwitch checked={checked} onChange={onChange} />
       <div>
         <p className="text-body-md font-bold text-on-surface">{title}</p>
@@ -1109,7 +1084,7 @@ function ChipInput({ values, onChange, placeholder }: { values: string[]; onChan
       {values.map(v => (
         <span key={v} className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary/10 px-2 py-0.5 text-[12px] font-medium text-primary">
           {v}
-          <button type="button" onClick={e => { e.stopPropagation(); onChange(values.filter(x => x !== v)) }} className="ml-0.5 leading-none hover:text-error">
+          <button type="button" onClick={e => { e.stopPropagation(); onChange(values.filter(x => x !== v)) }} aria-label={`Remover ${v}`} className="-my-2 ml-0.5 flex h-11 w-11 items-center justify-center leading-none hover:text-error">
             <span className="material-symbols-outlined text-[12px]">close</span>
           </button>
         </span>

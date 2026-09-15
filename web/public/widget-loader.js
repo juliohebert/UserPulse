@@ -14,6 +14,10 @@
 (function () {
   'use strict';
 
+  if (window.__userpulseLoaderInjected) return;
+  window.__userpulseLoaderInjected = true;
+  if (window.UserPulse && window.UserPulse._up_ready) return;
+
   if (!window.UserPulse || !window.UserPulse._up_ready) {
     var _q = (window.UserPulse && window.UserPulse._q) || [];
     window.UserPulse = {
@@ -22,6 +26,7 @@
       track: function () { _q.push(['track', arguments]); },
       updateContext: function () { _q.push(['updateContext', arguments]); },
       iniciarTour: function () { _q.push(['iniciarTour', arguments]); },
+      abrirJornadas: function () { _q.push(['abrirJornadas', arguments]); },
       debug: function () { _q.push(['debug', arguments]); },
     };
   }
@@ -32,7 +37,9 @@
   }());
 
   var _base = new URL(_s.src).origin;
+  if (document.querySelector && document.querySelector('script[data-userpulse-widget]')) return;
   var _el = document.createElement('script');
+  _el.setAttribute('data-userpulse-widget', 'true');
   _el.src = _base + '/widget.js?v=__UP_VERSION__';
   _el.async = true;
   document.head.appendChild(_el);
