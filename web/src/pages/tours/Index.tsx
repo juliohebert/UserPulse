@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams, type NavigateFunction } from 'react-router-dom'
-import { del, get, post } from '../../services/api'
+import { del, get, post, put } from '../../services/api'
 import type { TourDependenciaJornada, TourExportEnvelope, TourGuiado, TourGuiadoListaPaginada } from '../../types'
 import { formatDateTime } from '../../utils/campanha'
 import { downloadJson } from '../../utils/tour'
@@ -11,6 +11,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo, podeExcluirOuImportarModulo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
+import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 
 const PAGE_SIZE = 10
 // Só a busca dispara a cada tecla (sistema/passos são clique único, sem
@@ -28,12 +29,12 @@ type FiltroPassos = 'todos' | 'com' | 'sem'
 // isso o filtro/coluna usam "Ativa/Inativa" (não "Rascunho") e o padrão é
 // "Todas": esconder os inativos por padrão esconderia tours que só são
 // usados via Jornada, mesmo estando em uso normal.
-type StatusFiltro = 'todos' | 'ativos' | 'inativos'
+type StatusFiltro = 'todos' | 'ativos' | 'inativos' | 'somente_jornada'
 const STATUS_FILTRO_PADRAO: StatusFiltro = 'todos'
 
 const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
   { label: 'Tour', key: 'tour', sortKey: 'tour' },
-  { label: 'Sistema', key: 'sistema', sortKey: 'sistema' },
+  { label: 'Sistema / destino', key: 'sistema', sortKey: 'sistema' },
   { label: 'Exibição autônoma', key: 'status', sortKey: 'status' },
   { label: 'Passos', key: 'passos', sortKey: 'passos' },
   { label: 'Atualizado em', key: 'atualizado', sortKey: 'atualizado' },
@@ -53,6 +54,7 @@ const STATUS_FILTRO: Array<{ value: StatusFiltro; label: string }> = [
   { value: 'todos', label: 'Todas' },
   { value: 'ativos', label: 'Ativas' },
   { value: 'inativos', label: 'Inativas' },
+  { value: 'somente_jornada', label: 'Somente em jornadas' },
 ]
 
 function MetricCard({ label, value, icon }: { label: string; value: string | number; icon: string }) {
@@ -153,6 +155,7 @@ export function ToursIndex() {
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [exportandoId, setExportandoId] = useState<string | null>(null)
   const [removendoId, setRemovendoId] = useState<string | null>(null)
+  const [alternandoId, setAlternandoId] = useState<string | null>(null)
   const [tourRemover, setTourRemover] = useState<TourGuiado | null>(null)
   const [dependenciasRemocao, setDependenciasRemocao] = useState<TourDependenciaJornada[]>([])
   const [consultandoImpactoId, setConsultandoImpactoId] = useState<string | null>(null)
@@ -273,7 +276,7 @@ export function ToursIndex() {
 
   const sistemas = data?.sistemas ?? []
   const items = data?.items ?? []
-  const resumo = data?.resumo ?? { total: 0, ativos: 0, inativos: 0, total_passos: 0 }
+  const resumo = data?.resumo ?? { total: 0, ativos: 0, inativos: 0, somente_jornada: 0, total_passos: 0 }
   // Fase 6E — resumo.total já é o TOTAL cadastrado do tenant, sem depender
   // de filtro/busca (ver server/src/controllers/tours.ts listar()) —
   // reaproveitado direto, sem endpoint novo.
@@ -322,6 +325,26 @@ export function ToursIndex() {
       setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível duplicar o tour. Tente novamente.' })
     } finally {
       setDuplicandoId(null)
+    }
+  }
+
+  const alternarAtivo = async (tour: TourGuiado, ativo: boolean) => {
+    if (!tour.permite_autonomo) {
+      setMensagem({ tipo: 'erro', texto: 'Este tour está configurado somente para Jornadas. Habilite a execução independente na edição para ativá-lo.' })
+      return
+    }
+    setAlternandoId(tour.id)
+    setMensagem(null)
+    try {
+      await put<TourGuiado>(`/tours/${tour.id}`, { ativo })
+      setMensagem({ tipo: 'sucesso', texto: `Exibição autônoma ${ativo ? 'ativada' : 'desativada'} para "${tour.titulo}".` })
+      const saiDoFiltro = (filterAtivo === 'ativos' && !ativo) || (filterAtivo === 'inativos' && ativo)
+      const proximaPagina = saiDoFiltro && items.length === 1 && paginaAtual > 1 ? paginaAtual - 1 : paginaAtual
+      load(busca, filterSistema, filterAtivo, proximaPagina)
+    } catch (e) {
+      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível alterar a exibição do tour.' })
+    } finally {
+      setAlternandoId(null)
     }
   }
 
@@ -408,9 +431,15 @@ export function ToursIndex() {
         )}
 
         <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-visible">
-          <div className="px-5 py-4 border-b border-outline-variant/30 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="px-5 py-5 border-b border-outline-variant/30 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
-              <h3 className="text-title-lg font-bold text-on-surface">Tours Guiados</h3>
+              <div className="mb-2 flex items-center gap-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <span className="material-symbols-outlined text-[20px]">map</span>
+                </span>
+                <h1 className="text-title-lg font-bold text-on-surface">Tours Guiados</h1>
+              </div>
+              <p className="max-w-2xl text-body-md text-on-surface-variant">Organize os fluxos, controle a exibição autônoma e acompanhe onde cada tour pode ser usado.</p>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto shrink-0">
               <Button
@@ -477,7 +506,7 @@ export function ToursIndex() {
             <MetricCard label="Total de tours" value={resumo.total.toLocaleString('pt-BR')} icon="map" />
             <MetricCard label="Exibição autônoma ativa" value={resumo.ativos.toLocaleString('pt-BR')} icon="play_circle" />
             <MetricCard label="Exibição autônoma inativa" value={resumo.inativos.toLocaleString('pt-BR')} icon="pause_circle" />
-            <MetricCard label="Total de passos" value={resumo.total_passos.toLocaleString('pt-BR')} icon="format_list_numbered" />
+            <MetricCard label="Somente em jornadas" value={resumo.somente_jornada.toLocaleString('pt-BR')} icon="route" />
           </div>
 
           <div className="flex flex-col gap-3 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-lowest xl:flex-row xl:items-center xl:justify-between">
@@ -607,7 +636,7 @@ export function ToursIndex() {
               {busca && <FilterChip label={busca} onRemove={() => { setBusca(''); load('', filterSistema, filterAtivo, 1) }} />}
               {filterSistema && <FilterChip label={filterSistema} onRemove={() => mudarSistema('')} />}
               {filterAtivo !== STATUS_FILTRO_PADRAO && (
-                <FilterChip label={filterAtivo === 'ativos' ? 'Ativas' : 'Inativas'} onRemove={() => mudarStatus(STATUS_FILTRO_PADRAO)} />
+                <FilterChip label={filterAtivo === 'ativos' ? 'Ativas' : filterAtivo === 'inativos' ? 'Inativas' : 'Somente em jornadas'} onRemove={() => mudarStatus(STATUS_FILTRO_PADRAO)} />
               )}
               {filterPassos !== 'todos' && (
                 <FilterChip label={filterPassos === 'com' ? 'Com passos' : 'Sem passos'} onRemove={() => mudarPassos('todos')} />
@@ -689,13 +718,14 @@ export function ToursIndex() {
                           {tour.descricao && (
                             <p className="text-label-sm text-on-surface-variant truncate max-w-xs">{tour.descricao}</p>
                           )}
+                          <TourConfigBadges tour={tour} />
                         </td>}
-                        {colunasVisiveis.sistema && <td className="px-4 py-4 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{tour.sistema}</td>}
+                        {colunasVisiveis.sistema && <td className="px-4 py-4 align-middle min-w-[170px]">
+                          <p className="text-body-md font-semibold text-on-surface">{tour.sistema}</p>
+                          <p className="mt-0.5 max-w-[220px] truncate text-[12px] text-on-surface-variant" title={destinoTour(tour)}>{destinoTour(tour)}</p>
+                        </td>}
                         {colunasVisiveis.status && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-2.5">
-                            <StatusBadge ativo={tour.ativo} />
-                            <DistribuicaoBadge tour={tour} />
-                          </div>
+                          <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} />
                         </td>}
                         {colunasVisiveis.passos && <td className="px-4 py-4 align-middle text-body-md font-bold text-center text-on-surface whitespace-nowrap">
                           {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
@@ -741,17 +771,15 @@ export function ToursIndex() {
                       )}
                     </div>
                     {tour.descricao && (
-                      <p className="text-label-sm text-on-surface-variant truncate mb-2">{tour.descricao}</p>
+                      <p className="text-label-sm text-on-surface-variant line-clamp-2 mb-2">{tour.descricao}</p>
                     )}
-                    <div className="flex flex-wrap items-center gap-2 mb-3">
-                      <div className="flex items-center gap-2">
-                       <StatusBadge ativo={tour.ativo} />
-                       <DistribuicaoBadge tour={tour} />
+                    <TourConfigBadges tour={tour} />
+                    <div className="my-3 flex items-center justify-between gap-3 rounded-2xl bg-surface-container-low px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-label-md font-bold text-on-surface">{tour.sistema}</p>
+                        <p className="truncate text-[12px] text-on-surface-variant">{destinoTour(tour)}</p>
                       </div>
-                      <span className="text-label-sm text-on-surface-variant">{tour.sistema}</span>
-                      <span className="text-label-sm text-on-surface-variant">
-                        · {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
-                      </span>
+                      <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} compact />
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-label-sm text-outline">Atualizado {formatDateTime(tour.atualizado_em)}</span>
@@ -808,11 +836,95 @@ export function ToursIndex() {
   )
 }
 
-// Ativa/Inativa aqui é só sobre exibição autônoma — nunca "existe/não
-// existe" nem "disponível/indisponível para Jornada" (um tour inativo
-// continua funcionando normalmente como etapa de Jornada). Por isso a cor
-// de "Inativa" é neutra (on-surface-variant/outline), não vermelha — não é
-// um estado de erro.
+function destinoTour(tour: TourGuiado): string {
+  if (!tour.permite_autonomo) return 'Execução por jornada'
+  if (tour.modo_identificacao === 'data_cy') return tour.data_cy ? `Elemento: ${tour.data_cy}` : 'Elemento não configurado'
+  if (tour.modo_identificacao === 'url_contem') return tour.url_contem ? `URL contém: ${tour.url_contem}` : 'URL não configurada'
+  return tour.tela ? `Tela: ${tour.tela}` : 'Tela não configurada'
+}
+
+function frequenciaTour(tour: TourGuiado): string {
+  if (tour.frequencia === 'sempre') return 'Sempre'
+  if (tour.frequencia === 'uma_vez_por_sessao') return '1x por sessão'
+  if (tour.frequencia === 'ate_concluir') return 'Até concluir'
+  if (tour.frequencia === 'intervalo_dias') return `A cada ${tour.frequencia_intervalo_dias ?? '?'} dias`
+  return '1x por usuário'
+}
+
+function TourConfigBadges({ tour }: { tour: TourGuiado }) {
+  const passos = tour._count?.passos ?? tour.passos?.length ?? 0
+  const usos = tour._count?.etapasJornada ?? 0
+  const distribuicao = tour.permite_autonomo && tour.permite_jornada
+    ? 'Independente + Jornada'
+    : tour.permite_autonomo ? 'Independente' : 'Jornada'
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <span className="inline-flex items-center gap-1 rounded-full bg-surface-container-low px-2 py-0.5 text-[11px] font-bold text-on-surface-variant">
+        <span className="material-symbols-outlined text-[12px]">format_list_numbered</span>
+        {passos} passo{passos === 1 ? '' : 's'}
+      </span>
+      <span className="inline-flex items-center gap-1 rounded-full bg-surface-container-low px-2 py-0.5 text-[11px] font-bold text-on-surface-variant">
+        <span className="material-symbols-outlined text-[12px]">conversion_path</span>
+        {distribuicao}{usos > 0 ? ` · ${usos} uso${usos === 1 ? '' : 's'}` : ''}
+      </span>
+      {tour.permite_autonomo && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+          <span className="material-symbols-outlined text-[12px]">schedule</span>
+          {frequenciaTour(tour)}
+        </span>
+      )}
+      {tour.segmentacao_regras?.length ? (
+        <span className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-bold text-secondary">
+          <span className="material-symbols-outlined text-[12px]">target</span>
+          Segmentado
+        </span>
+      ) : null}
+      {(tour.prioridade ?? 0) > 0 && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-tertiary/10 px-2 py-0.5 text-[11px] font-bold text-tertiary">
+          <span className="material-symbols-outlined text-[12px]">arrow_upward</span>
+          Prioridade {tour.prioridade}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// Ativo controla apenas a exibição autônoma. Tours configurados só para
+// Jornada recebem um estado próprio em vez de uma chave que nunca funcionaria.
+function StatusControl({ tour, podeEscrever, alternando, bloqueado, onChange, compact = false }: {
+  tour: TourGuiado
+  podeEscrever: boolean
+  alternando: boolean
+  bloqueado: boolean
+  onChange: (ativo: boolean) => void
+  compact?: boolean
+}) {
+  if (!tour.permite_autonomo) {
+    return (
+      <div className={`flex items-center ${compact ? 'justify-end' : 'justify-center'} gap-1.5 text-on-surface-variant`} title="Este tour está configurado apenas como etapa de Jornada">
+        <span className="material-symbols-outlined text-[16px]">route</span>
+        <span className="text-[12px] font-bold">Só Jornada</span>
+      </div>
+    )
+  }
+
+  if (!podeEscrever) return <StatusBadge ativo={tour.ativo} />
+
+  return (
+    <div className={`flex items-center ${compact ? 'justify-end' : 'justify-center'} gap-1`}>
+      <ToggleSwitch
+        checked={tour.ativo}
+        onChange={onChange}
+        disabled={bloqueado}
+        ariaLabel={`${tour.ativo ? 'Desativar' : 'Ativar'} exibição autônoma de ${tour.titulo}`}
+      />
+      <span className={`min-w-[52px] text-left text-[12px] font-bold ${tour.ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
+        {alternando ? 'Salvando' : tour.ativo ? 'Ativa' : 'Inativa'}
+      </span>
+    </div>
+  )
+}
+
 function StatusBadge({ ativo }: { ativo: boolean }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
@@ -820,12 +932,6 @@ function StatusBadge({ ativo }: { ativo: boolean }) {
       {ativo ? 'Ativa' : 'Inativa'}
     </span>
   )
-}
-
-function DistribuicaoBadge({ tour }: { tour: TourGuiado }) {
-  const texto = tour.permite_autonomo && tour.permite_jornada ? 'Ambos' : tour.permite_jornada ? 'Jornada' : tour.permite_autonomo ? 'Independente' : 'Sem origem'
-  const usos = tour._count?.etapasJornada ?? 0
-  return <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">{texto}{usos ? ` · ${usos} uso${usos === 1 ? '' : 's'}` : ''}</span>
 }
 
 function TourActions({
