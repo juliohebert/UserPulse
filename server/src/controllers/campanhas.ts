@@ -7,6 +7,7 @@ import { normalizarDominio } from '../lib/dominio'
 import { validarRichText } from '../lib/richText'
 import { normalizarRegra, normalizarRegrasExibicao, regraBase } from '../lib/regrasExibicao'
 import { validarObservacaoCategorias } from '../lib/observacaoCategorias'
+import { validarBooleanosEstritos } from '../lib/validacao'
 
 // ─── Fase 1 dos 3 status de Campanha ───────────────────────────────────────
 // status é a fonte única de verdade do ciclo de vida (RASCUNHO nunca foi
@@ -719,6 +720,9 @@ export function validarDestaques(destaques: unknown): { erro: string | null; lis
       return { erro: `Destaque ${i + 1}: dados inválidos.`, lista: [] }
     }
     const item = itemBruto as DestaqueItemInput
+    if (item.ativo !== undefined && typeof item.ativo !== 'boolean') {
+      return { erro: `Destaque ${i + 1}: ativo deve ser um booleano real (true ou false).`, lista: [] }
+    }
     if (item.id !== undefined && (typeof item.id !== 'string' || !item.id.trim())) {
       return { erro: `Destaque ${i + 1}: id inválido.`, lista: [] }
     }
@@ -791,7 +795,7 @@ function camposEditaveisDestaqueItem(item: DestaqueItemInput, ordem: number) {
     descricao: typeof item.descricao === 'string' ? item.descricao.trim() : '',
     texto_botao: typeof item.texto_botao === 'string' && item.texto_botao.trim() ? item.texto_botao.trim() : null,
     url_botao: typeof item.url_botao === 'string' && item.url_botao.trim() ? item.url_botao.trim() : null,
-    ativo: item.ativo !== undefined ? Boolean(item.ativo) : true,
+    ativo: item.ativo !== undefined ? item.ativo === true : true,
   }
 }
 
@@ -1037,6 +1041,11 @@ export async function buscarPorId(req: Request, res: Response) {
 
 export async function criar(req: Request, res: Response) {
   try {
+    const erroBooleanos = validarBooleanosEstritos(req.body, [
+      'feedback_habilitado', 'mostrar_uma_vez', 'observacao_obrigatoria',
+      'exige_confirmacao_leitura', 'permitir_fechar_modal', 'encerrar_apos_evento', 'ativo',
+    ])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
     const tenantId = req.adminUser!.tenant_id
     const tenant = req.adminUser!.tenant
 
@@ -1146,11 +1155,11 @@ export async function criar(req: Request, res: Response) {
     })
     const regra0 = regraBase(regrasExibicao)
 
-    const pfm = permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : true
+    const pfm = permitir_fechar_modal !== undefined ? permitir_fechar_modal : true
     const erroFechamento = validarFechamentoObrigatorio(
       pfm,
-      feedback_habilitado !== undefined ? Boolean(feedback_habilitado) : true,
-      Boolean(exige_confirmacao_leitura)
+      feedback_habilitado !== undefined ? feedback_habilitado : true,
+      exige_confirmacao_leitura === true
     )
     if (erroFechamento) return res.status(400).json({ erro: erroFechamento })
 
@@ -1159,7 +1168,7 @@ export async function criar(req: Request, res: Response) {
     const erroPolitica = validarPoliticaReexibicao(politica, diasReexibir, pfm)
     if (erroPolitica) return res.status(400).json({ erro: erroPolitica })
 
-    const encerrarAposEvento = Boolean(encerrar_apos_evento)
+    const encerrarAposEvento = encerrar_apos_evento === true
     const eventoConclusao = evento_conclusao?.trim() || null
     if (encerrarAposEvento && !eventoConclusao) {
       return res.status(400).json({ erro: 'Informe o nome do evento de conclusão (evento_conclusao).' })
@@ -1206,7 +1215,7 @@ export async function criar(req: Request, res: Response) {
         video_url: video_url?.trim() || null,
         texto_botao: texto_botao?.trim() || null,
         url_botao: url_botao?.trim() || null,
-        feedback_habilitado: feedback_habilitado !== undefined ? Boolean(feedback_habilitado) : true,
+        feedback_habilitado: feedback_habilitado !== undefined ? feedback_habilitado : true,
         modo_exibicao: modoExibicaoResolvido,
         gatilho: gatilho?.trim() || 'ao_abrir_tela',
         evento: evento?.trim() || null,
@@ -1216,7 +1225,7 @@ export async function criar(req: Request, res: Response) {
         data_cy: regra0.data_cy,
         url_contem: regra0.url_contem,
         atraso_ms: atraso_ms !== undefined ? Number(atraso_ms) : 800,
-        mostrar_uma_vez: Boolean(mostrar_uma_vez),
+        mostrar_uma_vez: mostrar_uma_vez === true,
         prioridade: prioridade !== undefined ? Number(prioridade) : 0,
         ordem: ordem !== undefined ? Number(ordem) : 0,
         status: statusInicial,
@@ -1224,11 +1233,11 @@ export async function criar(req: Request, res: Response) {
         data_inicio: dataInicioVigencia,
         data_fim: dataFimVigencia,
         pergunta_feedback: pergunta_feedback?.trim() || null,
-        observacao_obrigatoria: Boolean(observacao_obrigatoria),
+        observacao_obrigatoria: observacao_obrigatoria === true,
         observacao_categorias: obsCategorias.documento == null
           ? Prisma.DbNull
           : obsCategorias.documento as Prisma.InputJsonValue,
-        exige_confirmacao_leitura: Boolean(exige_confirmacao_leitura),
+         exige_confirmacao_leitura: exige_confirmacao_leitura === true,
         permitir_fechar_modal: pfm,
         intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
         politica_reexibicao: politica,
@@ -1274,6 +1283,11 @@ export async function criar(req: Request, res: Response) {
 
 export async function atualizar(req: Request, res: Response) {
   try {
+    const erroBooleanos = validarBooleanosEstritos(req.body, [
+      'feedback_habilitado', 'mostrar_uma_vez', 'observacao_obrigatoria',
+      'exige_confirmacao_leitura', 'permitir_fechar_modal', 'encerrar_apos_evento', 'ativo',
+    ])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
     const tenantId = req.adminUser!.tenant_id
     const tenant = req.adminUser!.tenant
 
@@ -1485,7 +1499,7 @@ export async function atualizar(req: Request, res: Response) {
       }
       statusDesejado = statusBruto as CampanhaStatus
     } else if (ativo !== undefined) {
-      statusDesejado = Boolean(ativo) ? 'ATIVA' : 'INATIVA'
+      statusDesejado = ativo === true ? 'ATIVA' : 'INATIVA'
     }
     if (statusDesejado !== undefined) {
       const erroTransicao = validarTransicaoStatusCampanha(existente.status, statusDesejado)
@@ -1493,9 +1507,9 @@ export async function atualizar(req: Request, res: Response) {
     }
 
     // Merge incoming values with existing to validate even on partial update
-    const pfm = permitir_fechar_modal !== undefined ? Boolean(permitir_fechar_modal) : existente.permitir_fechar_modal
-    const fh = feedback_habilitado !== undefined ? Boolean(feedback_habilitado) : existente.feedback_habilitado
-    const ecl = exige_confirmacao_leitura !== undefined ? Boolean(exige_confirmacao_leitura) : existente.exige_confirmacao_leitura
+    const pfm = permitir_fechar_modal !== undefined ? permitir_fechar_modal : existente.permitir_fechar_modal
+    const fh = feedback_habilitado !== undefined ? feedback_habilitado : existente.feedback_habilitado
+    const ecl = exige_confirmacao_leitura !== undefined ? exige_confirmacao_leitura : existente.exige_confirmacao_leitura
     const erroFechamento = validarFechamentoObrigatorio(pfm, fh, ecl)
     if (erroFechamento) return res.status(400).json({ erro: erroFechamento })
 
@@ -1509,7 +1523,7 @@ export async function atualizar(req: Request, res: Response) {
     if (erroPolitica) return res.status(400).json({ erro: erroPolitica })
 
     const encerrarAposEvento = encerrar_apos_evento !== undefined
-      ? Boolean(encerrar_apos_evento)
+      ? encerrar_apos_evento === true
       : existente.encerrar_apos_evento
     const eventoConclusao = evento_conclusao !== undefined
       ? (evento_conclusao?.trim() || null)
@@ -1588,7 +1602,7 @@ export async function atualizar(req: Request, res: Response) {
         ...(video_url !== undefined && { video_url: video_url?.trim() || null }),
         ...(texto_botao !== undefined && { texto_botao: texto_botao?.trim() || null }),
         ...(url_botao !== undefined && { url_botao: url_botao?.trim() || null }),
-        ...(feedback_habilitado !== undefined && { feedback_habilitado: Boolean(feedback_habilitado) }),
+        ...(feedback_habilitado !== undefined && { feedback_habilitado }),
         ...(gatilho !== undefined && { gatilho: gatilho?.trim() || 'ao_abrir_tela' }),
         ...(evento !== undefined && { evento: evento?.trim() || null }),
         // modo_exibicao sempre acompanha os campos de destino/regras (mantido
@@ -1615,21 +1629,21 @@ export async function atualizar(req: Request, res: Response) {
           },
         }),
         ...(atraso_ms !== undefined && { atraso_ms: Number(atraso_ms) }),
-        ...(mostrar_uma_vez !== undefined && { mostrar_uma_vez: Boolean(mostrar_uma_vez) }),
+        ...(mostrar_uma_vez !== undefined && { mostrar_uma_vez }),
         ...(prioridade !== undefined && { prioridade: Number(prioridade) }),
         ...(ordem !== undefined && { ordem: Number(ordem) }),
         ...(statusDesejado !== undefined && { status: statusDesejado, ativo: sincronizarAtivoComStatus(statusDesejado) }),
         ...(dataInicioVigencia !== undefined && { data_inicio: dataInicioVigencia }),
         ...(dataFimVigencia !== undefined && { data_fim: dataFimVigencia }),
         ...(pergunta_feedback !== undefined && { pergunta_feedback: pergunta_feedback?.trim() || null }),
-        ...(observacao_obrigatoria !== undefined && { observacao_obrigatoria: Boolean(observacao_obrigatoria) }),
+        ...(observacao_obrigatoria !== undefined && { observacao_obrigatoria }),
         ...(req.body.observacao_categorias !== undefined && {
           observacao_categorias: obsCategorias.documento == null
             ? Prisma.DbNull
             : obsCategorias.documento as Prisma.InputJsonValue,
         }),
-        ...(exige_confirmacao_leitura !== undefined && { exige_confirmacao_leitura: Boolean(exige_confirmacao_leitura) }),
-        ...(permitir_fechar_modal !== undefined && { permitir_fechar_modal: Boolean(permitir_fechar_modal) }),
+        ...(exige_confirmacao_leitura !== undefined && { exige_confirmacao_leitura }),
+        ...(permitir_fechar_modal !== undefined && { permitir_fechar_modal }),
         ...(intervalo_reexibicao_dias !== undefined && {
           intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
         }),

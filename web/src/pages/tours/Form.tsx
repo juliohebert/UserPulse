@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { get, post, put } from '../../services/api'
-import type { TourGuiado, TourGuiadoListaPaginada, RegraSegmentacaoTour, CampoSegmentacaoTour, OperadorSegmentacaoTour, Sistema, GatilhoTour, FrequenciaTour, TourDependenciaJornada } from '../../types'
+import type { TourGuiado, TourGuiadoListaPaginada, RegraSegmentacaoTour, CampoSegmentacaoTour, Sistema, TelaCatalogo, GatilhoTour, FrequenciaTour, TourDependenciaJornada } from '../../types'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
 import { Select } from '../../components/ui/Select'
 import { CardHeader } from '../../components/ui/CardHeader'
 import { Button } from '../../components/ui/Button'
-import { TOUR_TEMPLATES, type TourTemplate } from '../../data/tourTemplates'
+import { SeletorTelaCatalogo } from '../../components/catalogo/SeletorTelaCatalogo'
+import { TelaCatalogoModal, TELA_CATALOGO_EMPTY_FORM, normalizarPathUrl, pathUrlValido } from '../../components/catalogo/TelaCatalogoModal'
 import { buildGravadorUrl, buildPreviewUrl, comandoTestarSeletor, type GravadorUrlResultado, type PreviewUrlResultado } from '../../utils/tour'
 import { useAuth } from '../../hooks/useAuth'
+import { podeGerenciarModulo } from '../../utils/permissions'
 import { limiteTrial, LIMITE_TRIAL_NAO_ATINGIDO, type LimiteTrialInfo } from '../../utils/limiteTrial'
 
 interface PassoState {
@@ -121,34 +123,27 @@ const MODOS_AVANCO_INTERACAO = [
 
 const MODOS_AVANCO_COM_CONFIRMACAO = ['ao_aparecer_elemento', 'ao_sumir_elemento']
 
-// ─── Segmentação por contexto (MVP) ────────────────────────────────────────
-// Lista fixa validada também no backend (ver CAMPOS_SEGMENTACAO em
-// server/src/controllers/tours.ts) — os valores vêm do contexto que o widget
-// já recebe via init()/updateContext() ou de campos próprios da chamada
-// (usuario_id, usuario_email, sistema, tela).
-const CAMPOS_SEGMENTACAO: { value: CampoSegmentacaoTour; label: string }[] = [
-  { value: 'cliente_id', label: 'Cliente ID' },
-  { value: 'unidade_id', label: 'Unidade ID' },
-  { value: 'organizacao_id', label: 'Organização ID' },
-  { value: 'clinica_id', label: 'Clínica ID' },
-  { value: 'usuario_tipo', label: 'Tipo de usuário' },
-  { value: 'perfil', label: 'Perfil' },
-  { value: 'estado', label: 'Estado' },
-  { value: 'usuario_id', label: 'Usuário ID' },
-  { value: 'usuario_email', label: 'E-mail do usuário' },
-  { value: 'tela', label: 'Tela' },
-  { value: 'sistema', label: 'Sistema' },
-  { value: 'dominio', label: 'Domínio' },
-]
+type ModoSegmentacaoTour = 'todos' | 'cliente' | 'perfil' | 'combinada'
+const CAMPOS_SEGMENTACAO_CLIENTE: CampoSegmentacaoTour[] = ['cliente_id', 'unidade_id']
+const CAMPOS_SEGMENTACAO_PERFIL: CampoSegmentacaoTour[] = ['perfil', 'usuario_tipo', 'estado']
+const CAMPOS_SEGMENTACAO_CAMPANHAS: CampoSegmentacaoTour[] = [...CAMPOS_SEGMENTACAO_CLIENTE, ...CAMPOS_SEGMENTACAO_PERFIL, 'dominio']
 
-const OPERADORES_SEGMENTACAO: { value: OperadorSegmentacaoTour; label: string; placeholder: string }[] = [
-  { value: 'igual', label: 'é igual a', placeholder: 'Valor exato' },
-  { value: 'diferente', label: 'é diferente de', placeholder: 'Valor exato' },
-  { value: 'contem', label: 'contém', placeholder: 'Trecho do valor' },
-  { value: 'em_lista', label: 'está em lista', placeholder: 'valor1, valor2, valor3' },
-]
+function valoresSegmentacao(regras: RegraSegmentacaoTour[], campo: CampoSegmentacaoTour): string[] {
+  return regras
+    .filter(regra => regra.campo === campo)
+    .flatMap(regra => regra.operador === 'em_lista' ? regra.valor.split(',') : [regra.valor])
+    .map(valor => valor.trim())
+    .filter(Boolean)
+}
 
-const REGRA_SEGMENTACAO_VAZIA: RegraSegmentacaoTour = { campo: '', operador: 'igual', valor: '' }
+function resolverModoSegmentacaoTour(regras: RegraSegmentacaoTour[]): ModoSegmentacaoTour {
+  const temCliente = regras.some(regra => CAMPOS_SEGMENTACAO_CLIENTE.includes(regra.campo as CampoSegmentacaoTour) && regra.valor.trim())
+  const temPerfil = regras.some(regra => CAMPOS_SEGMENTACAO_PERFIL.includes(regra.campo as CampoSegmentacaoTour) && regra.valor.trim())
+  if (temCliente && temPerfil) return 'combinada'
+  if (temCliente) return 'cliente'
+  if (temPerfil) return 'perfil'
+  return 'todos'
+}
 
 // ─── Colar passos do Gravador de Fluxo ─────────────────────────────────────
 // Lê o mesmo JSON "userpulse.tour.v1" que o widget.js gera ao finalizar uma
@@ -193,6 +188,14 @@ function extrairPassosDoJson(texto: string): { passos: PassoState[] } | { erro: 
 const field = 'w-full h-11 rounded-lg border border-[#ced0d4] bg-white px-3 text-body-md text-on-surface outline-none transition-colors focus:border-2 focus:border-primary'
 const card = 'w-full bg-surface p-6 rounded-3xl border border-outline-variant'
 
+type SecaoConfiguracaoTour = 'geral' | 'exibicao' | 'segmentacao'
+
+const SECOES_CONFIGURACAO: Array<{ id: SecaoConfiguracaoTour; label: string; description: string; icon: string }> = [
+  { id: 'geral', label: 'Geral', description: 'Contexto e destino do tour', icon: 'info' },
+  { id: 'exibicao', label: 'Exibição e distribuição', description: 'Origens, frequência e gatilhos', icon: 'tune' },
+  { id: 'segmentacao', label: 'Segmentação', description: 'Contextos elegíveis', icon: 'target' },
+]
+
 // Seleção múltipla a partir de Sistema.dominios (catálogo do sistema deste
 // tour) pro campo "dominio" da regra de segmentação — mesmo tratamento de
 // CampanhaForm.tsx (CampoDominiosDock): nunca texto livre, e valores já
@@ -234,6 +237,26 @@ function CampoDominiosRegra({ catalogo, value, onChange }: {
   )
 }
 
+function CampoListaSegmentacao({ label, value, onChange, hint = 'Separe múltiplos valores por vírgula.' }: {
+  label: string
+  value: string[]
+  onChange: (value: string[]) => void
+  hint?: string
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-label-md font-bold text-on-surface-variant">{label}</span>
+      <input
+        value={value.join(', ')}
+        onChange={event => onChange(event.target.value.split(',').map(item => item.trim()).filter(Boolean))}
+        placeholder="Digite valores separados por vírgula"
+        className={field}
+      />
+      <span className="mt-1 block text-[11px] text-on-surface-variant">{hint}</span>
+    </label>
+  )
+}
+
 // ─── Checklist de qualidade ─────────────────────────────────────────────────
 // Só orienta — não bloqueia nada além das validações que já existem em
 // handleSubmit (título de passo sempre obrigatório). "critico" aqui sinaliza
@@ -249,6 +272,7 @@ interface ChecklistItem {
 }
 
 function destinoConfigurado(form: FormState): boolean {
+  if (!form.permite_autonomo) return true
   if (!form.sistema.trim()) return false
   if (form.modo_identificacao === 'data_cy') return Boolean(form.data_cy.trim())
   if (form.modo_identificacao === 'url_contem') return Boolean(form.url_contem.trim())
@@ -264,7 +288,7 @@ function montarChecklist(form: FormState, passos: PassoState[]): ChecklistItem[]
   const algumComCss = passos.some(p => p.seletor_tipo === 'css')
 
   const items: ChecklistItem[] = [
-    { label: 'Título preenchido', status: form.titulo.trim() ? 'ok' : 'aviso' },
+    { label: 'Título preenchido', status: form.titulo.trim() ? 'ok' : 'critico', detalhe: form.titulo.trim() ? undefined : 'Informe um título para salvar o tour.' },
     {
       label: 'Descrição preenchida',
       status: form.descricao.trim() ? 'ok' : 'aviso',
@@ -274,13 +298,18 @@ function montarChecklist(form: FormState, passos: PassoState[]): ChecklistItem[]
     },
     {
       label: 'Destino configurado',
-      status: destinoConfigurado(form) ? 'ok' : 'aviso',
-      detalhe: destinoConfigurado(form) ? undefined : 'Informe o sistema e a tela, data-cy ou URL, conforme o modo escolhido.',
+      status: destinoConfigurado(form) ? 'ok' : 'critico',
+      detalhe: destinoConfigurado(form) ? (!form.permite_autonomo ? 'Tour exclusivo de Jornada: o destino autônomo será configurado quando a execução independente for habilitada.' : undefined) : 'Informe o sistema e a tela, data-cy ou URL, conforme o modo escolhido.',
     },
     {
       label: `${total} passo${total === 1 ? '' : 's'} cadastrado${total === 1 ? '' : 's'}`,
       status: total > 0 ? 'ok' : 'critico',
       detalhe: total > 0 ? undefined : 'Adicione pelo menos um passo para o tour funcionar.',
+    },
+    {
+      label: 'Origem de execução configurada',
+      status: form.permite_autonomo || form.permite_jornada ? 'ok' : 'critico',
+      detalhe: form.permite_autonomo || form.permite_jornada ? undefined : 'Habilite execução independente ou uso como etapa de Jornada.',
     },
     {
       label: semTitulo === 0 ? 'Todos os passos têm título' : `${semTitulo} passo${semTitulo === 1 ? '' : 's'} sem título`,
@@ -302,6 +331,16 @@ function montarChecklist(form: FormState, passos: PassoState[]): ChecklistItem[]
     {
       label: `Exibição autônoma: ${form.ativo ? 'Ativa' : 'Inativa'}`,
       status: form.ativo ? 'ok' : 'neutro',
+    },
+    {
+      label: 'Gatilhos autônomos',
+      status: form.ativo && form.permite_autonomo ? (form.gatilhos.length > 0 ? 'ok' : 'critico') : 'neutro',
+      detalhe: form.ativo && form.permite_autonomo && form.gatilhos.length === 0 ? 'Uma exibição autônoma ativa precisa de pelo menos um gatilho.' : undefined,
+    },
+    {
+      label: 'Frequência de exibição',
+      status: form.permite_autonomo && form.frequencia === 'intervalo_dias' && (!form.frequencia_intervalo_dias || Number(form.frequencia_intervalo_dias) <= 0) ? 'critico' : 'ok',
+      detalhe: form.permite_autonomo && form.frequencia === 'intervalo_dias' && (!form.frequencia_intervalo_dias || Number(form.frequencia_intervalo_dias) <= 0) ? 'Informe um intervalo inteiro positivo em dias.' : undefined,
     },
   ]
 
@@ -335,7 +374,7 @@ const CHECKLIST_STATUS: Record<ChecklistStatus, { icon: string; className: strin
   neutro: { icon: 'info', className: 'text-outline' },
 }
 
-function ChecklistCard({ form, passos, numero }: { form: FormState; passos: PassoState[]; numero?: number }) {
+function ChecklistCard({ form, passos }: { form: FormState; passos: PassoState[] }) {
   const items = montarChecklist(form, passos)
   const temCritico = items.some(i => i.status === 'critico')
   const temAviso = items.some(i => i.status === 'aviso')
@@ -349,12 +388,11 @@ function ChecklistCard({ form, passos, numero }: { form: FormState; passos: Pass
   return (
     <div className={card}>
       <CardHeader
-        number={numero}
         icon="fact_check"
         iconBg="bg-primary-fixed"
         iconColor="text-primary"
-        title="Resumo do tour"
-        description="Orienta antes de testar ou usar este tour em uma jornada — não bloqueia o salvamento."
+        title="Revisão do tour"
+        description="Confira os dados e pendências antes de criar ou salvar."
         action={
           <span className={`px-2.5 py-1 rounded-full text-[11px] font-bold uppercase whitespace-nowrap ${resumo.className}`}>
             {resumo.texto}
@@ -375,6 +413,32 @@ function ChecklistCard({ form, passos, numero }: { form: FormState; passos: Pass
           )
         })}
       </ul>
+    </div>
+  )
+}
+
+function InformacoesTour({ form, passos, segmentado }: { form: FormState; passos: PassoState[]; segmentado: boolean }) {
+  const destino = !form.permite_autonomo
+    ? 'Somente dentro de Jornadas'
+    : form.modo_identificacao === 'sistema_tela'
+    ? form.tela || 'Tela não informada'
+    : form.modo_identificacao === 'data_cy'
+      ? `data-cy: ${form.data_cy || 'não informado'}`
+      : `URL: ${form.url_contem || 'não informada'}`
+  const distribuicao = form.permite_autonomo && form.permite_jornada
+    ? 'Autônomo e Jornada'
+    : form.permite_autonomo
+      ? 'Autônomo'
+      : form.permite_jornada
+        ? 'Jornada'
+        : 'Nenhuma origem'
+
+  return (
+    <div className="grid grid-cols-1 gap-3 rounded-2xl border border-outline-variant bg-surface-container-low/40 p-4 sm:grid-cols-2">
+      <div><p className="text-[10px] font-bold uppercase tracking-wider text-outline">Tour</p><p className="mt-1 text-body-md font-bold text-on-surface">{form.titulo || 'Sem título'}</p><p className="text-[12px] text-on-surface-variant">{form.descricao || 'Sem descrição'}</p></div>
+      <div><p className="text-[10px] font-bold uppercase tracking-wider text-outline">Destino</p><p className="mt-1 text-body-md font-bold text-on-surface">{form.sistema || 'Sistema não informado'}</p><p className="text-[12px] text-on-surface-variant">{destino}</p></div>
+      <div><p className="text-[10px] font-bold uppercase tracking-wider text-outline">Distribuição</p><p className="mt-1 text-body-md font-bold text-on-surface">{distribuicao}</p><p className="text-[12px] text-on-surface-variant">Exibição autônoma {form.ativo ? 'ativa' : 'inativa'} · {segmentado ? 'segmentado' : 'todos os contextos'}</p></div>
+      <div><p className="text-[10px] font-bold uppercase tracking-wider text-outline">Passos</p><p className="mt-1 text-body-md font-bold text-on-surface">{passos.length} passo{passos.length === 1 ? '' : 's'}</p><p className="text-[12px] text-on-surface-variant">{passos.filter(p => p.seletor.trim()).length} com seletor configurado</p></div>
     </div>
   )
 }
@@ -469,120 +533,128 @@ function AlertasConfiguracaoPasso({ passo }: { passo: PassoState }) {
   )
 }
 
-// ─── Preview do passo ───────────────────────────────────────────────────────
-// Ilustração estática do tooltip do widget, só para ajudar a visualizar o
-// cadastro — não executa o widget real nem valida nada no DOM (o elemento de
-// verdade só existe na aplicação integrada). Posição do "elemento" mockado
-// segue a mesma relação usada pelo widget: o tooltip fica do lado oposto à
-// posição escolhida (ex.: "Acima" → tooltip acima do elemento).
-function PassoPreview({ passo, indice, total }: { passo: PassoState; indice: number; total: number }) {
-  const [aberto, setAberto] = useState(false)
-  const semTitulo = !passo.titulo.trim()
-  const semDescricao = !passo.descricao.trim()
-  const titulo = passo.titulo.trim() || 'Título do passo'
-  const descricao = passo.descricao.trim() || 'Descrição do passo (opcional)'
-  const ultimo = indice === total - 1
-
-  // Modo "Área" destaca um GRUPO de campos, não um elemento único — o mock
-  // fica mais largo e mostra alguns "campos" internos (ex.: clínica, convênio,
-  // especialidade) pra deixar claro que o spotlight cobre o container inteiro,
-  // não um item isolado.
-  const ehArea = passo.seletor_tipo === 'area'
-  const elemento = ehArea ? (
-    <div
-      key="elemento"
-      className="w-56 h-14 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 flex flex-col items-center justify-center gap-1 shrink-0 px-2"
-    >
-      <span className="text-[9px] font-bold uppercase tracking-wider text-primary/50">área / grupo</span>
-      <div className="flex items-center gap-1 w-full">
-        <span className="h-3 flex-1 rounded bg-primary/15 border border-primary/30" />
-        <span className="h-3 flex-1 rounded bg-primary/15 border border-primary/30" />
-        <span className="h-3 flex-1 rounded bg-primary/15 border border-primary/30" />
-      </div>
-      {passo.seletor.trim() && (
-        <span className="text-[8px] font-mono text-primary/60 truncate max-w-full" title={passo.seletor}>
-          {passo.seletor}
-        </span>
-      )}
-    </div>
-  ) : (
-    <div
-      key="elemento"
-      className="w-20 h-12 rounded-lg border-2 border-dashed border-primary/40 bg-primary/5 flex items-center justify-center shrink-0"
-    >
-      <span className="text-[9px] font-bold uppercase tracking-wider text-primary/50">elemento</span>
-    </div>
-  )
-
-  const tooltip = (
-    <div key="tooltip" className="w-full max-w-[260px] bg-surface-bright border border-outline-variant rounded-xl shadow-md p-3.5 shrink-0">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-primary mb-1">
-        Passo {indice + 1} de {total}
-      </p>
-      <p className={`text-[13px] font-bold leading-snug mb-1 ${semTitulo ? 'text-outline italic' : 'text-on-surface'}`}>
-        {titulo}
-      </p>
-      <p className={`text-[12px] leading-snug mb-3 ${semDescricao ? 'text-outline italic' : 'text-on-surface-variant'}`}>
-        {descricao}
-      </p>
-      <div className="flex items-center gap-1 mb-3">
-        {Array.from({ length: total }, (_, d) => (
-          <span key={d} className={`h-1.5 rounded-full ${d === indice ? 'w-3.5 bg-primary' : 'w-1.5 bg-outline-variant'}`} />
-        ))}
-      </div>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-bold text-outline">Pular</span>
-        <div className="flex gap-1.5">
-          <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold ${indice === 0 ? 'bg-outline-variant/20 text-outline/50' : 'bg-primary-fixed text-primary'}`}>
-            Voltar
-          </span>
-          <span className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-primary text-on-primary">
-            {ultimo ? 'Concluir' : 'Próximo'}
-          </span>
-        </div>
-      </div>
-      {!ultimo && passo.acao_ao_avancar === 'clicar_elemento' && (
-        <p className="text-[10px] text-primary font-semibold mt-2 flex items-center gap-1">
-          <span className="material-symbols-outlined text-[12px]">ads_click</span>
-          "Próximo" também clica no elemento destacado antes de avançar
-        </p>
-      )}
-    </div>
-  )
-
-  // "auto"/"bottom" → tooltip abaixo do elemento; "top" → acima; "left"/"right"
-  // → tooltip do lado oposto ao escolhido, na horizontal.
-  const horizontal = passo.tooltip_posicao === 'left' || passo.tooltip_posicao === 'right'
-  const ordem =
-    passo.tooltip_posicao === 'top' ? [tooltip, elemento] :
-    passo.tooltip_posicao === 'left' ? [tooltip, elemento] :
-    passo.tooltip_posicao === 'right' ? [elemento, tooltip] :
-    [elemento, tooltip] // bottom | auto
+function PassosEditor({
+  passos, selecionado, onSelecionar, onAdicionar, onSetPasso, onMover, onDuplicar, onRemover, onReordenar,
+  passoRefs, passoDestacado, copiadoPasso, onCopiarSeletor, onCopiarComando,
+}: {
+  passos: PassoState[]
+  selecionado: number
+  onSelecionar: (index: number) => void
+  onAdicionar: () => void
+  onSetPasso: (index: number, key: keyof PassoState, value: string) => void
+  onMover: (index: number, dir: -1 | 1) => void
+  onDuplicar: (index: number) => void
+  onRemover: (index: number) => void
+  onReordenar: (origem: number, destino: number) => void
+  passoRefs: { current: Array<HTMLDivElement | null> }
+  passoDestacado: number | null
+  copiadoPasso: { index: number; tipo: 'seletor' | 'comando' } | null
+  onCopiarSeletor: (index: number) => void
+  onCopiarComando: (index: number) => void
+}) {
+  const [arrastado, setArrastado] = useState<number | null>(null)
+  const indice = passos[selecionado] ? selecionado : 0
+  const passo = passos[indice] ?? PASSO_VAZIO
+  const definir = (key: keyof PassoState) => (value: string) => onSetPasso(indice, key, value)
 
   return (
-    <div className="md:col-span-2 mt-1 pt-3 border-t border-outline-variant/40">
-      <button
-        type="button"
-        onClick={() => setAberto(v => !v)}
-        className="flex flex-wrap items-center gap-1.5 text-label-sm font-semibold text-on-surface-variant hover:text-primary transition-colors"
-      >
-        <span className="material-symbols-outlined text-[14px]">visibility</span>
-        Preview do passo
-        <span className="text-[11px] font-bold text-primary">{aberto ? 'Ocultar preview' : 'Ver preview'}</span>
-        <span className={`material-symbols-outlined text-[16px] transition-transform ${aberto ? 'rotate-180' : ''}`}>
-          expand_more
-        </span>
-      </button>
-      {aberto && (
-        <div className="mt-2">
-          <p className="text-[10px] text-outline mb-2">Apenas ilustrativo — não executa o widget nem valida o DOM real.</p>
-          <div className="rounded-xl border border-dashed border-outline-variant/60 bg-surface-container-low/50 p-4 overflow-x-auto">
-            <div className={`flex ${horizontal ? 'flex-row items-center' : 'flex-col items-start'} gap-3 w-max max-w-full`}>
-              {ordem}
-            </div>
+    <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(320px,40fr)_minmax(0,60fr)]">
+      <section className="rounded-2xl border border-outline-variant bg-surface-bright p-4 xl:sticky xl:top-4 xl:self-start" aria-label="Lista de passos">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h3 className="flex items-center gap-2 text-title-md font-bold text-on-surface">
+              <span className="material-symbols-outlined text-[20px] text-primary">format_list_numbered</span>
+              Passos <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">{passos.length}</span>
+            </h3>
+            <p className="mt-1 text-[11px] text-on-surface-variant">Selecione um passo para editar.</p>
           </div>
         </div>
-      )}
+        <div className="mt-4 space-y-2">
+          {passos.map((item, i) => {
+            const incompleto = !item.titulo.trim() || !item.seletor.trim()
+            return (
+              <div
+                key={item.id ?? `passo-${i}`}
+                ref={el => { passoRefs.current[i] = el }}
+                draggable
+                onDragStart={() => setArrastado(i)}
+                onDragOver={e => e.preventDefault()}
+                onDrop={() => { if (arrastado != null) onReordenar(arrastado, i); setArrastado(null) }}
+                className={`rounded-xl border transition-all ${passoDestacado === i ? 'border-primary ring-2 ring-primary/30' : ''} ${i === indice ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-container-low/40'}`}
+              >
+                <button type="button" onClick={() => onSelecionar(i)} className="flex min-h-[60px] w-full items-center gap-2 px-2.5 py-2 text-left" aria-current={i === indice ? 'step' : undefined}>
+                  <span className="material-symbols-outlined hidden cursor-grab text-[17px] text-outline sm:inline" aria-hidden="true">drag_indicator</span>
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${i === indice ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'}`}>{i + 1}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className={`block truncate text-[12px] font-bold ${i === indice ? 'text-primary' : 'text-on-surface'}`}>{item.titulo.trim() || 'Sem título'}</span>
+                    <span className="mt-0.5 block truncate text-[10px] text-on-surface-variant">{item.seletor.trim() || 'Seletor pendente'}</span>
+                  </span>
+                  <span className={`material-symbols-outlined text-[17px] ${incompleto ? 'text-[#e65100]' : 'text-tertiary'}`} title={incompleto ? 'Passo pendente' : 'Passo configurado'}>{incompleto ? 'warning' : 'check_circle'}</span>
+                </button>
+              </div>
+            )
+          })}
+        </div>
+        <button type="button" onClick={onAdicionar} className="mt-3 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/50 text-label-md font-bold text-primary transition-colors hover:bg-primary/5">
+          <span className="material-symbols-outlined text-[18px]">add</span> Adicionar passo
+        </button>
+        <p className="mt-2 text-[10px] leading-relaxed text-outline">Arraste para reordenar ou use os controles acessíveis no editor.</p>
+      </section>
+
+      <section className="min-w-0 rounded-2xl border border-outline-variant bg-surface-bright" aria-label={`Editor do passo ${indice + 1}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-outline-variant/50 px-4 py-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-primary">Passo {indice + 1} de {passos.length}</p>
+            <h3 className="mt-1 text-title-md font-bold text-on-surface">Editar passo</h3>
+            <p className="mt-0.5 text-[11px] text-on-surface-variant">Conteúdo, seletor e comportamento deste passo.</p>
+          </div>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => onMover(indice, -1)} disabled={indice === 0} aria-label="Mover passo para cima" className="flex h-11 w-11 items-center justify-center rounded-xl text-on-surface-variant hover:bg-surface-container-high disabled:opacity-30"><span className="material-symbols-outlined text-[18px]">arrow_upward</span></button>
+            <button type="button" onClick={() => onMover(indice, 1)} disabled={indice === passos.length - 1} aria-label="Mover passo para baixo" className="flex h-11 w-11 items-center justify-center rounded-xl text-on-surface-variant hover:bg-surface-container-high disabled:opacity-30"><span className="material-symbols-outlined text-[18px]">arrow_downward</span></button>
+            <button type="button" onClick={() => onDuplicar(indice)} aria-label="Duplicar passo" className="flex h-11 w-11 items-center justify-center rounded-xl text-on-surface-variant hover:bg-surface-container-high"><span className="material-symbols-outlined text-[18px]">content_copy</span></button>
+            <button type="button" onClick={() => onRemover(indice)} disabled={passos.length === 1} aria-label="Excluir passo" className="flex h-11 w-11 items-center justify-center rounded-xl text-error hover:bg-error-container disabled:opacity-30"><span className="material-symbols-outlined text-[18px]">delete</span></button>
+          </div>
+        </div>
+        <div className="space-y-4 p-4">
+          <div>
+            <label htmlFor="tour-passo-titulo" className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Título do passo <span className="text-error">*</span></label>
+            <input id="tour-passo-titulo" value={passo.titulo} maxLength={100} onChange={e => definir('titulo')(e.target.value)} placeholder="Ex: Crie um novo agendamento" className={field} />
+            <p className="mt-1 text-right text-[10px] text-outline">{passo.titulo.length}/100</p>
+          </div>
+          <div>
+            <label htmlFor="tour-passo-descricao" className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Descrição</label>
+            <textarea id="tour-passo-descricao" value={passo.descricao} maxLength={200} onChange={e => definir('descricao')(e.target.value)} placeholder="Instrução exibida ao usuário neste passo" rows={3} className={`${field} resize-none`} />
+            <p className="mt-1 text-right text-[10px] text-outline">{passo.descricao.length}/200</p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="tour-passo-tipo" className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Tipo de seletor <span className="text-error">*</span></label>
+              <Select id="tour-passo-tipo" value={passo.seletor_tipo} onChange={definir('seletor_tipo')} options={SELETOR_TIPOS} size="sm" />
+              <p className="mt-1 text-[11px] leading-relaxed text-on-surface-variant">{legendaTipoSeletor(passo.seletor_tipo)}</p>
+            </div>
+            <div>
+              <label htmlFor="tour-passo-seletor" className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Seletor <span className="text-error">*</span></label>
+              <input id="tour-passo-seletor" value={passo.seletor} onChange={e => definir('seletor')(normalizarSeletorInput(passo.seletor_tipo, e.target.value))} placeholder={passo.seletor_tipo === 'css' ? '#botao-novo-agendamento' : passo.seletor_tipo === 'id' ? 'novo-agendamento-btn' : passo.seletor_tipo === 'area' ? '.filtros-agenda' : 'novo-agendamento-btn'} className={`${field} font-mono text-[13px]`} />
+              <p className="mt-1 text-[11px] leading-relaxed text-on-surface-variant">{passo.seletor_tipo === 'data_cy' ? 'Somente o valor do data-cy.' : passo.seletor_tipo === 'id' ? 'Somente o valor do id.' : passo.seletor_tipo === 'area' ? 'Seletor CSS do container que representa o grupo.' : 'Seletor CSS completo.'}</p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                <button type="button" onClick={() => onCopiarSeletor(indice)} disabled={!passo.seletor.trim()} className="min-h-10 rounded-lg px-2 text-[11px] font-bold text-on-surface-variant hover:bg-surface-container-high disabled:opacity-30"><span className="material-symbols-outlined mr-1 text-[13px]">{copiadoPasso?.index === indice && copiadoPasso.tipo === 'seletor' ? 'check' : 'content_copy'}</span>{copiadoPasso?.index === indice && copiadoPasso.tipo === 'seletor' ? 'Copiado!' : 'Copiar seletor'}</button>
+                <button type="button" onClick={() => onCopiarComando(indice)} disabled={!passo.seletor.trim()} title="Copia um comando para diagnosticar o seletor na tela real." className="min-h-10 rounded-lg px-2 text-[11px] font-bold text-on-surface-variant hover:bg-surface-container-high disabled:opacity-30"><span className="material-symbols-outlined mr-1 text-[13px]">{copiadoPasso?.index === indice && copiadoPasso.tipo === 'comando' ? 'check' : 'terminal'}</span>{copiadoPasso?.index === indice && copiadoPasso.tipo === 'comando' ? 'Copiado!' : 'Testar seletor'}</button>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div><label htmlFor="tour-passo-posicao" className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Posição do tooltip</label><Select id="tour-passo-posicao" value={passo.tooltip_posicao} onChange={definir('tooltip_posicao')} options={TOOLTIP_POSICOES} size="sm" /></div>
+            <div><label htmlFor="tour-passo-acao" className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Ação ao clicar em Próximo</label><Select id="tour-passo-acao" value={passo.acao_ao_avancar} onChange={definir('acao_ao_avancar')} options={ACOES_AO_AVANCAR} size="sm" /><p className="mt-1 text-[11px] text-on-surface-variant">Apenas avança ou também clica no elemento destacado.</p></div>
+          </div>
+          <div>
+            <label htmlFor="tour-passo-modo" className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Como avançar este passo?</label>
+            <Select id="tour-passo-modo" value={passo.modo_avanco_interacao} onChange={definir('modo_avanco_interacao')} options={MODOS_AVANCO_INTERACAO} size="sm" />
+            <p className="mt-1 text-[11px] leading-relaxed text-on-surface-variant">No modo manual, o usuário usa Próximo. Nos demais, o widget aguarda a interação configurada.</p>
+          </div>
+          {MODOS_AVANCO_COM_CONFIRMACAO.includes(passo.modo_avanco_interacao) && <div><label htmlFor="tour-passo-confirmacao" className="mb-1.5 block text-label-md font-bold text-on-surface-variant">Seletor de confirmação <span className="text-error">*</span></label><input id="tour-passo-confirmacao" value={passo.seletor_confirmacao} onChange={e => definir('seletor_confirmacao')(e.target.value)} placeholder='[data-cy="overlay-aberto"] ou .dropdown-aberto' className={`${field} font-mono text-[13px]`} /><p className="mt-1 text-[11px] text-on-surface-variant">Elemento que deve aparecer ou sumir antes de avançar.</p></div>}
+          <AlertasConfiguracaoPasso passo={passo} />
+        </div>
+      </section>
     </div>
   )
 }
@@ -593,14 +665,15 @@ export function TourForm() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const podeGerenciarConfiguracoes = podeGerenciarModulo(user, 'CONFIGURACOES')
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [passos, setPassos] = useState<PassoState[]>([{ ...PASSO_VAZIO }])
-  // [] = sem segmentação (todos os contextos elegíveis) — o "modo" (Todos vs
-  // Apenas quando...) é derivado disso, não um campo separado (ver
-  // segmentado abaixo, mesmo padrão de isSegmented em campanhas/Form.tsx).
+  // [] = sem segmentação (todos os contextos elegíveis). O modo visual fica
+  // separado para que "Por cliente" e "Por perfil" apareçam antes de haver
+  // valores preenchidos nos campos.
   const [regrasSegmentacao, setRegrasSegmentacao] = useState<RegraSegmentacaoTour[]>([])
-  const [usosJornada, setUsosJornada] = useState<TourDependenciaJornada[]>([])
+  const [modoSegmentacao, setModoSegmentacao] = useState<ModoSegmentacaoTour>('todos')
   const [confirmarImpactoJornada, setConfirmarImpactoJornada] = useState(false)
   const [loadingTour, setLoadingTour] = useState(isEdit)
   // Fase 6E — só relevante na criação (isEdit=false): busca resumo.total
@@ -619,10 +692,14 @@ export function TourForm() {
   // abaixo: com loadError, o formulário nem chega a aparecer.
   const [loadError, setLoadError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [revisaoAberta, setRevisaoAberta] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [templateAplicadoId, setTemplateAplicadoId] = useState<string | null>(null)
   const [copiadoPasso, setCopiadoPasso] = useState<{ index: number; tipo: 'seletor' | 'comando' } | null>(null)
+  const [passoSelecionado, setPassoSelecionado] = useState(0)
+  // Assim como no construtor de Campanhas, a criação já começa nas opções de
+  // distribuição. O nome fica fixo no topo do dock e não depende da aba ativa.
+  const [secaoConfiguracao, setSecaoConfiguracao] = useState<SecaoConfiguracaoTour>('exibicao')
 
   // ─── Veio do Dashboard (Funil por passo → "Editar passo", ?passo=N) ────
   // Só rola/destaca a lista de passos uma vez, na carga inicial — nunca de
@@ -659,14 +736,42 @@ export function TourForm() {
   const [urlGravadorPendente, setUrlGravadorPendente] = useState<string | null>(null)
   const [copiadoPassosGravador, setCopiadoPassosGravador] = useState(false)
 
-  // Só pro catálogo de domínios da regra de segmentação campo "dominio" (ver
-  // CampoDominiosRegra abaixo) — Tour não tem seletor de sistema por
-  // catálogo, form.sistema continua texto livre, mas casa aqui com
-  // Sistema.identificador só pra saber quais domínios oferecer.
+  // Alimenta os seletores de sistema/tela e o catálogo de domínios da regra de
+  // segmentação campo "dominio" (ver CampoDominiosRegra abaixo).
   const [sistemasConfig, setSistemasConfig] = useState<Sistema[]>([])
+  const [catalogoTelas, setCatalogoTelas] = useState<TelaCatalogo[]>([])
+  const [erroCatalogo, setErroCatalogo] = useState<string | null>(null)
+  const [carregandoCatalogo, setCarregandoCatalogo] = useState(true)
+  const [modalNovaTelaAberto, setModalNovaTelaAberto] = useState(false)
+  const [formNovaTela, setFormNovaTela] = useState(TELA_CATALOGO_EMPTY_FORM)
+  const [salvandoNovaTela, setSalvandoNovaTela] = useState(false)
+  const [erroNovaTela, setErroNovaTela] = useState<string | null>(null)
+  const carregarCatalogo = useCallback((sinal: { cancelado: boolean } = { cancelado: false }) => {
+    setCarregandoCatalogo(true)
+    setErroCatalogo(null)
+    Promise.all([
+      get<Sistema[]>('/sistemas?ativo=true'),
+      get<TelaCatalogo[]>('/catalogo-telas?ativo=true'),
+    ]).then(([sistemas, telas]) => {
+      if (sinal.cancelado) return
+      setSistemasConfig(sistemas)
+      setCatalogoTelas(telas)
+      if (!isEdit) {
+        const sistemaPadrao = sistemas.find(sistema => sistema.padrao && sistema.ativo) ?? sistemas[0]
+        if (sistemaPadrao) setForm(prev => prev.sistema.trim() ? prev : { ...prev, sistema: sistemaPadrao.identificador })
+      }
+    }).catch(error => {
+      if (!sinal.cancelado) setErroCatalogo(error instanceof Error ? error.message : 'Não foi possível carregar sistemas e telas.')
+    }).finally(() => {
+      if (!sinal.cancelado) setCarregandoCatalogo(false)
+    })
+  }, [isEdit])
+
   useEffect(() => {
-    get<Sistema[]>('/sistemas?ativo=true').then(setSistemasConfig).catch(() => {})
-  }, [])
+    const sinal = { cancelado: false }
+    carregarCatalogo(sinal)
+    return () => { sinal.cancelado = true }
+  }, [carregarCatalogo])
 
   // Fase 6E — ver comentário de carregandoLimite/limiteTours acima.
   useEffect(() => {
@@ -769,16 +874,10 @@ export function TourForm() {
         }
         const caiuEmPassoVazio = passosTransformados.length === 0
         setPassos(caiuEmPassoVazio ? [{ ...PASSO_VAZIO }] : passosTransformados)
-        setRegrasSegmentacao(t.segmentacao_regras ?? [])
-        setUsosJornada((t.etapasJornada ?? []).map(etapa => ({
-          jornada_id: etapa.bloco.jornada.id,
-          jornada_titulo: etapa.bloco.jornada.titulo,
-          jornada_ativo: etapa.bloco.jornada.ativo,
-          bloco_id: etapa.bloco.id,
-          bloco_titulo: etapa.bloco.titulo,
-          etapa_id: etapa.id,
-          etapa_titulo: etapa.titulo,
-        })))
+        setPassoSelecionado(0)
+        const regrasRecebidas = t.segmentacao_regras ?? []
+        setRegrasSegmentacao(regrasRecebidas)
+        setModoSegmentacao(resolverModoSegmentacaoTour(regrasRecebidas))
       })
       .catch(e => {
         if (sinal.cancelado) return
@@ -815,6 +914,7 @@ export function TourForm() {
     if (!passoParam) return
     const indice = Number(passoParam)
     if (!Number.isInteger(indice) || indice < 0 || indice >= passos.length) return
+    setPassoSelecionado(indice)
     const raf = window.requestAnimationFrame(() => {
       passoRefs.current[indice]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       setPassoDestacado(indice)
@@ -829,72 +929,126 @@ export function TourForm() {
   const set = (key: keyof FormState, value: string | boolean) =>
     setForm(prev => ({ ...prev, [key]: value }))
 
+  const sistemaSelecionado = form.sistema.trim()
+  const telasDoSistema = catalogoTelas.filter(tela => tela.sistema === sistemaSelecionado)
+  const telaSelecionada = telasDoSistema.find(tela =>
+    tela.modo_identificacao === form.modo_identificacao &&
+    (tela.tela ?? '') === form.tela &&
+    (tela.url_contem ?? '') === form.url_contem &&
+    (tela.data_cy ?? '') === form.data_cy
+  )
+
+  const selecionarTelaCatalogo = (telaId: string) => {
+    const tela = catalogoTelas.find(item => item.id === telaId)
+    if (!tela) return
+    setForm(prev => ({
+      ...prev,
+      sistema: tela.sistema,
+      modo_identificacao: tela.modo_identificacao,
+      tela: tela.tela ?? '',
+      url_contem: tela.url_contem ?? '',
+      data_cy: tela.data_cy ?? '',
+    }))
+  }
+
+  const abrirModalNovaTela = (busca?: string) => {
+    const sistemaConfig = sistemasConfig.find(sistema => sistema.identificador === sistemaSelecionado)
+    const nomeInicial = busca?.trim() ?? form.tela.trim()
+    setErroNovaTela(null)
+    setFormNovaTela({
+      ...TELA_CATALOGO_EMPTY_FORM,
+      nome: nomeInicial,
+      sistema_id: sistemaConfig?.id ?? '',
+      sistema: sistemaSelecionado,
+      modo_identificacao: 'sistema_tela',
+      tela: nomeInicial,
+    })
+    setModalNovaTelaAberto(true)
+  }
+
+  const usarTelaCriada = (tela: TelaCatalogo) => {
+    setCatalogoTelas(prev => [tela, ...prev.filter(item => item.id !== tela.id)])
+    setForm(prev => ({
+      ...prev,
+      sistema: tela.sistema,
+      modo_identificacao: tela.modo_identificacao,
+      tela: tela.tela ?? '',
+      url_contem: tela.url_contem ?? '',
+      data_cy: tela.data_cy ?? '',
+    }))
+    setModalNovaTelaAberto(false)
+  }
+
+  const salvarNovaTela = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setErroNovaTela(null)
+    setSalvandoNovaTela(true)
+    try {
+      const urlConterNormalizada = normalizarPathUrl(formNovaTela.url_contem)
+      if (formNovaTela.modo_identificacao === 'url_contem' && !pathUrlValido(urlConterNormalizada)) {
+        setErroNovaTela('Informe apenas um caminho relativo, como /app/faturamento.')
+        return
+      }
+      const criada = await post<TelaCatalogo>('/catalogo-telas', {
+        ...formNovaTela,
+        sistema: sistemasConfig.find(sistema => sistema.id === formNovaTela.sistema_id)?.identificador ?? formNovaTela.sistema,
+        tela: formNovaTela.tela.trim() || null,
+        url_contem: urlConterNormalizada || null,
+        data_cy: formNovaTela.data_cy.trim() || null,
+      })
+      usarTelaCriada(criada)
+    } catch (err) {
+      setErroNovaTela(err instanceof Error ? err.message : 'Erro ao criar tela.')
+    } finally {
+      setSalvandoNovaTela(false)
+    }
+  }
+
   // ─── Segmentação por contexto ──────────────────────────────────────────
   const segmentado = regrasSegmentacao.length > 0
+  const regrasSegmentacaoAvancadas = regrasSegmentacao.filter(regra => !CAMPOS_SEGMENTACAO_CAMPANHAS.includes(regra.campo as CampoSegmentacaoTour))
 
-  const ativarSegmentacao = () => {
-    setRegrasSegmentacao([{ ...REGRA_SEGMENTACAO_VAZIA }])
-    set('publico_geral', false)
+  const atualizarCampoSegmentacao = (campo: CampoSegmentacaoTour, valores: string[]) => {
+    setRegrasSegmentacao(prev => [
+      ...prev.filter(regra => regra.campo !== campo),
+      ...(valores.length > 0 ? [{ campo, operador: 'em_lista' as const, valor: valores.join(',') }] : []),
+    ])
   }
-  const desativarSegmentacao = () => {
-    setRegrasSegmentacao([])
-    set('publico_geral', true)
+
+  const selecionarModoSegmentacao = (modo: ModoSegmentacaoTour) => {
+    setModoSegmentacao(modo)
+    setRegrasSegmentacao(prev => {
+      const camposParaLimpar = modo === 'todos'
+        ? [...CAMPOS_SEGMENTACAO_CLIENTE, ...CAMPOS_SEGMENTACAO_PERFIL, 'dominio']
+        : modo === 'cliente'
+          ? CAMPOS_SEGMENTACAO_PERFIL
+          : modo === 'perfil'
+            ? CAMPOS_SEGMENTACAO_CLIENTE
+            : []
+      return prev.filter(regra => !camposParaLimpar.includes(regra.campo as CampoSegmentacaoTour))
+    })
   }
-
-  const adicionarRegraSegmentacao = () =>
-    setRegrasSegmentacao(prev => [...prev, { ...REGRA_SEGMENTACAO_VAZIA }])
-
-  const atualizarRegraSegmentacao = (index: number, patch: Partial<RegraSegmentacaoTour>) =>
-    setRegrasSegmentacao(prev => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)))
-
-  const removerRegraSegmentacao = (index: number) =>
-    setRegrasSegmentacao(prev => prev.filter((_, i) => i !== index))
 
   useEffect(() => {
     setForm(prev => ({ ...prev, publico_geral: regrasSegmentacao.length === 0 }))
   }, [regrasSegmentacao.length])
 
-  // Só disponível na criação (isEdit é sempre false aqui, ver render abaixo).
-  // Preenche apenas título, descrição e passos base — sistema, modo de
-  // identificação etc. não são tocados, e seletor/tipo de seletor ficam em
-  // branco (dependem da tela real do sistema hospedeiro). Tudo continua
-  // editável normalmente depois de aplicado. ativo é forçado para false: como
-  // os seletores vêm vazios, a exibição autônoma não pode ser ativada até
-  // serem preenchidos (ver validação em handleSubmit) — o tour já pode,
-  // ainda assim, ser usado numa Jornada.
-  const aplicarTemplate = (tpl: TourTemplate) => {
-    setForm(prev => ({ ...prev, titulo: tpl.titulo_sugerido, descricao: tpl.descricao_sugerida, ativo: false }))
-    setPassos(tpl.passos.map(p => ({
-      titulo: p.titulo,
-      descricao: p.descricao,
-      seletor_tipo: 'data_cy',
-      seletor: '',
-      tooltip_posicao: p.tooltip_posicao,
-      acao_ao_avancar: 'apenas_avancar',
-      modo_avanco_interacao: 'manual',
-      seletor_confirmacao: '',
-      secao: '',
-    })))
-    setTemplateAplicadoId(tpl.id)
-  }
-
-  const limparTemplate = () => {
-    setForm(prev => ({ ...prev, titulo: '', descricao: '' }))
-    setPassos([{ ...PASSO_VAZIO }])
-    setTemplateAplicadoId(null)
-  }
-
   const setPasso = (index: number, key: keyof PassoState, value: string) =>
     setPassos(prev => prev.map((p, i) => (i === index ? { ...p, [key]: value } : p)))
 
-  const addPasso = () => setPassos(prev => [...prev, { ...PASSO_VAZIO }])
+  const addPasso = () => {
+    setPassoSelecionado(passos.length)
+    setPassos(prev => [...prev, { ...PASSO_VAZIO }])
+  }
 
   // Cópia sem o id do original — é um passo novo, ainda não salvo. A ordem é
   // recalculada automaticamente no submit (payload envia os passos na ordem do
   // array, e o backend atribui `ordem` pela posição recebida).
-  const duplicarPasso = (index: number) =>
+  const duplicarPasso = (index: number) => {
+    setPassoSelecionado(index + 1)
     setPassos(prev => {
       const original = prev[index]
+      if (!original) return prev
       const copia: PassoState = {
         titulo: original.titulo,
         descricao: original.descricao,
@@ -910,18 +1064,35 @@ export function TourForm() {
       next.splice(index + 1, 0, copia)
       return next
     })
+  }
 
-  const removePasso = (index: number) =>
+  const removePasso = (index: number) => {
+    if (passos.length === 1) return
+    setPassoSelecionado(prev => prev === index ? Math.min(index, passos.length - 2) : prev > index ? prev - 1 : prev)
     setPassos(prev => prev.filter((_, i) => i !== index))
+  }
 
   const movePasso = (index: number, dir: -1 | 1) => {
+    const target = index + dir
+    if (target < 0 || target >= passos.length) return
+    setPassoSelecionado(prev => prev === index ? target : prev === target ? index : prev)
     setPassos(prev => {
       const next = [...prev]
-      const target = index + dir
       if (target < 0 || target >= next.length) return prev
       ;[next[index], next[target]] = [next[target], next[index]]
       return next
     })
+  }
+
+  const reordenarPasso = (origem: number, destino: number) => {
+    if (origem === destino || origem < 0 || destino < 0 || origem >= passos.length || destino >= passos.length) return
+    setPassos(prev => {
+      const next = [...prev]
+      const [movido] = next.splice(origem, 1)
+      next.splice(destino, 0, movido)
+      return next
+    })
+    setPassoSelecionado(prev => prev === origem ? destino : prev > origem && prev <= destino ? prev - 1 : prev < origem && prev >= destino ? prev + 1 : prev)
   }
 
   // Mesmo formato usado tanto pra montar up_rec_passos (buildGravadorUrl)
@@ -1210,7 +1381,6 @@ export function TourForm() {
     }
     try {
       const dependencias = await get<TourDependenciaJornada[]>(`/tours/${id}/dependencias`)
-      setUsosJornada(dependencias)
       if (dependencias.length > 0 && !window.confirm(`Este Tour é usado em ${dependencias.length} etapa(s):\n\n${dependencias.map(item => `${item.jornada_titulo} · ${item.bloco_titulo} · ${item.etapa_titulo}`).join('\n')}\n\nDeseja remover a permissão de Jornada?`)) return
       setConfirmarImpactoJornada(dependencias.length > 0)
     } catch (e) {
@@ -1220,35 +1390,12 @@ export function TourForm() {
     set('permite_jornada', false)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (passos.length === 0 || passos.some(p => !p.titulo.trim())) {
-      setError('Todo passo precisa de título preenchido.')
-      return
-    }
-    if (!form.permite_autonomo && !form.permite_jornada) {
-      setError('Habilite ao menos uma origem: execução independente ou etapa de Jornada.')
-      return
-    }
-    if (form.ativo && !form.permite_autonomo) {
-      setError('A exibição autônoma só pode ficar ativa quando a execução independente está habilitada.')
-      return
-    }
-    // Seletor só é exigido para ativar a exibição autônoma — com ela
-    // inativa, o tour pode ficar com seletores vazios (ex.: logo depois de
-    // aplicar um template) e ainda assim ser salvo e usado numa Jornada.
-    if (form.ativo && passos.some(p => !p.seletor.trim())) {
-      setError('Para ativar a exibição autônoma deste tour, todos os passos precisam ter um seletor/data-cy informado.')
-      return
-    }
-    if (form.ativo && passos.some(p => MODOS_AVANCO_COM_CONFIRMACAO.includes(p.modo_avanco_interacao) && !p.seletor_confirmacao.trim())) {
-      setError('Para ativar a exibição autônoma, os passos com avanço "quando outro elemento aparecer/sumir" precisam do seletor de confirmação.')
-      return
-    }
-    if (segmentado && regrasSegmentacao.some(r => !r.campo || !r.valor.trim())) {
-      setError('Toda regra de segmentação precisa de campo e valor preenchidos.')
-      return
-    }
+  const focarEditorPassos = () => {
+    document.getElementById('tour-passos-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const confirmarSalvar = async () => {
+    setRevisaoAberta(false)
     setSubmitting(true)
     setError(null)
     setSuccess(false)
@@ -1259,13 +1406,9 @@ export function TourForm() {
         : await post<TourGuiado>('/tours', payload)
 
       if (isEdit) {
-        // Já estamos na rota final (/tours/:id/editar) — mostra as ações direto.
         setSuccess(true)
         setConfirmarImpactoJornada(false)
       } else {
-        // Troca /tours/novo por /tours/:id/editar (necessário para que um novo
-        // "Salvar" vire PUT em vez de criar outro tour) e leva o aviso de
-        // sucesso via router state, para não perdê-lo no redirecionamento.
         navigate(`/tours/${saved.id}/editar`, { state: { justSaved: true } })
       }
     } catch (e) {
@@ -1275,7 +1418,63 @@ export function TourForm() {
     }
   }
 
-  if (loadingTour || carregandoLimite) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form.titulo.trim()) {
+      setSecaoConfiguracao('geral')
+      setError('Informe o título do tour.')
+      return
+    }
+    if (!form.sistema.trim()) {
+      setSecaoConfiguracao('geral')
+      setError('Informe o sistema onde o tour será executado.')
+      return
+    }
+    const destinoVazio = form.modo_identificacao === 'data_cy' ? !form.data_cy.trim()
+      : form.modo_identificacao === 'url_contem' ? !form.url_contem.trim() : !form.tela.trim()
+    if (form.permite_autonomo && destinoVazio) {
+      setSecaoConfiguracao('geral')
+      setError('Informe o destino do tour para o modo de identificação escolhido.')
+      return
+    }
+    if (passos.length === 0 || passos.some(p => !p.titulo.trim())) {
+      focarEditorPassos()
+      setError('Todo passo precisa de título preenchido.')
+      return
+    }
+    if (!form.permite_autonomo && !form.permite_jornada) {
+      setSecaoConfiguracao('exibicao')
+      setError('Habilite ao menos uma origem: execução independente ou etapa de Jornada.')
+      return
+    }
+    if (form.ativo && !form.permite_autonomo) {
+      setSecaoConfiguracao('exibicao')
+      setError('A exibição autônoma só pode ficar ativa quando a execução independente está habilitada.')
+      return
+    }
+    // Seletor só é exigido para ativar a exibição autônoma — com ela
+    // inativa, o tour pode ficar com seletores vazios enquanto os passos são
+    // revisados e ainda assim ser salvo e usado numa Jornada.
+    if (form.ativo && passos.some(p => !p.seletor.trim())) {
+      focarEditorPassos()
+      setError('Para ativar a exibição autônoma deste tour, todos os passos precisam ter um seletor/data-cy informado.')
+      return
+    }
+    if (form.ativo && passos.some(p => MODOS_AVANCO_COM_CONFIRMACAO.includes(p.modo_avanco_interacao) && !p.seletor_confirmacao.trim())) {
+      focarEditorPassos()
+      setError('Para ativar a exibição autônoma, os passos com avanço "quando outro elemento aparecer/sumir" precisam do seletor de confirmação.')
+      return
+    }
+    if (segmentado && regrasSegmentacao.some(r => !r.campo || !r.valor.trim())) {
+      setSecaoConfiguracao('segmentacao')
+      setError('Toda regra de segmentação precisa de campo e valor preenchidos.')
+      return
+    }
+    setError(null)
+    setRevisaoAberta(true)
+  }
+
+  if (loadingTour || carregandoLimite || carregandoCatalogo) return <div className="px-4 lg:px-margin-desktop py-stack-md"><LoadingSpinner /></div>
 
   // Fase 6E — trial no limite: bloqueia acesso direto à rota /tours/novo
   // (nunca a edição — isEdit já exclui esse caso). Mesma mensagem usada pelo
@@ -1307,17 +1506,27 @@ export function TourForm() {
     )
   }
 
-  // Numeração das seções — dinâmica porque o card de modelo só existe na
-  // criação (some na edição), sem furar a sequência.
-  let stepCounter = 0
-  const nextStep = () => ++stepCounter
+  if (erroCatalogo) {
+    return (
+      <div className="px-4 lg:px-margin-desktop py-stack-md">
+        <ErrorState message={erroCatalogo} onRetry={() => carregarCatalogo()} />
+      </div>
+    )
+  }
 
-  const primeiroPassoVazio = passos.length === 1 && !passos[0].titulo.trim() && !passos[0].seletor.trim()
+  const itensRevisao = montarChecklist(form, passos)
+  const temPendenciaCritica = itensRevisao.some(item => item.status === 'critico')
+  const temAvisoRevisao = itensRevisao.some(item => item.status === 'aviso')
+  const classeBotaoRevisao = temPendenciaCritica
+    ? '!bg-error !text-on-error'
+    : temAvisoRevisao
+      ? '!bg-[#e65100] !text-white'
+      : '!bg-tertiary !text-on-tertiary'
 
   return (
-    <div className="relative">
+    <div className="relative space-y-5 pt-6 pb-8 xl:pr-3">
       {/* Page action bar */}
-      <div className="px-4 lg:px-margin-desktop py-5">
+      <div className="mx-auto w-full max-w-[1600px] rounded-3xl border border-outline-variant bg-surface-bright px-6 py-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-title-lg font-bold text-on-surface">
@@ -1345,7 +1554,7 @@ export function TourForm() {
             >
               Cancelar
             </Button>
-            {isEdit && (
+             {isEdit && (
               <Button
                 type="button"
                 onClick={() => navigate(`/tours/${id}/preview`)}
@@ -1354,23 +1563,54 @@ export function TourForm() {
                 Testar tour
               </Button>
             )}
-            <Button
-              form="tour-form"
-              type="submit"
-              disabled={submitting}
-              size="md"
-            >
-              {submitting ? 'Salvando…' : isEdit ? 'Salvar' : 'Publicar'}
-            </Button>
+            {!revisaoAberta && (
+              <Button
+                form="tour-form"
+                type="submit"
+                disabled={submitting}
+                size="md"
+                className={classeBotaoRevisao}
+                iconLeft={<span className="material-symbols-outlined text-[18px]">fact_check</span>}
+              >
+                {submitting ? 'Salvando…' : isEdit ? 'Revisar e salvar' : 'Revisar e criar'}
+              </Button>
+            )}
           </div>
         </div>
       </div>
 
-      <section className="w-full px-4 lg:px-margin-desktop pt-0 pb-5 max-w-[1400px]">
+      <section className="w-full px-4 pt-0 pb-5">
+         <div className="mx-auto w-full max-w-[1600px]">
         {!isEdit && !form.ativo && (
           <div className="mb-5 p-3 bg-[#fff8e1] border border-[#ffe082] text-[#e65100] rounded-xl text-body-md flex items-center gap-2">
             <span className="material-symbols-outlined text-[18px]">info</span>
             Este tour começa com a exibição autônoma inativa. Teste antes de ativar; ele já pode ser usado como etapa de uma jornada normalmente.
+          </div>
+         )}
+        {revisaoAberta && !success && (
+          <div className="mb-5 rounded-3xl border border-primary/30 bg-primary/5 p-5">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="flex items-center gap-2 text-title-md font-bold text-on-surface">
+                  <span className="material-symbols-outlined text-primary">fact_check</span>
+                  Revise antes de {isEdit ? 'salvar' : 'criar'}
+                </p>
+                <p className="mt-1 text-body-sm text-on-surface-variant">Confira as informações abaixo e resolva as pendências críticas antes de confirmar.</p>
+              </div>
+              <span className={`inline-flex w-fit items-center rounded-full px-2.5 py-1 text-[11px] font-bold uppercase ${temPendenciaCritica ? 'bg-error-container text-on-error-container' : temAvisoRevisao ? 'bg-[#fff8e1] text-[#e65100]' : 'bg-tertiary/10 text-tertiary'}`}>
+                {temPendenciaCritica ? 'Pendências críticas' : temAvisoRevisao ? 'Ajustes recomendados' : 'Tudo certo'}
+              </span>
+            </div>
+            <div className="space-y-4">
+              <InformacoesTour form={form} passos={passos} segmentado={segmentado} />
+              <ChecklistCard form={form} passos={passos} />
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-primary/20 pt-4">
+              <Button type="button" variant="ghost" onClick={() => setRevisaoAberta(false)}>Continuar editando</Button>
+              <Button type="button" onClick={confirmarSalvar} disabled={submitting} className={classeBotaoRevisao} iconLeft={<span className="material-symbols-outlined text-[18px]">check</span>}>
+                {submitting ? 'Salvando…' : isEdit ? 'Confirmar salvamento' : 'Criar tour'}
+              </Button>
+            </div>
           </div>
         )}
         {success && (
@@ -1379,6 +1619,7 @@ export function TourForm() {
               <span className="material-symbols-outlined text-[18px]">check_circle</span>
               Tour salvo com sucesso.
             </p>
+            <InformacoesTour form={form} passos={passos} segmentado={segmentado} />
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
@@ -1414,79 +1655,279 @@ export function TourForm() {
           </div>
         )}
 
-        <form id="tour-form" onSubmit={handleSubmit} className="space-y-4">
-          {/* Templates — só na criação, nunca aplicado automaticamente na edição */}
-          {!isEdit && (
-            <div className={card}>
-              <CardHeader
-                number={nextStep()}
-                icon="auto_awesome"
-                iconBg="bg-tertiary/10"
-                iconColor="text-tertiary"
-                title="Começar com um modelo"
-                description="Escolha um ponto de partida — título, descrição e passos base. Você edita tudo livremente depois."
-              />
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                {TOUR_TEMPLATES.map(tpl => {
-                  const ativo = templateAplicadoId === tpl.id
-                  return (
-                    <button
-                      key={tpl.id}
-                      type="button"
-                      onClick={() => aplicarTemplate(tpl)}
-                      className={`text-left p-3.5 rounded-xl border transition-all ${
-                        ativo ? 'border-primary bg-primary-fixed' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'
-                      }`}
-                    >
-                      <span className={`material-symbols-outlined text-[20px] mb-1.5 block ${ativo ? 'text-primary' : 'text-on-surface-variant'}`}>
-                        {tpl.icon}
-                      </span>
-                      <p className={`text-body-md font-semibold ${ativo ? 'text-primary' : 'text-on-surface'}`}>{tpl.nome}</p>
-                      <p className="text-[11px] text-on-surface-variant mt-0.5">{tpl.descricao}</p>
-                    </button>
-                  )
-                })}
-              </div>
-              {templateAplicadoId && (
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 bg-tertiary/10 rounded-xl">
-                  <p className="text-label-md text-tertiary flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                    Modelo aplicado — título, descrição e passos preenchidos abaixo. Seletores ficam em branco para você informar.
-                  </p>
-                  <button type="button" onClick={limparTemplate} className="text-label-md text-tertiary font-bold hover:underline shrink-0">
-                    Começar em branco
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+        </div>
 
-          {/* Informações gerais */}
-          <div className={card}>
+        {!revisaoAberta && (
+        <form id="tour-form" onSubmit={handleSubmit} className="mx-auto grid min-w-0 max-w-[1600px] items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,520px)]">
+          <div className="min-w-0 space-y-4 xl:col-start-1">
+             {/* Editar fluxo no sistema — só na edição */}
+              {isEdit && (
+              <div className={`${card} min-w-0`}>
+                <CardHeader
+                  icon="videocam"
+                  iconBg="bg-secondary-fixed"
+                  iconColor="text-secondary"
+                  title="Editar fluxo no sistema"
+                  description="Abra o sistema integrado para ajustar os passos deste tour visualmente."
+                />
+                <div className="max-w-2xl space-y-4">
+                  <div>
+                    <label className="mb-1.5 block text-label-md text-on-surface-variant">URL inicial</label>
+                    <input
+                      value={urlInicialGravador}
+                      onChange={e => setUrlInicialGravador(e.target.value)}
+                      placeholder="https://meusistema.com/app/agenda"
+                      className={`${field} font-mono text-[13px]`}
+                    />
+                    <p className="mt-1 text-[11px] text-on-surface-variant">
+                      A página real onde o fluxo começa (precisa já ter o widget UserPulse instalado).
+                    </p>
+                  </div>
+
+                  <div className="flex items-start gap-2 rounded-xl bg-surface-container-low p-3 text-[11px] text-on-surface-variant">
+                    <span className="material-symbols-outlined mt-0.5 shrink-0 text-[15px]">info</span>
+                    <span>
+                      Ao clicar em &quot;Editar fluxo no sistema&quot;, os {passos.length} passo{passos.length === 1 ? '' : 's'}{' '}
+                      já cadastrado{passos.length === 1 ? '' : 's'} deste tour são enviados junto — o gravador abre já
+                      com eles na lista lateral, prontos para editar, remover ou completar com novos passos. Ao
+                      finalizar, clique em &quot;Copiar JSON&quot; na aba do gravador e cole abaixo em &quot;Colar passos gravados&quot;
+                      para trazer o resultado de volta. Os passos atuais deste formulário só mudam quando você colar e
+                      clicar em &quot;Substituir passos&quot;.
+                    </span>
+                  </div>
+
+                  {statusGravador === 'excedeu_limite' && (
+                    <div className="flex items-start gap-2 rounded-xl border border-[#ffe082] bg-[#fff8e1] p-3 text-body-sm text-[#e65100]">
+                      <span className="material-symbols-outlined mt-0.5 shrink-0 text-[18px]">warning</span>
+                      <div className="space-y-2">
+                        <p>
+                          Este tour tem {passos.length} passo{passos.length === 1 ? '' : 's'} salvo{passos.length === 1 ? '' : 's'}, mas
+                          eles excederam o limite seguro de tamanho da URL do gravador. Abrir o gravador agora faria ele
+                          começar <strong>vazio</strong> — os passos salvos não seriam perdidos (continuam intactos
+                          abaixo, em &quot;Passos do tour&quot;), só não apareceriam pré-carregados na lista lateral do gravador.
+                        </p>
+                        <p>
+                          Você pode editar os passos existentes diretamente na lista &quot;Passos do tour&quot; logo abaixo (não
+                          precisa do gravador pra isso), copiá-los agora como JSON antes de gravar um fluxo novo, ou
+                          abrir o gravador mesmo assim sabendo que ele vai começar vazio.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={copiarPassosAtuaisGravador}
+                            className="flex items-center gap-1 rounded-lg border border-[#ffe082] bg-surface-bright px-3 py-1.5 text-label-sm font-bold text-[#e65100] transition-colors hover:bg-[#fff3d6]"
+                          >
+                            <span className="material-symbols-outlined text-[15px]">
+                              {copiadoPassosGravador ? 'check' : 'content_copy'}
+                            </span>
+                            {copiadoPassosGravador ? 'Copiado!' : 'Copiar passos atuais (JSON)'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={abrirGravadorMesmoAssim}
+                            className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-label-sm font-bold text-[#e65100] transition-colors hover:bg-[#fff3d6]"
+                          >
+                            <span className="material-symbols-outlined text-[15px]">videocam</span>
+                            Abrir gravador mesmo assim (vazio)
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {erroGravador && (
+                    <div className="flex items-center gap-2 rounded-xl bg-error-container p-3 text-body-md text-on-error-container">
+                      <span className="material-symbols-outlined text-[18px]">error</span>
+                      {erroGravador}
+                    </div>
+                  )}
+
+                  {urlGravadorGerada && (
+                    <div className="flex items-start gap-2 rounded-xl bg-tertiary/10 p-3 text-body-md text-tertiary">
+                      <span className="material-symbols-outlined mt-0.5 shrink-0 text-[18px]">check_circle</span>
+                      <span>
+                        Gravação iniciada numa nova aba. Se o navegador bloqueou o pop-up, abra manualmente:{' '}
+                        <a href={urlGravadorGerada} target="_blank" rel="noreferrer" className="break-all underline">{urlGravadorGerada}</a>
+                      </span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={abrirGravador}
+                    className="flex items-center gap-1.5 rounded-xl bg-secondary px-4 py-2 text-label-md font-bold text-on-secondary shadow-md transition-all hover:opacity-90 active:scale-95"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">videocam</span>
+                    Editar fluxo no sistema
+                  </button>
+
+                  <div className="border-t border-outline-variant/40 pt-3">
+                    <label className="mb-1.5 block text-label-md text-on-surface-variant">
+                      Colar passos gravados (substitui a lista de passos abaixo)
+                    </label>
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={colarJsonGravador}
+                        className="flex items-center gap-1 rounded-lg border border-outline-variant bg-surface-bright px-3 py-1.5 text-label-sm font-bold text-on-surface transition-colors hover:bg-surface-container-low"
+                      >
+                        <span className="material-symbols-outlined text-[15px]">content_paste_go</span>
+                        Colar da área de transferência
+                      </button>
+                      {substituidoOk && (
+                        <span className="flex items-center gap-1 text-label-sm font-semibold text-tertiary">
+                          <span className="material-symbols-outlined text-[15px]">check_circle</span>
+                          Passos substituídos abaixo.
+                        </span>
+                      )}
+                    </div>
+                    {avisoColar && <p className="mb-2 text-[11px] text-on-surface-variant">{avisoColar}</p>}
+                    <textarea
+                      value={jsonColadoTexto}
+                      onChange={e => setJsonColadoTexto(e.target.value)}
+                      rows={6}
+                      placeholder='{"formato":"userpulse.tour.v1","tour":{"passos":[...]}}'
+                      className={`${field} resize-none font-mono text-[12px]`}
+                    />
+                    {erroColar && (
+                      <div className="mt-2 flex items-center gap-2 rounded-xl bg-error-container p-3 text-body-sm text-on-error-container">
+                        <span className="material-symbols-outlined text-[16px]">error</span>
+                        {erroColar}
+                      </div>
+                    )}
+                    {erroAtualizarTour && (
+                      <div className="mt-2 flex items-center gap-2 rounded-xl bg-error-container p-3 text-body-sm text-on-error-container">
+                        <span className="material-symbols-outlined text-[16px]">error</span>
+                        {erroAtualizarTour}
+                      </div>
+                    )}
+                    {tourAtualizadoOk && (
+                      <div className="mt-2 flex items-center gap-2 rounded-xl bg-tertiary/10 p-3 text-body-sm text-tertiary">
+                        <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                        Tour atualizado com sucesso.
+                      </div>
+                    )}
+                    {erroTestarPassos && (
+                      <div className="mt-2 flex items-center gap-2 rounded-xl bg-error-container p-3 text-body-sm text-on-error-container">
+                        <span className="material-symbols-outlined text-[16px]">error</span>
+                        {erroTestarPassos}
+                      </div>
+                    )}
+                    {urlPreviewGerada && (
+                      <div className="mt-2 flex items-start gap-2 rounded-xl bg-tertiary/10 p-3 text-body-sm text-tertiary">
+                        <span className="material-symbols-outlined mt-0.5 shrink-0 text-[16px]">check_circle</span>
+                        <span>
+                          Teste iniciado numa nova aba — nada foi salvo. Se o navegador bloqueou o pop-up, abra
+                          manualmente:{' '}
+                          <a href={urlPreviewGerada} target="_blank" rel="noreferrer" className="break-all underline">{urlPreviewGerada}</a>
+                        </span>
+                      </div>
+                    )}
+                    <div className="mt-2 flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={testarPassosColados}
+                        disabled={!jsonColadoTexto.trim()}
+                        title="Roda os passos colados como um tour temporário na URL informada acima, direto no sistema real — sem salvar nada aqui nem no banco."
+                        className="flex items-center gap-1.5 rounded-xl border border-outline-variant px-4 py-2 text-label-md font-bold text-on-surface transition-all hover:bg-surface-container-low disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">play_circle</span>
+                        Testar estes passos
+                      </button>
+                      <button
+                        type="button"
+                        onClick={atualizarTourComPassosColados}
+                        disabled={!jsonColadoTexto.trim() || atualizandoTour}
+                        title="Salva os passos colados direto neste tour, sem precisar clicar em Salvar lá em cima. Título, sistema, prioridade e demais configurações não mudam."
+                        className="flex items-center gap-1.5 rounded-xl border border-outline-variant px-4 py-2 text-label-md font-bold text-on-surface transition-all hover:bg-surface-container-low disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">cloud_upload</span>
+                        {atualizandoTour ? 'Atualizando…' : 'Atualizar Tour existente'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={substituirPassosDoJson}
+                        disabled={!jsonColadoTexto.trim()}
+                        className="rounded-xl bg-primary px-4 py-2 text-label-md font-bold text-on-primary shadow-md transition-all hover:opacity-90 disabled:opacity-50"
+                      >
+                        Substituir passos
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Editor de passos: lista e editor ficam juntos na coluna principal. */}
+            <div id="tour-passos-editor" className="scroll-mt-4">
+              <PassosEditor
+                passos={passos}
+                selecionado={passoSelecionado}
+                onSelecionar={setPassoSelecionado}
+                onAdicionar={addPasso}
+                onSetPasso={setPasso}
+                onMover={movePasso}
+                onDuplicar={duplicarPasso}
+                onRemover={removePasso}
+                onReordenar={reordenarPasso}
+                passoRefs={passoRefs}
+                passoDestacado={passoDestacado}
+                copiadoPasso={copiadoPasso}
+                onCopiarSeletor={copiarSeletor}
+                onCopiarComando={copiarComandoTeste}
+              />
+            </div>
+          </div>
+
+          <div className="min-w-0 xl:col-start-2">
+            <aside className="w-full self-start rounded-3xl border border-outline-variant bg-surface-bright p-5 shadow-[0_18px_50px_rgba(20,22,26,0.12)] backdrop-blur">
+              <div className="mb-5 border-b border-outline-variant pb-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary-fixed text-primary">
+                    <span className="material-symbols-outlined text-[19px]">tune</span>
+                  </span>
+                  <div>
+                    <p className="text-[22px] font-semibold leading-tight text-on-surface">Configurações</p>
+                  </div>
+                </div>
+                <nav className="mt-4 rounded-2xl bg-surface-container-low p-2" aria-label="Seções de configuração">
+                   <p className="px-2 pb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-on-surface-variant">Configuração</p>
+                  <div className="flex flex-wrap gap-2">
+                    {SECOES_CONFIGURACAO.map(secao => {
+                      const ativa = secaoConfiguracao === secao.id
+                      return (
+                        <button
+                          key={secao.id}
+                          type="button"
+                          onClick={() => setSecaoConfiguracao(secao.id)}
+                          aria-current={ativa ? 'page' : undefined}
+                          title={secao.description}
+                          className={`rounded-full border px-4 py-1.5 text-[14px] font-semibold transition ${ativa ? 'border-primary bg-primary text-on-primary' : 'border-outline-variant bg-surface-bright text-on-surface hover:border-primary hover:text-primary'}`}
+                        >
+                          {secao.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </nav>
+              </div>
+            <div className="min-w-0 space-y-4">
+            {secaoConfiguracao === 'geral' && <div className={`${card} min-w-0`}>
             <CardHeader
-              number={nextStep()}
               icon="info"
               iconBg="bg-primary-fixed"
               iconColor="text-primary"
-              title="Informações gerais"
-              description="Nome e descrição deste tour guiado."
+             title="Geral do tour"
+             description="Defina o contexto e onde este tour será executado."
             />
             <div className="grid grid-cols-1 gap-4 max-w-4xl">
-              <div>
-                <label className="block text-label-md text-on-surface-variant mb-1.5">
-                  Título do Tour <span className="text-error">*</span>
-                </label>
-                <input
-                  required
-                  value={form.titulo}
-                  onChange={e => set('titulo', e.target.value)}
-                  placeholder="Ex: Conheça a nova agenda"
-                  className={field}
-                />
-              </div>
-
-              <div>
-                <label className="block text-label-md text-on-surface-variant mb-1.5">Descrição</label>
+               <div>
+                 <label htmlFor="tour-titulo" className="block text-label-md text-on-surface-variant mb-1.5">Nome do Tour <span className="text-error">*</span></label>
+                 <input id="tour-titulo" required value={form.titulo} onChange={e => set('titulo', e.target.value)} placeholder="Ex.: Conheça a nova agenda" className={field} />
+                 <p className="mt-1 text-[11px] text-outline">Usado para identificar o tour e apresentado na introdução para o usuário.</p>
+               </div>
+               <div>
+                 <label className="block text-label-md text-on-surface-variant mb-1.5">Descrição</label>
                 <textarea
                   rows={2}
                   value={form.descricao}
@@ -1496,42 +1937,56 @@ export function TourForm() {
                 />
                 <p className="mt-1 text-[11px] text-outline">Essa descrição será exibida na introdução do tour para explicar o que será apresentado.</p>
               </div>
-            </div>
-          </div>
-
-          {/* Destino do tour */}
-          <div className={card}>
+              </div>
+              <div className="mt-6 border-t border-outline-variant/50 pt-6">
             <CardHeader
-              number={nextStep()}
               icon="map"
               iconBg="bg-secondary-fixed"
               iconColor="text-secondary"
               title="Destino do tour"
-              description="Defina o sistema e a tela onde o tour deve ser executado."
+              description="Escolha o sistema e como identificar a tela de início."
             />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
-              <div className="md:col-span-2">
-                <label className="block text-label-md text-on-surface-variant mb-1.5">
-                  Sistema <span className="text-error">*</span>
-                </label>
-                <input
-                  required
-                  value={form.sistema}
-                  onChange={e => set('sistema', e.target.value)}
-                  placeholder="Ex: portal, crm, mobile"
-                  className={field}
-                />
-              </div>
+               <div className="md:col-span-2">
+                 <label className="block text-label-md text-on-surface-variant mb-1.5">
+                   Sistema <span className="text-error">*</span>
+                 </label>
+                 {sistemasConfig.length > 0 ? (
+                   <Select
+                     value={form.sistema}
+                     options={Array.from(new Map([
+                       ...sistemasConfig.map(sistema => [sistema.identificador, sistema.nome] as const),
+                       ...(form.sistema.trim() && !sistemasConfig.some(sistema => sistema.identificador === form.sistema.trim())
+                         ? [[form.sistema.trim(), `${form.sistema.trim()} (atual)`] as const]
+                         : []),
+                     ]).entries()).map(([value, label]) => ({ value, label }))}
+                     onChange={value => set('sistema', value)}
+                     placeholder="Selecione um sistema"
+                   />
+                 ) : (
+                   <input
+                     value={form.sistema}
+                     onChange={e => set('sistema', e.target.value)}
+                     placeholder="Ex: portal, crm, mobile"
+                     className={field}
+                   />
+                 )}
+                 <p className="mt-1.5 text-[11px] leading-relaxed text-on-surface-variant">
+                   {sistemasConfig.length > 0
+                     ? 'Selecione o sistema cadastrado onde o tour será executado.'
+                     : 'Cadastre um sistema em Configurações ou informe o identificador usado pelo widget.'}
+                 </p>
+               </div>
 
               <div className="md:col-span-2">
                 <label className="block text-label-md text-on-surface-variant mb-2">
                   Onde o tour deve iniciar? <span className="text-error">*</span>
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                 <div className="grid grid-cols-1 gap-2">
                   {MODOS.map(opt => {
                     const active = form.modo_identificacao === opt.value
                     return (
-                      <label key={opt.value} className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${active ? 'border-primary bg-primary-fixed' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'}`}>
+                       <label key={opt.value} className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 transition-all ${active ? 'border-primary bg-primary-fixed' : 'border-outline-variant bg-surface-container-low hover:border-primary/50'}`}>
                         <input
                           type="radio"
                           name="modo_identificacao"
@@ -1540,7 +1995,7 @@ export function TourForm() {
                           onChange={e => set('modo_identificacao', e.target.value)}
                           className="mt-0.5 text-primary focus:ring-primary shrink-0"
                         />
-                        <div>
+                         <div className="min-w-0">
                           <p className={`text-body-md font-semibold ${active ? 'text-primary' : 'text-on-surface'}`}>{opt.label}</p>
                           <p className="text-[11px] text-on-surface-variant mt-0.5">{opt.desc}</p>
                         </div>
@@ -1550,20 +2005,30 @@ export function TourForm() {
                 </div>
               </div>
 
-              {form.modo_identificacao === 'sistema_tela' && (
-                <div className="md:col-span-2">
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">
-                    Nome da tela <span className="text-error">*</span>
-                  </label>
-                  <input
-                    required
-                    value={form.tela}
-                    onChange={e => set('tela', e.target.value)}
-                    placeholder="Ex: home, checkout, dashboard"
-                    className={field}
-                  />
-                </div>
-              )}
+               {form.modo_identificacao === 'sistema_tela' && (
+                 <div className="md:col-span-2">
+                   <label className="block text-label-md text-on-surface-variant mb-1.5">
+                     Tela cadastrada <span className="text-error">*</span>
+                   </label>
+                   {!sistemaSelecionado ? (
+                     <p className="rounded-xl border border-dashed border-outline-variant bg-surface-container-low px-3 py-2.5 text-[12px] text-on-surface-variant">
+                       Selecione um sistema para listar as telas cadastradas.
+                     </p>
+                    ) : (
+                      <>
+                        <SeletorTelaCatalogo
+                          telas={telasDoSistema}
+                          selecionada={telaSelecionada}
+                          onSelecionar={selecionarTelaCatalogo}
+                          onCriar={podeGerenciarConfiguracoes ? abrirModalNovaTela : undefined}
+                        />
+                      </>
+                    )}
+                   <p className="mt-1.5 text-[11px] leading-relaxed text-on-surface-variant">
+                     Escolha uma tela do catálogo para preencher o identificador usado pelo widget.
+                   </p>
+                 </div>
+               )}
 
               {form.modo_identificacao === 'data_cy' && (
                 <div className="md:col-span-2">
@@ -1571,7 +2036,6 @@ export function TourForm() {
                     Data-cy da tela <span className="text-error">*</span>
                   </label>
                   <input
-                    required
                     value={form.data_cy}
                     onChange={e => set('data_cy', e.target.value)}
                     placeholder="Ex: agenda-page"
@@ -1586,7 +2050,6 @@ export function TourForm() {
                     Caminho da URL <span className="text-error">*</span>
                   </label>
                   <input
-                    required
                     value={form.url_contem}
                     onChange={e => set('url_contem', e.target.value)}
                     placeholder="/app/atendimento/agendamentos"
@@ -1594,668 +2057,203 @@ export function TourForm() {
                   />
                 </div>
               )}
+              </div>
+              </div>
             </div>
-          </div>
+            }
 
-          {/* Editar fluxo no sistema — só na edição */}
-          {isEdit && (
-            <div className={card}>
+           {secaoConfiguracao === 'exibicao' && (
+             <div className={`${card} min-w-0`}>
+               <CardHeader
+                 icon="tune"
+                 iconBg="bg-tertiary-fixed"
+                 iconColor="text-tertiary"
+                 title="Exibição e distribuição"
+                 description="Defina quando o tour aparece e como ele pode ser usado."
+               />
+
+               <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+                 <div>
+                   <label className="mb-1.5 block text-label-md text-on-surface-variant">Prioridade</label>
+                   <input
+                     type="number"
+                     min={0}
+                     step={1}
+                     value={form.prioridade}
+                     onChange={e => set('prioridade', e.target.value)}
+                     className={field}
+                   />
+                   <p className="mt-1.5 text-[12px] leading-relaxed text-on-surface-variant">Tours com maior prioridade aparecem primeiro quando mais de um está elegível.</p>
+                 </div>
+
+                 <div>
+                   <label className="mb-1.5 block text-label-md text-on-surface-variant">Exibição autônoma</label>
+                   <label className="relative inline-flex cursor-pointer items-center">
+                     <input
+                       type="checkbox"
+                       checked={form.ativo}
+                       disabled={!form.permite_autonomo}
+                       onChange={e => set('ativo', e.target.checked)}
+                       className="sr-only peer"
+                     />
+                     <div className="relative h-6 w-11 rounded-full bg-outline-variant after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-disabled:opacity-50" />
+                     <span className="ml-3 text-body-md text-on-surface">{form.ativo ? 'Ativa' : 'Inativa'}</span>
+                   </label>
+                   <p className="mt-1.5 text-[12px] leading-relaxed text-on-surface-variant">
+                     {!form.permite_autonomo ? 'Ative a execução independente abaixo para liberar esta opção.' : 'Pode ser exibido automaticamente ou iniciado pela integração.'}
+                   </p>
+                 </div>
+               </div>
+
+               <div className="mt-5 border-t border-outline-variant/50 pt-5">
+                 <div className="mb-3">
+                   <h3 className="text-label-md font-bold text-on-surface">Como este tour pode ser usado</h3>
+                   <p className="mt-1 text-[12px] leading-relaxed text-on-surface-variant">Escolha uma ou ambas as formas de distribuição.</p>
+                 </div>
+
+                 <div className="grid gap-2 md:grid-cols-2">
+                   <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${form.permite_autonomo ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-bright hover:border-primary/50'}`}>
+                     <input type="checkbox" checked={form.permite_autonomo} onChange={e => setForm(prev => ({ ...prev, permite_autonomo: e.target.checked, ativo: e.target.checked ? prev.ativo : false }))} className="mt-0.5 h-5 w-5 shrink-0 accent-primary" />
+                     <span>
+                       <span className="block text-body-md font-semibold text-on-surface">Execução independente</span>
+                       <span className="mt-0.5 block text-[12px] leading-relaxed text-on-surface-variant">Pode aparecer por gatilhos ou ser iniciado pela integração.</span>
+                     </span>
+                   </label>
+                   <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${form.permite_jornada ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-bright hover:border-primary/50'}`}>
+                     <input type="checkbox" checked={form.permite_jornada} onChange={e => alterarPermissaoJornada(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-primary" />
+                     <span>
+                       <span className="block text-body-md font-semibold text-on-surface">Etapa de Jornada</span>
+                       <span className="mt-0.5 block text-[12px] leading-relaxed text-on-surface-variant">Pode ser reutilizado dentro de uma Jornada.</span>
+                     </span>
+                   </label>
+                 </div>
+
+                 {form.permite_autonomo && <div className="mt-3 space-y-3 rounded-xl bg-surface-container-low p-3">
+                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                     <label className="text-label-md text-on-surface-variant">Frequência
+                       <select value={form.frequencia} onChange={e => set('frequencia', e.target.value)} className={`${field} mt-1`}>
+                         <option value="sempre">Sempre</option><option value="uma_vez_por_usuario">Uma vez por usuário</option><option value="uma_vez_por_sessao">Uma vez por sessão</option><option value="ate_concluir">Até concluir</option><option value="intervalo_dias">Intervalo em dias</option>
+                       </select>
+                     </label>
+                     {form.frequencia === 'intervalo_dias' && <label className="text-label-md text-on-surface-variant">Intervalo em dias
+                       <input type="number" min={1} step={1} value={form.frequencia_intervalo_dias} onChange={e => set('frequencia_intervalo_dias', e.target.value)} className={`${field} mt-1`} />
+                     </label>}
+                   </div>
+                   <div className="space-y-2">
+                     <div className="flex items-center justify-between gap-3"><p className="text-label-md font-bold text-on-surface">Gatilhos autônomos</p><button type="button" onClick={() => setForm(prev => ({ ...prev, gatilhos: [...prev.gatilhos, { tipo: 'manual' }] }))} className="min-h-11 px-2 text-label-md font-bold text-primary">+ Adicionar</button></div>
+                     {form.gatilhos.length === 0 && <p className="text-[12px] text-error">Adicione ao menos um gatilho para publicar a execução autônoma.</p>}
+                     {form.gatilhos.map((gatilho, index) => <div key={index} className="grid grid-cols-1 gap-2 rounded-xl border border-outline-variant bg-surface-bright p-2 md:grid-cols-[180px_1fr_auto]">
+                       <Select size="sm" value={gatilho.tipo} options={[{ value: 'entrada_tela', label: 'Entrada na tela' }, { value: 'url', label: 'URL' }, { value: 'elemento', label: 'Elemento' }, { value: 'botao_ajuda', label: 'Botão de ajuda' }, { value: 'manual', label: 'Manual' }, { value: 'evento', label: 'Evento' }]} onChange={valor => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { tipo: valor as GatilhoTour['tipo'] } : item) }))} />
+                       {(gatilho.tipo === 'entrada_tela') && <input value={gatilho.tela ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, tela: e.target.value } : item) }))} placeholder="Nome da tela" className={field} />}
+                       {(gatilho.tipo === 'url') && <input value={gatilho.url_contem ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, url_contem: e.target.value } : item) }))} placeholder="Parte da URL" className={field} />}
+                       {(gatilho.tipo === 'elemento') && <input value={gatilho.seletor ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, seletor_tipo: 'css', seletor: e.target.value } : item) }))} placeholder="Seletor CSS" className={field} />}
+                       {(gatilho.tipo === 'evento') && <input value={gatilho.evento ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, evento: e.target.value } : item) }))} placeholder="Nome do evento track()" className={field} />}
+                       <button type="button" onClick={() => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.filter((_, i) => i !== index) }))} className="min-h-11 px-2 text-left text-label-md font-bold text-error md:text-center">Remover</button>
+                     </div>)}
+                   </div>
+                 </div>}
+               </div>
+             </div>
+           )}
+
+            {secaoConfiguracao === 'segmentacao' && <div className={`${card} min-w-0`}>
               <CardHeader
-                number={nextStep()}
-                icon="videocam"
+                icon="target"
                 iconBg="bg-secondary-fixed"
                 iconColor="text-secondary"
-                title="Editar fluxo no sistema"
-                description="Abra o sistema integrado para ajustar os passos deste tour visualmente."
+                title="Segmentação"
+                description="Defina para quais clientes, perfis e contextos este tour será elegível."
               />
-              <div className="space-y-4 max-w-2xl">
+              <div className="space-y-5">
                 <div>
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">URL inicial</label>
-                  <input
-                    value={urlInicialGravador}
-                    onChange={e => setUrlInicialGravador(e.target.value)}
-                    placeholder="https://meusistema.com/app/agenda"
-                    className={`${field} font-mono text-[13px]`}
-                  />
-                  <p className="text-[11px] text-on-surface-variant mt-1">
-                    A página real onde o fluxo começa (precisa já ter o widget UserPulse instalado).
-                  </p>
+                  <span className="mb-2 block text-label-md font-semibold text-on-surface-variant">Para quem este tour deve aparecer?</span>
+                  <div className="grid gap-2">
+                    {[
+                      { id: 'todos' as const, icon: 'groups', titulo: 'Todos', desc: 'Sem filtros. Aparece para qualquer contexto elegível.' },
+                      { id: 'cliente' as const, icon: 'domain', titulo: 'Por cliente', desc: 'Filtra por IDs de clientes e unidades.' },
+                      { id: 'perfil' as const, icon: 'person_search', titulo: 'Por perfil', desc: 'Filtra por perfis, tipos de usuário e estados.' },
+                    ].map(opcao => (
+                      <button
+                        key={opcao.id}
+                        type="button"
+                        onClick={() => selecionarModoSegmentacao(opcao.id)}
+                        className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-left transition ${modoSegmentacao === opcao.id ? 'border-primary bg-primary/5 text-primary' : 'border-outline-variant bg-surface-bright text-on-surface hover:border-primary'}`}
+                      >
+                        <span className={`material-symbols-outlined mt-0.5 text-[20px] ${modoSegmentacao === opcao.id ? 'text-primary' : 'text-outline'}`}>{opcao.icon}</span>
+                        <span className="min-w-0">
+                          <span className="block text-body-md font-bold leading-5">{opcao.titulo}</span>
+                          <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-on-surface-variant">{opcao.desc}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="flex items-start gap-2 p-3 bg-surface-container-low rounded-xl text-[11px] text-on-surface-variant">
-                  <span className="material-symbols-outlined text-[15px] shrink-0 mt-0.5">info</span>
-                  <span>
-                    Ao clicar em "Editar fluxo no sistema", os {passos.length} passo{passos.length === 1 ? '' : 's'}{' '}
-                    já cadastrado{passos.length === 1 ? '' : 's'} deste tour são enviados junto — o gravador abre já
-                    com eles na lista lateral, prontos para editar, remover ou completar com novos passos. Ao
-                    finalizar, clique em "Copiar JSON" na aba do gravador e cole abaixo em "Colar passos gravados"
-                    para trazer o resultado de volta. Os passos atuais deste formulário só mudam quando você colar e
-                    clicar em "Substituir passos".
-                  </span>
-                </div>
-
-                {statusGravador === 'excedeu_limite' && (
-                  <div className="p-3 bg-[#fff8e1] border border-[#ffe082] rounded-xl text-body-sm text-[#e65100] flex items-start gap-2">
-                    <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">warning</span>
-                    <div className="space-y-2">
-                      <p>
-                        Este tour tem {passos.length} passo{passos.length === 1 ? '' : 's'} salvo{passos.length === 1 ? '' : 's'}, mas
-                        eles excederam o limite seguro de tamanho da URL do gravador. Abrir o gravador agora faria ele
-                        começar <strong>vazio</strong> — os passos salvos não seriam perdidos (continuam intactos
-                        abaixo, em "Passos do tour"), só não apareceriam pré-carregados na lista lateral do gravador.
-                      </p>
-                      <p>
-                        Você pode editar os passos existentes diretamente na lista "Passos do tour" logo abaixo (não
-                        precisa do gravador pra isso), copiá-los agora como JSON antes de gravar um fluxo novo, ou
-                        abrir o gravador mesmo assim sabendo que ele vai começar vazio.
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={copiarPassosAtuaisGravador}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-surface-bright border border-[#ffe082] rounded-lg text-label-sm font-bold text-[#e65100] hover:bg-[#fff3d6] transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-[15px]">
-                            {copiadoPassosGravador ? 'check' : 'content_copy'}
-                          </span>
-                          {copiadoPassosGravador ? 'Copiado!' : 'Copiar passos atuais (JSON)'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={abrirGravadorMesmoAssim}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-label-sm font-bold text-[#e65100] hover:bg-[#fff3d6] transition-colors"
-                        >
-                          <span className="material-symbols-outlined text-[15px]">videocam</span>
-                          Abrir gravador mesmo assim (vazio)
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {erroGravador && (
-                  <div className="p-3 bg-error-container text-on-error-container rounded-xl text-body-md flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[18px]">error</span>
-                    {erroGravador}
-                  </div>
-                )}
-
-                {urlGravadorGerada && (
-                  <div className="p-3 bg-tertiary/10 rounded-xl text-body-md text-tertiary flex items-start gap-2">
-                    <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">check_circle</span>
+                {modoSegmentacao !== 'todos' && (
+                  <label className="flex items-start gap-3 rounded-2xl border border-outline-variant bg-surface-container-low p-3 text-body-md font-semibold text-on-surface">
+                    <input
+                      type="checkbox"
+                      checked={modoSegmentacao === 'combinada'}
+                      onChange={event => event.target.checked
+                        ? selecionarModoSegmentacao('combinada')
+                        : selecionarModoSegmentacao(valoresSegmentacao(regrasSegmentacao, 'cliente_id').length > 0 || valoresSegmentacao(regrasSegmentacao, 'unidade_id').length > 0 ? 'cliente' : 'perfil')}
+                      className="mt-1 h-4 w-4 shrink-0 accent-primary"
+                    />
                     <span>
-                      Gravação iniciada numa nova aba. Se o navegador bloqueou o pop-up, abra manualmente:{' '}
-                      <a href={urlGravadorGerada} target="_blank" rel="noreferrer" className="underline break-all">{urlGravadorGerada}</a>
+                      <span className="block font-bold">Combinar filtros</span>
+                      <span className="mt-0.5 block text-[12px] font-semibold leading-4 text-on-surface-variant">Use cliente, unidade, perfil, tipo de usuário e estado na mesma segmentação.</span>
                     </span>
+                  </label>
+                )}
+
+                {(modoSegmentacao === 'cliente' || modoSegmentacao === 'combinada') && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <CampoListaSegmentacao label="IDs de clientes" value={valoresSegmentacao(regrasSegmentacao, 'cliente_id')} onChange={valores => atualizarCampoSegmentacao('cliente_id', valores)} />
+                    <CampoListaSegmentacao label="IDs de unidades" value={valoresSegmentacao(regrasSegmentacao, 'unidade_id')} onChange={valores => atualizarCampoSegmentacao('unidade_id', valores)} />
                   </div>
                 )}
 
-                <button
-                  type="button"
-                  onClick={abrirGravador}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-secondary text-on-secondary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all active:scale-95"
-                >
-                  <span className="material-symbols-outlined text-[18px]">videocam</span>
-                  Editar fluxo no sistema
-                </button>
-
-                <div className="pt-3 border-t border-outline-variant/40">
-                  <label className="block text-label-md text-on-surface-variant mb-1.5">
-                    Colar passos gravados (substitui a lista de passos abaixo)
-                  </label>
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <button
-                      type="button"
-                      onClick={colarJsonGravador}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-surface-bright border border-outline-variant rounded-lg text-label-sm font-bold text-on-surface hover:bg-surface-container-low transition-colors"
-                    >
-                      <span className="material-symbols-outlined text-[15px]">content_paste_go</span>
-                      Colar da área de transferência
-                    </button>
-                    {substituidoOk && (
-                      <span className="text-label-sm text-tertiary font-semibold flex items-center gap-1">
-                        <span className="material-symbols-outlined text-[15px]">check_circle</span>
-                        Passos substituídos abaixo.
-                      </span>
-                    )}
+                {(modoSegmentacao === 'perfil' || modoSegmentacao === 'combinada') && (
+                  <div className="space-y-4">
+                    <CampoListaSegmentacao label="Perfis permitidos" value={valoresSegmentacao(regrasSegmentacao, 'perfil')} onChange={valores => atualizarCampoSegmentacao('perfil', valores)} />
+                    <CampoListaSegmentacao label="Tipos permitidos" value={valoresSegmentacao(regrasSegmentacao, 'usuario_tipo')} onChange={valores => atualizarCampoSegmentacao('usuario_tipo', valores)} />
+                    <CampoListaSegmentacao label="Estados permitidos" value={valoresSegmentacao(regrasSegmentacao, 'estado')} onChange={valores => atualizarCampoSegmentacao('estado', valores)} hint="Ex.: SP, RJ, MG." />
                   </div>
-                  {avisoColar && <p className="text-[11px] text-on-surface-variant mb-2">{avisoColar}</p>}
-                  <textarea
-                    value={jsonColadoTexto}
-                    onChange={e => setJsonColadoTexto(e.target.value)}
-                    rows={6}
-                    placeholder='{"formato":"userpulse.tour.v1","tour":{"passos":[...]}}'
-                    className={`${field} font-mono text-[12px] resize-none`}
-                  />
-                  {erroColar && (
-                    <div className="mt-2 p-3 bg-error-container text-on-error-container rounded-xl text-body-sm flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[16px]">error</span>
-                      {erroColar}
-                    </div>
-                  )}
-                  {erroAtualizarTour && (
-                    <div className="mt-2 p-3 bg-error-container text-on-error-container rounded-xl text-body-sm flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[16px]">error</span>
-                      {erroAtualizarTour}
-                    </div>
-                  )}
-                  {tourAtualizadoOk && (
-                    <div className="mt-2 p-3 bg-tertiary/10 rounded-xl text-body-sm text-tertiary flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[16px]">check_circle</span>
-                      Tour atualizado com sucesso.
-                    </div>
-                  )}
-                  {erroTestarPassos && (
-                    <div className="mt-2 p-3 bg-error-container text-on-error-container rounded-xl text-body-sm flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[16px]">error</span>
-                      {erroTestarPassos}
-                    </div>
-                  )}
-                  {urlPreviewGerada && (
-                    <div className="mt-2 p-3 bg-tertiary/10 rounded-xl text-body-sm text-tertiary flex items-start gap-2">
-                      <span className="material-symbols-outlined text-[16px] shrink-0 mt-0.5">check_circle</span>
-                      <span>
-                        Teste iniciado numa nova aba — nada foi salvo. Se o navegador bloqueou o pop-up, abra
-                        manualmente:{' '}
-                        <a href={urlPreviewGerada} target="_blank" rel="noreferrer" className="underline break-all">{urlPreviewGerada}</a>
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex flex-wrap justify-end gap-2 mt-2">
-                    <button
-                      type="button"
-                      onClick={testarPassosColados}
-                      disabled={!jsonColadoTexto.trim()}
-                      title="Roda os passos colados como um tour temporário na URL informada acima, direto no sistema real — sem salvar nada aqui nem no banco."
-                      className="flex items-center gap-1.5 px-4 py-2 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-all disabled:opacity-50"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">play_circle</span>
-                      Testar estes passos
-                    </button>
-                    <button
-                      type="button"
-                      onClick={atualizarTourComPassosColados}
-                      disabled={!jsonColadoTexto.trim() || atualizandoTour}
-                      title="Salva os passos colados direto neste tour, sem precisar clicar em Salvar lá em cima. Título, sistema, prioridade e demais configurações não mudam."
-                      className="flex items-center gap-1.5 px-4 py-2 border border-outline-variant rounded-xl text-label-md font-bold text-on-surface hover:bg-surface-container-low transition-all disabled:opacity-50"
-                    >
-                      <span className="material-symbols-outlined text-[18px]">cloud_upload</span>
-                      {atualizandoTour ? 'Atualizando…' : 'Atualizar Tour existente'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={substituirPassosDoJson}
-                      disabled={!jsonColadoTexto.trim()}
-                      className="px-4 py-2 bg-primary text-on-primary rounded-xl text-label-md font-bold shadow-md hover:opacity-90 transition-all disabled:opacity-50"
-                    >
-                      Substituir passos
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+                )}
 
-          {/* Passos do tour */}
-          <div className={card}>
-            <CardHeader
-              number={nextStep()}
-              icon="checklist"
-              iconBg="bg-secondary-fixed"
-              iconColor="text-secondary"
-              title="Passos do tour"
-              description="Defina a sequência de elementos destacados."
-              action={
-                <button
-                  type="button"
-                  onClick={addPasso}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-on-primary rounded-lg text-label-sm font-bold hover:opacity-90 transition-all active:scale-95"
-                >
-                  <span className="material-symbols-outlined text-[16px]">add</span>
-                  Adicionar passo
-                </button>
-              }
-            />
-
-            {primeiroPassoVazio && (
-              <div className="mb-3 flex items-center gap-2 px-3.5 py-2.5 rounded-xl border border-dashed border-outline-variant bg-surface-container-low/60 text-label-md text-on-surface-variant">
-                <span className="material-symbols-outlined text-[16px] text-outline shrink-0">info</span>
-                {isEdit
-                  ? 'Nenhum passo preenchido ainda — comece pelo primeiro abaixo.'
-                  : 'Nenhum passo preenchido ainda — comece pelo primeiro abaixo ou escolha um modelo acima.'}
-              </div>
-            )}
-
-            <div className="space-y-3">
-              {passos.map((passo, i) => (
-                <div
-                  key={i}
-                  ref={el => { passoRefs.current[i] = el }}
-                  className={`rounded-xl border p-4 transition-colors duration-500 ${
-                    passoDestacado === i
-                      ? 'border-primary ring-2 ring-primary/40 bg-primary-fixed/30'
-                      : 'border-outline-variant bg-surface-container-low/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <span className="text-label-md font-bold text-on-surface flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-full bg-primary-fixed text-primary flex items-center justify-center text-[12px] font-bold">{i + 1}</span>
-                      Passo {i + 1}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => movePasso(i, -1)}
-                        disabled={i === 0}
-                        title="Mover para cima"
-                        aria-label={`Mover passo ${i + 1} para cima`}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">arrow_upward</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => movePasso(i, 1)}
-                        disabled={i === passos.length - 1}
-                        title="Mover para baixo"
-                        aria-label={`Mover passo ${i + 1} para baixo`}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors disabled:opacity-30"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">arrow_downward</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => duplicarPasso(i)}
-                        title="Duplicar passo"
-                        aria-label={`Duplicar passo ${i + 1}`}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">content_copy</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removePasso(i)}
-                        disabled={passos.length === 1}
-                        title="Remover passo"
-                        aria-label={`Remover passo ${i + 1}`}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-error hover:bg-error-container transition-colors disabled:opacity-30"
-                      >
-                        <span className="material-symbols-outlined text-[16px]">delete</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-4xl">
-                    <div className="md:col-span-2">
-                      <label className="block text-label-sm text-on-surface-variant mb-1">
-                        Título do passo <span className="text-error">*</span>
-                      </label>
-                      <input
-                        required
-                        value={passo.titulo}
-                        onChange={e => setPasso(i, 'titulo', e.target.value)}
-                        placeholder="Ex: Crie um novo agendamento"
-                        className={`${field} text-[13px] py-2`}
-                      />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-label-sm text-on-surface-variant mb-1">Descrição</label>
-                      <textarea
-                        rows={2}
-                        value={passo.descricao}
-                        onChange={e => setPasso(i, 'descricao', e.target.value)}
-                        placeholder="Instrução exibida ao usuário neste passo"
-                        className={`${field} text-[13px] py-2 resize-none`}
-                      />
-                    </div>
-                    {/* Tipo de seletor + Seletor em grid próprio: em xl (sidebar aberta
-                        conta como espaço a menos), os dois campos ficam lado a lado;
-                        abaixo disso, empilham — evita espremer o input e as ações. */}
-                    <div className="md:col-span-2 grid grid-cols-1 xl:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-label-sm text-on-surface-variant mb-1">Tipo de seletor</label>
-                        <Select
-                          value={passo.seletor_tipo}
-                          onChange={v => setPasso(i, 'seletor_tipo', v)}
-                          options={SELETOR_TIPOS}
-                          size="sm"
-                        />
-                        <p className="text-[11px] text-on-surface-variant mt-1">{legendaTipoSeletor(passo.seletor_tipo)}</p>
-                      </div>
-                      <div>
-                        <label className="block text-label-sm text-on-surface-variant mb-1">
-                          Seletor <span className="text-error">*</span>
-                        </label>
-                        <input
-                          required
-                          value={passo.seletor}
-                          onChange={e => setPasso(i, 'seletor', normalizarSeletorInput(passo.seletor_tipo, e.target.value))}
-                          placeholder={
-                            passo.seletor_tipo === 'css' ? '#botao-novo-agendamento'
-                              : passo.seletor_tipo === 'id' ? 'novo-agendamento-btn'
-                                : passo.seletor_tipo === 'area' ? '.filtros-agenda'
-                                  : 'novo-agendamento-btn'
-                          }
-                          className={`${field} text-[13px] py-2 font-mono`}
-                        />
-                        <p className="text-[11px] text-on-surface-variant mt-1">
-                          {passo.seletor_tipo === 'data_cy' && 'Informe apenas o valor do data-cy — ex.: layout-sider-menu-item-link-1 (não cole [data-cy="..."], é normalizado automaticamente).'}
-                          {passo.seletor_tipo === 'id' && 'Informe apenas o valor do id — ex.: novo-agendamento-btn (com ou sem # na frente).'}
-                          {passo.seletor_tipo === 'css' && 'Seletor CSS completo — ex.: #novo-agendamento-btn, button[name="salvar"], .menu-item[href="/app/agenda"].'}
-                          {passo.seletor_tipo === 'area' && 'Use para destacar um GRUPO de campos juntos (ex.: os filtros de clínica, convênio e especialidade da agenda) em vez de um elemento único. Seletor CSS completo do container que envolve o grupo — ex.: .filtros-agenda, [data-cy="filtros-agenda"], .card-resumo.'}
-                        </p>
-                        {/* Ações discretas abaixo do input — nunca disputam espaço com
-                            ele. Empilham à esquerda no mobile, uma linha à direita a
-                            partir de sm. */}
-                        <div className="flex flex-col items-start gap-1 mt-1.5 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
-                          <button
-                            type="button"
-                            onClick={() => copiarSeletor(i)}
-                            disabled={!passo.seletor.trim()}
-                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-on-surface-variant hover:bg-surface-container-high hover:text-primary transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
-                          >
-                            <span className="material-symbols-outlined text-[13px]">
-                              {copiadoPasso?.index === i && copiadoPasso.tipo === 'seletor' ? 'check' : 'content_copy'}
-                            </span>
-                            {copiadoPasso?.index === i && copiadoPasso.tipo === 'seletor' ? 'Copiado!' : 'Copiar seletor'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => copiarComandoTeste(i)}
-                            disabled={!passo.seletor.trim()}
-                            title="Copia um comando de diagnóstico para colar no console da tela real: mostra se o elemento foi encontrado, se há mais de um resultado, se está visível e o tamanho aproximado, além de destacar o alvo por alguns segundos."
-                            className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-on-surface-variant hover:bg-surface-container-high hover:text-primary transition-colors disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-on-surface-variant"
-                          >
-                            <span className="material-symbols-outlined text-[13px]">
-                              {copiadoPasso?.index === i && copiadoPasso.tipo === 'comando' ? 'check' : 'terminal'}
-                            </span>
-                            {copiadoPasso?.index === i && copiadoPasso.tipo === 'comando' ? 'Copiado!' : 'Testar seletor'}
-                          </button>
-                        </div>
-                        {passo.seletor.trim() && (
-                          <p className="text-[10px] text-on-surface-variant mt-1 text-right">
-                            "Testar seletor" copia um comando para o console da tela real — informa encontrado/não
-                            encontrado/múltiplos resultados, visibilidade e tamanho aproximado, e destaca o alvo.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="max-w-xs">
-                      <label className="block text-label-sm text-on-surface-variant mb-1">Posição do tooltip</label>
-                      <Select
-                        value={passo.tooltip_posicao}
-                        onChange={v => setPasso(i, 'tooltip_posicao', v)}
-                        options={TOOLTIP_POSICOES}
-                        size="sm"
-                      />
-                    </div>
-                    <div className="max-w-xs">
-                      <label className="block text-label-sm text-on-surface-variant mb-1">Ação ao clicar em Próximo</label>
-                      <Select
-                        value={passo.acao_ao_avancar}
-                        onChange={v => setPasso(i, 'acao_ao_avancar', v)}
-                        options={ACOES_AO_AVANCAR}
-                        size="sm"
-                      />
-                      <p className="text-[11px] text-on-surface-variant mt-1">
-                        Define se o botão Próximo apenas avança o tour ou também executa um clique no elemento destacado.
-                      </p>
-                    </div>
-                    <div className="max-w-xs">
-                      <label className="block text-label-sm text-on-surface-variant mb-1">Como avançar este passo?</label>
-                      <Select
-                        value={passo.modo_avanco_interacao}
-                        onChange={v => setPasso(i, 'modo_avanco_interacao', v)}
-                        options={MODOS_AVANCO_INTERACAO}
-                        size="sm"
-                      />
-                      <p className="text-[11px] text-on-surface-variant mt-1">
-                        <strong className="text-on-surface-variant">Avançar pelo botão Próximo</strong>: só o clique em "Próximo" avança o tour.{' '}
-                        <strong className="text-on-surface-variant">Avançar ao interagir com o elemento destacado</strong> (demais opções): o usuário precisa clicar, preencher ou concluir a interação escolhida com o elemento em destaque para o tour continuar sozinho — o widget mostra esse aviso no tooltip do passo.
-                      </p>
-                    </div>
-                    {MODOS_AVANCO_COM_CONFIRMACAO.includes(passo.modo_avanco_interacao) && (
-                      <div className="md:col-span-2">
-                        <label className="block text-label-sm text-on-surface-variant mb-1">
-                          Seletor de confirmação <span className="text-error">*</span>
-                        </label>
-                        <input
-                          value={passo.seletor_confirmacao}
-                          onChange={e => setPasso(i, 'seletor_confirmacao', e.target.value)}
-                          placeholder='Seletor CSS completo — ex: [data-cy="overlay-autocomplete"] ou .dropdown-aberto'
-                          className={`${field} text-[13px] py-2 font-mono`}
-                        />
-                        <p className="text-[11px] text-on-surface-variant mt-1">
-                          Use para aguardar um modal, lista ou elemento aparecer/sumir antes de avançar.
-                        </p>
-                      </div>
-                    )}
-                    <AlertasConfiguracaoPasso passo={passo} />
-                    <PassoPreview passo={passo} indice={i} total={passos.length} />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={addPasso}
-              className="mt-3 w-full flex items-center justify-center gap-1.5 py-2.5 border border-dashed border-outline-variant rounded-xl text-label-md font-bold text-on-surface-variant hover:border-primary/50 hover:text-primary transition-all"
-            >
-              <span className="material-symbols-outlined text-[18px]">add</span>
-              Adicionar passo
-            </button>
-          </div>
-
-          {/* Configurações de exibição */}
-          <div className={card}>
-            <CardHeader
-              number={nextStep()}
-              icon="tune"
-              iconBg="bg-tertiary-fixed"
-              iconColor="text-tertiary"
-              title="Configurações de exibição"
-              description="Prioridade entre tours elegíveis e exibição autônoma."
-            />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
-              <div>
-                <label className="block text-label-md text-on-surface-variant mb-1.5">Prioridade</label>
-                <input
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={form.prioridade}
-                  onChange={e => set('prioridade', e.target.value)}
-                  className={field}
+                <CampoDominiosRegra
+                  catalogo={sistemasConfig.find(s => s.identificador === sistemaSelecionado)?.dominios ?? []}
+                  value={valoresSegmentacao(regrasSegmentacao, 'dominio')}
+                  onChange={valores => atualizarCampoSegmentacao('dominio', valores)}
                 />
-              </div>
 
-              <div>
-                <label className="block text-label-md text-on-surface-variant mb-1.5">Exibição autônoma</label>
-                <label className="relative inline-flex items-center cursor-pointer mt-1">
-                  <input
-                    type="checkbox"
-                    checked={form.ativo}
-                    disabled={!form.permite_autonomo}
-                    onChange={e => set('ativo', e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-outline-variant rounded-full peer peer-checked:bg-primary peer-disabled:opacity-50 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative" />
-                  <span className="ml-3 text-body-md text-on-surface">{form.ativo ? 'Ativa' : 'Inativa'}</span>
-                </label>
-                <p className="text-[12px] text-on-surface-variant mt-1.5 leading-relaxed">
-                  {!form.permite_autonomo
-                    ? 'Habilite “Pode ser executado de forma independente” na seção Distribuição para ativar a exibição autônoma.'
-                    : 'Quando ativada, este tour pode ser exibido automaticamente ou iniciado pela integração. Jornadas podem utilizá-lo independentemente desta configuração.'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className={card}>
-            <CardHeader number={nextStep()} icon="share" iconBg="bg-primary-fixed" iconColor="text-primary" title="Distribuição" description="Defina onde este Tour pode ser executado." />
-            <div className="space-y-3 max-w-3xl">
-              <label className="flex min-h-11 items-center gap-3 text-body-md text-on-surface">
-                <input type="checkbox" checked={form.permite_autonomo} onChange={e => setForm(prev => ({ ...prev, permite_autonomo: e.target.checked, ativo: e.target.checked ? prev.ativo : false }))} className="h-5 w-5 accent-primary" />
-                Pode ser executado de forma independente
-              </label>
-              <label className="flex min-h-11 items-center gap-3 text-body-md text-on-surface">
-                 <input type="checkbox" checked={form.permite_jornada} onChange={e => alterarPermissaoJornada(e.target.checked)} className="h-5 w-5 accent-primary" />
-                Pode ser usado como etapa de Jornada
-              </label>
-              {form.permite_autonomo && <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-2xl bg-surface-container-low p-3">
-                <label className="text-label-md text-on-surface-variant">Frequência
-                  <select value={form.frequencia} onChange={e => set('frequencia', e.target.value)} className={`${field} mt-1`}>
-                    <option value="sempre">Sempre</option><option value="uma_vez_por_usuario">Uma vez por usuário</option><option value="uma_vez_por_sessao">Uma vez por sessão</option><option value="ate_concluir">Até concluir</option><option value="intervalo_dias">Intervalo em dias</option>
-                  </select>
-                </label>
-                {form.frequencia === 'intervalo_dias' && <label className="text-label-md text-on-surface-variant">Intervalo em dias
-                  <input type="number" min={1} step={1} value={form.frequencia_intervalo_dias} onChange={e => set('frequencia_intervalo_dias', e.target.value)} className={`${field} mt-1`} />
-                </label>}
-                 <div className="md:col-span-2 space-y-2">
-                   <div className="flex items-center justify-between"><p className="text-label-md font-bold text-on-surface">Gatilhos autônomos</p><button type="button" onClick={() => setForm(prev => ({ ...prev, gatilhos: [...prev.gatilhos, { tipo: 'manual' }] }))} className="min-h-11 px-2 text-label-md font-bold text-primary">+ Adicionar</button></div>
-                   {form.gatilhos.length === 0 && <p className="text-[12px] text-error">Adicione ao menos um gatilho para publicar a execução autônoma.</p>}
-                   {form.gatilhos.map((gatilho, index) => <div key={index} className="grid grid-cols-1 gap-2 rounded-xl border border-outline-variant bg-surface-bright p-2 md:grid-cols-[180px_1fr_auto]">
-                     <Select size="sm" value={gatilho.tipo} options={[{ value: 'entrada_tela', label: 'Entrada na tela' }, { value: 'url', label: 'URL' }, { value: 'elemento', label: 'Elemento' }, { value: 'botao_ajuda', label: 'Botão de ajuda' }, { value: 'manual', label: 'Manual' }, { value: 'evento', label: 'Evento' }]} onChange={valor => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { tipo: valor as GatilhoTour['tipo'] } : item) }))} />
-                     {(gatilho.tipo === 'entrada_tela') && <input value={gatilho.tela ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, tela: e.target.value } : item) }))} placeholder="Nome da tela" className={field} />}
-                     {(gatilho.tipo === 'url') && <input value={gatilho.url_contem ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, url_contem: e.target.value } : item) }))} placeholder="Parte da URL" className={field} />}
-                     {(gatilho.tipo === 'elemento') && <input value={gatilho.seletor ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, seletor_tipo: 'css', seletor: e.target.value } : item) }))} placeholder="Seletor CSS" className={field} />}
-                     {(gatilho.tipo === 'evento') && <input value={gatilho.evento ?? ''} onChange={e => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.map((item, i) => i === index ? { ...item, evento: e.target.value } : item) }))} placeholder="Nome do evento track()" className={field} />}
-                      <button type="button" onClick={() => setForm(prev => ({ ...prev, gatilhos: prev.gatilhos.filter((_, i) => i !== index) }))} className="min-h-11 px-2 text-label-md font-bold text-error">Remover</button>
-                   </div>)}
-                 </div>
-              </div>}
-            </div>
-          </div>
-
-          {isEdit && (
-            <div className={card}>
-              <CardHeader number={nextStep()} icon="route" iconBg="bg-secondary-fixed" iconColor="text-secondary" title="Usado em Jornadas" description="Veja onde este Tour é reutilizado antes de alterar sua distribuição." />
-              {usosJornada.length === 0 ? (
-                <p className="text-body-md text-on-surface-variant">Este Tour não é usado por nenhuma Jornada.</p>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-label-md text-on-surface-variant">
-                    {new Set(usosJornada.map(uso => uso.jornada_id)).size} Jornada(s), {usosJornada.length} uso(s) em etapas.
+                {regrasSegmentacaoAvancadas.length > 0 && (
+                  <p className="flex items-start gap-1.5 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+                    <span className="material-symbols-outlined mt-0.5 text-[14px]">info</span>
+                    Este tour possui regras avançadas de segmentação que continuam preservadas. Elas não são alteradas por esta configuração simplificada.
                   </p>
-                  {usosJornada.map(uso => (
-                    <button key={uso.etapa_id} type="button" onClick={() => navigate(`/jornadas/${uso.jornada_id}/editar`)} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-outline-variant bg-surface-container-low px-3 py-2 text-left transition-colors hover:border-primary">
-                      <span className="min-w-0">
-                        <span className="block truncate text-body-md font-bold text-on-surface">{uso.jornada_titulo}</span>
-                        <span className="block truncate text-label-md text-on-surface-variant">{uso.bloco_titulo} · {uso.etapa_titulo}</span>
-                      </span>
-                      <span className={`shrink-0 text-label-sm font-bold ${uso.jornada_ativo ? 'text-tertiary' : 'text-outline'}`}>{uso.jornada_ativo ? 'Ativa' : 'Inativa'}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Segmentação por contexto */}
-          <div className={card}>
-            <CardHeader
-              number={nextStep()}
-              icon="target"
-              iconBg="bg-secondary-fixed"
-              iconColor="text-secondary"
-              title="Segmentação"
-              description="Opcional — restrinja este tour a contextos específicos enviados pelo widget (init/updateContext)."
-            />
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <label className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${!segmentado ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-bright hover:border-primary/50'}`}>
-                  <input type="radio" name="modo_segmentacao" checked={!segmentado} onChange={desativarSegmentacao} className="mt-0.5 text-primary focus:ring-primary shrink-0" />
-                  <div>
-                    <p className={`text-body-md font-semibold ${!segmentado ? 'text-primary' : 'text-on-surface'}`}>Todos os usuários/contextos</p>
-                    <p className="text-[11px] text-on-surface-variant mt-0.5">Comportamento atual — elegível pra qualquer contexto.</p>
-                  </div>
-                </label>
-                <label className={`flex gap-3 p-3 rounded-xl border cursor-pointer transition-all ${segmentado ? 'border-primary bg-primary/5' : 'border-outline-variant bg-surface-bright hover:border-primary/50'}`}>
-                  <input type="radio" name="modo_segmentacao" checked={segmentado} onChange={ativarSegmentacao} className="mt-0.5 text-primary focus:ring-primary shrink-0" />
-                  <div>
-                    <p className={`text-body-md font-semibold ${segmentado ? 'text-primary' : 'text-on-surface'}`}>Apenas quando o contexto atender às regras</p>
-                    <p className="text-[11px] text-on-surface-variant mt-0.5">O tour só é elegível se TODAS as regras abaixo baterem.</p>
-                  </div>
-                </label>
+                )}
               </div>
+            </div>}
 
-              {segmentado && (
-                <div className="space-y-2 pt-1">
-                  {regrasSegmentacao.map((regra, index) => (
-                    <div key={index} className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center bg-surface-bright border border-outline-variant rounded-lg p-2.5">
-                      <div className="sm:w-48 shrink-0">
-                        <Select
-                          size="sm"
-                          value={regra.campo}
-                          options={CAMPOS_SEGMENTACAO}
-                          onChange={v => atualizarRegraSegmentacao(index, {
-                            campo: v as CampoSegmentacaoTour,
-                            // "dominio" só faz sentido como seleção múltipla
-                            // contra o catálogo do Sistema (ver
-                            // CampoDominiosRegra abaixo) — força em_lista e
-                            // limpa o valor livre anterior, evitando um
-                            // valor de outro campo (ex.: um cliente_id) virar
-                            // "domínio" sem querer.
-                            ...(v === 'dominio' ? { operador: 'em_lista' as OperadorSegmentacaoTour, valor: '' } : {}),
-                          })}
-                          placeholder="Campo…"
-                        />
-                      </div>
-                      {regra.campo === 'dominio' ? (
-                        <CampoDominiosRegra
-                          catalogo={sistemasConfig.find(s => s.identificador === form.sistema.trim())?.dominios ?? []}
-                          value={regra.valor ? regra.valor.split(',').filter(Boolean) : []}
-                          onChange={valores => atualizarRegraSegmentacao(index, { operador: 'em_lista', valor: valores.join(',') })}
-                        />
-                      ) : (
-                        <>
-                          <div className="sm:w-52 shrink-0">
-                            <Select
-                              size="sm"
-                              value={regra.operador}
-                              options={OPERADORES_SEGMENTACAO}
-                              onChange={v => atualizarRegraSegmentacao(index, { operador: v as OperadorSegmentacaoTour })}
-                            />
-                          </div>
-                          <input
-                            value={regra.valor}
-                            onChange={e => atualizarRegraSegmentacao(index, { valor: e.target.value })}
-                            placeholder={OPERADORES_SEGMENTACAO.find(o => o.value === regra.operador)?.placeholder}
-                            className={`${field} flex-1`}
-                          />
-                        </>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => removerRegraSegmentacao(index)}
-                        className="flex h-11 w-11 shrink-0 items-center justify-center text-outline hover:text-error transition-colors self-end sm:self-center"
-                        title="Remover regra"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={adicionarRegraSegmentacao}
-                    className="inline-flex min-h-11 items-center gap-1.5 px-2 text-label-md text-primary hover:text-primary/80 transition-colors"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">add</span>
-                    Adicionar regra
-                  </button>
-                  <p className="text-[11px] text-amber-700 flex items-center gap-1.5 bg-amber-50 border border-amber-100 px-3 py-2 rounded-lg">
-                    <span className="material-symbols-outlined text-[14px] shrink-0">info</span>
-                    Para "está em lista", separe os valores por vírgula (ex.: RN, SP, MG).
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Resumo do tour — orienta, não bloqueia */}
-          <ChecklistCard form={form} passos={passos} numero={nextStep()} />
-        </form>
+              </div>
+             </aside>
+           </div>
+          </form>
+        )}
+        {modalNovaTelaAberto && (
+          <TelaCatalogoModal
+            form={formNovaTela}
+            sistemas={sistemasConfig}
+            saving={salvandoNovaTela}
+            error={erroNovaTela}
+            titulo="Nova Tela"
+            submitLabel="Criar e usar"
+            onClose={() => setModalNovaTelaAberto(false)}
+            onSubmit={salvarNovaTela}
+            setForm={setFormNovaTela}
+          />
+        )}
       </section>
     </div>
   )

@@ -53,7 +53,7 @@ async function sincronizarConclusoesJornadaEmTransacao(
 ): Promise<ProgressoConclusaoJornada> {
   const blocos = await tx.blocoJornada.findMany({
     where: { jornada_id: jornadaId, ativo: true },
-    select: { id: true, ativo: true, obrigatorio: true, etapas: { select: { id: true, obrigatoria: true } } },
+    select: { id: true, ativo: true, obrigatorio: true, etapas: { where: { ativo: true }, select: { id: true, obrigatoria: true } } },
   })
   const eventos = await tx.eventoJornada.findMany({
     where: { jornada_id: jornadaId, usuario_id: usuarioId, tipo_evento: 'etapa_concluida' },
@@ -167,6 +167,26 @@ export function contextoEventoJornadaCorresponde(
     && evento.tipo_evento === input.tipo_evento
     && evento.usuario_id === (input.usuario_id || null)
     && evento.execucao_jornada_id === (input.execucao_jornada_id || null)
+}
+
+export function chaveEventoTour(input: { execucao_id: string; tipo_evento: string; passo_ordem?: number | null }): string {
+  return `${input.execucao_id}:${input.tipo_evento}:${input.passo_ordem ?? ''}`
+}
+
+export function contextoEventoTourCorresponde(
+  evento: { tour_id: string; tipo_evento: string; passo_ordem: number | null; usuario_id: string | null; execucao_id: string | null; origem: string | null; gatilho: string | null; jornada_id: string | null; bloco_id: string | null; etapa_id: string | null },
+  input: { tour_id: string; tipo_evento: string; passo_ordem?: number | null; usuario_id?: string | null; execucao_id: string; origem: string; gatilho?: string | null; jornada_id?: string | null; bloco_id?: string | null; etapa_id?: string | null },
+): boolean {
+  return evento.tour_id === input.tour_id
+    && evento.tipo_evento === input.tipo_evento
+    && evento.passo_ordem === (input.passo_ordem ?? null)
+    && evento.usuario_id === (input.usuario_id || null)
+    && evento.execucao_id === input.execucao_id
+    && evento.origem === input.origem
+    && evento.gatilho === (input.gatilho || null)
+    && evento.jornada_id === (input.jornada_id || null)
+    && evento.bloco_id === (input.bloco_id || null)
+    && evento.etapa_id === (input.etapa_id || null)
 }
 
 function campanhaPublicaExecutavel(campanha: {
@@ -1583,22 +1603,24 @@ export async function registrarEventoTour(req: Request, res: Response) {
       if (!jornada_id || !bloco_id || !etapa_id || !execucao_jornada_id || !usuario_id) return res.status(400).json({ erro: 'Contexto de Jornada incompleto.' })
       const etapa = await prisma.etapaJornada.findFirst({
         where: {
-          id: String(etapa_id), bloco_id: String(bloco_id),
+          id: String(etapa_id), bloco_id: String(bloco_id), ativo: true,
           bloco: { jornada_id: String(jornada_id), ativo: true, jornada: { tenant_id: resolucao.tenantId, ativo: true } },
         },
       })
       if (!etapa || etapa.tour_id !== tour.id) return res.status(404).json({ erro: 'Contexto de Jornada não encontrado.' })
     }
 
+    const passoOrdem = passo_ordem != null ? Number(passo_ordem) : null
+    if (passoOrdem !== null && (!Number.isInteger(passoOrdem) || passoOrdem < 0)) {
+      return res.status(400).json({ erro: 'passo_ordem deve ser um inteiro não negativo.' })
+    }
+    const chave = chaveEventoTour({ execucao_id: String(execucao_id), tipo_evento: String(tipo_evento), passo_ordem: passoOrdem })
     const resultado = await prisma.$transaction(async tx => {
-      const eventoExistente = await tx.eventoTour.findFirst({
-        where: { tour_id, execucao_id: String(execucao_id), tipo_evento, passo_ordem: passo_ordem != null ? Number(passo_ordem) : null },
-      })
-      if (!eventoExistente) await tx.eventoTour.create({
+      await tx.eventoTour.create({
         data: {
         tour_id,
         tipo_evento,
-        passo_ordem: passo_ordem != null ? Number(passo_ordem) : null,
+         passo_ordem: passoOrdem,
         usuario_id: usuario_id || null,
         sistema: sistema || null,
         tela: tela || null,
@@ -1607,10 +1629,11 @@ export async function registrarEventoTour(req: Request, res: Response) {
         contexto: contexto ?? null,
         execucao_id: String(execucao_id),
         origem: String(origem),
-        gatilho: String(gatilho),
+        gatilho: gatilho || null,
         jornada_id: origem === 'jornada' ? String(jornada_id) : null,
         bloco_id: origem === 'jornada' ? String(bloco_id) : null,
         etapa_id: origem === 'jornada' ? String(etapa_id) : null,
+        chave_idempotencia: chave,
         },
       })
        if (origem === 'jornada' && tipo_evento === 'concluido') {
@@ -1635,6 +1658,24 @@ export async function registrarEventoTour(req: Request, res: Response) {
 
     res.status(201).json({ ok: true, ...resultado })
   } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      const execucaoId = typeof req.body.execucao_id === 'string' ? req.body.execucao_id : ''
+      const passoOrdem = req.body.passo_ordem != null ? Number(req.body.passo_ordem) : null
+      const chave = execucaoId && req.body.tipo_evento
+        ? chaveEventoTour({ execucao_id: execucaoId, tipo_evento: String(req.body.tipo_evento), passo_ordem: passoOrdem })
+        : ''
+      const existente = chave ? await prisma.eventoTour.findUnique({ where: { tour_id_chave_idempotencia: { tour_id: String(req.body.tour_id), chave_idempotencia: chave } } }) : null
+      const contexto = existente && contextoEventoTourCorresponde(existente, {
+        tour_id: String(req.body.tour_id), tipo_evento: String(req.body.tipo_evento), passo_ordem: passoOrdem,
+        usuario_id: req.body.usuario_id || null, execucao_id: execucaoId, origem: String(req.body.origem),
+        gatilho: req.body.gatilho || null,
+        jornada_id: req.body.origem === 'jornada' ? String(req.body.jornada_id) : null,
+        bloco_id: req.body.origem === 'jornada' ? String(req.body.bloco_id) : null,
+        etapa_id: req.body.origem === 'jornada' ? String(req.body.etapa_id) : null,
+      })
+      if (!contexto) return res.status(409).json({ erro: 'Chave de idempotência do Tour já utilizada em outro contexto.' })
+      return res.status(200).json({ ok: true, deduplicado: true })
+    }
     if (err instanceof Error && err.message.startsWith('Contexto de Jornada')) return res.status(409).json({ erro: err.message })
     console.error(err)
     res.status(500).json({ erro: 'Erro ao registrar evento do tour.' })
@@ -1672,6 +1713,7 @@ export async function buscarJornadas(req: Request, res: Response) {
           orderBy: { ordem: 'asc' },
           include: {
             etapas: {
+              where: { ativo: true },
               orderBy: { ordem: 'asc' },
               include: {
                 tour: { where: { permite_jornada: true }, include: { passos: { orderBy: { ordem: 'asc' } } } },
@@ -1833,8 +1875,8 @@ export async function registrarEventoJornada(req: Request, res: Response) {
       return res.status(404).json({ erro: 'Jornada não encontrada.' })
     }
 
-    const bloco = bloco_id ? await prisma.blocoJornada.findFirst({ where: { id: String(bloco_id), jornada_id } }) : null
-    const etapa = etapa_id ? await prisma.etapaJornada.findFirst({ where: { id: String(etapa_id), bloco: { jornada_id } } }) : null
+    const bloco = bloco_id ? await prisma.blocoJornada.findFirst({ where: { id: String(bloco_id), jornada_id, ativo: true } }) : null
+    const etapa = etapa_id ? await prisma.etapaJornada.findFirst({ where: { id: String(etapa_id), ativo: true, bloco: { jornada_id, ativo: true } } }) : null
     const nivelJornada = ['jornada_aberta', 'jornada_iniciada', 'jornada_concluida'].includes(String(tipo_evento))
     const nivelBloco = ['bloco_aberto', 'bloco_iniciado', 'bloco_concluido'].includes(String(tipo_evento))
     const nivelEtapa = ['etapa_aberta', 'etapa_concluida', 'etapa_pulada'].includes(String(tipo_evento))

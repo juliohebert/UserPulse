@@ -5,6 +5,7 @@ import { assinarTokenPreviewJornada, verificarTokenPreviewJornada, JORNADA_PREVI
 import prisma from '../lib/prisma'
 import { checarLimiteJornadasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, motivoRecursoNaoPermitido, planoEfetivoParaLimite } from '../lib/tenantGuards'
 import { normalizarDominio } from '../lib/dominio'
+import { validarBooleanosEstritos } from '../lib/validacao'
 
 const TIPOS_ETAPA = ['tour', 'campanha', 'link']
 
@@ -19,6 +20,7 @@ interface EtapaInput {
   texto_cta?: string
   abrir_nova_aba?: boolean
   obrigatoria?: boolean
+  ativo?: boolean
 }
 
 interface BlocoInput {
@@ -110,6 +112,9 @@ function validarEtapas(etapas: unknown, prefixo: string): { erro: string | null;
     if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto)) return { erro: `${prefixo} - Etapa ${i + 1}: configuração inválida.`, lista: [] }
     const e = bruto as EtapaInput
     const rotulo = `${prefixo} - Etapa ${i + 1}`
+    for (const campo of ['abrir_nova_aba', 'obrigatoria', 'ativo'] as const) {
+      if (e[campo] !== undefined && typeof e[campo] !== 'boolean') return { erro: `${rotulo}: ${campo} deve ser um booleano real (true ou false).`, lista: [] }
+    }
     if (!e.titulo?.trim()) return { erro: `${rotulo}: título é obrigatório.`, lista: [] }
     if (!e.tipo || !TIPOS_ETAPA.includes(e.tipo)) {
       return { erro: `${rotulo}: tipo inválido. Use tour, campanha ou link.`, lista: [] }
@@ -145,6 +150,9 @@ function validarBlocos(blocos: unknown): { erro: string | null; lista: BlocoVali
     if (!bruto || typeof bruto !== 'object' || Array.isArray(bruto)) return { erro: `Pacote ${i + 1}: configuração inválida.`, lista: [] }
     const b = bruto as BlocoInput
     const n = i + 1
+    for (const campo of ['obrigatorio', 'ativo'] as const) {
+      if (b[campo] !== undefined && typeof b[campo] !== 'boolean') return { erro: `Pacote ${n}: ${campo} deve ser um booleano real (true ou false).`, lista: [] }
+    }
     if (!b.titulo?.trim()) return { erro: `Pacote ${n}: título é obrigatório.`, lista: [] }
     const { erro: erroEtapas, lista: listaEtapas } = validarEtapas(b.etapas, `Pacote ${n}`)
     if (erroEtapas) return { erro: erroEtapas, lista: [] }
@@ -218,8 +226,9 @@ function montarDadosEtapa(e: EtapaInput, ordem: number) {
     campanha_id: e.tipo === 'campanha' ? e.campanha_id!.trim() : null,
     url: e.tipo === 'link' ? e.url!.trim() : null,
     texto_cta: e.tipo === 'link' ? (e.texto_cta?.trim() || 'Abrir') : null,
-    abrir_nova_aba: e.tipo === 'link' ? (e.abrir_nova_aba !== undefined ? Boolean(e.abrir_nova_aba) : true) : true,
-    obrigatoria: e.obrigatoria !== undefined ? Boolean(e.obrigatoria) : true,
+    abrir_nova_aba: e.tipo === 'link' ? (e.abrir_nova_aba !== undefined ? e.abrir_nova_aba : true) : true,
+    obrigatoria: e.obrigatoria !== undefined ? e.obrigatoria : true,
+    ativo: e.ativo !== undefined ? e.ativo : true,
   }
 }
 
@@ -233,8 +242,8 @@ function montarDadosBloco(b: BlocoValidado, ordem: number) {
     ordem,
     titulo: b.titulo.trim(),
     descricao: b.descricao?.trim() || null,
-    obrigatorio: b.obrigatorio !== undefined ? Boolean(b.obrigatorio) : true,
-    ativo: b.ativo !== undefined ? Boolean(b.ativo) : true,
+    obrigatorio: b.obrigatorio !== undefined ? b.obrigatorio : true,
+    ativo: b.ativo !== undefined ? b.ativo : true,
     etapas: {
       create: b.etapas.map((e, i) => montarDadosEtapa(e, i)),
     },
@@ -345,10 +354,13 @@ export async function criar(req: Request, res: Response) {
       segmentar_usuario_tipos, segmentar_estados, segmentar_dominios,
     } = req.body
 
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo', 'permitir_refazer', 'permitir_pacotes_fora_ordem'])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
+
     if (!titulo?.trim()) {
       return res.status(400).json({ erro: 'titulo é obrigatório.' })
     }
-    const ativoBool = ativo !== undefined ? Boolean(ativo) : false
+    const ativoBool = ativo !== undefined ? ativo : false
 
     const { erro: erroBlocos, lista: listaBlocos } = validarBlocos(blocos)
     if (erroBlocos) return res.status(400).json({ erro: erroBlocos })
@@ -361,8 +373,8 @@ export async function criar(req: Request, res: Response) {
     }
     const erroReferencias = await validarReferenciasConteudo(tenantId, listaBlocos, ativoBool)
     if (erroReferencias) return res.status(400).json({ erro: erroReferencias })
-    if (ativoBool && !listaBlocos.some(b => b.ativo !== false)) {
-      return res.status(400).json({ erro: 'Jornada ativa precisa de pelo menos um pacote ativo.' })
+    if (ativoBool && !listaBlocos.some(b => b.ativo !== false && b.etapas.some(e => e.ativo !== false))) {
+      return res.status(400).json({ erro: 'Jornada ativa precisa de pelo menos um pacote e uma etapa ativos.' })
     }
 
     if (ativoBool) {
@@ -385,8 +397,8 @@ export async function criar(req: Request, res: Response) {
         titulo: titulo.trim(),
         descricao: descricao?.trim() || null,
         ativo: ativoBool,
-        permitir_refazer: permitir_refazer !== undefined ? Boolean(permitir_refazer) : false,
-        permitir_pacotes_fora_ordem: permitir_pacotes_fora_ordem !== undefined ? Boolean(permitir_pacotes_fora_ordem) : true,
+        permitir_refazer: permitir_refazer !== undefined ? permitir_refazer : false,
+        permitir_pacotes_fora_ordem: permitir_pacotes_fora_ordem !== undefined ? permitir_pacotes_fora_ordem : true,
         segmentar_cliente_ids: Array.isArray(segmentar_cliente_ids) ? segmentar_cliente_ids : [],
         segmentar_unidade_ids: Array.isArray(segmentar_unidade_ids) ? segmentar_unidade_ids : [],
         segmentar_perfis: Array.isArray(segmentar_perfis) ? segmentar_perfis : [],
@@ -423,13 +435,16 @@ export async function atualizar(req: Request, res: Response) {
       segmentar_usuario_tipos, segmentar_estados, segmentar_dominios,
     } = req.body
 
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo', 'permitir_refazer', 'permitir_pacotes_fora_ordem'])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
+
     if (titulo !== undefined && !titulo?.trim()) {
       return res.status(400).json({ erro: 'titulo não pode ficar vazio.' })
     }
 
     // Só checa bloqueio quando a requisição está de fato LIGANDO a jornada
     // (false -> true) — mesmo raciocínio de campanhas.ts/tours.ts atualizar().
-    const ativandoAgora = ativo !== undefined && Boolean(ativo) && !existente.ativo
+    const ativandoAgora = ativo === true && !existente.ativo
     if (ativandoAgora) {
       const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
@@ -453,13 +468,13 @@ export async function atualizar(req: Request, res: Response) {
       listaBlocos = lista
       const erroIds = idsDuplicados(listaBlocos)
       if (erroIds) return res.status(400).json({ erro: erroIds })
-      const erroReferencias = await validarReferenciasConteudo(req.adminUser!.tenant_id, listaBlocos, ativo !== undefined ? Boolean(ativo) : existente.ativo)
+      const erroReferencias = await validarReferenciasConteudo(req.adminUser!.tenant_id, listaBlocos, ativo !== undefined ? ativo : existente.ativo)
       if (erroReferencias) return res.status(400).json({ erro: erroReferencias })
     }
 
-    const ativoEfetivo = ativo !== undefined ? Boolean(ativo) : existente.ativo
-    if (ativoEfetivo && listaBlocos && !listaBlocos.some(b => b.ativo !== false)) {
-      return res.status(400).json({ erro: 'Jornada ativa precisa de pelo menos um pacote ativo.' })
+    const ativoEfetivo = ativo !== undefined ? ativo : existente.ativo
+    if (ativoEfetivo && listaBlocos && !listaBlocos.some(b => b.ativo !== false && b.etapas.some(e => e.ativo !== false))) {
+      return res.status(400).json({ erro: 'Jornada ativa precisa de pelo menos um pacote e uma etapa ativos.' })
     }
     if (ativoEfetivo && !listaBlocos) {
       const persistidos = await prisma.blocoJornada.findMany({
@@ -470,7 +485,7 @@ export async function atualizar(req: Request, res: Response) {
       const validacao = validarBlocos(persistidos)
       if (validacao.erro) return res.status(400).json({ erro: validacao.erro })
       if (validacao.lista.length === 0) return res.status(400).json({ erro: 'A jornada precisa ter pelo menos um pacote.' })
-      if (!validacao.lista.some(b => b.ativo !== false)) return res.status(400).json({ erro: 'Jornada ativa precisa de pelo menos um pacote ativo.' })
+       if (!validacao.lista.some(b => b.ativo !== false && b.etapas.some(e => e.ativo !== false))) return res.status(400).json({ erro: 'Jornada ativa precisa de pelo menos um pacote e uma etapa ativos.' })
       const erroReferencias = await validarReferenciasConteudo(req.adminUser!.tenant_id, validacao.lista, true)
       if (erroReferencias) return res.status(400).json({ erro: erroReferencias })
     }
@@ -497,8 +512,8 @@ export async function atualizar(req: Request, res: Response) {
             ordem: bi,
             titulo: bloco.titulo.trim(),
             descricao: bloco.descricao?.trim() || null,
-            obrigatorio: bloco.obrigatorio !== undefined ? Boolean(bloco.obrigatorio) : true,
-            ativo: bloco.ativo !== undefined ? Boolean(bloco.ativo) : true,
+            obrigatorio: bloco.obrigatorio !== undefined ? bloco.obrigatorio : true,
+            ativo: bloco.ativo !== undefined ? bloco.ativo : true,
           }
           const salvo = bloco.id
             ? await tx.blocoJornada.update({ where: { id: bloco.id }, data: dadosBloco })
@@ -515,9 +530,9 @@ export async function atualizar(req: Request, res: Response) {
         data: {
           ...(titulo !== undefined && { titulo: titulo.trim() }),
           ...(descricao !== undefined && { descricao: descricao?.trim() || null }),
-          ...(ativo !== undefined && { ativo: Boolean(ativo) }),
-          ...(permitir_refazer !== undefined && { permitir_refazer: Boolean(permitir_refazer) }),
-          ...(permitir_pacotes_fora_ordem !== undefined && { permitir_pacotes_fora_ordem: Boolean(permitir_pacotes_fora_ordem) }),
+          ...(ativo !== undefined && { ativo }),
+          ...(permitir_refazer !== undefined && { permitir_refazer }),
+          ...(permitir_pacotes_fora_ordem !== undefined && { permitir_pacotes_fora_ordem }),
           ...(segmentar_cliente_ids !== undefined && { segmentar_cliente_ids: Array.isArray(segmentar_cliente_ids) ? segmentar_cliente_ids : [] }),
           ...(segmentar_unidade_ids !== undefined && { segmentar_unidade_ids: Array.isArray(segmentar_unidade_ids) ? segmentar_unidade_ids : [] }),
           ...(segmentar_perfis !== undefined && { segmentar_perfis: Array.isArray(segmentar_perfis) ? segmentar_perfis : [] }),

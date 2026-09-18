@@ -20,6 +20,9 @@ describe('contrato de distribuição de Tour', () => {
     assert.match(validarDistribuicaoTour({ permite_autonomo: false, permite_jornada: false }).erro ?? '', /pelo menos uma origem/)
     assert.match(validarDistribuicaoTour({ permite_autonomo: true, permite_jornada: false, ativo: true, gatilhos: [{ tipo: 'manual' }], frequencia: 'intervalo_dias', frequencia_intervalo_dias: 0 }).erro ?? '', /inteiro positivo/)
   })
+  test('rejeita strings em campos booleanos', () => {
+    assert.match(validarDistribuicaoTour({ permite_autonomo: 'false' }).erro ?? '', /booleano real/)
+  })
   test('valida disponibilidade e gatilho conforme a origem', () => {
     const base = { ativo: true, permite_autonomo: true, permite_jornada: true, gatilhos: [{ tipo: 'manual' }] }
     assert.equal(validarContextoExecucaoTour({ ...base, origem: 'autonomo', gatilho: 'manual' }), null)

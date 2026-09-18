@@ -12,6 +12,8 @@ import {
   destaquesRespondidos,
   chaveEventoJornada,
   contextoEventoJornadaCorresponde,
+  chaveEventoTour,
+  contextoEventoTourCorresponde,
   calcularConclusoesJornada,
 } from './widget'
 
@@ -135,6 +137,23 @@ describe('idempotência contextual de Jornada', () => {
     const controller = FONTE_WIDGET.slice(inicio, fim)
     assert.match(controller, /permite_autonomo: true/)
     assert.doesNotMatch(controller, /modo_identificacao:/)
+  })
+})
+
+describe('idempotência contextual de Tour', () => {
+  test('chave separa execução, evento e passo', () => {
+    assert.equal(chaveEventoTour({ execucao_id: 'x', tipo_evento: 'passo_visualizado', passo_ordem: 2 }), 'x:passo_visualizado:2')
+    assert.equal(chaveEventoTour({ execucao_id: 'x', tipo_evento: 'inicio' }), 'x:inicio:')
+  })
+
+  test('duplicata só é aceita quando o contexto persistido inteiro corresponde', () => {
+    const evento = {
+      tour_id: 't', tipo_evento: 'passo_visualizado', passo_ordem: 2, usuario_id: 'u', execucao_id: 'x',
+      origem: 'autonomo', gatilho: 'entrada_tela', jornada_id: null, bloco_id: null, etapa_id: null,
+    }
+    assert.equal(contextoEventoTourCorresponde(evento, evento), true)
+    assert.equal(contextoEventoTourCorresponde(evento, { ...evento, etapa_id: 'e' }), false)
+    assert.equal(contextoEventoTourCorresponde(evento, { ...evento, execucao_id: 'outra' }), false)
   })
 })
 

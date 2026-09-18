@@ -56,6 +56,7 @@ interface EtapaFormState {
   texto_cta: string
   abrir_nova_aba: boolean
   obrigatoria: boolean
+  ativo: boolean
 }
 
 const ETAPA_VAZIA: EtapaFormState = {
@@ -68,6 +69,7 @@ const ETAPA_VAZIA: EtapaFormState = {
   texto_cta: 'Abrir',
   abrir_nova_aba: true,
   obrigatoria: true,
+  ativo: true,
 }
 
 // Nome técnico: BlocoJornada. Nome visual nesta tela e no widget: "Pacote".
@@ -155,6 +157,7 @@ function blocosDaJornada(jornada: Jornada): BlocoFormState[] {
       texto_cta: e.texto_cta ?? 'Abrir',
       abrir_nova_aba: e.abrir_nova_aba,
       obrigatoria: e.obrigatoria,
+      ativo: e.ativo,
     })),
   }))
 }
@@ -357,6 +360,7 @@ export function JornadaForm() {
             texto_cta: et.tipo === 'link' ? (et.texto_cta.trim() || 'Abrir') : undefined,
             abrir_nova_aba: et.tipo === 'link' ? et.abrir_nova_aba : undefined,
             obrigatoria: et.obrigatoria,
+            ativo: et.ativo,
           })),
         })),
       }
@@ -1051,6 +1055,7 @@ function PainelEtapa({ etapa, blocoIndex, etapaIndex, tours, campanhas, podeGere
         </>
       )}
       <SwitchRow checked={etapa.obrigatoria} onChange={v => onPatch({ obrigatoria: v })} title="Etapa obrigatória" desc="Conta como requisito de conclusão do pacote." />
+      <SwitchRow checked={etapa.ativo} onChange={v => onPatch({ ativo: v })} title="Etapa ativa" desc="Etapas inativas ficam ocultas para os usuários." />
     </div>
   )
 }
