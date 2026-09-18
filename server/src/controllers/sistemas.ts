@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { motivoBloqueioEscrita } from '../lib/tenantGuards'
 import { normalizarDominio } from '../lib/dominio'
+import { validarBooleanosEstritos } from '../lib/validacao'
 
 const SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
@@ -72,6 +73,8 @@ export async function criar(req: Request, res: Response) {
     const ativo = (req.body as { ativo?: unknown }).ativo
     const padraoSolicitado = (req.body as { padrao?: unknown }).padrao === true
     const dominios = normalizarDominios((req.body as { dominios?: unknown }).dominios)
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo', 'padrao'])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
 
     if (!nome || !slugBruto || !identificador) {
       res.status(400).json({ erro: 'nome, slug e identificador são obrigatórios.' })
@@ -130,6 +133,8 @@ export async function atualizar(req: Request, res: Response) {
     const ativo = (req.body as { ativo?: unknown }).ativo
     const padrao = (req.body as { padrao?: unknown }).padrao === true
     const dominios = normalizarDominios((req.body as { dominios?: unknown }).dominios)
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo', 'padrao'])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
 
     if (!nome || !slugBruto || !identificador) {
       res.status(400).json({ erro: 'nome, slug e identificador são obrigatórios.' })
@@ -149,7 +154,7 @@ export async function atualizar(req: Request, res: Response) {
 
     const atualizarSistema = prisma.sistema.update({
       where: { id },
-      data: { nome, slug, identificador, descricao, url_base: urlBase, ativo: Boolean(ativo), padrao, dominios },
+      data: { nome, slug, identificador, descricao, url_base: urlBase, ativo: ativo !== undefined ? ativo === true : existente.ativo, padrao, dominios },
       include: { _count: { select: { telas: true, aparencias: true } } },
     })
 

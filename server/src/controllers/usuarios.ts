@@ -12,6 +12,7 @@ import { validarPayloadPermissoes, montarRespostaPermissoes } from './adminTenan
 import { ROLES_ACESSO_CLIENTE } from './adminTenants'
 import { motivoSenhaFraca } from './auth'
 import type { PermissaoModuloLinha } from '../lib/permissoesModulo'
+import { validarBooleanosEstritos } from '../lib/validacao'
 
 // Mesmo custo de hash usado em auth.ts/adminTenants.ts — sem lib
 // compartilhada de bcrypt no projeto ainda, duplicar essa constante é o
@@ -429,6 +430,8 @@ export async function atualizarUsuario(req: Request, res: Response) {
     }
 
     const { nome, role, ativo } = req.body as { nome?: string; role?: string; ativo?: boolean }
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo'])
+    if (erroBooleanos) { res.status(400).json({ erro: erroBooleanos }); return }
     if (!nome?.trim()) { res.status(400).json({ erro: 'nome é obrigatório.' }); return }
     const roleNormalizada = (role?.trim().toUpperCase() || '') as AdminRole
     if (!ROLES_ACESSO_CLIENTE.has(roleNormalizada)) {
@@ -436,7 +439,7 @@ export async function atualizarUsuario(req: Request, res: Response) {
       return
     }
 
-    const ativoNovo = Boolean(ativo)
+    const ativoNovo = ativo === true
     const dadosUpdate = { nome: nome.trim(), role: roleNormalizada, ativo: ativoNovo }
 
     // Reativação (inativo -> ativo) consome uma vaga do plano — precisa da

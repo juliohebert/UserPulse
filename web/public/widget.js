@@ -146,6 +146,12 @@
   function presentationAssumirFoco(item) {
     var normalizado = presentationNormalizar(item);
     if (!presentationItemValido(normalizado)) return false;
+    // Uma ação explícita pode tomar o foco de um destaque passivo/aberto. Os
+    // roots são desmontados sem marcar dispensa; a apresentação substituída
+    // não deve continuar visível por baixo do novo conteúdo.
+    if (presentationState.ativo && presentationState.ativo.tipo === 'destaque') {
+      destaqueElementoDesmontarTodos();
+    }
     presentationState.ativo = null;
     presentationState.aguardando = presentationState.aguardando.filter(function (pendente) {
       return pendente.key !== normalizado.key;
@@ -2634,6 +2640,7 @@
   // Cada instância tem seu próprio root/listeners/observers — fechar ou
   // interagir com uma nunca afeta as outras.
   function destaqueElementoMontarItem(campanha, config, item, alvo) {
+    if (tourState.ativo || (presentationState.ativo && presentationState.ativo.tipo === 'tour')) return null;
     var root = document.createElement('div');
     root.className = 'up-destaque-root';
     document.body.appendChild(root);
@@ -2914,6 +2921,7 @@
   // "visto" continua não sendo montado. Cada item é resolvido de forma
   // independente, depois de desmontar a seleção anterior.
   function destaqueElementoMontarTodos(campanha, config) {
+    if (tourState.ativo || presentationState.ativo && presentationState.ativo.tipo === 'tour') return;
     destaqueElementoDesmontarTodos();
     var itens = destaqueElementoResolverItens(campanha);
     // Reflete a seleção ESTRUTURAL (campanha + itens ativos), não só os que
@@ -2988,13 +2996,14 @@
 
   function agendarDestaqueElemento(campanha, config) {
     if ((campanha.gatilho || 'ao_abrir_tela') !== 'ao_abrir_tela') return;
+    if (tourState.ativo || (presentationState.ativo && presentationState.ativo.tipo === 'tour')) return;
     var delay = Number.isFinite(Number(campanha.atraso_ms)) ? Math.max(0, Number(campanha.atraso_ms)) : 800;
     var timer = window.setTimeout(function () {
       // Um callback cancelado/substituido nao interfere na selecao atual;
       // ao disparar, o timer ativo deixa de bloquear novos agendamentos.
       if (state.destaqueTimer !== timer) return;
       state.destaqueTimer = null;
-      if (tourState.ativo) return;
+      if (tourState.ativo || (presentationState.ativo && presentationState.ativo.tipo === 'tour')) return;
       destaqueElementoMontarTodos(campanha, config);
     }, delay);
     state.destaqueTimer = timer;
@@ -7180,7 +7189,7 @@
         tipo: 'tour', entidadeId: tour.id || tour.slug || 'temporario',
         origem: origemFila,
         gatilho: gatilho || (jornadaContexto ? 'etapa_jornada' : 'manual'),
-        prioridadeClasse: origemFila === 'autonomo' ? 4 : (jornadaContexto ? 2 : 1),
+         prioridadeClasse: gatilho === 'botao_ajuda' ? 1 : (origemFila === 'autonomo' ? 4 : (jornadaContexto ? 2 : 1)),
         prioridadeNegocio: tour.prioridade || 0,
         aguardarColeta: false,
         payload: { tour: tour },
@@ -7202,6 +7211,10 @@
       else presentationEnfileirar(itemFila);
       return;
     }
+    // O tour é a experiência interativa que assumiu o foco. Destaques
+    // montados por callbacks anteriores precisam desaparecer antes do
+    // primeiro render, sem consumir/registrar dispensa.
+    destaqueElementoDesmontarTodos();
     finalizarTour('novo_tour_iniciado', preservarContinuacaoAoIniciar, true);
     ensureStyles();
     tourState.tour = tour;
@@ -7261,10 +7274,20 @@
     }
     for (var i = 0; i < gatilhos.length; i++) {
       var g = gatilhos[i] || {};
-      if (gatilhoSolicitado && g.tipo !== gatilhoSolicitado) continue;
-      if (g.tipo === 'evento' && g.evento === eventoNome) return 'evento';
-      if (g.tipo === 'botao_ajuda') return 'botao_ajuda';
-      if (g.tipo === 'entrada_tela' && (!g.tela || g.tela === config.tela)) return 'entrada_tela';
+      if (gatilhoSolicitado) {
+        if (g.tipo !== gatilhoSolicitado) continue;
+        if (g.tipo === 'evento') return g.evento && g.evento === eventoNome ? 'evento' : null;
+        if (g.tipo === 'botao_ajuda') return 'botao_ajuda';
+        if (g.tipo === 'manual') return null;
+        // Chamadas explícitas só podem usar o gatilho correspondente; os
+        // gatilhos de contexto pertencem às avaliações automáticas.
+        continue;
+      }
+      // Sem contexto explícito, nunca avalie manual/evento/botão de ajuda.
+      // Isso impede que init() ou navegação automática abra um tour reservado
+      // para uma ação do usuário.
+      if (g.tipo === 'evento' || g.tipo === 'botao_ajuda' || g.tipo === 'manual') continue;
+      if (g.tipo === 'entrada_tela' && g.tela && g.tela === config.tela) return 'entrada_tela';
       if (g.tipo === 'url' && g.url_contem && window.location.href.indexOf(g.url_contem) !== -1) return 'url';
       if (g.tipo === 'elemento' && g.seletor) {
         if (tourElementoDoGatilho(g)) return 'elemento';

@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { motivoBloqueioEscrita } from '../lib/tenantGuards'
+import { validarBooleanosEstritos } from '../lib/validacao'
 
 async function resolverSistema(tenantId: string, sistemaId?: string, sistemaTexto?: string) {
   if (sistemaId?.trim()) {
@@ -68,6 +69,8 @@ export async function criar(req: Request, res: Response) {
       nome?: string; sistema_id?: string; sistema?: string; categoria?: string; modo_identificacao?: string
       tela?: string; url_contem?: string; data_cy?: string; ativo?: boolean
     }
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo'])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
     const sistemaConfig = await resolverSistema(req.adminUser!.tenant_id, sistema_id, sistema)
     if (!nome?.trim() || !sistemaConfig || !categoria?.trim() || !modo_identificacao?.trim()) {
       res.status(400).json({ erro: 'nome, sistema_id, categoria e modo_identificacao são obrigatórios.' })
@@ -108,6 +111,8 @@ export async function atualizar(req: Request, res: Response) {
       nome?: string; sistema_id?: string; sistema?: string; categoria?: string; modo_identificacao?: string
       tela?: string; url_contem?: string; data_cy?: string; ativo?: boolean
     }
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo'])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
     const sistemaConfig = await resolverSistema(req.adminUser!.tenant_id, sistema_id, sistema)
     if (!nome?.trim() || !sistemaConfig || !categoria?.trim() || !modo_identificacao?.trim()) {
       res.status(400).json({ erro: 'nome, sistema_id, categoria e modo_identificacao são obrigatórios.' })
@@ -131,7 +136,7 @@ export async function atualizar(req: Request, res: Response) {
         tela: tela?.trim() || null,
         url_contem: urlConter,
         data_cy: data_cy?.trim() || null,
-        ativo: Boolean(ativo),
+        ativo: ativo !== undefined ? ativo : existente.ativo,
       },
     })
     res.json(atualizada)

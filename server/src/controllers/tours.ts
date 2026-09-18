@@ -11,6 +11,7 @@ import {
 } from '../lib/tenantGuards'
 import { normalizarDominio } from '../lib/dominio'
 import { gatilhoPermiteExecucao, gatilhosLegados, validarDistribuicaoTour, validarGatilhosTour, type GatilhoTour } from '../lib/tourContracts'
+import { validarBooleanosEstritos } from '../lib/validacao'
 
 const MODOS_IDENTIFICACAO = ['sistema_tela', 'data_cy', 'url_contem']
 // 'area' reaproveita o mesmo mecanismo de localização de 'css' (o runtime do
@@ -349,6 +350,9 @@ export async function criar(req: Request, res: Response) {
     const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras,
       permite_autonomo, permite_jornada, publico_geral, gatilhos, frequencia, frequencia_intervalo_dias } = req.body
 
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo', 'permite_autonomo', 'permite_jornada', 'publico_geral'])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
+
     if (!titulo?.trim() || !sistema?.trim()) {
       return res.status(400).json({ erro: 'titulo e sistema são obrigatórios.' })
     }
@@ -360,8 +364,8 @@ export async function criar(req: Request, res: Response) {
     // Rascunho por padrão: um tour novo só fica ativo (elegível pro uso
     // autônomo) se o pedido pedir isso explicitamente (o formulário admin já
     // envia ativo: false por padrão). Não afeta uso como etapa de Jornada.
-    const ativoBool = ativo !== undefined ? Boolean(ativo) : false
-    const autonomoInformado = permite_autonomo !== undefined ? Boolean(permite_autonomo) : ativoBool
+    const ativoBool = ativo !== undefined ? ativo : false
+    const autonomoInformado = permite_autonomo !== undefined ? permite_autonomo : ativoBool
     const gatilhosEntrada = gatilhos === undefined
       ? [...gatilhosLegados(modo, tela, data_cy, url_contem), ...(ativoBool ? [{ tipo: 'manual' as const }] : [])]
       : gatilhos
@@ -458,6 +462,9 @@ export async function atualizar(req: Request, res: Response) {
     const { titulo, descricao, sistema, modo_identificacao, tela, data_cy, url_contem, prioridade, ativo, passos, segmentacao_regras,
       permite_autonomo, permite_jornada, publico_geral, gatilhos, frequencia, frequencia_intervalo_dias } = req.body
 
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo', 'permite_autonomo', 'permite_jornada', 'publico_geral'])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
+
     if (permite_jornada === false && existente.permite_jornada) {
       const dependencias = await prisma.etapaJornada.count({ where: { tour_id: id, bloco: { jornada: { tenant_id: tenantId } } } })
       if (dependencias > 0 && req.body.confirmar_impacto !== true) return res.status(409).json({ erro: 'Este Tour é usado por Jornadas. Confirme a remoção da origem.', dependencias })
@@ -468,18 +475,18 @@ export async function atualizar(req: Request, res: Response) {
       return res.status(400).json({ erro: 'modo_identificacao inválido.' })
     }
     const merged = { ...req.body, modo_identificacao: modo }
-    const permiteAutonomoEfetivo = permite_autonomo !== undefined ? Boolean(permite_autonomo) : existente.permite_autonomo
+    const permiteAutonomoEfetivo = permite_autonomo !== undefined ? permite_autonomo : existente.permite_autonomo
     const gatilhosEfetivos = gatilhos !== undefined
       ? gatilhos
       : (existente.gatilhos ?? gatilhosLegados(modo, tela !== undefined ? tela : existente.tela, data_cy !== undefined ? data_cy : existente.data_cy, url_contem !== undefined ? url_contem : existente.url_contem))
-    const vazios = permiteAutonomoEfetivo && (ativo !== undefined ? Boolean(ativo) : existente.ativo)
+    const vazios = permiteAutonomoEfetivo && (ativo !== undefined ? ativo : existente.ativo)
       ? getCamposObrigatorios(modo).filter(c => c in req.body && !merged[c]?.toString().trim())
       : []
     if (vazios.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
     }
 
-    const ativoEfetivo = ativo !== undefined ? Boolean(ativo) : existente.ativo
+    const ativoEfetivo = ativo !== undefined ? ativo : existente.ativo
     const distribuicao = validarDistribuicaoTour({ permite_autonomo: permite_autonomo, permite_jornada,
       publico_geral: publico_geral === undefined && segmentacao_regras !== undefined ? !(Array.isArray(segmentacao_regras) && segmentacao_regras.length > 0) : publico_geral,
       gatilhos: gatilhosEfetivos, frequencia, frequencia_intervalo_dias,
@@ -497,7 +504,7 @@ export async function atualizar(req: Request, res: Response) {
     // Só checa bloqueio/limite/recurso do plano quando a requisição está de
     // fato LIGANDO o tour (false -> true) — mesmo raciocínio de
     // campanhas.ts atualizar().
-    const ativandoAgora = ativo !== undefined && Boolean(ativo) && !existente.ativo
+    const ativandoAgora = ativo === true && !existente.ativo
     if (ativandoAgora) {
       const bloqueioAtivacao = motivoBloqueioAtivacao(tenant)
       if (bloqueioAtivacao) return res.status(403).json({ erro: bloqueioAtivacao })
@@ -555,7 +562,7 @@ export async function atualizar(req: Request, res: Response) {
           ...(data_cy !== undefined && { data_cy: data_cy?.trim() || null }),
           ...(url_contem !== undefined && { url_contem: url_contem?.trim() || null }),
           ...(prioridade !== undefined && { prioridade: Number(prioridade) }),
-          ...(ativo !== undefined && { ativo: Boolean(ativo) }),
+          ...(ativo !== undefined && { ativo }),
           ...(permite_autonomo !== undefined && { permite_autonomo: distribuicao.valor.permite_autonomo }),
           ...(permite_jornada !== undefined && { permite_jornada: distribuicao.valor.permite_jornada }),
           ...((publico_geral !== undefined || segmentacaoInformada) && { publico_geral: distribuicao.valor.publico_geral }),
@@ -797,7 +804,10 @@ export async function importar(req: Request, res: Response) {
     if (!MODOS_IDENTIFICACAO.includes(modo)) {
       return res.status(400).json({ erro: 'modo_identificacao inválido no JSON importado.' })
     }
-    const faltando = getCamposObrigatorios(modo).filter(c => !dados[c]?.toString().trim())
+    const erroBooleanos = validarBooleanosEstritos(dados, ['permite_autonomo', 'permite_jornada', 'publico_geral'])
+    if (erroBooleanos) return res.status(400).json({ erro: `${erroBooleanos} (JSON importado)` })
+    const autonomoImportado = permite_autonomo !== undefined ? permite_autonomo : false
+    const faltando = autonomoImportado ? getCamposObrigatorios(modo).filter(c => !dados[c]?.toString().trim()) : []
     if (faltando.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios faltando no JSON importado: ${faltando.join(', ')}.` })
     }

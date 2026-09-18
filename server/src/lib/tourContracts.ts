@@ -90,9 +90,25 @@ export function validarDistribuicaoTour(input: {
   ativo?: unknown
   segmentacao_regras?: unknown
 }, defaults?: Partial<ConfiguracaoDistribuicaoTour>): { erro: string | null; valor: ConfiguracaoDistribuicaoTour } {
-  const permite_autonomo = input.permite_autonomo !== undefined ? Boolean(input.permite_autonomo) : (defaults?.permite_autonomo ?? false)
-  const permite_jornada = input.permite_jornada !== undefined ? Boolean(input.permite_jornada) : (defaults?.permite_jornada ?? true)
-  const publico_geral = input.publico_geral !== undefined ? Boolean(input.publico_geral) : (defaults?.publico_geral ?? true)
+  for (const campo of ['permite_autonomo', 'permite_jornada', 'publico_geral', 'ativo'] as const) {
+    if (input[campo] !== undefined && typeof input[campo] !== 'boolean') {
+      return {
+        erro: `${campo} deve ser um booleano real (true ou false).`,
+        valor: {
+          permite_autonomo: defaults?.permite_autonomo ?? false,
+          permite_jornada: defaults?.permite_jornada ?? true,
+          publico_geral: defaults?.publico_geral ?? true,
+          gatilhos: defaults?.gatilhos ?? [],
+          frequencia: defaults?.frequencia ?? 'uma_vez_por_usuario',
+          frequencia_intervalo_dias: defaults?.frequencia_intervalo_dias ?? null,
+          prioridade: defaults?.prioridade ?? 0,
+        },
+      }
+    }
+  }
+  const permite_autonomo = input.permite_autonomo !== undefined ? input.permite_autonomo === true : (defaults?.permite_autonomo ?? false)
+  const permite_jornada = input.permite_jornada !== undefined ? input.permite_jornada === true : (defaults?.permite_jornada ?? true)
+  const publico_geral = input.publico_geral !== undefined ? input.publico_geral === true : (defaults?.publico_geral ?? true)
   const frequencia = (input.frequencia ?? defaults?.frequencia ?? 'uma_vez_por_usuario') as string
   const intervaloBruto = input.frequencia_intervalo_dias !== undefined ? input.frequencia_intervalo_dias : (defaults?.frequencia_intervalo_dias ?? null)
   const gatilhosResultado = input.gatilhos === undefined

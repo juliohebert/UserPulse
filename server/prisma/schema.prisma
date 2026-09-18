@@ -929,6 +929,7 @@ model EventoTour {
   jornada_id  String?
   bloco_id    String?
   etapa_id    String?
+  chave_idempotencia String?
   criado_em   DateTime @default(now())
 
   tour TourGuiado @relation(fields: [tour_id], references: [id])
@@ -937,6 +938,7 @@ model EventoTour {
   @@index([tour_id, origem, criado_em], map: "eventos_tour_tour_origem_data_idx")
   @@index([execucao_id], map: "eventos_tour_execucao_idx")
   @@index([tour_id, usuario_id, origem, criado_em], map: "eventos_tour_tour_usuario_origem_data_idx")
+  @@unique([tour_id, chave_idempotencia])
   @@map("eventos_tour")
 }
 
@@ -1069,6 +1071,7 @@ model EtapaJornada {
   abrir_nova_aba Boolean  @default(true)
   ordem          Int      @default(0)
   obrigatoria    Boolean  @default(true)
+  ativo          Boolean  @default(true)
   criado_em      DateTime @default(now())
   atualizado_em  DateTime @updatedAt
 

@@ -695,6 +695,7 @@ export interface EtapaJornada {
   abrir_nova_aba: boolean
   ordem: number
   obrigatoria: boolean
+  ativo: boolean
   criado_em: string
   atualizado_em: string
   tour?: { id: string; titulo: string; slug: string; ativo?: boolean; passos?: TourPasso[] } | null
