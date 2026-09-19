@@ -11,7 +11,6 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo, podeExcluirOuImportarModulo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
-import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 
 const PAGE_SIZE = 10
 // Só a busca dispara a cada tecla (sistema/passos são clique único, sem
@@ -20,7 +19,7 @@ const BUSCA_DEBOUNCE_MS = 300
 
 type SortKey = 'tour' | 'sistema' | 'status' | 'passos' | 'atualizado'
 type SortDirection = 'asc' | 'desc'
-type ColumnKey = SortKey | 'acoes'
+type ColumnKey = SortKey | 'uso' | 'acoes'
 type FiltroPassos = 'todos' | 'com' | 'sem'
 // Tour.ativo controla só a exibição autônoma (autoabertura por regra de
 // identificação/segmentação, ou window.UserPulse.iniciarTour(slug)) — não
@@ -35,7 +34,8 @@ const STATUS_FILTRO_PADRAO: StatusFiltro = 'todos'
 const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
   { label: 'Tour', key: 'tour', sortKey: 'tour' },
   { label: 'Sistema / destino', key: 'sistema', sortKey: 'sistema' },
-  { label: 'Exibição autônoma', key: 'status', sortKey: 'status' },
+  { label: 'Status', key: 'status', sortKey: 'status' },
+  { label: 'Uso', key: 'uso', sortKey: null },
   { label: 'Passos', key: 'passos', sortKey: 'passos' },
   { label: 'Atualizado em', key: 'atualizado', sortKey: 'atualizado' },
   { label: 'Ações', key: 'acoes', sortKey: null },
@@ -45,6 +45,7 @@ const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
   tour: true,
   sistema: true,
   status: true,
+  uso: true,
   passos: true,
   atualizado: true,
   acoes: true,
@@ -431,15 +432,9 @@ export function ToursIndex() {
         )}
 
         <div className="bg-surface-container-lowest rounded-2xl border border-outline-variant/30 shadow-sm overflow-visible">
-          <div className="px-5 py-5 border-b border-outline-variant/30 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="px-5 py-4 border-b border-outline-variant/30 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <span className="material-symbols-outlined text-[20px]">map</span>
-                </span>
-                <h1 className="text-title-lg font-bold text-on-surface">Tours Guiados</h1>
-              </div>
-              <p className="max-w-2xl text-body-md text-on-surface-variant">Organize os fluxos, controle a exibição autônoma e acompanhe onde cada tour pode ser usado.</p>
+              <h3 className="text-title-lg font-bold text-on-surface">Tours Guiados</h3>
             </div>
             <div className="flex flex-col sm:flex-row gap-2 w-full xl:w-auto shrink-0">
               <Button
@@ -468,36 +463,21 @@ export function ToursIndex() {
                 </Button>
               )}
               {podeEscrever && (
-                <>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      // Fase 6E — o gravador termina criando um tour novo, então
-                      // recebe o mesmo bloqueio de "Novo Tour Guiado" abaixo.
-                      if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
-                      navigate('/tours/gravador')
-                    }}
-                    fullWidthMobile
-                    iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
-                  >
-                    Gravar fluxo
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      // Fase 6E — trial no limite: nem navega pro formulário,
-                      // só avisa (mesma mensagem do backend). Continua
-                      // permitido editar/excluir tours existentes.
-                      if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
-                      navigate('/tours/novo')
-                    }}
-                    variant="gradient"
-                    size="lg"
-                    fullWidthMobile
-                    iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
-                  >
-                    Novo Tour Guiado
-                  </Button>
-                </>
+                <Button
+                  onClick={() => {
+                    // Fase 6E — trial no limite: nem navega pro formulário,
+                    // só avisa (mesma mensagem do backend). Continua
+                    // permitido editar/excluir tours existentes.
+                    if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
+                    navigate('/tours/novo')
+                  }}
+                  variant="gradient"
+                  size="lg"
+                  fullWidthMobile
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
+                >
+                  Novo Tour Guiado
+                </Button>
               )}
             </div>
           </div>
@@ -685,7 +665,7 @@ export function ToursIndex() {
                     <tr className="bg-surface-container-low/50 border-b border-outline-variant/40">
                       {TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).map(col => {
                         const active = sort?.key === col.sortKey
-                        const align = col.key === 'acoes' ? ' text-right' : col.key === 'status' || col.key === 'passos' ? ' text-center' : ''
+                        const align = col.key === 'acoes' ? ' text-right' : col.key === 'status' || col.key === 'uso' || col.key === 'passos' ? ' text-center' : ''
                         return (
                           <th key={col.key} className={`px-4 py-3 text-[11px] text-on-surface-variant font-bold uppercase tracking-wide whitespace-nowrap${align}`}>
                             {col.sortKey ? (
@@ -718,14 +698,16 @@ export function ToursIndex() {
                           {tour.descricao && (
                             <p className="text-label-sm text-on-surface-variant truncate max-w-xs">{tour.descricao}</p>
                           )}
-                          <TourConfigBadges tour={tour} />
                         </td>}
                         {colunasVisiveis.sistema && <td className="px-4 py-4 align-middle min-w-[170px]">
                           <p className="text-body-md font-semibold text-on-surface">{tour.sistema}</p>
                           <p className="mt-0.5 max-w-[220px] truncate text-[12px] text-on-surface-variant" title={destinoTour(tour)}>{destinoTour(tour)}</p>
                         </td>}
                         {colunasVisiveis.status && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
-                          <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} />
+                          <StatusBadge ativo={tour.ativo} />
+                        </td>}
+                        {colunasVisiveis.uso && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
+                          <UsoBadge tour={tour} />
                         </td>}
                         {colunasVisiveis.passos && <td className="px-4 py-4 align-middle text-body-md font-bold text-center text-on-surface whitespace-nowrap">
                           {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
@@ -743,6 +725,8 @@ export function ToursIndex() {
                               removendoId={removendoId}
                               onRemover={prepararRemocao}
                               consultandoImpactoId={consultandoImpactoId}
+                              alternandoId={alternandoId}
+                              onAlternarAtivo={alternarAtivo}
                               podeEscrever={podeEscrever}
                               podeExcluir={podeExcluirOuImportar}
                             />
@@ -773,13 +757,11 @@ export function ToursIndex() {
                     {tour.descricao && (
                       <p className="text-label-sm text-on-surface-variant line-clamp-2 mb-2">{tour.descricao}</p>
                     )}
-                    <TourConfigBadges tour={tour} />
-                    <div className="my-3 flex items-center justify-between gap-3 rounded-2xl bg-surface-container-low px-3 py-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-label-md font-bold text-on-surface">{tour.sistema}</p>
-                        <p className="truncate text-[12px] text-on-surface-variant">{destinoTour(tour)}</p>
-                      </div>
-                      <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} compact />
+                    <div className="mb-3 flex flex-wrap items-center gap-2 text-label-sm text-on-surface-variant">
+                      <StatusBadge ativo={tour.ativo} />
+                      <UsoBadge tour={tour} />
+                      <span>{tour.sistema}</span>
+                      <span>· {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)</span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-label-sm text-outline">Atualizado {formatDateTime(tour.atualizado_em)}</span>
@@ -794,6 +776,8 @@ export function ToursIndex() {
                           removendoId={removendoId}
                           onRemover={prepararRemocao}
                           consultandoImpactoId={consultandoImpactoId}
+                          alternandoId={alternandoId}
+                          onAlternarAtivo={alternarAtivo}
                           podeEscrever={podeEscrever}
                           podeExcluir={podeExcluirOuImportar}
                           size="lg"
@@ -843,85 +827,14 @@ function destinoTour(tour: TourGuiado): string {
   return tour.tela ? `Tela: ${tour.tela}` : 'Tela não configurada'
 }
 
-function frequenciaTour(tour: TourGuiado): string {
-  if (tour.frequencia === 'sempre') return 'Sempre'
-  if (tour.frequencia === 'uma_vez_por_sessao') return '1x por sessão'
-  if (tour.frequencia === 'ate_concluir') return 'Até concluir'
-  if (tour.frequencia === 'intervalo_dias') return `A cada ${tour.frequencia_intervalo_dias ?? '?'} dias`
-  return '1x por usuário'
-}
-
-function TourConfigBadges({ tour }: { tour: TourGuiado }) {
-  const passos = tour._count?.passos ?? tour.passos?.length ?? 0
-  const usos = tour._count?.etapasJornada ?? 0
-  const distribuicao = tour.permite_autonomo && tour.permite_jornada
-    ? 'Independente + Jornada'
-    : tour.permite_autonomo ? 'Independente' : 'Jornada'
+function UsoBadge({ tour }: { tour: TourGuiado }) {
+  const texto = tour.permite_autonomo && tour.permite_jornada
+    ? 'Ambos'
+    : tour.permite_jornada ? 'Somente jornada' : 'Independente'
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-      <span className="inline-flex items-center gap-1 rounded-full bg-surface-container-low px-2 py-0.5 text-[11px] font-bold text-on-surface-variant">
-        <span className="material-symbols-outlined text-[12px]">format_list_numbered</span>
-        {passos} passo{passos === 1 ? '' : 's'}
-      </span>
-      <span className="inline-flex items-center gap-1 rounded-full bg-surface-container-low px-2 py-0.5 text-[11px] font-bold text-on-surface-variant">
-        <span className="material-symbols-outlined text-[12px]">conversion_path</span>
-        {distribuicao}{usos > 0 ? ` · ${usos} uso${usos === 1 ? '' : 's'}` : ''}
-      </span>
-      {tour.permite_autonomo && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
-          <span className="material-symbols-outlined text-[12px]">schedule</span>
-          {frequenciaTour(tour)}
-        </span>
-      )}
-      {tour.segmentacao_regras?.length ? (
-        <span className="inline-flex items-center gap-1 rounded-full bg-secondary/10 px-2 py-0.5 text-[11px] font-bold text-secondary">
-          <span className="material-symbols-outlined text-[12px]">target</span>
-          Segmentado
-        </span>
-      ) : null}
-      {(tour.prioridade ?? 0) > 0 && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-tertiary/10 px-2 py-0.5 text-[11px] font-bold text-tertiary">
-          <span className="material-symbols-outlined text-[12px]">arrow_upward</span>
-          Prioridade {tour.prioridade}
-        </span>
-      )}
-    </div>
-  )
-}
-
-// Ativo controla apenas a exibição autônoma. Tours configurados só para
-// Jornada recebem um estado próprio em vez de uma chave que nunca funcionaria.
-function StatusControl({ tour, podeEscrever, alternando, bloqueado, onChange, compact = false }: {
-  tour: TourGuiado
-  podeEscrever: boolean
-  alternando: boolean
-  bloqueado: boolean
-  onChange: (ativo: boolean) => void
-  compact?: boolean
-}) {
-  if (!tour.permite_autonomo) {
-    return (
-      <div className={`flex items-center ${compact ? 'justify-end' : 'justify-center'} gap-1.5 text-on-surface-variant`} title="Este tour está configurado apenas como etapa de Jornada">
-        <span className="material-symbols-outlined text-[16px]">route</span>
-        <span className="text-[12px] font-bold">Só Jornada</span>
-      </div>
-    )
-  }
-
-  if (!podeEscrever) return <StatusBadge ativo={tour.ativo} />
-
-  return (
-    <div className={`flex items-center ${compact ? 'justify-end' : 'justify-center'} gap-1`}>
-      <ToggleSwitch
-        checked={tour.ativo}
-        onChange={onChange}
-        disabled={bloqueado}
-        ariaLabel={`${tour.ativo ? 'Desativar' : 'Ativar'} exibição autônoma de ${tour.titulo}`}
-      />
-      <span className={`min-w-[52px] text-left text-[12px] font-bold ${tour.ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
-        {alternando ? 'Salvando' : tour.ativo ? 'Ativa' : 'Inativa'}
-      </span>
-    </div>
+    <span className="inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary">
+      {texto}
+    </span>
   )
 }
 
@@ -935,7 +848,7 @@ function StatusBadge({ ativo }: { ativo: boolean }) {
 }
 
 function TourActions({
-  tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, removendoId, onRemover, consultandoImpactoId, podeEscrever, podeExcluir, size = 'md',
+  tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, removendoId, onRemover, consultandoImpactoId, alternandoId, onAlternarAtivo, podeEscrever, podeExcluir, size = 'md',
 }: {
   tour: TourGuiado
   navigate: NavigateFunction
@@ -946,6 +859,8 @@ function TourActions({
   removendoId: string | null
   onRemover: (tour: TourGuiado) => void
   consultandoImpactoId: string | null
+  alternandoId: string | null
+  onAlternarAtivo: (tour: TourGuiado, ativo: boolean) => void
   podeEscrever: boolean
   podeExcluir: boolean
   size?: 'md' | 'lg'
@@ -969,6 +884,19 @@ function TourActions({
         <button onClick={() => onDuplicar(tour)} disabled={duplicandoId === tour.id} title="Duplicar" aria-label={`Duplicar ${tour.titulo}`} className={`${btnCls} disabled:opacity-40`}>
           <span className={`material-symbols-outlined text-[18px] ${duplicandoId === tour.id ? 'animate-spin' : ''}`}>
             {duplicandoId === tour.id ? 'progress_activity' : 'content_copy'}
+          </span>
+        </button>
+      )}
+      {podeEscrever && tour.permite_autonomo && (
+        <button
+          onClick={() => onAlternarAtivo(tour, !tour.ativo)}
+          disabled={alternandoId !== null}
+          title={tour.ativo ? 'Desativar' : 'Ativar'}
+          aria-label={`${tour.ativo ? 'Desativar' : 'Ativar'} ${tour.titulo}`}
+          className={`${btnPad} inline-flex items-center justify-center rounded-full text-on-surface-variant transition-colors disabled:opacity-40 ${tour.ativo ? 'hover:bg-error-container hover:text-error' : 'hover:bg-tertiary/10 hover:text-tertiary'}`}
+        >
+          <span className={`material-symbols-outlined text-[18px] ${alternandoId === tour.id ? 'animate-spin' : ''}`}>
+            {alternandoId === tour.id ? 'progress_activity' : tour.ativo ? 'block' : 'check_circle'}
           </span>
         </button>
       )}

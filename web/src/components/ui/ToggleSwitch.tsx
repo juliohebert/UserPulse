@@ -2,16 +2,14 @@ interface Props {
   checked: boolean
   onChange: (v: boolean) => void
   disabled?: boolean
-  ariaLabel?: string
 }
 
-export function ToggleSwitch({ checked, onChange, disabled = false, ariaLabel }: Props) {
+export function ToggleSwitch({ checked, onChange, disabled = false }: Props) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
-      aria-label={ariaLabel}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 disabled:opacity-50"
