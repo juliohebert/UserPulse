@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams, type NavigateFunction } from 'react-router-dom'
-import { del, get, post } from '../../services/api'
+import { del, get, post, put } from '../../services/api'
 import type { TourDependenciaJornada, TourExportEnvelope, TourGuiado, TourGuiadoListaPaginada } from '../../types'
-import { formatDateTime } from '../../utils/campanha'
 import { downloadJson } from '../../utils/tour'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
@@ -11,15 +10,16 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo, podeExcluirOuImportarModulo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
+import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 
 const PAGE_SIZE = 10
 // Só a busca dispara a cada tecla (sistema/passos são clique único, sem
 // motivo pra atraso) — debounce simples evita 1 request por caractere digitado.
 const BUSCA_DEBOUNCE_MS = 300
 
-type SortKey = 'tour' | 'sistema' | 'status' | 'passos' | 'atualizado'
+type SortKey = 'tour' | 'sistema' | 'status' | 'passos'
 type SortDirection = 'asc' | 'desc'
-type ColumnKey = SortKey | 'acoes'
+type ColumnKey = SortKey | 'uso' | 'acoes'
 type FiltroPassos = 'todos' | 'com' | 'sem'
 // Tour.ativo controla só a exibição autônoma (autoabertura por regra de
 // identificação/segmentação, ou window.UserPulse.iniciarTour(slug)) — não
@@ -28,15 +28,15 @@ type FiltroPassos = 'todos' | 'com' | 'sem'
 // isso o filtro/coluna usam "Ativa/Inativa" (não "Rascunho") e o padrão é
 // "Todas": esconder os inativos por padrão esconderia tours que só são
 // usados via Jornada, mesmo estando em uso normal.
-type StatusFiltro = 'todos' | 'ativos' | 'inativos'
+type StatusFiltro = 'todos' | 'ativos' | 'inativos' | 'somente_jornada'
 const STATUS_FILTRO_PADRAO: StatusFiltro = 'todos'
 
 const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
   { label: 'Tour', key: 'tour', sortKey: 'tour' },
-  { label: 'Sistema', key: 'sistema', sortKey: 'sistema' },
+  { label: 'Sistema / destino', key: 'sistema', sortKey: 'sistema' },
   { label: 'Exibição autônoma', key: 'status', sortKey: 'status' },
+  { label: 'Disponível em', key: 'uso', sortKey: null },
   { label: 'Passos', key: 'passos', sortKey: 'passos' },
-  { label: 'Atualizado em', key: 'atualizado', sortKey: 'atualizado' },
   { label: 'Ações', key: 'acoes', sortKey: null },
 ]
 
@@ -44,8 +44,8 @@ const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
   tour: true,
   sistema: true,
   status: true,
+  uso: true,
   passos: true,
-  atualizado: true,
   acoes: true,
 }
 
@@ -53,6 +53,7 @@ const STATUS_FILTRO: Array<{ value: StatusFiltro; label: string }> = [
   { value: 'todos', label: 'Todas' },
   { value: 'ativos', label: 'Ativas' },
   { value: 'inativos', label: 'Inativas' },
+  { value: 'somente_jornada', label: 'Somente em jornadas' },
 ]
 
 function MetricCard({ label, value, icon }: { label: string; value: string | number; icon: string }) {
@@ -153,6 +154,7 @@ export function ToursIndex() {
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [exportandoId, setExportandoId] = useState<string | null>(null)
   const [removendoId, setRemovendoId] = useState<string | null>(null)
+  const [alternandoId, setAlternandoId] = useState<string | null>(null)
   const [tourRemover, setTourRemover] = useState<TourGuiado | null>(null)
   const [dependenciasRemocao, setDependenciasRemocao] = useState<TourDependenciaJornada[]>([])
   const [consultandoImpactoId, setConsultandoImpactoId] = useState<string | null>(null)
@@ -273,7 +275,7 @@ export function ToursIndex() {
 
   const sistemas = data?.sistemas ?? []
   const items = data?.items ?? []
-  const resumo = data?.resumo ?? { total: 0, ativos: 0, inativos: 0, total_passos: 0 }
+  const resumo = data?.resumo ?? { total: 0, ativos: 0, inativos: 0, somente_jornada: 0, total_passos: 0 }
   // Fase 6E — resumo.total já é o TOTAL cadastrado do tenant, sem depender
   // de filtro/busca (ver server/src/controllers/tours.ts listar()) —
   // reaproveitado direto, sem endpoint novo.
@@ -322,6 +324,26 @@ export function ToursIndex() {
       setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível duplicar o tour. Tente novamente.' })
     } finally {
       setDuplicandoId(null)
+    }
+  }
+
+  const alternarAtivo = async (tour: TourGuiado, ativo: boolean) => {
+    if (!tour.permite_autonomo) {
+      setMensagem({ tipo: 'erro', texto: 'Este tour está configurado somente para Jornadas. Habilite a execução independente na edição para ativá-lo.' })
+      return
+    }
+    setAlternandoId(tour.id)
+    setMensagem(null)
+    try {
+      await put<TourGuiado>(`/tours/${tour.id}`, { ativo })
+      setMensagem({ tipo: 'sucesso', texto: `Exibição autônoma ${ativo ? 'ativada' : 'desativada'} para "${tour.titulo}".` })
+      const saiDoFiltro = (filterAtivo === 'ativos' && !ativo) || (filterAtivo === 'inativos' && ativo)
+      const proximaPagina = saiDoFiltro && items.length === 1 && paginaAtual > 1 ? paginaAtual - 1 : paginaAtual
+      load(busca, filterSistema, filterAtivo, proximaPagina)
+    } catch (e) {
+      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível alterar a exibição do tour.' })
+    } finally {
+      setAlternandoId(null)
     }
   }
 
@@ -439,36 +461,21 @@ export function ToursIndex() {
                 </Button>
               )}
               {podeEscrever && (
-                <>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      // Fase 6E — o gravador termina criando um tour novo, então
-                      // recebe o mesmo bloqueio de "Novo Tour Guiado" abaixo.
-                      if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
-                      navigate('/tours/gravador')
-                    }}
-                    fullWidthMobile
-                    iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
-                  >
-                    Gravar fluxo
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      // Fase 6E — trial no limite: nem navega pro formulário,
-                      // só avisa (mesma mensagem do backend). Continua
-                      // permitido editar/excluir tours existentes.
-                      if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
-                      navigate('/tours/novo')
-                    }}
-                    variant="gradient"
-                    size="lg"
-                    fullWidthMobile
-                    iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
-                  >
-                    Novo Tour Guiado
-                  </Button>
-                </>
+                <Button
+                  onClick={() => {
+                    // Fase 6E — trial no limite: nem navega pro formulário,
+                    // só avisa (mesma mensagem do backend). Continua
+                    // permitido editar/excluir tours existentes.
+                    if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
+                    navigate('/tours/novo')
+                  }}
+                  variant="gradient"
+                  size="lg"
+                  fullWidthMobile
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
+                >
+                  Novo Tour Guiado
+                </Button>
               )}
             </div>
           </div>
@@ -477,7 +484,7 @@ export function ToursIndex() {
             <MetricCard label="Total de tours" value={resumo.total.toLocaleString('pt-BR')} icon="map" />
             <MetricCard label="Exibição autônoma ativa" value={resumo.ativos.toLocaleString('pt-BR')} icon="play_circle" />
             <MetricCard label="Exibição autônoma inativa" value={resumo.inativos.toLocaleString('pt-BR')} icon="pause_circle" />
-            <MetricCard label="Total de passos" value={resumo.total_passos.toLocaleString('pt-BR')} icon="format_list_numbered" />
+            <MetricCard label="Somente em jornadas" value={resumo.somente_jornada.toLocaleString('pt-BR')} icon="route" />
           </div>
 
           <div className="flex flex-col gap-3 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-lowest xl:flex-row xl:items-center xl:justify-between">
@@ -607,7 +614,7 @@ export function ToursIndex() {
               {busca && <FilterChip label={busca} onRemove={() => { setBusca(''); load('', filterSistema, filterAtivo, 1) }} />}
               {filterSistema && <FilterChip label={filterSistema} onRemove={() => mudarSistema('')} />}
               {filterAtivo !== STATUS_FILTRO_PADRAO && (
-                <FilterChip label={filterAtivo === 'ativos' ? 'Ativas' : 'Inativas'} onRemove={() => mudarStatus(STATUS_FILTRO_PADRAO)} />
+                <FilterChip label={filterAtivo === 'ativos' ? 'Ativas' : filterAtivo === 'inativos' ? 'Inativas' : 'Somente em jornadas'} onRemove={() => mudarStatus(STATUS_FILTRO_PADRAO)} />
               )}
               {filterPassos !== 'todos' && (
                 <FilterChip label={filterPassos === 'com' ? 'Com passos' : 'Sem passos'} onRemove={() => mudarPassos('todos')} />
@@ -656,7 +663,7 @@ export function ToursIndex() {
                     <tr className="bg-surface-container-low/50 border-b border-outline-variant/40">
                       {TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).map(col => {
                         const active = sort?.key === col.sortKey
-                        const align = col.key === 'acoes' ? ' text-right' : col.key === 'status' || col.key === 'passos' ? ' text-center' : ''
+                        const align = col.key === 'acoes' ? ' text-right' : col.key === 'status' || col.key === 'uso' || col.key === 'passos' ? ' text-center' : ''
                         return (
                           <th key={col.key} className={`px-4 py-3 text-[11px] text-on-surface-variant font-bold uppercase tracking-wide whitespace-nowrap${align}`}>
                             {col.sortKey ? (
@@ -690,17 +697,19 @@ export function ToursIndex() {
                             <p className="text-label-sm text-on-surface-variant truncate max-w-xs">{tour.descricao}</p>
                           )}
                         </td>}
-                        {colunasVisiveis.sistema && <td className="px-4 py-4 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{tour.sistema}</td>}
+                        {colunasVisiveis.sistema && <td className="px-4 py-4 align-middle min-w-[170px]">
+                          <p className="text-body-md font-semibold text-on-surface">{tour.sistema}</p>
+                          <p className="mt-0.5 max-w-[220px] truncate text-[12px] text-on-surface-variant" title={destinoTour(tour)}>{destinoTour(tour)}</p>
+                        </td>}
                         {colunasVisiveis.status && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-2.5">
-                            <StatusBadge ativo={tour.ativo} />
-                            <DistribuicaoBadge tour={tour} />
-                          </div>
+                          <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} />
+                        </td>}
+                        {colunasVisiveis.uso && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
+                          <UsoBadge tour={tour} />
                         </td>}
                         {colunasVisiveis.passos && <td className="px-4 py-4 align-middle text-body-md font-bold text-center text-on-surface whitespace-nowrap">
                           {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
                         </td>}
-                        {colunasVisiveis.atualizado && <td className="px-4 py-4 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{formatDateTime(tour.atualizado_em)}</td>}
                         {colunasVisiveis.acoes && <td className="px-4 py-4 align-middle whitespace-nowrap">
                           <div className="flex items-center justify-end opacity-70 group-hover:opacity-100 transition-opacity">
                             <TourActions
@@ -741,20 +750,17 @@ export function ToursIndex() {
                       )}
                     </div>
                     {tour.descricao && (
-                      <p className="text-label-sm text-on-surface-variant truncate mb-2">{tour.descricao}</p>
+                      <p className="text-label-sm text-on-surface-variant line-clamp-2 mb-2">{tour.descricao}</p>
                     )}
-                    <div className="flex flex-wrap items-center gap-2 mb-3">
-                      <div className="flex items-center gap-2">
-                       <StatusBadge ativo={tour.ativo} />
-                       <DistribuicaoBadge tour={tour} />
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2 text-label-sm text-on-surface-variant">
+                        <UsoBadge tour={tour} />
+                        <span>{tour.sistema}</span>
+                        <span>· {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)</span>
                       </div>
-                      <span className="text-label-sm text-on-surface-variant">{tour.sistema}</span>
-                      <span className="text-label-sm text-on-surface-variant">
-                        · {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
-                      </span>
+                      <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} compact />
                     </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-label-sm text-outline">Atualizado {formatDateTime(tour.atualizado_em)}</span>
+                    <div className="flex items-center justify-end gap-2">
                       <div className="flex items-center gap-1 shrink-0">
                         <TourActions
                           tour={tour}
@@ -808,24 +814,64 @@ export function ToursIndex() {
   )
 }
 
-// Ativa/Inativa aqui é só sobre exibição autônoma — nunca "existe/não
-// existe" nem "disponível/indisponível para Jornada" (um tour inativo
-// continua funcionando normalmente como etapa de Jornada). Por isso a cor
-// de "Inativa" é neutra (on-surface-variant/outline), não vermelha — não é
-// um estado de erro.
-function StatusBadge({ ativo }: { ativo: boolean }) {
+function destinoTour(tour: TourGuiado): string {
+  if (!tour.permite_autonomo) return 'Execução por jornada'
+  if (tour.modo_identificacao === 'data_cy') return tour.data_cy ? `Elemento: ${tour.data_cy}` : 'Elemento não configurado'
+  if (tour.modo_identificacao === 'url_contem') return tour.url_contem ? `URL contém: ${tour.url_contem}` : 'URL não configurada'
+  return tour.tela ? `Tela: ${tour.tela}` : 'Tela não configurada'
+}
+
+function UsoBadge({ tour }: { tour: TourGuiado }) {
+  const texto = tour.permite_autonomo && tour.permite_jornada
+    ? 'Autônomo + Jornada'
+    : tour.permite_jornada ? 'Somente Jornada' : 'Somente autônomo'
   return (
-    <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
-      <span className={`h-2 w-2 rounded-full ${ativo ? 'bg-tertiary' : 'bg-outline'}`} />
-      {ativo ? 'Ativa' : 'Inativa'}
+    <span className="inline-flex rounded-full border border-outline-variant/60 bg-surface-container-low px-2.5 py-1 text-[11px] font-bold text-on-surface-variant">
+      {texto}
     </span>
   )
 }
 
-function DistribuicaoBadge({ tour }: { tour: TourGuiado }) {
-  const texto = tour.permite_autonomo && tour.permite_jornada ? 'Ambos' : tour.permite_jornada ? 'Jornada' : tour.permite_autonomo ? 'Independente' : 'Sem origem'
-  const usos = tour._count?.etapasJornada ?? 0
-  return <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">{texto}{usos ? ` · ${usos} uso${usos === 1 ? '' : 's'}` : ''}</span>
+function StatusControl({ tour, podeEscrever, alternando, bloqueado, onChange, compact = false }: {
+  tour: TourGuiado
+  podeEscrever: boolean
+  alternando: boolean
+  bloqueado: boolean
+  onChange: (ativo: boolean) => void
+  compact?: boolean
+}) {
+  if (!tour.permite_autonomo) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-outline" title="Este tour não permite execução autônoma">
+        <span className="h-2 w-2 rounded-full bg-outline-variant" />
+        Não configurada
+      </span>
+    )
+  }
+  if (!podeEscrever) return <StatusBadge ativo={tour.ativo} />
+
+  return (
+    <div className={`flex items-center ${compact ? 'justify-end' : 'justify-center'} gap-1`}>
+      <ToggleSwitch
+        checked={tour.ativo}
+        onChange={onChange}
+        disabled={bloqueado}
+        ariaLabel={`${tour.ativo ? 'Desativar' : 'Ativar'} exibição autônoma de ${tour.titulo}`}
+      />
+      <span className={`min-w-[52px] text-left text-[12px] font-bold ${tour.ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
+        {alternando ? 'Salvando' : tour.ativo ? 'Ligada' : 'Desligada'}
+      </span>
+    </div>
+  )
+}
+
+function StatusBadge({ ativo }: { ativo: boolean }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
+      <span className={`h-2 w-2 rounded-full ${ativo ? 'bg-tertiary' : 'bg-outline'}`} />
+      {ativo ? 'Ligada' : 'Desligada'}
+    </span>
+  )
 }
 
 function TourActions({

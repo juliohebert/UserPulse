@@ -185,8 +185,13 @@ export interface FiltrosListaTours {
 // (mesmo padrão de validarSegmentacaoRegras acima).
 export function montarWhereListaTours(filtros: FiltrosListaTours): Prisma.TourGuiadoWhereInput {
   const where: Prisma.TourGuiadoWhereInput = {}
-  if (filtros.status === 'ativos') where.ativo = true
-  else if (filtros.status === 'inativos') where.ativo = false
+  if (filtros.status === 'ativos') {
+    where.ativo = true
+    where.permite_autonomo = true
+  } else if (filtros.status === 'inativos') {
+    where.ativo = false
+    where.permite_autonomo = true
+  } else if (filtros.status === 'somente_jornada') where.permite_autonomo = false
   if (filtros.passos === 'com') where.passos = { some: {} }
   else if (filtros.passos === 'sem') where.passos = { none: {} }
   if (filtros.origem === 'autonomo') where.permite_autonomo = true
@@ -253,7 +258,7 @@ export async function listar(req: Request, res: Response) {
 
     const { page: pageNum, perPage: perPageNum } = normalizarPaginacaoTours(page, pageSize)
 
-    const [items, total, totalGeral, ativosGeral, inativosGeral, totalPassosGeral, sistemasRows] = await Promise.all([
+    const [items, total, totalGeral, ativosGeral, inativosGeral, somenteJornadaGeral, totalPassosGeral, sistemasRows] = await Promise.all([
       prisma.tourGuiado.findMany({
         where,
         orderBy,
@@ -268,8 +273,9 @@ export async function listar(req: Request, res: Response) {
       // base inteira, independente dos filtros aplicados na tabela) — mas
       // sempre escopados ao tenant.
       prisma.tourGuiado.count({ where: { tenant_id: tenantId } }),
-      prisma.tourGuiado.count({ where: { tenant_id: tenantId, ativo: true } }),
-      prisma.tourGuiado.count({ where: { tenant_id: tenantId, ativo: false } }),
+      prisma.tourGuiado.count({ where: { tenant_id: tenantId, ativo: true, permite_autonomo: true } }),
+      prisma.tourGuiado.count({ where: { tenant_id: tenantId, ativo: false, permite_autonomo: true } }),
+      prisma.tourGuiado.count({ where: { tenant_id: tenantId, permite_autonomo: false } }),
       prisma.tourPasso.count({ where: { tour: { tenant_id: tenantId } } }),
       prisma.tourGuiado.findMany({ where: { tenant_id: tenantId }, distinct: ['sistema'], select: { sistema: true }, orderBy: { sistema: 'asc' } }),
     ])
@@ -284,6 +290,7 @@ export async function listar(req: Request, res: Response) {
         total: totalGeral,
         ativos: ativosGeral,
         inativos: inativosGeral,
+        somente_jornada: somenteJornadaGeral,
         total_passos: totalPassosGeral,
       },
       sistemas: sistemasRows.map(r => r.sistema),
@@ -474,13 +481,15 @@ export async function atualizar(req: Request, res: Response) {
     if (!MODOS_IDENTIFICACAO.includes(modo)) {
       return res.status(400).json({ erro: 'modo_identificacao inválido.' })
     }
-    const merged = { ...req.body, modo_identificacao: modo }
+    // A listagem ativa o Tour com um PUT parcial ({ ativo: true }). Inclua os
+    // valores persistidos para validar o destino real também nesse atalho.
+    const merged = { ...existente, ...req.body, modo_identificacao: modo }
     const permiteAutonomoEfetivo = permite_autonomo !== undefined ? permite_autonomo : existente.permite_autonomo
     const gatilhosEfetivos = gatilhos !== undefined
       ? gatilhos
       : (existente.gatilhos ?? gatilhosLegados(modo, tela !== undefined ? tela : existente.tela, data_cy !== undefined ? data_cy : existente.data_cy, url_contem !== undefined ? url_contem : existente.url_contem))
     const vazios = permiteAutonomoEfetivo && (ativo !== undefined ? ativo : existente.ativo)
-      ? getCamposObrigatorios(modo).filter(c => c in req.body && !merged[c]?.toString().trim())
+      ? getCamposObrigatorios(modo).filter(c => (ativo === true || c in req.body) && !merged[c]?.toString().trim())
       : []
     if (vazios.length > 0) {
       return res.status(400).json({ erro: `Campos obrigatórios não podem ficar vazios: ${vazios.join(', ')}.` })
@@ -524,10 +533,8 @@ export async function atualizar(req: Request, res: Response) {
     } else if (ativoEfetivo) {
       // Ativando sem reenviar os passos (ex.: toggle rápido na listagem) —
       // valida os passos já salvos, que são os que o widget vai usar.
-      const semSeletor = existente.passos.length === 0 || existente.passos.some(p => !p.seletor?.trim())
-      if (semSeletor) {
-        return res.status(400).json({ erro: 'Para ativar o tour, todos os passos precisam ter um seletor/data-cy informado.' })
-      }
+      const { erro: erroPassos } = validarPassos(existente.passos, true)
+      if (erroPassos) return res.status(400).json({ erro: erroPassos })
     }
 
     // undefined = campo não enviado, não mexe no que já está salvo (mesmo

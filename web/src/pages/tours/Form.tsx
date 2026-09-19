@@ -709,7 +709,8 @@ export function TourForm() {
   const [passoDestacado, setPassoDestacado] = useState<number | null>(null)
   const scrollParaPassoFeitoRef = useRef(false)
 
-  // ─── Editar fluxo no sistema (gravador, só na edição) ──────────────────
+  // ─── Gravar/editar fluxo no sistema ────────────────────────────────────
+  const [fluxoSistemaAberto, setFluxoSistemaAberto] = useState(false)
   const [urlInicialGravador, setUrlInicialGravador] = useState('')
   const [erroGravador, setErroGravador] = useState<string | null>(null)
   const [urlGravadorGerada, setUrlGravadorGerada] = useState<string | null>(null)
@@ -1113,10 +1114,9 @@ export function TourForm() {
         secao: p.secao || null,
       }))
 
-  // Abre o gravador de fluxo (mesma URL/mecanismo de TourGravador.tsx) numa
-  // nova aba, levando titulo/descricao/sistema/prioridade + os passos atuais
-  // do tour (up_rec_passos) — o gravador (widget.js/recorderLerPassosIniciais)
-  // pré-carrega a lista lateral com eles em vez de iniciar vazio.
+  // Abre o gravador numa nova aba levando os dados deste formulário. Na
+  // edição, também pré-carrega os passos atuais; na criação, começa com os
+  // passos já preenchidos localmente ou vazio.
   //
   // Quando o payload dos passos existentes é grande demais pra caber na URL
   // (status 'excedeu_limite'), NÃO abrimos a aba automaticamente — abriria o
@@ -1144,13 +1144,9 @@ export function TourForm() {
         sistema: form.sistema,
         prioridade: Number(form.prioridade || 0),
         passos: passosParaGravadorPayload(),
-        // abrirGravador só existe dentro da seção "Editar fluxo no sistema",
-        // que só aparece quando isEdit — ou seja, sempre a partir de um Tour
-        // já existente. Não confundir com "tinha passos": um Tour existente
-        // recém-criado, ainda sem nenhum passo salvo, também é edição de Tour
-        // existente (o painel final do gravador deve orientar "atualizar",
-        // não "criar novo", mesmo nesse caso).
-        tourExistente: true,
+        // Ajusta apenas os textos do painel final do widget: na criação o
+        // resultado volta para este formulário e ainda será salvo como novo.
+        tourExistente: isEdit,
       })
     } catch {
       setErroGravador('URL inicial inválida — use uma URL completa, ex: https://meusistema.com/app/agenda')
@@ -1163,6 +1159,13 @@ export function TourForm() {
     }
     setUrlGravadorGerada(resultado.url)
     window.open(resultado.url, '_blank', 'noopener')
+  }
+
+  const abrirPainelGravador = () => {
+    setFluxoSistemaAberto(true)
+    window.requestAnimationFrame(() => {
+      document.getElementById('tour-gravador-integrado')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   // Só usado a partir do aviso de "excedeu o limite" — o usuário decidiu
@@ -1306,7 +1309,7 @@ export function TourForm() {
     if (previewResultado.status === 'excedeu_limite') {
       setErroTestarPassos(
         `Os ${resultado.passos.length} passo(s) colados são grandes demais para testar pela URL. ` +
-        'Use "Editar fluxo no sistema" acima e "Pré-visualizar tour" dentro do gravador para testar um fluxo grande.'
+        'Abra o gravador acima e use "Pré-visualizar tour" nele para testar um fluxo grande.'
       )
       return
     }
@@ -1338,7 +1341,7 @@ export function TourForm() {
 
   // Mesmo payload usado pelo "Salvar" normal (handleSubmit) e pela ação
   // rápida "Atualizar Tour existente" (atualizarTourComPassosColados, na
-  // seção "Editar fluxo no sistema") — só os passos mudam entre os dois;
+  // painel de gravação/edição no sistema) — só os passos mudam entre os dois;
   // título, sistema, tela, prioridade, ativo (exibição autônoma) e
   // segmentação sempre vêm do estado atual do formulário
   // (form/regrasSegmentacao), nunca do gravador. `...form` já inclui
@@ -1546,7 +1549,7 @@ export function TourForm() {
               Guia de Uso
             </button>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex flex-wrap gap-2 shrink-0">
             <Button
               type="button"
               onClick={() => navigate('/tours')}
@@ -1554,6 +1557,16 @@ export function TourForm() {
             >
               Cancelar
             </Button>
+            {!revisaoAberta && (
+              <Button
+                type="button"
+                onClick={abrirPainelGravador}
+                variant="ghost"
+                iconLeft={<span className="material-symbols-outlined text-[18px]">videocam</span>}
+              >
+                {isEdit ? 'Editar fluxo' : 'Gravar fluxo'}
+              </Button>
+            )}
              {isEdit && (
               <Button
                 type="button"
@@ -1660,15 +1673,27 @@ export function TourForm() {
         {!revisaoAberta && (
         <form id="tour-form" onSubmit={handleSubmit} className="mx-auto grid min-w-0 max-w-[1600px] items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,520px)]">
           <div className="min-w-0 space-y-4 xl:col-start-1">
-             {/* Editar fluxo no sistema — só na edição */}
-              {isEdit && (
-              <div className={`${card} min-w-0`}>
+             {/* Ferramenta auxiliar aberta explicitamente pela barra do topo. */}
+              {fluxoSistemaAberto && (
+              <div id="tour-gravador-integrado" className={`${card} min-w-0 scroll-mt-4`}>
                 <CardHeader
                   icon="videocam"
                   iconBg="bg-secondary-fixed"
                   iconColor="text-secondary"
-                  title="Editar fluxo no sistema"
-                  description="Abra o sistema integrado para ajustar os passos deste tour visualmente."
+                  title={isEdit ? 'Editar fluxo no sistema' : 'Gravar fluxo no sistema'}
+                  description={isEdit
+                    ? 'Abra o sistema integrado para ajustar os passos deste tour visualmente.'
+                    : 'Capture os passos no sistema integrado e traga o resultado para este novo tour.'}
+                  action={(
+                    <button
+                      type="button"
+                      onClick={() => setFluxoSistemaAberto(false)}
+                      aria-label="Fechar painel de gravação do fluxo"
+                      className="flex h-11 w-11 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface"
+                    >
+                      <span className="material-symbols-outlined">close</span>
+                    </button>
+                  )}
                 />
                 <div className="max-w-2xl space-y-4">
                   <div>
@@ -1686,14 +1711,18 @@ export function TourForm() {
 
                   <div className="flex items-start gap-2 rounded-xl bg-surface-container-low p-3 text-[11px] text-on-surface-variant">
                     <span className="material-symbols-outlined mt-0.5 shrink-0 text-[15px]">info</span>
-                    <span>
-                      Ao clicar em &quot;Editar fluxo no sistema&quot;, os {passos.length} passo{passos.length === 1 ? '' : 's'}{' '}
-                      já cadastrado{passos.length === 1 ? '' : 's'} deste tour são enviados junto — o gravador abre já
-                      com eles na lista lateral, prontos para editar, remover ou completar com novos passos. Ao
-                      finalizar, clique em &quot;Copiar JSON&quot; na aba do gravador e cole abaixo em &quot;Colar passos gravados&quot;
-                      para trazer o resultado de volta. Os passos atuais deste formulário só mudam quando você colar e
-                      clicar em &quot;Substituir passos&quot;.
-                    </span>
+                    {isEdit ? (
+                      <span>
+                        Os {passos.length} passo{passos.length === 1 ? '' : 's'} deste tour são enviados ao gravador para
+                        editar, remover ou completar. Ao finalizar, copie o JSON gerado, cole abaixo e clique em
+                        &quot;Substituir passos&quot; para trazê-los de volta ao formulário.
+                      </span>
+                    ) : (
+                      <span>
+                        A gravação abre em uma nova aba. Ao finalizar, copie o JSON gerado, volte para esta tela, cole
+                        abaixo e clique em &quot;Substituir passos&quot;. Depois revise as configurações e crie o tour normalmente.
+                      </span>
+                    )}
                   </div>
 
                   {statusGravador === 'excedeu_limite' && (
@@ -1701,10 +1730,9 @@ export function TourForm() {
                       <span className="material-symbols-outlined mt-0.5 shrink-0 text-[18px]">warning</span>
                       <div className="space-y-2">
                         <p>
-                          Este tour tem {passos.length} passo{passos.length === 1 ? '' : 's'} salvo{passos.length === 1 ? '' : 's'}, mas
-                          eles excederam o limite seguro de tamanho da URL do gravador. Abrir o gravador agora faria ele
-                          começar <strong>vazio</strong> — os passos salvos não seriam perdidos (continuam intactos
-                          abaixo, em &quot;Passos do tour&quot;), só não apareceriam pré-carregados na lista lateral do gravador.
+                          Os {passos.length} passo{passos.length === 1 ? '' : 's'} atuais excederam o limite seguro da URL.
+                          Abrir o gravador agora faria ele começar <strong>vazio</strong>. Os passos deste formulário não
+                          serão perdidos; apenas não aparecerão pré-carregados no gravador.
                         </p>
                         <p>
                           Você pode editar os passos existentes diretamente na lista &quot;Passos do tour&quot; logo abaixo (não
@@ -1758,7 +1786,7 @@ export function TourForm() {
                     className="flex items-center gap-1.5 rounded-xl bg-secondary px-4 py-2 text-label-md font-bold text-on-secondary shadow-md transition-all hover:opacity-90 active:scale-95"
                   >
                     <span className="material-symbols-outlined text-[18px]">videocam</span>
-                    Editar fluxo no sistema
+                    {isEdit ? 'Editar fluxo no sistema' : 'Iniciar gravação no sistema'}
                   </button>
 
                   <div className="border-t border-outline-variant/40 pt-3">
@@ -1834,16 +1862,18 @@ export function TourForm() {
                         <span className="material-symbols-outlined text-[18px]">play_circle</span>
                         Testar estes passos
                       </button>
-                      <button
-                        type="button"
-                        onClick={atualizarTourComPassosColados}
-                        disabled={!jsonColadoTexto.trim() || atualizandoTour}
-                        title="Salva os passos colados direto neste tour, sem precisar clicar em Salvar lá em cima. Título, sistema, prioridade e demais configurações não mudam."
-                        className="flex items-center gap-1.5 rounded-xl border border-outline-variant px-4 py-2 text-label-md font-bold text-on-surface transition-all hover:bg-surface-container-low disabled:opacity-50"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">cloud_upload</span>
-                        {atualizandoTour ? 'Atualizando…' : 'Atualizar Tour existente'}
-                      </button>
+                      {isEdit && (
+                        <button
+                          type="button"
+                          onClick={atualizarTourComPassosColados}
+                          disabled={!jsonColadoTexto.trim() || atualizandoTour}
+                          title="Salva os passos colados direto neste tour, sem precisar clicar em Salvar lá em cima. Título, sistema, prioridade e demais configurações não mudam."
+                          className="flex items-center gap-1.5 rounded-xl border border-outline-variant px-4 py-2 text-label-md font-bold text-on-surface transition-all hover:bg-surface-container-low disabled:opacity-50"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">cloud_upload</span>
+                          {atualizandoTour ? 'Atualizando…' : 'Atualizar Tour existente'}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={substituirPassosDoJson}

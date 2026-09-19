@@ -321,11 +321,15 @@ describe('montarWhereListaTours — filtros da listagem de Tours (GET /tours)', 
   })
 
   test('status=ativos => where.ativo=true', () => {
-    assert.deepEqual(montarWhereListaTours({ status: 'ativos' }), { ativo: true })
+    assert.deepEqual(montarWhereListaTours({ status: 'ativos' }), { ativo: true, permite_autonomo: true })
   })
 
-  test('status=inativos => where.ativo=false', () => {
-    assert.deepEqual(montarWhereListaTours({ status: 'inativos' }), { ativo: false })
+  test('status=inativos => só execução autônoma configurada e desligada', () => {
+    assert.deepEqual(montarWhereListaTours({ status: 'inativos' }), { ativo: false, permite_autonomo: true })
+  })
+
+  test('status=somente_jornada => sem execução autônoma', () => {
+    assert.deepEqual(montarWhereListaTours({ status: 'somente_jornada' }), { permite_autonomo: false })
   })
 
   test('status=todos (ou qualquer outro valor) => sem where.ativo, igual a "sem filtro"', () => {

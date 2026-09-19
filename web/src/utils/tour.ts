@@ -73,9 +73,9 @@ export interface GravadorParams {
   descricao: string
   sistema: string
   prioridade: number
-  // Só enviado em modo edição (TourForm) — pré-carrega o gravador com os
-  // passos já cadastrados do tour (ver recorderLerPassosIniciais em
-  // widget.js). Omitido na criação (TourGravador), que sempre abre vazio.
+  // Pré-carrega o gravador com os passos já presentes no formulário (ver
+  // recorderLerPassosIniciais em widget.js). Pode ser usado tanto na edição
+  // quanto na criação integrada; TourGravador continua abrindo vazio.
   passos?: GravadorPassoPayload[]
   // true só quando aberto via "Editar fluxo no sistema" de um Tour já
   // existente (Form.tsx, sempre em modo edição) — nunca enviado por

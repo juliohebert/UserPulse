@@ -542,6 +542,7 @@ export interface ResumoListaTours {
   total: number
   ativos: number
   inativos: number
+  somente_jornada: number
   total_passos: number
 }
 
