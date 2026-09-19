@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams, type NavigateFunction } from 'react-router-dom'
 import { del, get, post, put } from '../../services/api'
 import type { TourDependenciaJornada, TourExportEnvelope, TourGuiado, TourGuiadoListaPaginada } from '../../types'
-import { formatDateTime } from '../../utils/campanha'
 import { downloadJson } from '../../utils/tour'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
@@ -11,13 +10,14 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo, podeExcluirOuImportarModulo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
+import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 
 const PAGE_SIZE = 10
 // Só a busca dispara a cada tecla (sistema/passos são clique único, sem
 // motivo pra atraso) — debounce simples evita 1 request por caractere digitado.
 const BUSCA_DEBOUNCE_MS = 300
 
-type SortKey = 'tour' | 'sistema' | 'status' | 'passos' | 'atualizado'
+type SortKey = 'tour' | 'sistema' | 'status' | 'passos'
 type SortDirection = 'asc' | 'desc'
 type ColumnKey = SortKey | 'uso' | 'acoes'
 type FiltroPassos = 'todos' | 'com' | 'sem'
@@ -37,7 +37,6 @@ const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | n
   { label: 'Status', key: 'status', sortKey: 'status' },
   { label: 'Uso', key: 'uso', sortKey: null },
   { label: 'Passos', key: 'passos', sortKey: 'passos' },
-  { label: 'Atualizado em', key: 'atualizado', sortKey: 'atualizado' },
   { label: 'Ações', key: 'acoes', sortKey: null },
 ]
 
@@ -47,7 +46,6 @@ const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
   status: true,
   uso: true,
   passos: true,
-  atualizado: true,
   acoes: true,
 }
 
@@ -704,7 +702,7 @@ export function ToursIndex() {
                           <p className="mt-0.5 max-w-[220px] truncate text-[12px] text-on-surface-variant" title={destinoTour(tour)}>{destinoTour(tour)}</p>
                         </td>}
                         {colunasVisiveis.status && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
-                          <StatusBadge ativo={tour.ativo} />
+                          <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} />
                         </td>}
                         {colunasVisiveis.uso && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
                           <UsoBadge tour={tour} />
@@ -712,7 +710,6 @@ export function ToursIndex() {
                         {colunasVisiveis.passos && <td className="px-4 py-4 align-middle text-body-md font-bold text-center text-on-surface whitespace-nowrap">
                           {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
                         </td>}
-                        {colunasVisiveis.atualizado && <td className="px-4 py-4 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{formatDateTime(tour.atualizado_em)}</td>}
                         {colunasVisiveis.acoes && <td className="px-4 py-4 align-middle whitespace-nowrap">
                           <div className="flex items-center justify-end opacity-70 group-hover:opacity-100 transition-opacity">
                             <TourActions
@@ -725,8 +722,6 @@ export function ToursIndex() {
                               removendoId={removendoId}
                               onRemover={prepararRemocao}
                               consultandoImpactoId={consultandoImpactoId}
-                              alternandoId={alternandoId}
-                              onAlternarAtivo={alternarAtivo}
                               podeEscrever={podeEscrever}
                               podeExcluir={podeExcluirOuImportar}
                             />
@@ -757,14 +752,15 @@ export function ToursIndex() {
                     {tour.descricao && (
                       <p className="text-label-sm text-on-surface-variant line-clamp-2 mb-2">{tour.descricao}</p>
                     )}
-                    <div className="mb-3 flex flex-wrap items-center gap-2 text-label-sm text-on-surface-variant">
-                      <StatusBadge ativo={tour.ativo} />
-                      <UsoBadge tour={tour} />
-                      <span>{tour.sistema}</span>
-                      <span>· {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)</span>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2 text-label-sm text-on-surface-variant">
+                        <UsoBadge tour={tour} />
+                        <span>{tour.sistema}</span>
+                        <span>· {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)</span>
+                      </div>
+                      <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} compact />
                     </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-label-sm text-outline">Atualizado {formatDateTime(tour.atualizado_em)}</span>
+                    <div className="flex items-center justify-end gap-2">
                       <div className="flex items-center gap-1 shrink-0">
                         <TourActions
                           tour={tour}
@@ -776,8 +772,6 @@ export function ToursIndex() {
                           removendoId={removendoId}
                           onRemover={prepararRemocao}
                           consultandoImpactoId={consultandoImpactoId}
-                          alternandoId={alternandoId}
-                          onAlternarAtivo={alternarAtivo}
                           podeEscrever={podeEscrever}
                           podeExcluir={podeExcluirOuImportar}
                           size="lg"
@@ -838,6 +832,34 @@ function UsoBadge({ tour }: { tour: TourGuiado }) {
   )
 }
 
+function StatusControl({ tour, podeEscrever, alternando, bloqueado, onChange, compact = false }: {
+  tour: TourGuiado
+  podeEscrever: boolean
+  alternando: boolean
+  bloqueado: boolean
+  onChange: (ativo: boolean) => void
+  compact?: boolean
+}) {
+  if (!tour.permite_autonomo) {
+    return <span className="text-[12px] font-bold text-on-surface-variant">Não se aplica</span>
+  }
+  if (!podeEscrever) return <StatusBadge ativo={tour.ativo} />
+
+  return (
+    <div className={`flex items-center ${compact ? 'justify-end' : 'justify-center'} gap-1`}>
+      <ToggleSwitch
+        checked={tour.ativo}
+        onChange={onChange}
+        disabled={bloqueado}
+        ariaLabel={`${tour.ativo ? 'Desativar' : 'Ativar'} exibição autônoma de ${tour.titulo}`}
+      />
+      <span className={`min-w-[52px] text-left text-[12px] font-bold ${tour.ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
+        {alternando ? 'Salvando' : tour.ativo ? 'Ativa' : 'Inativa'}
+      </span>
+    </div>
+  )
+}
+
 function StatusBadge({ ativo }: { ativo: boolean }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
@@ -848,7 +870,7 @@ function StatusBadge({ ativo }: { ativo: boolean }) {
 }
 
 function TourActions({
-  tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, removendoId, onRemover, consultandoImpactoId, alternandoId, onAlternarAtivo, podeEscrever, podeExcluir, size = 'md',
+  tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, removendoId, onRemover, consultandoImpactoId, podeEscrever, podeExcluir, size = 'md',
 }: {
   tour: TourGuiado
   navigate: NavigateFunction
@@ -859,8 +881,6 @@ function TourActions({
   removendoId: string | null
   onRemover: (tour: TourGuiado) => void
   consultandoImpactoId: string | null
-  alternandoId: string | null
-  onAlternarAtivo: (tour: TourGuiado, ativo: boolean) => void
   podeEscrever: boolean
   podeExcluir: boolean
   size?: 'md' | 'lg'
@@ -884,19 +904,6 @@ function TourActions({
         <button onClick={() => onDuplicar(tour)} disabled={duplicandoId === tour.id} title="Duplicar" aria-label={`Duplicar ${tour.titulo}`} className={`${btnCls} disabled:opacity-40`}>
           <span className={`material-symbols-outlined text-[18px] ${duplicandoId === tour.id ? 'animate-spin' : ''}`}>
             {duplicandoId === tour.id ? 'progress_activity' : 'content_copy'}
-          </span>
-        </button>
-      )}
-      {podeEscrever && tour.permite_autonomo && (
-        <button
-          onClick={() => onAlternarAtivo(tour, !tour.ativo)}
-          disabled={alternandoId !== null}
-          title={tour.ativo ? 'Desativar' : 'Ativar'}
-          aria-label={`${tour.ativo ? 'Desativar' : 'Ativar'} ${tour.titulo}`}
-          className={`${btnPad} inline-flex items-center justify-center rounded-full text-on-surface-variant transition-colors disabled:opacity-40 ${tour.ativo ? 'hover:bg-error-container hover:text-error' : 'hover:bg-tertiary/10 hover:text-tertiary'}`}
-        >
-          <span className={`material-symbols-outlined text-[18px] ${alternandoId === tour.id ? 'animate-spin' : ''}`}>
-            {alternandoId === tour.id ? 'progress_activity' : tour.ativo ? 'block' : 'check_circle'}
           </span>
         </button>
       )}
