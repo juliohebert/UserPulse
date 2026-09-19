@@ -34,8 +34,8 @@ const STATUS_FILTRO_PADRAO: StatusFiltro = 'todos'
 const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
   { label: 'Tour', key: 'tour', sortKey: 'tour' },
   { label: 'Sistema / destino', key: 'sistema', sortKey: 'sistema' },
-  { label: 'Status', key: 'status', sortKey: 'status' },
-  { label: 'Uso', key: 'uso', sortKey: null },
+  { label: 'Exibição autônoma', key: 'status', sortKey: 'status' },
+  { label: 'Disponível em', key: 'uso', sortKey: null },
   { label: 'Passos', key: 'passos', sortKey: 'passos' },
   { label: 'Ações', key: 'acoes', sortKey: null },
 ]
@@ -823,10 +823,10 @@ function destinoTour(tour: TourGuiado): string {
 
 function UsoBadge({ tour }: { tour: TourGuiado }) {
   const texto = tour.permite_autonomo && tour.permite_jornada
-    ? 'Ambos'
-    : tour.permite_jornada ? 'Somente jornada' : 'Independente'
+    ? 'Autônomo + Jornada'
+    : tour.permite_jornada ? 'Somente Jornada' : 'Somente autônomo'
   return (
-    <span className="inline-flex rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-bold text-primary">
+    <span className="inline-flex rounded-full border border-outline-variant/60 bg-surface-container-low px-2.5 py-1 text-[11px] font-bold text-on-surface-variant">
       {texto}
     </span>
   )
@@ -841,7 +841,12 @@ function StatusControl({ tour, podeEscrever, alternando, bloqueado, onChange, co
   compact?: boolean
 }) {
   if (!tour.permite_autonomo) {
-    return <span className="text-[12px] font-bold text-on-surface-variant">Não se aplica</span>
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-outline" title="Este tour não permite execução autônoma">
+        <span className="h-2 w-2 rounded-full bg-outline-variant" />
+        Não configurada
+      </span>
+    )
   }
   if (!podeEscrever) return <StatusBadge ativo={tour.ativo} />
 
@@ -854,7 +859,7 @@ function StatusControl({ tour, podeEscrever, alternando, bloqueado, onChange, co
         ariaLabel={`${tour.ativo ? 'Desativar' : 'Ativar'} exibição autônoma de ${tour.titulo}`}
       />
       <span className={`min-w-[52px] text-left text-[12px] font-bold ${tour.ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
-        {alternando ? 'Salvando' : tour.ativo ? 'Ativa' : 'Inativa'}
+        {alternando ? 'Salvando' : tour.ativo ? 'Ligada' : 'Desligada'}
       </span>
     </div>
   )
@@ -864,7 +869,7 @@ function StatusBadge({ ativo }: { ativo: boolean }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
       <span className={`h-2 w-2 rounded-full ${ativo ? 'bg-tertiary' : 'bg-outline'}`} />
-      {ativo ? 'Ativa' : 'Inativa'}
+      {ativo ? 'Ligada' : 'Desligada'}
     </span>
   )
 }
