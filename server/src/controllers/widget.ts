@@ -327,7 +327,21 @@ interface HistoricoReexibicao {
   ultimaVisualizacao: Date | null
   ultimoFeedback: Date | null
   ultimaConfirmacao: Date | null
+  // Só usado por 'reexibir_a_cada_24h' (fechamento manual da modal). Opcional
+  // de propósito: as demais políticas nunca leem nem buscam este campo.
+  ultimoFechamento?: Date | null
 }
+
+// "A cada 24 horas" — política EXPLÍCITA, distinta de reexibir_apos_dias=1
+// (que muda de âncora conforme o tipo da campanha e conta em dias inteiros).
+// Reaproveita as colunas existentes: politica_reexibicao é String (não enum
+// de banco), reexibir_apos_dias fica null. Sem migration.
+export const POLITICA_REEXIBIR_A_CADA_24H = 'reexibir_a_cada_24h'
+export const INTERVALO_REEXIBICAO_24H_MS = 24 * 60 * 60 * 1000
+// Evento próprio (e não 'dispensa') para o fechamento manual da modal:
+// 'dispensa' já alimenta os KPIs/listagens de destaque_elemento no dashboard,
+// e gravar fechamentos de modal nele alteraria essas métricas.
+export const TIPO_EVENTO_FECHAMENTO_MANUAL = 'fechamento_manual'
 
 // Fonte única do filtro usado pelo gating de "campanha respondida"
 // (reexibição) — só o feedback GERAL (nps/csat, resolvido por
@@ -387,7 +401,37 @@ export function avaliarReexibicaoPorDias(
   return { bloqueado: false }
 }
 
-// Decisão autoritativa e pura das três políticas existentes. O campo
+// Função pura: "A cada 24 horas". A referência é o instante MAIS RECENTE entre
+// fechamento manual, visualização, resposta e confirmação — assim:
+//  - fechou manualmente -> 24h contadas do fechamento (visualização anterior
+//    é sempre mais antiga, nunca prevalece);
+//  - fechou sem responder/confirmar -> pode voltar em 24h (feedback e
+//    confirmação nunca são exigidos por esta política);
+//  - foi interrompida por navegação sem fechar -> a própria visualização
+//    protege contra reabertura imediata (24h da exibição).
+// Intervalo em milissegundos exatos (nunca virada de calendário): bloqueia
+// com delta < 24h, libera com delta >= 24h.
+export function avaliarReexibicaoA24h(historico: HistoricoReexibicao, agora: Date): HistoricoResult {
+  const datas = [
+    historico.ultimoFechamento,
+    historico.ultimaVisualizacao,
+    historico.ultimoFeedback,
+    historico.ultimaConfirmacao,
+  ].filter((d): d is Date => !!d)
+  if (datas.length === 0) return { bloqueado: false }
+
+  const referencia = Math.max(...datas.map(d => d.getTime()))
+  const restanteMs = INTERVALO_REEXIBICAO_24H_MS - (agora.getTime() - referencia)
+  if (restanteMs <= 0) return { bloqueado: false }
+
+  const horas = Math.ceil(restanteMs / 3600000)
+  return {
+    bloqueado: true,
+    motivo: 'Campanha exibida recentemente. Disponível novamente em até ' + horas + ' hora(s).',
+  }
+}
+
+// Decisão autoritativa e pura das políticas de reexibição. O campo
 // intervalo_reexibicao_dias antecede reexibir_apos_dias; continua valendo
 // como fallback para campanhas legadas que já o tinham preenchido.
 export function avaliarPoliticaReexibicao(
@@ -396,6 +440,8 @@ export function avaliarPoliticaReexibicao(
   agora: Date
 ): HistoricoResult {
   const policy = campanha.politica_reexibicao || 'uma_vez_apos_visualizacao'
+
+  if (policy === POLITICA_REEXIBIR_A_CADA_24H) return avaliarReexibicaoA24h(historico, agora)
 
   if (policy === 'uma_vez_apos_visualizacao') {
     if (historico.ultimaVisualizacao) return { bloqueado: true, motivo: 'Campanha já exibida para este usuário.' }
@@ -451,7 +497,7 @@ async function verificarHistorico(
   // por já ter respondido NPS/CSAT nem vice-versa). Ver validarAvaliacaoFeedback.
   const filtroFeedbackGeral = filtroFeedbackGeralReexibicao(campanha.id, uidStr, campanha.tipo_avaliacao_feedback)
 
-  const [ultimaViz, ultimoFb, ultimaConf] = await Promise.all([
+  const [ultimaViz, ultimoFb, ultimaConf, ultimoFech] = await Promise.all([
     prisma.eventoCampanha.findFirst({
       where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
       orderBy: { criado_em: 'desc' },
@@ -461,13 +507,48 @@ async function verificarHistorico(
       where: { campanha_id: campanha.id, usuario_id: uidStr },
       orderBy: { criado_em: 'desc' },
     }),
+    // Só a política "A cada 24 horas" lê o fechamento — as demais não pagam
+    // a query extra. Com ignorarVisualizacao (validação de uma RESPOSTA, ver
+    // registrarFeedback) o fechamento também é ignorado: fechar a campanha
+    // em outra aba não pode barrar o envio de uma resposta já iniciada. O
+    // fechamento continua valendo normalmente na elegibilidade de EXIBIÇÃO
+    // (buscarCandidatas/buscarCampanha, que não passam essa opção).
+    campanha.politica_reexibicao === POLITICA_REEXIBIR_A_CADA_24H && !opcoes.ignorarVisualizacao
+      ? prisma.eventoCampanha.findFirst({
+          where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: TIPO_EVENTO_FECHAMENTO_MANUAL },
+          orderBy: { criado_em: 'desc' },
+        })
+      : Promise.resolve(null),
   ])
 
   return avaliarPoliticaReexibicao(campanha, {
     ultimaVisualizacao: opcoes.ignorarVisualizacao ? null : (ultimaViz?.criado_em ?? null),
     ultimoFeedback: ultimoFb?.criado_em ?? null,
     ultimaConfirmacao: ultimaConf?.criado_em ?? null,
+    ultimoFechamento: opcoes.ignorarVisualizacao ? null : (ultimoFech?.criado_em ?? null),
   }, agora)
+}
+
+// Histórico completo (sem escopo por regra) para o simulador de
+// elegibilidade em campanhas.ts — mesma origem de dados do gating real de
+// 'reexibir_a_cada_24h', pra o diagnóstico nunca divergir do widget.
+export async function buscarHistoricoReexibicao24h(
+  campanha: { id: string; tipo_avaliacao_feedback: string },
+  uidStr: string,
+): Promise<HistoricoReexibicao> {
+  const filtroFeedbackGeral = filtroFeedbackGeralReexibicao(campanha.id, uidStr, campanha.tipo_avaliacao_feedback)
+  const [viz, fb, conf, fech] = await Promise.all([
+    prisma.eventoCampanha.findFirst({ where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' }, orderBy: { criado_em: 'desc' } }),
+    prisma.feedback.findFirst({ where: filtroFeedbackGeral, orderBy: { criado_em: 'desc' } }),
+    prisma.confirmacaoLeitura.findFirst({ where: { campanha_id: campanha.id, usuario_id: uidStr }, orderBy: { criado_em: 'desc' } }),
+    prisma.eventoCampanha.findFirst({ where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: TIPO_EVENTO_FECHAMENTO_MANUAL }, orderBy: { criado_em: 'desc' } }),
+  ])
+  return {
+    ultimaVisualizacao: viz?.criado_em ?? null,
+    ultimoFeedback: fb?.criado_em ?? null,
+    ultimaConfirmacao: conf?.criado_em ?? null,
+    ultimoFechamento: fech?.criado_em ?? null,
+  }
 }
 
 // ─── Escopo de reexibição POR REGRA (destino) ─────────────────────────────
@@ -521,7 +602,7 @@ async function verificarHistoricoPorRegra(
   agora: Date,
 ): Promise<string[]> {
   const filtroFeedbackGeral = filtroFeedbackGeralReexibicao(campanha.id, uidStr, campanha.tipo_avaliacao_feedback)
-  const [vizs, fbs, confs] = await Promise.all([
+  const [vizs, fbs, confs, fechs] = await Promise.all([
     prisma.eventoCampanha.findMany({
       where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: 'visualizacao' },
       orderBy: { criado_em: 'desc' },
@@ -533,6 +614,14 @@ async function verificarHistoricoPorRegra(
       orderBy: { criado_em: 'desc' },
       select: { criado_em: true, contexto: true },
     }),
+    // Só 'reexibir_a_cada_24h' lê fechamentos — demais políticas não pagam a query.
+    campanha.politica_reexibicao === POLITICA_REEXIBIR_A_CADA_24H
+      ? prisma.eventoCampanha.findMany({
+          where: { campanha_id: campanha.id, usuario_id: uidStr, tipo_evento: TIPO_EVENTO_FECHAMENTO_MANUAL },
+          orderBy: { criado_em: 'desc' },
+          select: { criado_em: true, contexto: true },
+        })
+      : Promise.resolve([] as Array<{ criado_em: Date; contexto: unknown }>),
   ])
   const bloqueadas: string[] = []
   for (const regra of regras) {
@@ -542,6 +631,7 @@ async function verificarHistoricoPorRegra(
       ultimaVisualizacao: dataMaisRecentePorRegra(vizs, chave),
       ultimoFeedback: dataMaisRecentePorRegra(fbs, chave),
       ultimaConfirmacao: dataMaisRecentePorRegra(confs, chave),
+      ultimoFechamento: dataMaisRecentePorRegra(fechs, chave),
     }, agora)
     if (resultado.bloqueado) bloqueadas.push(chave)
   }
@@ -863,7 +953,7 @@ export async function buscarCandidatas(req: Request, res: Response) {
 // existiam (modal_automatica); os 2 últimos são específicos de
 // destaque_elemento — o widget manda destaque_item_id junto (ver
 // validarDestaqueItemEvento abaixo), nunca os outros dois formatos.
-export const TIPOS_EVENTO_CAMPANHA = ['visualizacao', 'clique_cta', 'interacao_badge', 'dispensa']
+export const TIPOS_EVENTO_CAMPANHA = ['visualizacao', 'clique_cta', 'interacao_badge', 'dispensa', TIPO_EVENTO_FECHAMENTO_MANUAL]
 
 // Decide se um destaque_item_id enviado no evento pode ser aceito — função
 // pura (não toca no banco), testável sem DB/tenant de verdade. Quem chama

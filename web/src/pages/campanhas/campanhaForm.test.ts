@@ -367,6 +367,19 @@ describe('hidratarFormState — NPS/CTA/segmentação/reexibição/evento', () =
     assert.equal(form.reexibir_apos_dias, '')
   })
 
+  test('reexibição "A cada 24 horas": política explícita carregada na edição, sem dias', () => {
+    const c = campanhaAntiga({ politica_reexibicao: 'reexibir_a_cada_24h', reexibir_apos_dias: null, mostrar_uma_vez: false })
+    const form = hidratarFormState(c)
+    assert.equal(form.politica_reexibicao, 'reexibir_a_cada_24h')
+    assert.equal(form.reexibir_apos_dias, '')
+  })
+
+  test('reexibição "A cada 24 horas" é distinta de reexibir_apos_dias=1 (legado não vira 24h na edição)', () => {
+    const legado = hidratarFormState(campanhaAntiga({ politica_reexibicao: 'reexibir_apos_dias', reexibir_apos_dias: 1 }))
+    assert.equal(legado.politica_reexibicao, 'reexibir_apos_dias')
+    assert.equal(legado.reexibir_apos_dias, '1')
+  })
+
   test('evento/gatilho: campanha "apos_evento" carrega evento e encerramento por evento', () => {
     const c = campanhaAntiga({ gatilho: 'apos_evento', evento: 'checkout_concluido', encerrar_apos_evento: true, evento_conclusao: 'usou_nova_agenda' })
     const form = hidratarFormState(c)
@@ -419,6 +432,16 @@ describe('montarPayloadCampanha — feedback + confirmação (bug corrigido)', (
     const form: FormState = { ...formInicial, feedback_habilitado: false, exige_confirmacao_leitura: false, permitir_fechar_modal: false }
     const payload = montarPayloadCampanha(form)
     assert.equal(payload.permitir_fechar_modal, true)
+  })
+})
+
+describe('montarPayloadCampanha — frequência "A cada 24 horas"', () => {
+  test('envia politica_reexibicao explícita, mostrar_uma_vez=false e reexibir_apos_dias=null', () => {
+    const form: FormState = { ...formInicial, politica_reexibicao: 'reexibir_a_cada_24h', mostrar_uma_vez: false, reexibir_apos_dias: '' }
+    const payload = montarPayloadCampanha(form)
+    assert.equal(payload.politica_reexibicao, 'reexibir_a_cada_24h')
+    assert.equal(payload.mostrar_uma_vez, false)
+    assert.equal(payload.reexibir_apos_dias, null)
   })
 })
 

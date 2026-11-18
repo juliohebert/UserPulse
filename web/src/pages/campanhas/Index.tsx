@@ -860,6 +860,12 @@ export function CampanhasIndex() {
                                     Até responder
                                   </span>
                                 )}
+                                {c.politica_reexibicao === 'reexibir_a_cada_24h' && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-tertiary/10 text-tertiary" title="Reexibe 24 horas após o fechamento">
+                                    <span className="material-symbols-outlined text-[10px]">update</span>
+                                    A cada 24h
+                                  </span>
+                                )}
                                 {(c.politica_reexibicao || 'uma_vez_apos_visualizacao') === 'reexibir_apos_dias' && (
                                   <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-tertiary/10 text-tertiary" title={`Reexibe após ${c.reexibir_apos_dias ?? '?'} dias`}>
                                     <span className="material-symbols-outlined text-[10px]">schedule</span>

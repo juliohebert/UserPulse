@@ -483,8 +483,8 @@ describe('construirFiltroCandidatas — GET /api/widget/candidatas', () => {
 // widget.ts), então esta função pura é o único lugar que garante que um
 // item de outra campanha (ou de outro tenant) nunca é aceito.
 describe('TIPOS_EVENTO_CAMPANHA', () => {
-  test('inclui os 2 tipos legados de modal_automatica e os 2 novos de destaque_elemento', () => {
-    assert.deepEqual(TIPOS_EVENTO_CAMPANHA, ['visualizacao', 'clique_cta', 'interacao_badge', 'dispensa'])
+  test('inclui os 2 tipos legados de modal_automatica, os 2 de destaque_elemento e o fechamento manual (24h)', () => {
+    assert.deepEqual(TIPOS_EVENTO_CAMPANHA, ['visualizacao', 'clique_cta', 'interacao_badge', 'dispensa', 'fechamento_manual'])
   })
 })
 

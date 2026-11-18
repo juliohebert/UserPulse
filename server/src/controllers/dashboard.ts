@@ -2,6 +2,7 @@ import { Request, Response } from 'express'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { FORMATO_DESTAQUE_ELEMENTO } from './campanhas'
+import { TIPO_EVENTO_FECHAMENTO_MANUAL } from './widget'
 import { montarEvolucaoNps, normalizarAnoEvolucaoNps, normalizarGranularidadeEvolucaoNps } from '../lib/evolucaoNps'
 
 // ─── Desempenho por destaque (Fase 3 — múltiplos destaques) ────────────────
@@ -409,9 +410,13 @@ function filtrosFeedback(query: Request['query'], campanhaId: string): Prisma.Fe
   return contexto.length ? { AND: [where, ...contexto] } : where
 }
 
-function filtrosEventos(query: Request['query'], campanhaId: string): Prisma.EventoCampanhaWhereInput {
+export function filtrosEventos(query: Request['query'], campanhaId: string): Prisma.EventoCampanhaWhereInput {
   const where: Prisma.EventoCampanhaWhereInput = { campanha_id: campanhaId, criado_em: intervalo(query) }
   const tipos: Record<string, string> = { Visualização: 'visualizacao', Clique: 'clique_cta', Interação: 'interacao_badge', Dispensa: 'dispensa' }
+  // fechamento_manual (reexibição "A cada 24 horas") é só controle interno de
+  // frequência — nunca aparece na listagem/total de interações do dashboard.
+  // Os filtros de tipo abaixo sobrescrevem este default.
+  where.tipo_evento = { not: TIPO_EVENTO_FECHAMENTO_MANUAL }
   if (typeof query.tipo === 'string' && tipos[query.tipo]) where.tipo_evento = tipos[query.tipo]
   if (typeof query.destaque_id === 'string' && query.destaque_id) where.destaque_item_id = query.destaque_id
   // Filtro por conteúdo (seção "Cliques CTA por conteúdo") — id específico, ou

@@ -113,6 +113,7 @@ function linhaDominios(c: Campanha): string {
 
 function linhaReexibicao(c: Campanha): string {
   if (c.politica_reexibicao === 'ate_responder_ou_confirmar') return 'Até responder ou confirmar'
+  if (c.politica_reexibicao === 'reexibir_a_cada_24h') return 'A cada 24 horas após o fechamento'
   if (c.politica_reexibicao === 'reexibir_apos_dias') {
     const dias = c.reexibir_apos_dias ?? c.intervalo_reexibicao_dias
     return dias && dias > 0 ? `A cada ${dias} dia${dias === 1 ? '' : 's'}` : 'Reexibir periodicamente'
