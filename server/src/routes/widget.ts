@@ -17,6 +17,7 @@ router.get('/aparencia', widget.buscarAparencia)
 router.get('/tour/candidatas', widget.buscarTourCandidatos)
 router.post('/tour/evento', widget.registrarEventoTour)
 router.get('/jornadas', widget.buscarJornadas)
+router.get('/jornadas/preview', widget.buscarPreviewJornada)
 router.post('/jornada/evento', widget.registrarEventoJornada)
 
 export default router

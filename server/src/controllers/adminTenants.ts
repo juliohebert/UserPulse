@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { AdminRole, Prisma, TenantStatus } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { checarLimiteUsuariosAdmin, planoEfetivoParaLimite } from '../lib/tenantGuards'
+import { validarBooleanosEstritos } from '../lib/validacao'
 
 // Mesmo custo de hash usado em prisma/seedAdmin.ts — sem lib compartilhada de
 // bcrypt no projeto ainda, duplicar essa constante é o padrão já existente.
@@ -365,6 +366,8 @@ export async function atualizarAcesso(req: Request, res: Response) {
     if (!existente) { res.status(404).json({ erro: 'Acesso não encontrado.' }); return }
 
     const { nome, role, ativo } = req.body as { nome?: string; role?: string; ativo?: boolean }
+    const erroBooleanos = validarBooleanosEstritos(req.body, ['ativo'])
+    if (erroBooleanos) return res.status(400).json({ erro: erroBooleanos })
     if (!nome?.trim()) { res.status(400).json({ erro: 'nome é obrigatório.' }); return }
     const roleNormalizada = (role?.trim().toUpperCase() || '') as AdminRole
     if (!ROLES_ACESSO_CLIENTE.has(roleNormalizada)) {
@@ -374,7 +377,7 @@ export async function atualizarAcesso(req: Request, res: Response) {
 
     const atualizado = await prisma.adminUser.update({
       where: { id: adminId },
-      data: { nome: nome.trim(), role: roleNormalizada, ativo: Boolean(ativo) },
+      data: { nome: nome.trim(), role: roleNormalizada, ativo: ativo === true },
       select: SELECAO_ADMIN,
     })
     res.json(atualizado)

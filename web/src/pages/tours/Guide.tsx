@@ -81,7 +81,7 @@ const BOAS_PRATICAS = [
 ]
 
 const COMO_CRIAR = [
-  { titulo: 'Escolha um template ou comece em branco', desc: 'Em "Novo Tour Guiado", um modelo já preenche título, descrição e passos base — ou comece do zero.' },
+  { titulo: 'Defina o nome e a distribuição', desc: 'Em "Novo Tour Guiado", informe o nome e escolha se ele será executado de forma independente, como etapa de Jornada ou nos dois contextos.' },
   { titulo: 'Preencha o destino', desc: 'Defina sistema e como o tour deve ser identificado: tela informada pelo sistema, data-cy ou caminho da URL.' },
   { titulo: 'Cadastre os passos', desc: 'Cada passo aponta para um elemento (seletor) com título e descrição do que destacar.' },
   { titulo: 'Teste', desc: 'Use "Testar tour" para percorrer o fluxo real e confirmar que cada passo encontra seu elemento.' },
@@ -228,7 +228,7 @@ export function TourGuide() {
           iconBg="bg-secondary-fixed"
           iconColor="text-secondary"
           title="Como criar"
-          subtitle="Cinco passos, do modelo até a publicação."
+          subtitle="Cinco passos, da configuração até a publicação."
         >
           <ol className="space-y-3">
             {COMO_CRIAR.map((passo, i) => (

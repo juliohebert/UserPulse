@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams, type NavigateFunction } from 'react-router-dom'
-import { del, get, post } from '../../services/api'
-import type { TourExportEnvelope, TourGuiado, TourGuiadoListaPaginada } from '../../types'
-import { formatDateTime } from '../../utils/campanha'
+import { del, get, post, put } from '../../services/api'
+import type { TourDependenciaJornada, TourExportEnvelope, TourGuiado, TourGuiadoListaPaginada } from '../../types'
 import { downloadJson } from '../../utils/tour'
 import { Pagination } from '../../components/ui/Pagination'
 import { LoadingSpinner, ErrorState, EmptyState } from '../../components/ui/EmptyState'
@@ -11,15 +10,16 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { useAuth } from '../../hooks/useAuth'
 import { podeGerenciarModulo, podeExcluirOuImportarModulo } from '../../utils/permissions'
 import { limiteTrial } from '../../utils/limiteTrial'
+import { ToggleSwitch } from '../../components/ui/ToggleSwitch'
 
 const PAGE_SIZE = 10
 // Só a busca dispara a cada tecla (sistema/passos são clique único, sem
 // motivo pra atraso) — debounce simples evita 1 request por caractere digitado.
 const BUSCA_DEBOUNCE_MS = 300
 
-type SortKey = 'tour' | 'sistema' | 'status' | 'passos' | 'atualizado'
+type SortKey = 'tour' | 'sistema' | 'status' | 'passos'
 type SortDirection = 'asc' | 'desc'
-type ColumnKey = SortKey | 'acoes'
+type ColumnKey = SortKey | 'uso' | 'acoes'
 type FiltroPassos = 'todos' | 'com' | 'sem'
 // Tour.ativo controla só a exibição autônoma (autoabertura por regra de
 // identificação/segmentação, ou window.UserPulse.iniciarTour(slug)) — não
@@ -28,15 +28,15 @@ type FiltroPassos = 'todos' | 'com' | 'sem'
 // isso o filtro/coluna usam "Ativa/Inativa" (não "Rascunho") e o padrão é
 // "Todas": esconder os inativos por padrão esconderia tours que só são
 // usados via Jornada, mesmo estando em uso normal.
-type StatusFiltro = 'todos' | 'ativos' | 'inativos'
+type StatusFiltro = 'todos' | 'ativos' | 'inativos' | 'somente_jornada'
 const STATUS_FILTRO_PADRAO: StatusFiltro = 'todos'
 
 const TABLE_COLUMNS: Array<{ label: string; key: ColumnKey; sortKey: SortKey | null }> = [
   { label: 'Tour', key: 'tour', sortKey: 'tour' },
-  { label: 'Sistema', key: 'sistema', sortKey: 'sistema' },
+  { label: 'Sistema / destino', key: 'sistema', sortKey: 'sistema' },
   { label: 'Exibição autônoma', key: 'status', sortKey: 'status' },
+  { label: 'Disponível em', key: 'uso', sortKey: null },
   { label: 'Passos', key: 'passos', sortKey: 'passos' },
-  { label: 'Atualizado em', key: 'atualizado', sortKey: 'atualizado' },
   { label: 'Ações', key: 'acoes', sortKey: null },
 ]
 
@@ -44,8 +44,8 @@ const COLUNAS_INICIAIS: Record<ColumnKey, boolean> = {
   tour: true,
   sistema: true,
   status: true,
+  uso: true,
   passos: true,
-  atualizado: true,
   acoes: true,
 }
 
@@ -53,6 +53,7 @@ const STATUS_FILTRO: Array<{ value: StatusFiltro; label: string }> = [
   { value: 'todos', label: 'Todas' },
   { value: 'ativos', label: 'Ativas' },
   { value: 'inativos', label: 'Inativas' },
+  { value: 'somente_jornada', label: 'Somente em jornadas' },
 ]
 
 function MetricCard({ label, value, icon }: { label: string; value: string | number; icon: string }) {
@@ -73,7 +74,7 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-[#ced0d4] bg-white px-2.5 py-1 text-label-md font-bold text-on-surface">
       {label}
-      <button type="button" onClick={onRemove} aria-label={`Remover filtro ${label}`} className="rounded-full p-0.5 transition-colors hover:text-error">
+      <button type="button" onClick={onRemove} aria-label={`Remover filtro ${label}`} className="-my-2 -mr-2 flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:text-error">
         <span className="material-symbols-outlined text-[14px] leading-none">close</span>
       </button>
     </span>
@@ -111,7 +112,7 @@ function FilterSelect({
 // — a listagem chama a mesma consulta de sempre, preservando o comportamento
 // atual quando nenhum filtro é aplicado (mesmo padrão de montarQuery em
 // web/src/pages/tours/Dashboard.tsx).
-function montarQueryTours(busca: string, sistema: string, status: StatusFiltro, passos: FiltroPassos, pagina: number, sort: { key: SortKey; direction: SortDirection } | null): string {
+function montarQueryTours(busca: string, sistema: string, status: StatusFiltro, passos: FiltroPassos, origem: string, pagina: number, sort: { key: SortKey; direction: SortDirection } | null): string {
   const params = new URLSearchParams()
   params.set('page', String(pagina))
   params.set('pageSize', String(PAGE_SIZE))
@@ -119,6 +120,7 @@ function montarQueryTours(busca: string, sistema: string, status: StatusFiltro, 
   if (sistema) params.set('sistema', sistema)
   if (status !== 'todos') params.set('status', status)
   if (passos !== 'todos') params.set('passos', passos)
+  if (origem) params.set('origem', origem)
   if (sort) {
     params.set('sortKey', sort.key)
     params.set('sortDirection', sort.direction)
@@ -148,15 +150,21 @@ export function ToursIndex() {
   const [filterSistema, setFilterSistema] = useState('')
   const [filterAtivo, setFilterAtivo] = useState<StatusFiltro>(STATUS_FILTRO_PADRAO)
   const [filterPassos, setFilterPassos] = useState<FiltroPassos>('todos')
+  const [filterOrigem, setFilterOrigem] = useState('')
   const [duplicandoId, setDuplicandoId] = useState<string | null>(null)
   const [exportandoId, setExportandoId] = useState<string | null>(null)
   const [removendoId, setRemovendoId] = useState<string | null>(null)
+  const [alternandoId, setAlternandoId] = useState<string | null>(null)
   const [tourRemover, setTourRemover] = useState<TourGuiado | null>(null)
+  const [dependenciasRemocao, setDependenciasRemocao] = useState<TourDependenciaJornada[]>([])
+  const [consultandoImpactoId, setConsultandoImpactoId] = useState<string | null>(null)
   const [modalImportarAberto, setModalImportarAberto] = useState(false)
   const [importarViaGravador, setImportarViaGravador] = useState(false)
   const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   const navigate = useNavigate()
   const redirectTimer = useRef<number | null>(null)
+  const buscaTimerRef = useRef<number | null>(null)
+  const loadGeracaoRef = useRef(0)
   const colunasRef = useRef<HTMLDivElement | null>(null)
   const filtrosRef = useRef<HTMLDivElement | null>(null)
   // Ignora o primeiro disparo do efeito de debounce da busca — a carga
@@ -165,6 +173,8 @@ export function ToursIndex() {
 
   useEffect(() => () => {
     if (redirectTimer.current) window.clearTimeout(redirectTimer.current)
+    if (buscaTimerRef.current) window.clearTimeout(buscaTimerRef.current)
+    loadGeracaoRef.current += 1
   }, [])
 
   useEffect(() => {
@@ -235,30 +245,37 @@ export function ToursIndex() {
   // page é sempre o pedido explicitamente por quem chama load() — nunca lido
   // de volta de `data` no meio do caminho, pra não haver corrida entre um
   // clique de página e um filtro mudando ao mesmo tempo.
-  const load = (buscaAtual: string, sistemaAtual: string, statusAtual: StatusFiltro, pagina: number, sortAtual = sort, passosAtual = filterPassos) => {
+  const load = (buscaAtual: string, sistemaAtual: string, statusAtual: StatusFiltro, pagina: number, sortAtual = sort, passosAtual = filterPassos, origemAtual = filterOrigem) => {
+    if (buscaTimerRef.current) window.clearTimeout(buscaTimerRef.current)
+    const geracao = ++loadGeracaoRef.current
     setLoading(true)
     setError(null)
-    get<TourGuiadoListaPaginada>(`/tours${montarQueryTours(buscaAtual, sistemaAtual, statusAtual, passosAtual, pagina, sortAtual)}`)
-      .then(setData)
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
+    get<TourGuiadoListaPaginada>(`/tours${montarQueryTours(buscaAtual, sistemaAtual, statusAtual, passosAtual, origemAtual, pagina, sortAtual)}`)
+      .then(resultado => { if (geracao === loadGeracaoRef.current) setData(resultado) })
+      .catch(e => { if (geracao === loadGeracaoRef.current) setError(e.message) })
+      .finally(() => { if (geracao === loadGeracaoRef.current) setLoading(false) })
   }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(busca, '', STATUS_FILTRO_PADRAO, 1, null, 'todos') }, [])
+  useEffect(() => { load(busca, '', STATUS_FILTRO_PADRAO, 1, null, 'todos', '') }, [])
 
-  // Debounce só da busca — status/sistema/passos mudam por clique único (sem
-  // motivo pra atrasar) e já chamam load() direto nos próprios handlers.
+  // Busca e origem compartilham o debounce para que uma troca de origem
+  // cancele a busca pendente antes de recriá-la com todos os filtros atuais.
   useEffect(() => {
     if (primeiraRenderRef.current) { primeiraRenderRef.current = false; return }
-    const t = window.setTimeout(() => load(busca, filterSistema, filterAtivo, 1), BUSCA_DEBOUNCE_MS)
-    return () => window.clearTimeout(t)
+    // Invalida imediatamente a resposta anterior, inclusive durante os 300ms
+    // anteriores ao início da nova requisição.
+    loadGeracaoRef.current += 1
+    buscaTimerRef.current = window.setTimeout(() => load(busca, filterSistema, filterAtivo, 1), BUSCA_DEBOUNCE_MS)
+    return () => {
+      if (buscaTimerRef.current) window.clearTimeout(buscaTimerRef.current)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busca])
+  }, [busca, filterOrigem])
 
   const sistemas = data?.sistemas ?? []
   const items = data?.items ?? []
-  const resumo = data?.resumo ?? { total: 0, ativos: 0, inativos: 0, total_passos: 0 }
+  const resumo = data?.resumo ?? { total: 0, ativos: 0, inativos: 0, somente_jornada: 0, total_passos: 0 }
   // Fase 6E — resumo.total já é o TOTAL cadastrado do tenant, sem depender
   // de filtro/busca (ver server/src/controllers/tours.ts listar()) —
   // reaproveitado direto, sem endpoint novo.
@@ -272,9 +289,10 @@ export function ToursIndex() {
     setFilterSistema('')
     setFilterAtivo(STATUS_FILTRO_PADRAO)
     setFilterPassos('todos')
-    load('', '', STATUS_FILTRO_PADRAO, 1, sort, 'todos')
+    setFilterOrigem('')
+    load('', '', STATUS_FILTRO_PADRAO, 1, sort, 'todos', '')
   }
-  const totalFiltrosAtivos = [Boolean(filterSistema), filterAtivo !== STATUS_FILTRO_PADRAO, filterPassos !== 'todos'].filter(Boolean).length
+  const totalFiltrosAtivos = [Boolean(filterSistema), filterAtivo !== STATUS_FILTRO_PADRAO, filterPassos !== 'todos', Boolean(filterOrigem)].filter(Boolean).length
   const hasFilters = Boolean(busca || totalFiltrosAtivos > 0)
   const totalColunasSelecionadas = TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).length
 
@@ -286,7 +304,8 @@ export function ToursIndex() {
     if (key === 'tour') return
     setColunasVisiveis(prev => ({ ...prev, [key]: !prev[key] }))
   }
-  const mudarPassos = (v: FiltroPassos) => { setFilterPassos(v); load(busca, filterSistema, filterAtivo, 1, sort, v) }
+  const mudarPassos = (v: FiltroPassos) => { setFilterPassos(v); load(busca, filterSistema, filterAtivo, 1, sort, v, filterOrigem) }
+  const mudarOrigem = (v: string) => setFilterOrigem(v)
   const ordenarPor = (key: SortKey) => {
     const next = sort?.key === key ? { key, direction: sort.direction === 'asc' ? 'desc' as const : 'asc' as const } : { key, direction: 'asc' as const }
     setSort(next)
@@ -308,15 +327,36 @@ export function ToursIndex() {
     }
   }
 
+  const alternarAtivo = async (tour: TourGuiado, ativo: boolean) => {
+    if (!tour.permite_autonomo) {
+      setMensagem({ tipo: 'erro', texto: 'Este tour está configurado somente para Jornadas. Habilite a execução independente na edição para ativá-lo.' })
+      return
+    }
+    setAlternandoId(tour.id)
+    setMensagem(null)
+    try {
+      await put<TourGuiado>(`/tours/${tour.id}`, { ativo })
+      setMensagem({ tipo: 'sucesso', texto: `Exibição autônoma ${ativo ? 'ativada' : 'desativada'} para "${tour.titulo}".` })
+      const saiDoFiltro = (filterAtivo === 'ativos' && !ativo) || (filterAtivo === 'inativos' && ativo)
+      const proximaPagina = saiDoFiltro && items.length === 1 && paginaAtual > 1 ? paginaAtual - 1 : paginaAtual
+      load(busca, filterSistema, filterAtivo, proximaPagina)
+    } catch (e) {
+      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível alterar a exibição do tour.' })
+    } finally {
+      setAlternandoId(null)
+    }
+  }
+
   const removerTour = async () => {
     if (!tourRemover) return
     const tour = tourRemover
     setRemovendoId(tour.id)
     setMensagem(null)
     try {
-      await del(`/tours/${tour.id}`)
+      await del(`/tours/${tour.id}?confirmar=true`)
       setMensagem({ tipo: 'sucesso', texto: 'Tour removido com sucesso.' })
       setTourRemover(null)
+      setDependenciasRemocao([])
       // Recarrega a página atual — remover muda o total/paginação (não dá pra
       // só tirar o item da lista local sem também reconferir total/resumo).
       load(busca, filterSistema, filterAtivo, paginaAtual)
@@ -324,6 +364,20 @@ export function ToursIndex() {
       setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível remover o tour. Tente novamente.' })
     } finally {
       setRemovendoId(null)
+    }
+  }
+
+  const prepararRemocao = async (tour: TourGuiado) => {
+    setMensagem(null)
+    setConsultandoImpactoId(tour.id)
+    try {
+      const dependencias = await get<TourDependenciaJornada[]>(`/tours/${tour.id}/dependencias`)
+      setDependenciasRemocao(dependencias)
+      setTourRemover(tour)
+    } catch (e) {
+      setMensagem({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível consultar o impacto da remoção.' })
+    } finally {
+      setConsultandoImpactoId(null)
     }
   }
 
@@ -407,36 +461,21 @@ export function ToursIndex() {
                 </Button>
               )}
               {podeEscrever && (
-                <>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      // Fase 6E — o gravador termina criando um tour novo, então
-                      // recebe o mesmo bloqueio de "Novo Tour Guiado" abaixo.
-                      if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
-                      navigate('/tours/gravador')
-                    }}
-                    fullWidthMobile
-                    iconLeft={<span className="material-symbols-outlined text-[18px]">radio_button_checked</span>}
-                  >
-                    Gravar fluxo
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      // Fase 6E — trial no limite: nem navega pro formulário,
-                      // só avisa (mesma mensagem do backend). Continua
-                      // permitido editar/excluir tours existentes.
-                      if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
-                      navigate('/tours/novo')
-                    }}
-                    variant="gradient"
-                    size="lg"
-                    fullWidthMobile
-                    iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
-                  >
-                    Novo Tour Guiado
-                  </Button>
-                </>
+                <Button
+                  onClick={() => {
+                    // Fase 6E — trial no limite: nem navega pro formulário,
+                    // só avisa (mesma mensagem do backend). Continua
+                    // permitido editar/excluir tours existentes.
+                    if (limiteTours.atingido) { setMensagem({ tipo: 'erro', texto: limiteTours.mensagem! }); return }
+                    navigate('/tours/novo')
+                  }}
+                  variant="gradient"
+                  size="lg"
+                  fullWidthMobile
+                  iconLeft={<span className="material-symbols-outlined text-[18px]">add</span>}
+                >
+                  Novo Tour Guiado
+                </Button>
               )}
             </div>
           </div>
@@ -445,7 +484,7 @@ export function ToursIndex() {
             <MetricCard label="Total de tours" value={resumo.total.toLocaleString('pt-BR')} icon="map" />
             <MetricCard label="Exibição autônoma ativa" value={resumo.ativos.toLocaleString('pt-BR')} icon="play_circle" />
             <MetricCard label="Exibição autônoma inativa" value={resumo.inativos.toLocaleString('pt-BR')} icon="pause_circle" />
-            <MetricCard label="Total de passos" value={resumo.total_passos.toLocaleString('pt-BR')} icon="format_list_numbered" />
+            <MetricCard label="Somente em jornadas" value={resumo.somente_jornada.toLocaleString('pt-BR')} icon="route" />
           </div>
 
           <div className="flex flex-col gap-3 px-5 py-3 border-b border-outline-variant/30 bg-surface-container-lowest xl:flex-row xl:items-center xl:justify-between">
@@ -493,7 +532,7 @@ export function ToursIndex() {
                   type="button"
                   onClick={() => { setBuscaAberta(true); setColunasAberto(false); setFiltrosAberto(false) }}
                   aria-label="Buscar tour"
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-outline-variant bg-surface-bright text-on-surface transition-colors hover:border-primary/50 hover:text-primary"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-outline-variant bg-surface-bright text-on-surface transition-colors hover:border-primary/50 hover:text-primary"
                 >
                   <span className="material-symbols-outlined text-[20px]">search</span>
                 </button>
@@ -562,6 +601,7 @@ export function ToursIndex() {
                         ]}
                         onChange={value => mudarPassos(value as FiltroPassos)}
                       />
+                      <FilterSelect label="Origem" value={filterOrigem} options={[{ value: '', label: 'Todas' }, { value: 'autonomo', label: 'Independente' }, { value: 'jornada', label: 'Jornada' }, { value: 'ambos', label: 'Ambos' }]} onChange={mudarOrigem} />
                     </div>
                   </div>
                 )}
@@ -574,11 +614,12 @@ export function ToursIndex() {
               {busca && <FilterChip label={busca} onRemove={() => { setBusca(''); load('', filterSistema, filterAtivo, 1) }} />}
               {filterSistema && <FilterChip label={filterSistema} onRemove={() => mudarSistema('')} />}
               {filterAtivo !== STATUS_FILTRO_PADRAO && (
-                <FilterChip label={filterAtivo === 'ativos' ? 'Ativas' : 'Inativas'} onRemove={() => mudarStatus(STATUS_FILTRO_PADRAO)} />
+                <FilterChip label={filterAtivo === 'ativos' ? 'Ativas' : filterAtivo === 'inativos' ? 'Inativas' : 'Somente em jornadas'} onRemove={() => mudarStatus(STATUS_FILTRO_PADRAO)} />
               )}
               {filterPassos !== 'todos' && (
                 <FilterChip label={filterPassos === 'com' ? 'Com passos' : 'Sem passos'} onRemove={() => mudarPassos('todos')} />
               )}
+              {filterOrigem && <FilterChip label={filterOrigem === 'autonomo' ? 'Independente' : filterOrigem === 'jornada' ? 'Jornada' : 'Ambos'} onRemove={() => mudarOrigem('')} />}
               <button type="button" onClick={clearFilters} className="ml-auto text-label-md font-bold text-on-surface-variant transition-colors hover:text-error">
                 Limpar filtros
               </button>
@@ -622,7 +663,7 @@ export function ToursIndex() {
                     <tr className="bg-surface-container-low/50 border-b border-outline-variant/40">
                       {TABLE_COLUMNS.filter(col => colunasVisiveis[col.key]).map(col => {
                         const active = sort?.key === col.sortKey
-                        const align = col.key === 'acoes' ? ' text-right' : col.key === 'status' || col.key === 'passos' ? ' text-center' : ''
+                        const align = col.key === 'acoes' ? ' text-right' : col.key === 'status' || col.key === 'uso' || col.key === 'passos' ? ' text-center' : ''
                         return (
                           <th key={col.key} className={`px-4 py-3 text-[11px] text-on-surface-variant font-bold uppercase tracking-wide whitespace-nowrap${align}`}>
                             {col.sortKey ? (
@@ -656,16 +697,19 @@ export function ToursIndex() {
                             <p className="text-label-sm text-on-surface-variant truncate max-w-xs">{tour.descricao}</p>
                           )}
                         </td>}
-                        {colunasVisiveis.sistema && <td className="px-4 py-4 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{tour.sistema}</td>}
+                        {colunasVisiveis.sistema && <td className="px-4 py-4 align-middle min-w-[170px]">
+                          <p className="text-body-md font-semibold text-on-surface">{tour.sistema}</p>
+                          <p className="mt-0.5 max-w-[220px] truncate text-[12px] text-on-surface-variant" title={destinoTour(tour)}>{destinoTour(tour)}</p>
+                        </td>}
                         {colunasVisiveis.status && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-2.5">
-                            <StatusBadge ativo={tour.ativo} />
-                          </div>
+                          <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} />
+                        </td>}
+                        {colunasVisiveis.uso && <td className="px-4 py-4 align-middle text-center whitespace-nowrap">
+                          <UsoBadge tour={tour} />
                         </td>}
                         {colunasVisiveis.passos && <td className="px-4 py-4 align-middle text-body-md font-bold text-center text-on-surface whitespace-nowrap">
                           {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
                         </td>}
-                        {colunasVisiveis.atualizado && <td className="px-4 py-4 align-middle text-body-md text-on-surface-variant whitespace-nowrap">{formatDateTime(tour.atualizado_em)}</td>}
                         {colunasVisiveis.acoes && <td className="px-4 py-4 align-middle whitespace-nowrap">
                           <div className="flex items-center justify-end opacity-70 group-hover:opacity-100 transition-opacity">
                             <TourActions
@@ -676,7 +720,8 @@ export function ToursIndex() {
                               exportandoId={exportandoId}
                               onExportar={exportarTour}
                               removendoId={removendoId}
-                              onRemover={setTourRemover}
+                              onRemover={prepararRemocao}
+                              consultandoImpactoId={consultandoImpactoId}
                               podeEscrever={podeEscrever}
                               podeExcluir={podeExcluirOuImportar}
                             />
@@ -705,19 +750,17 @@ export function ToursIndex() {
                       )}
                     </div>
                     {tour.descricao && (
-                      <p className="text-label-sm text-on-surface-variant truncate mb-2">{tour.descricao}</p>
+                      <p className="text-label-sm text-on-surface-variant line-clamp-2 mb-2">{tour.descricao}</p>
                     )}
-                    <div className="flex flex-wrap items-center gap-2 mb-3">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge ativo={tour.ativo} />
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2 text-label-sm text-on-surface-variant">
+                        <UsoBadge tour={tour} />
+                        <span>{tour.sistema}</span>
+                        <span>· {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)</span>
                       </div>
-                      <span className="text-label-sm text-on-surface-variant">{tour.sistema}</span>
-                      <span className="text-label-sm text-on-surface-variant">
-                        · {tour._count?.passos ?? tour.passos?.length ?? 0} passo(s)
-                      </span>
+                      <StatusControl tour={tour} podeEscrever={podeEscrever} alternando={alternandoId === tour.id} bloqueado={alternandoId !== null} onChange={ativo => alternarAtivo(tour, ativo)} compact />
                     </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-label-sm text-outline">Atualizado {formatDateTime(tour.atualizado_em)}</span>
+                    <div className="flex items-center justify-end gap-2">
                       <div className="flex items-center gap-1 shrink-0">
                         <TourActions
                           tour={tour}
@@ -727,7 +770,8 @@ export function ToursIndex() {
                           exportandoId={exportandoId}
                           onExportar={exportarTour}
                           removendoId={removendoId}
-                          onRemover={setTourRemover}
+                          onRemover={prepararRemocao}
+                          consultandoImpactoId={consultandoImpactoId}
                           podeEscrever={podeEscrever}
                           podeExcluir={podeExcluirOuImportar}
                           size="lg"
@@ -756,34 +800,82 @@ export function ToursIndex() {
       {tourRemover && (
         <ConfirmDialog
           title={`Remover "${tourRemover.titulo}"?`}
-          description="Esta ação não poderá ser desfeita. O tour e seus passos serão removidos permanentemente."
+          description={dependenciasRemocao.length > 0
+            ? `Esta ação removerá o Tour e deixará ${dependenciasRemocao.length} etapa(s), em ${new Set(dependenciasRemocao.map(item => item.jornada_id)).size} Jornada(s), sem Tour vinculado: ${dependenciasRemocao.map(item => `${item.jornada_titulo} / ${item.bloco_titulo} / ${item.etapa_titulo}`).join('; ')}.`
+            : 'Esta ação não poderá ser desfeita. O Tour e seus passos serão removidos permanentemente. Nenhuma Jornada será afetada.'}
           confirmLabel="Remover tour"
           variant="danger"
           loading={removendoId === tourRemover.id}
           onConfirm={removerTour}
-          onCancel={() => setTourRemover(null)}
+          onCancel={() => { setTourRemover(null); setDependenciasRemocao([]) }}
         />
       )}
     </div>
   )
 }
 
-// Ativa/Inativa aqui é só sobre exibição autônoma — nunca "existe/não
-// existe" nem "disponível/indisponível para Jornada" (um tour inativo
-// continua funcionando normalmente como etapa de Jornada). Por isso a cor
-// de "Inativa" é neutra (on-surface-variant/outline), não vermelha — não é
-// um estado de erro.
+function destinoTour(tour: TourGuiado): string {
+  if (!tour.permite_autonomo) return 'Execução por jornada'
+  if (tour.modo_identificacao === 'data_cy') return tour.data_cy ? `Elemento: ${tour.data_cy}` : 'Elemento não configurado'
+  if (tour.modo_identificacao === 'url_contem') return tour.url_contem ? `URL contém: ${tour.url_contem}` : 'URL não configurada'
+  return tour.tela ? `Tela: ${tour.tela}` : 'Tela não configurada'
+}
+
+function UsoBadge({ tour }: { tour: TourGuiado }) {
+  const texto = tour.permite_autonomo && tour.permite_jornada
+    ? 'Autônomo + Jornada'
+    : tour.permite_jornada ? 'Somente Jornada' : 'Somente autônomo'
+  return (
+    <span className="inline-flex rounded-full border border-outline-variant/60 bg-surface-container-low px-2.5 py-1 text-[11px] font-bold text-on-surface-variant">
+      {texto}
+    </span>
+  )
+}
+
+function StatusControl({ tour, podeEscrever, alternando, bloqueado, onChange, compact = false }: {
+  tour: TourGuiado
+  podeEscrever: boolean
+  alternando: boolean
+  bloqueado: boolean
+  onChange: (ativo: boolean) => void
+  compact?: boolean
+}) {
+  if (!tour.permite_autonomo) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-outline" title="Este tour não permite execução autônoma">
+        <span className="h-2 w-2 rounded-full bg-outline-variant" />
+        Não configurada
+      </span>
+    )
+  }
+  if (!podeEscrever) return <StatusBadge ativo={tour.ativo} />
+
+  return (
+    <div className={`flex items-center ${compact ? 'justify-end' : 'justify-center'} gap-1`}>
+      <ToggleSwitch
+        checked={tour.ativo}
+        onChange={onChange}
+        disabled={bloqueado}
+        ariaLabel={`${tour.ativo ? 'Desativar' : 'Ativar'} exibição autônoma de ${tour.titulo}`}
+      />
+      <span className={`min-w-[52px] text-left text-[12px] font-bold ${tour.ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
+        {alternando ? 'Salvando' : tour.ativo ? 'Ligada' : 'Desligada'}
+      </span>
+    </div>
+  )
+}
+
 function StatusBadge({ ativo }: { ativo: boolean }) {
   return (
     <span className={`inline-flex items-center gap-1.5 text-label-md font-bold ${ativo ? 'text-tertiary' : 'text-on-surface-variant'}`}>
       <span className={`h-2 w-2 rounded-full ${ativo ? 'bg-tertiary' : 'bg-outline'}`} />
-      {ativo ? 'Ativa' : 'Inativa'}
+      {ativo ? 'Ligada' : 'Desligada'}
     </span>
   )
 }
 
 function TourActions({
-  tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, removendoId, onRemover, podeEscrever, podeExcluir, size = 'md',
+  tour, navigate, duplicandoId, onDuplicar, exportandoId, onExportar, removendoId, onRemover, consultandoImpactoId, podeEscrever, podeExcluir, size = 'md',
 }: {
   tour: TourGuiado
   navigate: NavigateFunction
@@ -793,18 +885,19 @@ function TourActions({
   onExportar: (tour: TourGuiado) => void
   removendoId: string | null
   onRemover: (tour: TourGuiado) => void
+  consultandoImpactoId: string | null
   podeEscrever: boolean
   podeExcluir: boolean
   size?: 'md' | 'lg'
 }) {
-  const btnPad = size === 'lg' ? 'p-2' : 'p-1.5'
-  const btnCls = `${btnPad} rounded-full text-on-surface-variant hover:bg-surface-container-high transition-colors`
+  const btnPad = size === 'lg' ? 'h-11 w-11' : 'h-10 w-10'
+  const btnCls = `${btnPad} inline-flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high transition-colors`
   return (
     <>
-      <button onClick={() => navigate(`/tours/${tour.id}/preview`)} title="Preview" aria-label={`Abrir preview de ${tour.titulo}`} className={`${btnPad} rounded-full text-on-surface-variant hover:text-primary hover:bg-primary-fixed transition-colors`}>
+      <button onClick={() => navigate(`/tours/${tour.id}/preview`)} title="Preview" aria-label={`Abrir preview de ${tour.titulo}`} className={`${btnPad} inline-flex items-center justify-center rounded-full text-on-surface-variant hover:text-primary hover:bg-primary-fixed transition-colors`}>
         <span className="material-symbols-outlined text-[18px]">visibility</span>
       </button>
-      <button onClick={() => navigate(`/tours/${tour.id}/dashboard`)} title="Ver dashboard" aria-label={`Abrir dashboard de ${tour.titulo}`} className={`${btnPad} rounded-full text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed transition-colors`}>
+      <button onClick={() => navigate(`/tours/${tour.id}/dashboard`)} title="Ver dashboard" aria-label={`Abrir dashboard de ${tour.titulo}`} className={`${btnPad} inline-flex items-center justify-center rounded-full text-on-surface-variant hover:text-secondary hover:bg-secondary-fixed transition-colors`}>
         <span className="material-symbols-outlined text-[18px]">query_stats</span>
       </button>
       {podeEscrever && (
@@ -827,13 +920,13 @@ function TourActions({
       {podeExcluir && (
         <button
           onClick={() => onRemover(tour)}
-          disabled={removendoId === tour.id}
+          disabled={removendoId === tour.id || consultandoImpactoId === tour.id}
           title="Remover"
           aria-label={`Remover ${tour.titulo}`}
-          className={`${btnPad} rounded-full text-error hover:bg-error-container transition-colors disabled:opacity-40`}
+          className={`${btnPad} inline-flex items-center justify-center rounded-full text-error hover:bg-error-container transition-colors disabled:opacity-40`}
         >
-          <span className={`material-symbols-outlined text-[18px] ${removendoId === tour.id ? 'animate-spin' : ''}`}>
-            {removendoId === tour.id ? 'progress_activity' : 'delete'}
+          <span className={`material-symbols-outlined text-[18px] ${removendoId === tour.id || consultandoImpactoId === tour.id ? 'animate-spin' : ''}`}>
+            {removendoId === tour.id || consultandoImpactoId === tour.id ? 'progress_activity' : 'delete'}
           </span>
         </button>
       )}

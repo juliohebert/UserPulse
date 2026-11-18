@@ -195,15 +195,15 @@ describe('v2: pushState de rotina durante a janela pendente do modal', () => {
     //    são disparados agora, com fetch em voo.
     dispararTimerMaisRecente()
 
-    // 4. Fira o timer de auto-open ORIGINAL -> modal ABRE (visualização #1).
+    // 4. O coordenador atual espera as avaliações automáticas relevantes da
+    // mesma geração. Resolve os fetches antes de drenar o auto-open original.
+    await tick(); await tick()
     dispararTimersPendentes()
     assert.match(ultimoRootModal!.className, /up-widget-overlay/, 'modal deveria ter aberto')
     assert.equal(visualizacoes(), 1, '1ª visualização registrada ao abrir')
     const rootAberto = ultimoRootModal
 
-    // 5. Agora as respostas dos fetches de re-avaliação chegam — DEPOIS do
-    //    modal já estar aberto.
-    await tick(); await tick()
+    // 5. Qualquer callback restante não pode destruir/reabrir o modal.
     // scheduleAutoOpen reagendado por evaluate*Campaigns roda aqui, se houver.
     dispararTimersPendentes()
     await tick(); await tick()

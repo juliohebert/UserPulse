@@ -30,11 +30,14 @@ type TourCandidato = {
   data_cy?: string
   url_contem?: string
   prioridade?: number
+  frequencia?: string
+  frequencia_intervalo_dias?: number
+  gatilhos?: Array<{ tipo: string; evento?: string; tela?: string; seletor_tipo?: string; seletor?: string }>
   segmentacao_regras?: unknown
   passos: Passo[]
 }
 type ConfigAvaliacao = { sistema?: string; tela?: string; usuario_id?: string; contexto?: Record<string, unknown> | null }
-type AvaliarTourAutomatico = (config: ConfigAvaliacao) => void
+type AvaliarTourAutomatico = (config: ConfigAvaliacao, gatilho?: string, evento?: string) => void
 type IniciarTourPublico = (slug?: string, jornadaContexto?: unknown) => void
 type IniciarTour = (
   tour: TourCandidato | null,
@@ -66,11 +69,13 @@ let candidatosResponse: TourCandidato[] = []
 let tourPorSlugResponse: TourCandidato | null = null
 let chamadasRastreamento: Array<{ url: string }> = []
 let seletoresPresentes: Set<string>
+let idsPresentes: Set<string>
 let localStorageStore: Map<string, string>
+let sessionStorageStore: Map<string, string>
 let sandboxCompartilhado: { window: Record<string, unknown> } | null = null
 
 function tick(): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, 0))
+  return new Promise(resolve => setTimeout(resolve, 10))
 }
 
 function makeFakeElement(): any {
@@ -126,7 +131,7 @@ before(() => {
     },
     document: {
       currentScript: { src: 'http://localhost/widget.js' },
-      getElementById: () => null,
+      getElementById: (id: string) => (idsPresentes.has(id) ? makeFakeElement() : null),
       createElement: () => makeFakeElement(),
       querySelectorAll: () => [],
       // data_cy: checkMode consulta document.querySelector('[data-cy="..."]')
@@ -141,12 +146,18 @@ before(() => {
     },
   }
   localStorageStore = new Map<string, string>()
+  sessionStorageStore = new Map<string, string>()
   sandbox.window = {
     location: { pathname: '/app/agenda', href: 'http://localhost/app/agenda', search: '', hash: '' },
     localStorage: {
       getItem: (chave: string) => (localStorageStore.has(chave) ? localStorageStore.get(chave) : null),
       setItem: (chave: string, valor: string) => { localStorageStore.set(chave, valor) },
       removeItem: (chave: string) => { localStorageStore.delete(chave) },
+    },
+    sessionStorage: {
+      getItem: (chave: string) => (sessionStorageStore.has(chave) ? sessionStorageStore.get(chave) : null),
+      setItem: (chave: string, valor: string) => { sessionStorageStore.set(chave, valor) },
+      removeItem: (chave: string) => { sessionStorageStore.delete(chave) },
     },
     addEventListener() {},
     removeEventListener() {},
@@ -200,6 +211,7 @@ beforeEach(async () => {
   tourPorSlugResponse = null
   chamadasRastreamento = []
   seletoresPresentes = new Set()
+  idsPresentes = new Set()
   // Sessão limpa entre testes — mesmo tour ativo/preview/indice de sempre
   // (ver widgetTourVoltar.test.ts), sem precisar reconstruir a vm inteira.
   finalizarTour('fim_do_teste_anterior')
@@ -323,6 +335,15 @@ describe('avaliarTourAutomatico — segmentação continua respeitada (widget.js
 })
 
 describe('avaliarTourAutomatico — dedupe (widget.js)', () => {
+  test('usuário identificado respeita uma_vez_por_sessao no sessionStorage', async () => {
+    sessionStorageStore.set('userpulse:tour:t-sessao:sessao', '1')
+    candidatosResponse = [tourFake({ id: 't-sessao', frequencia: 'uma_vez_por_sessao' })]
+    avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda', usuario_id: 'u1' })
+    await tick()
+    await tick()
+    assert.equal(tourGetTestSnapshot().ativo, false)
+  })
+
   test('sem usuario_id, tour já visto (localStorage) não reinicia', async () => {
     const tour = tourFake({ id: 't-visto' })
     localStorageStore.set('userpulse:tour:t-visto', '1')
@@ -338,6 +359,24 @@ describe('avaliarTourAutomatico — dedupe (widget.js)', () => {
     localStorageStore.set('userpulse:tour:t-visto-2', '1')
     candidatosResponse = [tour] // backend já teria filtrado se de fato concluído/pulado; aqui simulamos que ele devolveu mesmo assim
     avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda', usuario_id: 'u1' })
+    await tick()
+    await tick()
+    assert.equal(tourGetTestSnapshot().ativo, true)
+  })
+
+  test('anônimo respeita frequência sempre mesmo com registro local anterior', async () => {
+    localStorageStore.set('userpulse:tour:t-sempre', JSON.stringify({ iniciadoEm: Date.now(), status: 'concluido' }))
+    candidatosResponse = [tourFake({ id: 't-sempre', frequencia: 'sempre' })]
+    avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda' })
+    await tick()
+    await tick()
+    assert.equal(tourGetTestSnapshot().ativo, true)
+  })
+
+  test('anônimo respeita janela de intervalo_dias', async () => {
+    localStorageStore.set('userpulse:tour:t-intervalo', JSON.stringify({ iniciadoEm: Date.now() - 2 * 86400000, status: 'iniciado' }))
+    candidatosResponse = [tourFake({ id: 't-intervalo', frequencia: 'intervalo_dias', frequencia_intervalo_dias: 1 })]
+    avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda' })
     await tick()
     await tick()
     assert.equal(tourGetTestSnapshot().ativo, true)
@@ -365,6 +404,58 @@ describe('avaliarTourAutomatico — prioridade (widget.js)', () => {
     await tick()
     await tick()
     assert.equal(tourGetTestStepSnapshot().tourTitulo, 'Elegível')
+  })
+})
+
+describe('avaliarTourAutomatico — gatilho real', () => {
+  test('tour apenas manual não é classificado nem aberto como automático', async () => {
+    candidatosResponse = [tourFake({ gatilhos: [{ tipo: 'manual' }] })]
+    avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda' })
+    await tick()
+    await tick()
+    assert.equal(tourGetTestSnapshot().ativo, false)
+  })
+
+  test('gatilho evento só abre quando nome recebido corresponde', async () => {
+    candidatosResponse = [tourFake({ gatilhos: [{ tipo: 'evento', evento: 'salvou' }] })]
+    avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda' }, 'evento', 'outro')
+    await tick()
+    assert.equal(tourGetTestSnapshot().ativo, false)
+
+    avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda' }, 'evento', 'salvou')
+    await tick()
+    await tick()
+    assert.equal(tourGetTestSnapshot().ativo, true)
+  })
+
+  test('gatilhos novos não dependem dos campos legados', async () => {
+    candidatosResponse = [tourFake({ tela: 'legado-incorreto', gatilhos: [{ tipo: 'entrada_tela', tela: 'agenda' }] })]
+    avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda' })
+    await tick()
+    await tick()
+    assert.equal(tourGetTestSnapshot().ativo, true)
+  })
+
+  test('gatilho elemento resolve data_cy, id e css sem interpretar valor cru como CSS', async () => {
+    for (const [tipo, seletor, esperado] of [
+      ['data_cy', 'botao"seguro', '[data-cy="botao\\"seguro"]'],
+      ['css', '.acao', '.acao'],
+    ] as const) {
+      finalizarTour('proximo_seletor')
+      seletoresPresentes = new Set([esperado])
+      candidatosResponse = [tourFake({ id: `t-${tipo}`, gatilhos: [{ tipo: 'elemento', seletor_tipo: tipo, seletor }] })]
+      avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda' })
+      await tick()
+      await tick()
+      assert.equal(tourGetTestSnapshot().ativo, true, tipo)
+    }
+    finalizarTour('seletor_id')
+    idsPresentes.add('acao:id')
+    candidatosResponse = [tourFake({ id: 't-id', gatilhos: [{ tipo: 'elemento', seletor_tipo: 'id', seletor: '#acao:id' }] })]
+    avaliarTourAutomatico({ sistema: 'erp', tela: 'agenda' })
+    await tick()
+    await tick()
+    assert.equal(tourGetTestSnapshot().ativo, true)
   })
 })
 
@@ -482,8 +573,8 @@ describe('avaliarTourAutomatico/iniciarTourPublico não interferem com timers de
   // nenhuma delas voltou a referenciar state.timer/state.destaqueTimer.
   test('corpo de avaliarTourAutomatico não referencia state.timer nem state.destaqueTimer', () => {
     const codigo = fs.readFileSync(path.resolve(__dirname, '../../web/public/widget.js'), 'utf8')
-    const inicio = codigo.indexOf('function avaliarTourAutomatico(config) {')
-    const fim = codigo.indexOf('function aguardarAparenciaEIniciarTour(tour) {')
+    const inicio = codigo.indexOf('function avaliarTourAutomatico(config, gatilhoSolicitado, eventoNome) {')
+    const fim = codigo.indexOf('function aguardarAparenciaEIniciarTour(tour, gatilho, geracaoCapturada, configCapturado) {')
     assert.ok(inicio > -1 && fim > inicio, 'não encontrou os marcadores de início/fim de avaliarTourAutomatico no widget.js')
     const corpo = codigo.slice(inicio, fim)
     assert.equal(corpo.indexOf('state.timer'), -1)
@@ -502,7 +593,7 @@ describe('avaliarTourAutomatico/iniciarTourPublico não interferem com timers de
 
   test('jornadaEtapaClicar continua chamando iniciarTour(etapa.tour, ...) direto, nunca iniciarTourPublico', () => {
     const codigo = fs.readFileSync(path.resolve(__dirname, '../../web/public/widget.js'), 'utf8')
-    assert.match(codigo, /iniciarTour\(etapa\.tour, false, false, false\)/)
-    assert.match(codigo, /iniciarTour\(etapa\.tour, false, false, false, \{/)
+    assert.match(codigo, /iniciarTour\(etapa\.tour, false, jornadaState\.modoTeste, false/)
+    assert.match(codigo, /iniciarTour\(etapa\.tour, false, jornadaState\.modoTeste, false, \{/)
   })
 })

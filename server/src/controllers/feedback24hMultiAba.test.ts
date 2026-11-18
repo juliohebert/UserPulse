@@ -57,6 +57,9 @@ function prepararHistorico(h: Hist, camp: any = CAMP) {
   stub('confirmacaoLeitura', 'findFirst', (a: any) => (a.where.usuario_id === 'u1' ? so(h.conf) : null))
   stub('confirmacaoLeitura', 'findMany', (a: any) => (a.where.usuario_id === 'u1' && h.conf ? [{ criado_em: h.conf, contexto: null }] : []))
   stub('confirmacaoLeitura', 'create', (a: any) => ({ id: 'cf1', ...a.data }))
+  // registrarFeedback/registrarConfirmacao gravam dentro de
+  // prisma.$transaction(async tx => ...): o stub reusa o próprio objeto como tx.
+  p.$transaction = async (fn: (tx: unknown) => unknown) => fn(p)
   void agora
 }
 

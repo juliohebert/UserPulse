@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { parseDominios } from './jornadas'
+import { campanhaExecutavelEmJornada, idsDuplicados, parseDominios } from './jornadas'
 
 const FONTE_JORNADAS = readFileSync(new URL('./jornadas.ts', import.meta.url), 'utf8')
 
@@ -47,5 +47,45 @@ describe('jornadas.ts — persistência de segmentar_dominios', () => {
     const fim = FONTE_JORNADAS.indexOf('export async function remover')
     const controller = FONTE_JORNADAS.slice(inicio, fim)
     assert.ok(controller.includes('...(segmentar_dominios !== undefined && { segmentar_dominios: parseDominios(segmentar_dominios) })'))
+  })
+})
+
+describe('contratos de preview e publicação de Jornada', () => {
+  test('emite preview autenticado e o endpoint público filtra a Jornada pelo tenant do token', () => {
+    const inicio = FONTE_JORNADAS.indexOf('export async function emitirTokenPreview')
+    const fim = FONTE_JORNADAS.indexOf('export async function remover')
+    const controller = FONTE_JORNADAS.slice(inicio, fim)
+    assert.match(controller, /tenant_id: req\.adminUser!\.tenant_id/)
+    assert.match(controller, /assinarTokenPreviewJornada/)
+    assert.match(controller, /requireAcessoModulo|motivoRecursoNaoPermitido|jornada_id/)
+  })
+
+  test('publicação valida referências de Campanha/Tour antes de persistir uma Jornada ativa', () => {
+    const inicio = FONTE_JORNADAS.indexOf('async function validarReferenciasConteudo')
+    const fim = FONTE_JORNADAS.indexOf('export async function listar')
+    const controller = FONTE_JORNADAS.slice(inicio, fim)
+    assert.match(controller, /tenant_id: tenantId/)
+    assert.match(controller, /campanhas\.includes\(c\.id\)/)
+    assert.match(controller, /!tour\?\.permite_jornada/)
+  })
+})
+
+describe('estrutura publicável de Jornada', () => {
+  test('rejeita IDs de pacote ou etapa repetidos antes da sincronização', () => {
+    assert.match(idsDuplicados([
+      { id: 'b1', titulo: 'A', etapas: [{ id: 'e1' } as never] },
+      { id: 'b1', titulo: 'B', etapas: [{ id: 'e2' } as never] },
+    ]) ?? '', /pacotes duplicados/)
+    assert.match(idsDuplicados([
+      { id: 'b1', titulo: 'A', etapas: [{ id: 'e1' } as never] },
+      { id: 'b2', titulo: 'B', etapas: [{ id: 'e1' } as never] },
+    ]) ?? '', /etapas duplicados/)
+  })
+
+  test('Campanha precisa oferecer feedback, confirmação ou CTA para concluir a etapa', () => {
+    const base = { feedback_habilitado: false, exige_confirmacao_leitura: false, url_botao: null, conteudos: [], destaques: [] }
+    assert.equal(campanhaExecutavelEmJornada(base), false)
+    assert.equal(campanhaExecutavelEmJornada({ ...base, feedback_habilitado: true }), true)
+    assert.equal(campanhaExecutavelEmJornada({ ...base, conteudos: [{ url_botao: '/continuar' }] }), true)
   })
 })
