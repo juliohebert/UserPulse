@@ -72,7 +72,7 @@ function validarVigenciaForm(form: Pick<FormState,
   return null
 }
 type PosicaoMidia = 'topo' | 'antes_cta'
-type FrequenciaExibicao = 'uma_vez' | 'ate_responder' | 'reexibir_depois'
+type FrequenciaExibicao = 'uma_vez' | 'ate_responder' | 'reexibir_depois' | 'a_cada_24h'
 type AcaoFinalCampanha = 'feedback' | 'confirmacao' | 'visualizacao'
 
 // Copy contextual de "Reexibir periodicamente" (politica_reexibicao=
@@ -615,9 +615,11 @@ function DockLateral({
   )
   const frequenciaExibicao: FrequenciaExibicao = form.politica_reexibicao === 'reexibir_apos_dias'
     ? 'reexibir_depois'
-    : form.politica_reexibicao === 'ate_responder_ou_confirmar'
-      ? 'ate_responder'
-      : 'uma_vez'
+    : form.politica_reexibicao === 'reexibir_a_cada_24h'
+      ? 'a_cada_24h'
+      : form.politica_reexibicao === 'ate_responder_ou_confirmar'
+        ? 'ate_responder'
+        : 'uma_vez'
   const acaoFinal: AcaoFinalCampanha = form.feedback_habilitado
     ? 'feedback'
     : form.exige_confirmacao_leitura
@@ -660,6 +662,14 @@ function DockLateral({
     if (frequencia === 'uma_vez') {
       setCampo('mostrar_uma_vez', true)
       setCampo('politica_reexibicao', 'uma_vez_apos_visualizacao')
+      setCampo('reexibir_apos_dias', '')
+      return
+    }
+
+    if (frequencia === 'a_cada_24h') {
+      // Política explícita, intervalo fixo — nunca persiste dias.
+      setCampo('mostrar_uma_vez', false)
+      setCampo('politica_reexibicao', 'reexibir_a_cada_24h')
       setCampo('reexibir_apos_dias', '')
       return
     }
@@ -729,7 +739,10 @@ function DockLateral({
       setCampo('exige_confirmacao_leitura', false)
       setCampo('observacao_obrigatoria', false)
       setCampo('permitir_fechar_modal', true)
-      if (form.politica_reexibicao === 'ate_responder_ou_confirmar') {
+      if (form.politica_reexibicao === 'ate_responder_ou_confirmar' || form.politica_reexibicao === 'reexibir_a_cada_24h') {
+        // "A cada 24 horas" é só pra modal (destaque_elemento tem controle
+        // próprio por item) — volta pro "Até interagir" padrão.
+        setCampo('mostrar_uma_vez', true)
         setCampo('politica_reexibicao', 'uma_vez_apos_visualizacao')
       }
       // Ao criar, inicia com 1 item — semeado a partir dos campos únicos que
@@ -1212,6 +1225,10 @@ function DockLateral({
                   : { id: 'uma_vez' as const, icon: 'looks_one', titulo: 'Uma vez', desc: 'Mostra uma única vez para cada usuário.' },
                 { id: 'ate_responder' as const, icon: 'repeat', titulo: 'Até responder ou confirmar', desc: 'Continua aparecendo até o usuário responder ou confirmar.' },
                 { id: 'reexibir_depois' as const, icon: 'event_repeat', titulo: 'Reexibir periodicamente', desc: DESCRICAO_REEXIBIR_PERIODICAMENTE[acaoFinal] },
+                // Só modal: destaque_elemento tem consumo próprio por item.
+                ...(formatoExibicao === FORMATO_DESTAQUE_ELEMENTO
+                  ? []
+                  : [{ id: 'a_cada_24h' as const, icon: 'update', titulo: 'A cada 24 horas', desc: 'A campanha poderá aparecer novamente 24 horas após o usuário fechá-la, enquanto permanecer ativa.' }]),
               ].map(opcao => {
                 const desabilitado = opcao.id === 'ate_responder' && !form.feedback_habilitado && !form.exige_confirmacao_leitura
                 const selecionado = frequenciaExibicao === opcao.id

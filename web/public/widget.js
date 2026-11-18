@@ -1629,6 +1629,43 @@
     return (f.chaveRegra || null) === atual;
   }
 
+  // ─── Frequência "A cada 24 horas" (politica_reexibicao='reexibir_a_cada_24h') ─
+  // Política explícita (não é reexibir_apos_dias=1). Identificado: o servidor
+  // decide (último fechamento manual / visualização, ver widget.ts) e o
+  // widget só registra o evento 'fechamento_manual'. Anônimo: mesma chave de
+  // shownKey(), mas com o TIMESTAMP (ms) do último fechamento/exibição em vez
+  // de '1'. O valor legado '1' (e qualquer valor que não seja um epoch em ms
+  // plausível) nunca conta como fechamento recente. Sem timer/polling: o
+  // intervalo só é reavaliado em init/updateContext/navegação real.
+  var POLITICA_A_CADA_24H = 'reexibir_a_cada_24h';
+  var INTERVALO_24H_MS = 24 * 60 * 60 * 1000;
+  var TIMESTAMP_LOCAL_MINIMO_MS = 1e12; // ~2001 — descarta '1' legado e lixo
+
+  function eReexibicao24h(campanha) {
+    return !!campanha && campanha.politica_reexibicao === POLITICA_A_CADA_24H;
+  }
+
+  // Anônimo: bloqueada se o último registro local tem < 24h. Timestamp no
+  // futuro (relógio do dispositivo alterado) é ignorado — nunca bloqueia
+  // por mais de 24h.
+  function bloqueadaPor24hLocal(campanha, config) {
+    try {
+      var bruto = window.localStorage.getItem(shownKey(campanha, config));
+      var ts = Number(bruto);
+      if (!isFinite(ts) || ts < TIMESTAMP_LOCAL_MINIMO_MS) return false;
+      var decorrido = Date.now() - ts;
+      return decorrido >= 0 && decorrido < INTERVALO_24H_MS;
+    } catch (_err) {
+      return false;
+    }
+  }
+
+  function gravarTimestamp24hLocal(campanha, config) {
+    try {
+      window.localStorage.setItem(shownKey(campanha, config), String(Date.now()));
+    } catch (_err) {}
+  }
+
   function wasShown(campanha, config, itemId) {
     if (!itemId && fechadaManualmenteAqui(campanha)) return true;
     // Para usuário identificado, /candidatas (ou /campanha) já aplicou a
@@ -1659,6 +1696,10 @@
       }
       return false;
     }
+    if (!itemId && eReexibicao24h(campanha)) {
+      if (campanha.always_show_user) return false;
+      return bloqueadaPor24hLocal(campanha, config);
+    }
     if (!campanha.mostrar_uma_vez) return false;
     if (campanha.always_show_user) return false;
     if (!campanha.permitir_fechar_modal) return false;
@@ -1671,6 +1712,13 @@
 
   function markShown(campanha, config, itemId) {
     if (config.usuario_id) return;
+    // 24h: grava o instante da EXIBIÇÃO (protege contra reabertura imediata
+    // quando a modal é interrompida sem fechamento manual); o fechamento
+    // manual sobrescreve com o instante do fechamento (ver doClose).
+    if (!itemId && eReexibicao24h(campanha)) {
+      if (!campanha.always_show_user) gravarTimestamp24hLocal(campanha, config);
+      return;
+    }
     if (!campanha.mostrar_uma_vez) return;
     if (campanha.always_show_user) return;
     if (!campanha.permitir_fechar_modal) return;
@@ -2889,6 +2937,15 @@
         chaveRegra: chaveRegraExibicao(state.campanha._regraCasada) || null,
         url: window.location.href,
       };
+      // "A cada 24 horas": o intervalo conta do instante do fechamento manual.
+      // Registrado UMA vez por fechamento (doClose retorna cedo se já estava
+      // fechada). Identificado -> evento no servidor (histórico persistido,
+      // escopado por campanha/usuário/regra via contexto.__up_regra);
+      // anônimo -> só o timestamp local, nenhuma requisição nem identificação.
+      if (eReexibicao24h(state.campanha) && state.config && !state.campanha.always_show_user) {
+        if (state.config.usuario_id) registrarEvento('fechamento_manual');
+        else gravarTimestamp24hLocal(state.campanha, state.config);
+      }
     }
     render();
   }

@@ -152,6 +152,10 @@ describe('Reexibição', () => {
   test('reexibir_apos_dias -> "A cada N dias"', () => {
     assert.equal(linha(r({ politica_reexibicao: 'reexibir_apos_dias', reexibir_apos_dias: 7 }).linhas, 'Reexibição'), 'A cada 7 dias')
   })
+  test('reexibir_a_cada_24h -> rótulo próprio, distinto de "A cada 1 dia"', () => {
+    assert.equal(linha(r({ politica_reexibicao: 'reexibir_a_cada_24h' }).linhas, 'Reexibição'), 'A cada 24 horas após o fechamento')
+    assert.equal(linha(r({ politica_reexibicao: 'reexibir_apos_dias', reexibir_apos_dias: 1 }).linhas, 'Reexibição'), 'A cada 1 dia')
+  })
   test('reexibir_apos_dias com fallback intervalo_reexibicao_dias', () => {
     assert.equal(linha(r({ politica_reexibicao: 'reexibir_apos_dias', reexibir_apos_dias: null, intervalo_reexibicao_dias: 1 }).linhas, 'Reexibição'), 'A cada 1 dia')
   })

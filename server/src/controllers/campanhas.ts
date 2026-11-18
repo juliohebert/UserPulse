@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import { CampanhaStatus, Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { checarLimiteCampanhasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, planoEfetivoParaLimite } from '../lib/tenantGuards'
-import { filtroFeedbackGeralReexibicao } from './widget'
+import { avaliarPoliticaReexibicao, buscarHistoricoReexibicao24h, filtroFeedbackGeralReexibicao, POLITICA_REEXIBIR_A_CADA_24H } from './widget'
 import { normalizarDominio } from '../lib/dominio'
 import { validarRichText } from '../lib/richText'
 import { normalizarRegra, normalizarRegrasExibicao, regraBase } from '../lib/regrasExibicao'
@@ -601,10 +601,10 @@ function validarFechamentoObrigatorio(
   return null
 }
 
-const POLITICAS_VALIDAS = ['uma_vez_apos_visualizacao', 'ate_responder_ou_confirmar', 'reexibir_apos_dias'] as const
+const POLITICAS_VALIDAS = ['uma_vez_apos_visualizacao', 'ate_responder_ou_confirmar', 'reexibir_apos_dias', POLITICA_REEXIBIR_A_CADA_24H] as const
 type PoliticaReexibicao = typeof POLITICAS_VALIDAS[number]
 
-function validarPoliticaReexibicao(
+export function validarPoliticaReexibicao(
   politica: string,
   reexibirDias: number | null | undefined,
   permitirFechar: boolean
@@ -1155,7 +1155,8 @@ export async function criar(req: Request, res: Response) {
     if (erroFechamento) return res.status(400).json({ erro: erroFechamento })
 
     const politica = (politica_reexibicao?.trim() || 'uma_vez_apos_visualizacao') as string
-    const diasReexibir = reexibir_apos_dias != null && reexibir_apos_dias !== '' ? Number(reexibir_apos_dias) : null
+    // 'reexibir_a_cada_24h' tem intervalo fixo — nunca persiste dias.
+    const diasReexibir = politica !== POLITICA_REEXIBIR_A_CADA_24H && reexibir_apos_dias != null && reexibir_apos_dias !== '' ? Number(reexibir_apos_dias) : null
     const erroPolitica = validarPoliticaReexibicao(politica, diasReexibir, pfm)
     if (erroPolitica) return res.status(400).json({ erro: erroPolitica })
 
@@ -1502,9 +1503,11 @@ export async function atualizar(req: Request, res: Response) {
     const politica = politica_reexibicao !== undefined
       ? (politica_reexibicao?.trim() || 'uma_vez_apos_visualizacao')
       : existente.politica_reexibicao
-    const diasReexibir = reexibir_apos_dias !== undefined
-      ? (reexibir_apos_dias != null && reexibir_apos_dias !== '' ? Number(reexibir_apos_dias) : null)
-      : existente.reexibir_apos_dias
+    const diasReexibir = politica === POLITICA_REEXIBIR_A_CADA_24H
+      ? null
+      : reexibir_apos_dias !== undefined
+        ? (reexibir_apos_dias != null && reexibir_apos_dias !== '' ? Number(reexibir_apos_dias) : null)
+        : existente.reexibir_apos_dias
     const erroPolitica = validarPoliticaReexibicao(politica, diasReexibir, pfm)
     if (erroPolitica) return res.status(400).json({ erro: erroPolitica })
 
@@ -1634,7 +1637,7 @@ export async function atualizar(req: Request, res: Response) {
           intervalo_reexibicao_dias: intervalo_reexibicao_dias != null && intervalo_reexibicao_dias !== '' ? Number(intervalo_reexibicao_dias) : null,
         }),
         ...(politica_reexibicao !== undefined && { politica_reexibicao: politica }),
-        ...(reexibir_apos_dias !== undefined && { reexibir_apos_dias: diasReexibir }),
+        ...((reexibir_apos_dias !== undefined || politica === POLITICA_REEXIBIR_A_CADA_24H) && { reexibir_apos_dias: diasReexibir }),
         ...(encerrar_apos_evento !== undefined && { encerrar_apos_evento: encerrarAposEvento }),
         ...(evento_conclusao !== undefined && { evento_conclusao: eventoConclusao }),
         ...(segmentar_cliente_ids !== undefined && { segmentar_cliente_ids: parseArray(segmentar_cliente_ids) }),
@@ -2226,6 +2229,7 @@ export async function testarElegibilidade(req: Request, res: Response) {
       uma_vez_apos_visualizacao: 'Uma vez após visualização',
       ate_responder_ou_confirmar: 'Até responder/confirmar',
       reexibir_apos_dias: `Reexibir após ${campanha.reexibir_apos_dias ?? '?'} dias`,
+      [POLITICA_REEXIBIR_A_CADA_24H]: 'A cada 24 horas',
     }[policy] ?? policy
 
     // Espelha verificarHistorico (widget.ts) — só o feedback GERAL da
@@ -2278,6 +2282,16 @@ export async function testarElegibilidade(req: Request, res: Response) {
           } else {
             ok('Política de reexibição', `Usuário "${uid}" ainda não respondeu. A campanha pode reaparecer. Política: ${labelPolitica}.`)
           }
+        }
+      }
+
+      if (policy === POLITICA_REEXIBIR_A_CADA_24H) {
+        // Mesma decisão pura e mesmas fontes do gating real (widget.ts).
+        const resultado = avaliarPoliticaReexibicao(campanha, await buscarHistoricoReexibicao24h(campanha, uid), agora)
+        if (resultado.bloqueado) {
+          block('Política de reexibição', `Usuário "${uid}": ${resultado.motivo}`, `Política: ${labelPolitica}`)
+        } else {
+          ok('Política de reexibição', `Usuário "${uid}" pode ver a campanha (24h desde o último fechamento/exibição já transcorridas ou sem histórico). Política: ${labelPolitica}.`)
         }
       }
 
@@ -2441,6 +2455,8 @@ export async function testarElegibilidade(req: Request, res: Response) {
               const uf = await prisma.feedback.findFirst({ where: filtroFeedbackGeralC, orderBy: { criado_em: 'desc' } })
               if (uf) competitorBlocked = true
             }
+          } else if (cPolicy === POLITICA_REEXIBIR_A_CADA_24H) {
+            if (avaliarPoliticaReexibicao(c, await buscarHistoricoReexibicao24h(c, uid), agora).bloqueado) competitorBlocked = true
           } else if (cPolicy === 'reexibir_apos_dias') {
             const dias = c.reexibir_apos_dias
             if (dias && dias > 0) {
