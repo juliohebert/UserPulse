@@ -1074,3 +1074,23 @@ describe('icone_url — hidratar / payload / round-trip', () => {
     assert.equal(p.icone_url, null)
   })
 })
+
+// Missão 017 — campo "Perfis permitidos" (lista separada por vírgula).
+import { parseListaSegmentacao, formatarListaSegmentacao } from './campanhaForm.utils'
+describe('parseListaSegmentacao', () => {
+  test('digitação progressiva preserva cada etapa', () => {
+    assert.deepEqual(parseListaSegmentacao('ADMINISTRADOR,'), ['ADMINISTRADOR'])
+    assert.deepEqual(parseListaSegmentacao('ADMINISTRADOR, PROFISSIONAL_SAUDE, GERENTE'), ['ADMINISTRADOR', 'PROFISSIONAL_SAUDE', 'GERENTE'])
+  })
+  test('colagem com espaços variados, vazios e duplicados', () => {
+    assert.deepEqual(parseListaSegmentacao(' A ,B,, C ,A,'), ['A', 'B', 'C'])
+    assert.deepEqual(parseListaSegmentacao(''), [])
+  })
+  test('ida e volta (salvar/reabrir) não perde perfis', () => {
+    const lista = ['ADMINISTRADOR', 'PROFISSIONAL_SAUDE', 'GERENTE']
+    assert.deepEqual(parseListaSegmentacao(formatarListaSegmentacao(lista)), lista)
+  })
+  test('remoção de um valor', () => {
+    assert.deepEqual(parseListaSegmentacao('ADMINISTRADOR, GERENTE'), ['ADMINISTRADOR', 'GERENTE'])
+  })
+})

@@ -867,3 +867,24 @@ export function corSistemaTranslucida(hex: string, alpha: number): string {
   const b = num & 255
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
+
+
+// Segmentação por lista (perfis, tipos, estados, IDs) — "A, B,C" -> ['A','B','C'].
+// Remove vazios e duplicados (comparação exata, preserva a grafia digitada).
+// Espelha parseArray de server/src/controllers/campanhas.ts.
+export function parseListaSegmentacao(texto: string): string[] {
+  const vistos = new Set<string>()
+  const itens: string[] = []
+  for (const bruto of texto.split(',')) {
+    const item = bruto.trim()
+    if (!item || vistos.has(item)) continue
+    vistos.add(item)
+    itens.push(item)
+  }
+  return itens
+}
+
+// Texto exibido a partir da lista salva (inverso de parseListaSegmentacao).
+export function formatarListaSegmentacao(lista: string[]): string {
+  return lista.join(', ')
+}

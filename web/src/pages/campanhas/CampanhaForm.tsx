@@ -21,6 +21,7 @@ import { RichTextRenderer } from '../../components/richText/RichTextRenderer'
 import type { RichTextDocument } from '../../components/richText/types'
 import { chavesGrupoConcorrente } from './grupoConcorrente'
 import type { ConteudoFormItem, DestaqueFormItem, FormState, FormatoExibicao, ModoNavegacaoConteudo, ModoSegmentacao, RegraExtraForm, TipoDestino } from './campanhaForm.utils'
+import { formatarListaSegmentacao, parseListaSegmentacao } from './campanhaForm.utils'
 import {
   FORMATO_DESTAQUE_ELEMENTO,
   TIPOS_CAMPANHA,
@@ -277,12 +278,31 @@ function CampoListaDock({ label, value, onChange, hint }: {
   onChange: (value: string[]) => void
   hint?: string
 }) {
+  // Texto cru em estado local: o input NÃO pode ser derivado de value.join(),
+  // senão a vírgula recém-digitada ("A,") some a cada tecla (o split descarta o
+  // item vazio e o join não a devolve). A lista só é reescrita no texto quando
+  // muda por fora (ex.: reabrir/hidratar o form), nunca durante a digitação.
+  const [texto, setTexto] = useState(() => formatarListaSegmentacao(value))
+  const ultimoEmitido = useRef(value)
+
+  useEffect(() => {
+    if (value !== ultimoEmitido.current) {
+      ultimoEmitido.current = value
+      setTexto(formatarListaSegmentacao(value))
+    }
+  }, [value])
+
   return (
     <CampoDock
       label={label}
       hint={hint ?? 'Separe múltiplos valores por vírgula.'}
-      value={value.join(', ')}
-      onChange={valor => onChange(valor.split(',').map(item => item.trim()).filter(Boolean))}
+      value={texto}
+      onChange={novo => {
+        const lista = parseListaSegmentacao(novo)
+        setTexto(novo)
+        ultimoEmitido.current = lista
+        onChange(lista)
+      }}
     />
   )
 }

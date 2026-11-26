@@ -1188,3 +1188,15 @@ describe('normalizarDominio', () => {
     assert.equal(normalizarDominio('gng.quarkclinic.com.br:3000'), 'gng.quarkclinic.com.br')
   })
 })
+
+// Missão 017 — normalização de listas de segmentação na gravação.
+import { parseArray } from './campanhas'
+describe('parseArray (segmentação)', () => {
+  test('string CSV com espaços, vazios e duplicados', () => {
+    assert.deepEqual(parseArray('ADMINISTRADOR, PROFISSIONAL_SAUDE ,, GERENTE, GERENTE'), ['ADMINISTRADOR', 'PROFISSIONAL_SAUDE', 'GERENTE'])
+  })
+  test('array (payload do front) é aparado e sem vazios', () => {
+    assert.deepEqual(parseArray([' A ', '', 'B', 'B']), ['A', 'B'])
+  })
+  test('tipos inválidos viram lista vazia', () => assert.deepEqual(parseArray(undefined), []))
+})

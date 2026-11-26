@@ -239,11 +239,41 @@ interface SegCampanha {
   segmentar_dominios?: string[]
 }
 
+// Comparação de perfil/tipo/estado: trim + caixa-insensível nos dois lados.
+// O valor salvo pode ter vindo de colagem ("a, b" com espaços) e o host pode
+// mandar "Profissional_Saude"/"profissional_saude" — o conjunto é comparado
+// item a item (nunca a lista inteira como um único valor). Underscore é
+// preservado. Cliente/unidade (IDs) seguem exatos.
+export function listaContemInsensitive(lista: string[], valor?: string | null): boolean {
+  if (!valor) return false
+  const alvo = valor.trim().toLowerCase()
+  if (!alvo) return false
+  return lista.some(item => item.trim().toLowerCase() === alvo)
+}
+
+// Lê perfil/estado de um objeto `contexto` aceitando as duas grafias (o widget
+// normaliza para Perfil/Estado; clientes antigos/hosts diretos podem mandar
+// minúscula). Maiúscula (canônica) vence se ambas vierem; trim aplicado.
+export function lerCampoContexto(contexto: unknown, campo: 'perfil' | 'estado'): string | undefined {
+  if (!contexto || typeof contexto !== 'object' || Array.isArray(contexto)) return undefined
+  const c = contexto as Record<string, unknown>
+  const canon = campo === 'perfil' ? 'Perfil' : 'Estado'
+  for (const chave of [canon, campo]) {
+    const v = c[chave]
+    if (v != null && String(v).trim()) return String(v).trim()
+  }
+  return undefined
+}
+
 export function passaSegmentacao(campanha: SegCampanha, ctx: SegCtx): boolean {
   const check = (lista: string[], valor?: string) => {
     if (lista.length === 0) return true
     if (!valor) return false
     return lista.includes(valor)
+  }
+  const checkCI = (lista: string[], valor?: string) => {
+    if (lista.length === 0) return true
+    return listaContemInsensitive(lista, valor)
   }
   // Domínio sempre comparado em lowercase nos dois lados — nunca confia que
   // o valor salvo no admin já veio normalizado (defesa em profundidade, além
@@ -257,9 +287,9 @@ export function passaSegmentacao(campanha: SegCampanha, ctx: SegCtx): boolean {
   return (
     check(campanha.segmentar_cliente_ids, ctx.cliente_id) &&
     check(campanha.segmentar_unidade_ids, ctx.unidade_id) &&
-    check(campanha.segmentar_perfis, ctx.perfil) &&
-    check(campanha.segmentar_usuario_tipos, ctx.usuario_tipo) &&
-    check(campanha.segmentar_estados, ctx.estado) &&
+    checkCI(campanha.segmentar_perfis, ctx.perfil) &&
+    checkCI(campanha.segmentar_usuario_tipos, ctx.usuario_tipo) &&
+    checkCI(campanha.segmentar_estados, ctx.estado) &&
     checkDominio(campanha.segmentar_dominios, ctx.dominio)
   )
 }
@@ -718,9 +748,9 @@ async function verificarConclusaoGlobal(
     const ok = (
       (campanha.segmentar_cliente_ids.length === 0 || (ev.cliente_id !== null && campanha.segmentar_cliente_ids.includes(ev.cliente_id))) &&
       (campanha.segmentar_unidade_ids.length === 0 || (ev.unidade_id !== null && campanha.segmentar_unidade_ids.includes(ev.unidade_id))) &&
-      (campanha.segmentar_perfis.length === 0 || (ev.perfil !== null && campanha.segmentar_perfis.includes(ev.perfil))) &&
-      (campanha.segmentar_usuario_tipos.length === 0 || (ev.usuario_tipo !== null && campanha.segmentar_usuario_tipos.includes(ev.usuario_tipo))) &&
-      (campanha.segmentar_estados.length === 0 || (ev.estado !== null && campanha.segmentar_estados.includes(ev.estado)))
+      (campanha.segmentar_perfis.length === 0 || (ev.perfil !== null && listaContemInsensitive(campanha.segmentar_perfis, ev.perfil))) &&
+      (campanha.segmentar_usuario_tipos.length === 0 || (ev.usuario_tipo !== null && listaContemInsensitive(campanha.segmentar_usuario_tipos, ev.usuario_tipo))) &&
+      (campanha.segmentar_estados.length === 0 || (ev.estado !== null && listaContemInsensitive(campanha.segmentar_estados, ev.estado)))
     )
     if (ok) return { bloqueado: true, eventoEm: ev.criado_em }
   }
@@ -1405,9 +1435,9 @@ export async function registrarConclusaoEvento(req: Request, res: Response) {
     const ctx: SegCtx = {
       cliente_id: contexto?.cliente_id ? String(contexto.cliente_id) : undefined,
       unidade_id: contexto?.unidade_id ? String(contexto.unidade_id) : undefined,
-      perfil: contexto?.perfil ? String(contexto.perfil) : undefined,
+      perfil: lerCampoContexto(contexto, 'perfil'),
       usuario_tipo: contexto?.usuario_tipo ? String(contexto.usuario_tipo) : undefined,
-      estado: contexto?.estado ? String(contexto.estado) : undefined,
+      estado: lerCampoContexto(contexto, 'estado'),
       dominio: dominio ? String(dominio) : (contexto?.dominio ? String(contexto.dominio) : undefined),
     }
 
@@ -1483,12 +1513,15 @@ export async function registrarEventoUsuario(req: Request, res: Response) {
     // Accept segmentation fields from direct body params or nested contexto object
     const resolve = (direct: unknown, key: string) =>
       direct ? String(direct) : (ctx[key] ? String(ctx[key]) : null)
+    // perfil/estado: contexto aceita Perfil/Estado (widget) além de perfil/estado.
+    const resolveCtx = (direct: unknown, campo: 'perfil' | 'estado') =>
+      direct ? String(direct) : (lerCampoContexto(ctx, campo) ?? null)
 
     const clienteId  = resolve(cliente_id,  'cliente_id')
     const unidadeId  = resolve(unidade_id,  'unidade_id')
-    const perfilStr  = resolve(perfil,       'perfil')
+    const perfilStr  = resolveCtx(perfil, 'perfil')
     const usuTipo    = resolve(usuario_tipo, 'usuario_tipo')
-    const estadoStr  = resolve(estado,       'estado')
+    const estadoStr  = resolveCtx(estado, 'estado')
 
     // Deduplicate: skip if identical event was registered in the last 5 seconds
     // (escopado por tenant_id — dois tenants não devem deduplicar um evento
