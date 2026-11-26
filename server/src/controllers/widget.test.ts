@@ -910,3 +910,36 @@ describe('destaquesRespondidos', () => {
     assert.deepEqual(destaquesRespondidos([]), [])
   })
 })
+
+// Missão 017 — segmentação por perfil com lista de múltiplos valores.
+describe('passaSegmentacao — perfis (lista com vários valores)', () => {
+  const base = {
+    segmentar_cliente_ids: [], segmentar_unidade_ids: [], segmentar_perfis: ['ADMINISTRADOR', 'PROFISSIONAL_SAUDE', 'GERENTE'],
+    segmentar_usuario_tipos: [], segmentar_estados: [],
+  }
+  for (const p of ['ADMINISTRADOR', 'PROFISSIONAL_SAUDE', 'GERENTE']) {
+    test(`perfil ${p} é elegível`, () => assert.equal(passaSegmentacao(base, { perfil: p }), true))
+  }
+  test('RECEPCIONISTA e ausente não são elegíveis', () => {
+    assert.equal(passaSegmentacao(base, { perfil: 'RECEPCIONISTA' }), false)
+    assert.equal(passaSegmentacao(base, {}), false)
+  })
+  test('caixa e espaços não importam; underscore é preservado', () => {
+    assert.equal(passaSegmentacao(base, { perfil: ' profissional_saude ' }), true)
+    assert.equal(passaSegmentacao(base, { perfil: 'PROFISSIONALSAUDE' }), false)
+    assert.equal(passaSegmentacao({ ...base, segmentar_perfis: [' gerente '] }, { perfil: 'GERENTE' }), true)
+  })
+  test('a lista nunca é tratada como um único valor', () => {
+    assert.equal(passaSegmentacao(base, { perfil: 'ADMINISTRADOR, PROFISSIONAL_SAUDE, GERENTE' }), false)
+  })
+  test('combinada com outros filtros: todos precisam bater', () => {
+    const c = { ...base, segmentar_estados: ['SP'] }
+    assert.equal(passaSegmentacao(c, { perfil: 'GERENTE', estado: 'sp' }), true)
+    assert.equal(passaSegmentacao(c, { perfil: 'GERENTE', estado: 'RJ' }), false)
+    assert.equal(passaSegmentacao({ ...c, segmentar_cliente_ids: ['10'] }, { perfil: 'GERENTE', estado: 'SP', cliente_id: '11' }), false)
+  })
+  test('sem filtro de perfil: qualquer perfil passa', () => {
+    assert.equal(passaSegmentacao({ ...base, segmentar_perfis: [] }, { perfil: 'QUALQUER' }), true)
+    assert.equal(passaSegmentacao({ ...base, segmentar_perfis: [] }, {}), true)
+  })
+})

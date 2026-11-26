@@ -3438,8 +3438,40 @@
       && initContextoEfetivoIgual(a.contexto || null, b.contexto || null);
   }
 
+  // Compatibilidade de grafia: o contrato de integração documenta `perfil` e
+  // `estado` em minúsculas, mas o widget sempre leu só `Perfil`/`Estado`. A
+  // forma canônica interna continua sendo `Perfil`/`Estado` (é o que
+  // appendContexto/tours leem). Regras: (1) minúscula é promovida pra
+  // canônica; (2) se as DUAS vierem no mesmo objeto, a canônica (maiúscula)
+  // vence, a minúscula é descartada; (3) vazio/só espaços é ignorado e valores
+  // são aparados (trim) — só perfil/estado/usuario_tipo; identificadores
+  // (cliente_id, unidade_id, organizacao_id, clinica_id) nunca são tocados.
+  // Chamada em CADA entrada de contexto (init, updateContext, pendingContext,
+  // contextProvider), antes do Object.assign, pra que a atualização mais
+  // recente sempre vença o valor anterior.
+  function canonizarContexto(obj) {
+    if (!obj || typeof obj !== 'object') return obj;
+    var out = Object.assign({}, obj);
+    function limpo(v) { return v == null ? '' : String(v).trim(); }
+    var pares = [['Perfil', 'perfil'], ['Estado', 'estado']];
+    for (var i = 0; i < pares.length; i++) {
+      var canon = pares[i][0], alias = pares[i][1];
+      var vc = limpo(out[canon]);
+      var va = limpo(out[alias]);
+      delete out[alias];
+      if (vc) out[canon] = vc;
+      else if (va) out[canon] = va;
+      else delete out[canon];
+    }
+    if (out.usuario_tipo != null) {
+      var ut = limpo(out.usuario_tipo);
+      if (ut) out.usuario_tipo = ut; else delete out.usuario_tipo;
+    }
+    return out;
+  }
+
   function normalizeConfig(config) {
-    var c = config || {};
+    var c = canonizarContexto(config || {});
     var contexto = {};
     for (var i = 0; i < CONTEXT_KEYS.length; i++) {
       var k = CONTEXT_KEYS[i];
@@ -3482,7 +3514,7 @@
       try {
         var resultado = provider();
         if (resultado && typeof resultado === 'object') {
-          config.contexto = Object.assign({}, config.contexto || {}, resultado);
+          config.contexto = Object.assign({}, config.contexto || {}, canonizarContexto(resultado));
         }
       } catch (_e) { /* provider falhou — mantém contexto anterior */ }
     }
@@ -4014,7 +4046,7 @@
 
     var normalized = normalizeConfig(config || {});
     if (Object.keys(pendingContext).length) {
-      normalized.contexto = Object.assign({}, normalized.contexto || {}, pendingContext);
+      normalized.contexto = Object.assign({}, normalized.contexto || {}, canonizarContexto(pendingContext));
       pendingContext = {};
     }
     state.config = normalized;
@@ -4329,7 +4361,7 @@
           // Creates a new config object — never mutates the original so subsequent
           // track() calls without metadata still use the clean init contexto.
           if (metadataOpcional && typeof metadataOpcional === 'object') {
-            var merged = Object.assign({}, config.contexto || {}, metadataOpcional);
+            var merged = Object.assign({}, config.contexto || {}, canonizarContexto(metadataOpcional));
             state.config = Object.assign({}, config, { contexto: merged });
           }
 
@@ -4557,6 +4589,7 @@
   // A segmentação por cliente/unidade depende do contexto atualizado pelo sistema integrado.
   function updateContext(novoContexto) {
     if (!novoContexto || typeof novoContexto !== 'object') return;
+    novoContexto = canonizarContexto(novoContexto);
     if (!state.config) {
       pendingContext = Object.assign({}, pendingContext, novoContexto);
       return;

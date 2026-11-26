@@ -2,7 +2,7 @@ import { Request, Response } from 'express'
 import { CampanhaStatus, Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
 import { checarLimiteCampanhasAtivas, deveChecarLimiteCadastro, motivoBloqueioAtivacao, motivoBloqueioEscrita, planoEfetivoParaLimite } from '../lib/tenantGuards'
-import { avaliarPoliticaReexibicao, buscarHistoricoReexibicao24h, filtroFeedbackGeralReexibicao, POLITICA_REEXIBIR_A_CADA_24H } from './widget'
+import { avaliarPoliticaReexibicao, buscarHistoricoReexibicao24h, filtroFeedbackGeralReexibicao, POLITICA_REEXIBIR_A_CADA_24H, listaContemInsensitive } from './widget'
 import { normalizarDominio } from '../lib/dominio'
 import { validarRichText } from '../lib/richText'
 import { normalizarRegra, normalizarRegrasExibicao, regraBase } from '../lib/regrasExibicao'
@@ -973,10 +973,12 @@ export function paraAtualizacaoConteudoItem(item: ConteudoItemInput, ordem: numb
   return camposEditaveisConteudoItem(item, ordem)
 }
 
-function parseArray(v: unknown): string[] {
-  if (Array.isArray(v)) return (v as unknown[]).map(String).filter(s => s.trim())
-  if (typeof v === 'string') return v.split(',').map(s => s.trim()).filter(Boolean)
-  return []
+export function parseArray(v: unknown): string[] {
+  let itens: string[] = []
+  if (Array.isArray(v)) itens = (v as unknown[]).map(x => String(x).trim()).filter(Boolean)
+  else if (typeof v === 'string') itens = v.split(',').map(s => s.trim()).filter(Boolean)
+  // Sem vazios e sem duplicados exatos (preserva a grafia/ordem do admin).
+  return Array.from(new Set(itens))
 }
 
 // Reexportada pra manter compatibilidade com campanhas.test.ts (import
@@ -2217,9 +2219,9 @@ export async function testarElegibilidade(req: Request, res: Response) {
     ;[
       { lista: campanha.segmentar_cliente_ids, valor: ctx.cliente_id, nome: 'Segmentação — cliente', chave: 'cliente_id', ci: false },
       { lista: campanha.segmentar_unidade_ids, valor: ctx.unidade_id, nome: 'Segmentação — unidade', chave: 'unidade_id', ci: false },
-      { lista: campanha.segmentar_perfis, valor: ctx.perfil, nome: 'Segmentação — perfil', chave: 'Perfil', ci: false },
-      { lista: campanha.segmentar_usuario_tipos, valor: ctx.usuario_tipo, nome: 'Segmentação — tipo de usuário', chave: 'usuario_tipo', ci: false },
-      { lista: campanha.segmentar_estados, valor: ctx.estado, nome: 'Segmentação — estado', chave: 'Estado', ci: false },
+      { lista: campanha.segmentar_perfis, valor: ctx.perfil, nome: 'Segmentação — perfil', chave: 'Perfil', ci: true },
+      { lista: campanha.segmentar_usuario_tipos, valor: ctx.usuario_tipo, nome: 'Segmentação — tipo de usuário', chave: 'usuario_tipo', ci: true },
+      { lista: campanha.segmentar_estados, valor: ctx.estado, nome: 'Segmentação — estado', chave: 'Estado', ci: true },
       { lista: campanha.segmentar_dominios, valor: ctx.dominio, nome: 'Segmentação — domínio', chave: 'domínio', ci: true },
     ].forEach(({ lista, valor, nome, chave, ci }) => {
       const bate = (v: string) => ci ? lista.some(d => d.toLowerCase() === v.toLowerCase()) : lista.includes(v)
@@ -2354,9 +2356,9 @@ export async function testarElegibilidade(req: Request, res: Response) {
           const compat = (
             (campanha.segmentar_cliente_ids.length === 0 || (ev.cliente_id !== null && campanha.segmentar_cliente_ids.includes(ev.cliente_id))) &&
             (campanha.segmentar_unidade_ids.length === 0 || (ev.unidade_id !== null && campanha.segmentar_unidade_ids.includes(ev.unidade_id))) &&
-            (campanha.segmentar_perfis.length === 0 || (ev.perfil !== null && campanha.segmentar_perfis.includes(ev.perfil))) &&
-            (campanha.segmentar_usuario_tipos.length === 0 || (ev.usuario_tipo !== null && campanha.segmentar_usuario_tipos.includes(ev.usuario_tipo))) &&
-            (campanha.segmentar_estados.length === 0 || (ev.estado !== null && campanha.segmentar_estados.includes(ev.estado)))
+            (campanha.segmentar_perfis.length === 0 || (ev.perfil !== null && listaContemInsensitive(campanha.segmentar_perfis, ev.perfil))) &&
+            (campanha.segmentar_usuario_tipos.length === 0 || (ev.usuario_tipo !== null && listaContemInsensitive(campanha.segmentar_usuario_tipos, ev.usuario_tipo))) &&
+            (campanha.segmentar_estados.length === 0 || (ev.estado !== null && listaContemInsensitive(campanha.segmentar_estados, ev.estado)))
           )
           if (compat) { conclusaoEm = ev.criado_em; break }
         }
@@ -2437,9 +2439,9 @@ export async function testarElegibilidade(req: Request, res: Response) {
           const concluido = evConc.some(ev =>
             (c.segmentar_cliente_ids.length === 0 || (ev.cliente_id !== null && c.segmentar_cliente_ids.includes(ev.cliente_id))) &&
             (c.segmentar_unidade_ids.length === 0 || (ev.unidade_id !== null && c.segmentar_unidade_ids.includes(ev.unidade_id))) &&
-            (c.segmentar_perfis.length === 0 || (ev.perfil !== null && c.segmentar_perfis.includes(ev.perfil))) &&
-            (c.segmentar_usuario_tipos.length === 0 || (ev.usuario_tipo !== null && c.segmentar_usuario_tipos.includes(ev.usuario_tipo))) &&
-            (c.segmentar_estados.length === 0 || (ev.estado !== null && c.segmentar_estados.includes(ev.estado)))
+            (c.segmentar_perfis.length === 0 || (ev.perfil !== null && listaContemInsensitive(c.segmentar_perfis, ev.perfil))) &&
+            (c.segmentar_usuario_tipos.length === 0 || (ev.usuario_tipo !== null && listaContemInsensitive(c.segmentar_usuario_tipos, ev.usuario_tipo))) &&
+            (c.segmentar_estados.length === 0 || (ev.estado !== null && listaContemInsensitive(c.segmentar_estados, ev.estado)))
           )
           if (concluido) competitorBlocked = true
         }
